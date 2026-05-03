@@ -17,7 +17,8 @@ node_modules/
 frontend/
 docs/
 z72SCADA_New/
-opc_bachmann/
+shared/plc_clients/bachmann/
+work-logs/
 *.md
 *.yaml
 !requirements.txt

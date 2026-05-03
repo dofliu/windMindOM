@@ -1,16 +1,19 @@
-# ── digiWindFarm Docker Compose ──
+# ── windMindOM Docker Compose ──
 # Usage:
 #   docker compose up --build        # Start all services
 #   docker compose up -d             # Start in background
 #   docker compose down              # Stop all services
 #   docker compose logs -f backend   # Follow backend logs
+#
+# WMOM-20260503-01：M1 repo baseline 整理後，monitoring 已搬到
+# modules/monitoring/，container 內路徑也跟著改。
 
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: digiwindfarm-backend
+    container_name: windmindom-backend
     ports:
       - "${BACKEND_PORT:-8100}:8100"
       - "${MODBUS_PORT:-5020}:5020"
@@ -18,9 +21,11 @@ services:
       - BACKEND_PORT=8100
       - BACKEND_HOST=0.0.0.0
       - MODBUS_PORT=5020
-      - DB_PATH=/app/data/wind_farm_data.db
+      # 路徑與 server/storage.py + server/farm_registry.py 的相對解析一致
+      - DB_PATH=/app/modules/monitoring/wind_farm_data.db
+      - FARM_DATA_DIR=/app/modules/monitoring/data
     volumes:
-      - db-data:/app/data
+      - db-data:/app/modules/monitoring/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/api/health')"]
@@ -33,7 +38,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: digiwindfarm-frontend
+    container_name: windmindom-frontend
     ports:
       - "${FRONTEND_PORT:-3100}:80"
     depends_on:

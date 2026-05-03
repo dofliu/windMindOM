@@ -1,5 +1,8 @@
 __pycache__/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 .pytest_cache/
 .coverage
 htmlcov/
@@ -13,3 +16,6 @@ env/
 
 # Custom ignored directories
 z72SCADA_New/wind-backup/Z72_Data
+
+# Pitch deck builder
+tools/pitch_deck/node_modules/

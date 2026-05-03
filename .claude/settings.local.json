@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C D:/Project_CodingSimulation/researchTopic/windMindOM status --short)",
+      "Bash(git -C D:/Project_CodingSimulation/researchTopic/windMindOM branch --show-current)"
+    ]
+  }
+}

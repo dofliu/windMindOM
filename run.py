@@ -1,9 +1,15 @@
 """
-Wind Farm Monitor Platform - Entry Point
+windMindOM Wind Farm Monitor Platform - Entry Point.
 
 Usage:
     python run.py                # Start backend (port from .env, default 8100)
     python run.py --port 9000    # Override port
+
+WMOM-20260503-01：M1 repo baseline 整理後，monitoring 子系統（simulator、
+server、wind_model、scada_system 等）已搬到 ``modules/monitoring/``。
+為避免大規模改動既有 ``from simulator.x`` / ``from server.x`` 的 import，
+本檔案把 ``modules/monitoring/`` 注入 sys.path 最前面，讓 legacy import
+在新位置依然可解析。長期重構（另開 issue）會改為明確 import。
 """
 
 import sys
@@ -11,13 +17,18 @@ import os
 import argparse
 import socket
 
-# Ensure project root is on path
-sys.path.insert(0, os.path.dirname(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+_MONITORING_ROOT = os.path.join(_PROJECT_ROOT, "modules", "monitoring")
+
+# 順序：monitoring 在最前面（解析 ``from simulator.x`` 等 legacy import），
+# 其次 project root（解析 ``from modules.x`` 與 ``from shared.x``）。
+sys.path.insert(0, _PROJECT_ROOT)
+sys.path.insert(0, _MONITORING_ROOT)
 
 
 def _load_dotenv():
     """Load .env file from project root into os.environ (no dependency needed)."""
-    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    env_path = os.path.join(_PROJECT_ROOT, ".env")
     if not os.path.exists(env_path):
         return
     with open(env_path) as f:
