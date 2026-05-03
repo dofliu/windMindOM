@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 12
+progress: 14
 status: active
 last_updated: "2026-05-03"
-next_milestone: "M1 (2026-05) — WMOM-20260503-02 搬入 v0.5 有用資產 + WMOM-20260503-04 pitch deck v0.8.1 改版"
+next_milestone: "M1 (2026-05) — WMOM-20260503-02 搬入 v0.5 有用資產 + WMOM-20260503-04 pitch deck v0.8.1 改版（pitch_deck_v0.4_todo_revise.pptx 在 docs/product/，舊版需重畫）"
 technologies:
   - FastAPI
   - React

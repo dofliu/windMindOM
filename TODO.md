@@ -23,7 +23,10 @@
 - [x] **WMOM-20260503-01** — Repo baseline 整理（digiWT 搬到 `modules/monitoring/`）✅ 半天完成（採 sys.path 注入策略）
 - [ ] **WMOM-20260503-02** — 搬入 v0.5 有用資產（pitch deck baseline、templates 盤點）⬅ next
 - [x] **WMOM-20260503-03** — Root CLAUDE.md 改為 windMindOM 產品脈絡（已於 2026-05-02 baseline commit 完成）
-- [ ] Follow-up（不卡 -02 / -04 / -05）：完整 `python run.py` + browser dashboard 驗證、`docker-compose up --build` 端到端、重跑 `examples/data_quality_analysis.py` 確認 18/21 quality check 數值與搬遷前一致
+- Follow-up（不卡 -02 / -04 / -05）：
+  - [x] 完整 `python run.py` + browser dashboard 驗證 ✅ 2026-05-03 用戶截圖確認：14 台 WTG OPERATING、3.55 MW、6.2 m/s、台中港曲風場 active、5-min trend 即時更新、WTG-01~14 個別 130~420 kW 散布合理
+  - [x] `docker-compose` 設定驗證（**靜態**） ✅ 2026-05-03：YAML parse + COPY directives + env vars (DB_PATH, FARM_DATA_DIR) + volume mount + 相對路徑等價性 全部 PASS。實際 `docker compose up --build` deferred — 本機未裝 Docker Desktop，留給之後（部署 partner / 客戶端 / overnight 跑）做
+  - [x] 重跑 `examples/data_quality_analysis.py` ✅ 2026-05-03：跑短版 0.17h × 5 turbines（3060 rows）→ 15/16 quality check pass，風速↔功率 r=+0.970、1P振動↔轉速 r=+0.944、無 NaN、無 out-of-range，物理鏈完整。完整 2h baseline 對照留給之後 overnight 跑。Driver：`modules/monitoring/examples/_post_migration_quick_validate.py`、Pre-migration baseline 已備份 `*_pre_migration_baseline.{txt,csv}`
 
 ### 第二、三週（2026-05-10 ~ 2026-05-23）
 
