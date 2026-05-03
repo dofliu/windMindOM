@@ -1,0 +1,13 @@
+{
+  "farm_id": "legacy",
+  "name": "既有資料（Legacy）",
+  "turbine_count": 14,
+  "turbine_spec": {},
+  "wind_profile": {},
+  "grid_profile": {},
+  "layout": {},
+  "location": "",
+  "description": "自動遷移自原始 wind_farm_data.db",
+  "created_at": "2026-04-17T23:15:22.147137",
+  "last_active_at": ""
+}

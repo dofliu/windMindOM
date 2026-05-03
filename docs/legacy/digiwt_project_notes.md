@@ -1,0 +1,142 @@
+# digiWindTurbine — Original Project Notes (preserved as legacy)
+
+> **此檔來源**：原 `CLAUDE.md`（digiWindTurbine 專案的技術筆記）。
+> **保留原因**：windMindOM v0.8.1 由 digiWindTurbine 進化而來，這份技術筆記是
+> `modules/monitoring/`（即既有的 SCADA + simulator + history）的開發歷史與現況指引。
+> **重要程度**：**對於物理模型 / SCADA tag schema / fault scenario 改動仍是權威來源**。
+> **何時讀**：當你要動 monitoring 層（物理模型、SCADA、simulator）時讀本檔。
+> **不適用之處**：本檔的「Pending Improvements」與「Source of Truth」清單對應的是
+> digiWT 階段的 backlog，windMindOM v0.8.1 的 ROADMAP 詳見 `docs/product/ROADMAP.md`。
+
+---
+
+# Project Notes（原始內容如下，未修改）
+
+## Current Position
+
+A working wind farm simulation platform with 104 SCADA tags, comprehensive physics models, and full API access for external data consumers.
+
+Platform includes:
+- backend REST + WebSocket APIs (40+ endpoints)
+- realtime streaming (2s broadcast cycle)
+- SQLite history with retention/downsampling
+- physics-based turbine simulation (14 turbines)
+- 11 fault scenarios with physics-coupled injection
+- grid and wind environment controls
+- Modbus TCP simulation
+- frontend dashboard, detail, settings, history, and maintenance views
+- fatigue/DEL load monitoring
+- vibration spectral alarm thresholds (ISO 10816-inspired)
+
+## Current Development Priority
+
+The main priority is physics realism and signal realism.
+
+Primary focus (next improvements):
+- Region 3 power variation — fixed: Cp model replaces lookup table, pitch lag creates natural variation — see #61
+- tower dynamic response — fixed: SDOF first-mode filter (fn≈0.28 Hz) with structural+aero damping — see #62
+- spectral sideband analysis — fixed: gear mesh sideband model with fault-coupled amplitude modulation — see #58
+- bearing defect frequency (BPFO/BPFI) — fixed: geometry-based BPFO/BPFI with fault-coupled amplitude — see #58
+- tower shadow effect — fixed: rotor azimuth tracking + Gaussian 3P torque/thrust/load modulation — see #69
+- gearbox oil temperature/viscosity — fixed: Walther-type viscosity model with cold-start loss decay — see #73
+- gear tooth contact — fixed: contact-ratio mesh stiffness ripple + tooth wear index + GMF HSS-torsion excitation — see #76
+- ambient humidity air-cooling — fixed: moist-air density factor + dew-point condensation penalty on nacelle/cabinet fans — see #89
+- localized turbulence pockets — fixed: spatial Gaussian pockets boost per-turbine TI, observable via `WMET_LocalTi` — see #91
+- wake model upgrade — fixed: Bastankhah-Porté-Agel Gaussian wake (TI-dependent expansion, Ct-coupled deficit, sum-of-squares superposition), observable via `WMET_WakeDef` — see #93
+- dynamic wake meandering — fixed: Larsen-DWM AR(1) lateral oscillation of wake centerline (σ_θ≈0.3·TI, τ≈25 s), downstream `WMET_WakeDef` now has realistic time variability — see #95
+- yaw-induced wake deflection (wake steering) — fixed: Bastankhah 2016 θ_c = 0.3·γ·(1−√(1−Ct·cos γ))/cos γ coupled to per-turbine yaw_error, new `WMET_WakeDefl` tag — see #97
+- atmospheric stability / diurnal shear-TI coupling — fixed: continuous score s=solar·wind_damping·cloud_damping drives α ∈ [0.04, 0.30] and TI multiplier ∈ [0.5, 1.6], new `WMET_ShearAlpha` / `WMET_AtmStab` tags — see #99
+- air density coupling — fixed: ρ(T, RH) from ideal gas law + Magnus moist-air correction, updated every step and fed into PowerCurveModel so P ∝ ρ·V³ and F ∝ ρ·V² vary with temperature and humidity; new `WMET_AirDensity` tag — see #101
+- wake-added turbulence intensity — fixed: Crespo-Hernández (1996) TI_w = 0.73·a^0.8325·TI_∞^0.0325·(x/D)^-0.32, shared Bastankhah Gaussian radial + Frandsen quadrature; combined with pocket TI (#91) in the AR(1) generator so downstream σ_v actually rises; new `WMET_WakeTi` tag — see #103
+- dynamic atmospheric pressure coupling — fixed: `_pressure_state → P(t) = 101325 + s·1500 Pa` mapped synoptic state to Pa, fed into `get_air_density` so ρ gains another ±1.5% time variability from weather fronts; new `WMET_AmbPressure` tag — see #106
+- atmospheric stability × wake expansion coupling — fixed: Bastankhah `k* = k_neutral · clamp(1 + 0.30·s, 0.55, 1.45)` (Abkar & Porté-Agel 2015 / Peña 2016); stable night → longer wake (≈+34% deficit at 6 D), convective afternoon → shorter wake (≈−22% deficit); no new SCADA tag, observable via `WMET_WakeDef × WMET_AtmStab` correlation — see #109
+- atmospheric stability × wind veer coupling — fixed: `veer_rate_eff = veer_base · clamp(1 − s, 0.3, 2.5)` (Holton §5.3, Stull §8.5, van der Laan 2017); stable night ABL preserves Ekman spiral (~0.20 °/m, +37% TwrSS moment vs neutral), convective afternoon mixes it out (~0.03 °/m, −26%); no new SCADA tag, observable via `WMET_AtmStab × WLOD_TwrSsMom` correlation — see #111
+- atmospheric stability × wake meander timescale coupling — fixed: `τ_m_eff = 25 · clamp(1 − 0.6·s, 0.4, 2.0)` s (Counihan 1975 / Larsen DWM 2008); stable ABL → 40 s slow meander (lag-25 s autocorr ≈ 0.45), convective ABL → 10 s fast turnover (autocorr ≈ 0.01); σ_θ stays 0.3·TI, only timescale modulated; no new SCADA tag, observable via `WMET_WakeMndr × WMET_AtmStab` autocorrelation — see #113
+- atmospheric stability × turbulence integral length scale L_u coupling — fixed: `L_u_eff = 340 · clamp(1 − 0.6·s, 0.4, 2.0)` m (Counihan 1975 / Kaimal & Finnigan 1994 / Peña & Hahmann 2012); stable nocturnal ABL → 544 m, τ ≈ 54 s @ 10 m/s (lag-30 s autocorr ≈ 0.57), neutral → 340 m, τ ≈ 34 s (≈ 0.40), convective afternoon → 136 m, τ ≈ 14 s (≈ 0.10); σ_v amplitude unchanged (TI path owned by #99), only AR(1) timescale modulated; applied to both farm-wide `_turbulence_gen` and per-turbine `_turb_gens[i]`; no new SCADA tag, observable via `WMET_AtmStab × WROT_RotSpd` low-frequency autocorrelation — see #115
+- nacelle anemometer transfer function (NTF) — fixed: IEC 61400-12-1 Annex D NTF `V_raw = V_∞ · (1 − 0.55·a)` with `a = 0.5·(1 − √(1 − Ct))`; Region 2 (Ct≈0.82) → ≈0.84·V_∞, Region 3 (Ct≈0.30) → ≈0.96·V_∞, stopped → 1.04·V_∞ (bluff-body speed-up); reuses existing `aero_out.ct` so no extra computation; `WMET_WSpeedNac` keeps free-stream semantics (analysis backwards compat), new `WMET_WSpeedRaw` exposes the as-measured anemometer reading — see #117
+- nacelle wind vane transfer function (WVTF) — fixed: IEC 61400-12-2 Annex E swirl bias `θ_s ≈ Ct/(2·λ)` (Burton et al. 2011 §3.7); right-handed rotor → +bias; Region 2 (Ct≈0.82, λ≈7) ≈ +3.4°, Region 3 (Ct≈0.30, λ≈5) ≈ +1.7°, stopped/cut-out → 0°; clamp ±8°; reuses existing `aero_out.ct` and `aero_out.tsr`; `WMET_WDirAbs` keeps free-stream direction (analysis backwards compat, wake & yaw control unchanged), new `WMET_WDirRaw` exposes the as-measured vane reading — see #119
+- Glauert yaw-skew correction on NTF + WVTF — fixed: `a_skew = a · cos²(γ)` (Glauert 1935 / Coleman skewed-wake / Burton et al. 2011 §3.10) and `θ_swirl_eff = (Ct/(2λ)) · cos(γ)` (Burton §3.7 + planar projection); γ clamped ±45°; γ=0° fully reproduces #117/#119 baseline (NTF=0.842, bias=3.36°), γ=15° → NTF=0.852/bias=3.24° (cos²=0.933, cos=0.966), γ=30° → 0.881/2.91°, γ=45° → 0.921/2.37°; shared `cos(γ)` factor reused by NTF and WVTF (zero extra cost); no new SCADA tags (observable via `WMET_WSpeedRaw / WMET_WSpeedNac × WYAW_YwVn1AlgnAvg5s`); duplicate `WMET_WDirRaw` dict key (F601) and ScadaTag definition cleaned up at the same time — see #125
+- duplicate `get_wake_added_ti` in `PerTurbineWind` (F811 leftover from #103/#106 merge) — fixed — see #108
+- duplicate `WMET_WDirRaw` key in turbine_physics.py output dict and scada_registry.py tag list (F601 / merge leftover from #119) — fixed in #125
+
+Secondary focus:
+- deployment hardening (JWT, Docker) — only when ready to share externally
+
+## Data Quality Status (2026-04-12)
+
+Ran 2-hour automated analysis with mixed wind conditions + fault injection.
+Result: **18/21 checks passed**.
+
+Issues found:
+- Region 3 power CV=0.8-0.9% (should be 3-5%) — **fixed** in #61: switched to Cp aerodynamic model
+- Turbine spread 36.8% (partly due to mixed operating conditions in test, not a real issue)
+
+All physical correlations verified:
+- Power curve shape ✓, temperature inertia ✓, vibration-RPM coupling ✓
+- Load-thrust correlation ✓, stopped-state behavior ✓, fault signatures ✓
+
+Report: `examples/data_quality_report.txt`
+
+## External API Access
+
+- **API Guide**: `docs/API_GUIDE.md` (complete reference for students/researchers)
+- **Example scripts**: `examples/fetch_scada_data.py` (8 ready-to-use patterns)
+- **Data quality analysis**: `examples/data_quality_analysis.py`
+- **Swagger UI**: `http://<server-ip>:8100/docs`
+- No authentication (lab-internal use only)
+- CORS open, host binding 0.0.0.0
+
+## Pending Improvements
+
+> **windMindOM v0.8.1 註**：以下 backlog 仍適用於 monitoring 層持續進化。但「整合層 / cost / workflow / RAG」相關的工作改由 `docs/product/ROADMAP.md` 統籌。
+
+Still pending or incomplete:
+- deployment hardening (JWT, RBAC, HTTPS) — see #26
+- spectral alarm threshold curves — see #58; BPFO/BPFI, sideband analysis, and crest factor/kurtosis anomaly alarms completed
+- full protection relay coordination (LVRT/OVRT) — see #67
+- coolant level / leak detection — done: level tracking + pump cavitation + fault coupling — see #75
+- gear tooth contact modeling — done: mesh stiffness ripple + tooth wear + GMF excitation — see #76
+- wind veer (directional shear with height) — done: Ekman spiral model + blade lateral force coupling — see #79
+- ambient humidity effect on air cooling — done: moist-air density + dew-point condensation penalty (#89)
+- localized turbulence pockets — done: Gaussian spatial pockets with per-turbine TI boost + `WMET_LocalTi` tag (#91)
+- wake model (Bastankhah-Porté-Agel Gaussian) — done: TI-dependent expansion, Ct-coupled max deficit, sum-of-squares superposition + `WMET_WakeDef` tag (#93)
+- dynamic wake meandering — done: Larsen-DWM lateral AR(1) oscillation (σ_θ=0.3·TI, τ=25 s) applied to source wake centerline, new `WMET_WakeMndr` tag (#95)
+- yaw-induced wake deflection — done: Bastankhah 2016 skew angle coupled to per-turbine yaw_error, new `WMET_WakeDefl` tag (#97)
+- atmospheric stability / diurnal shear-TI coupling — done (#99)
+- air density coupling — done (#101)
+- wake-added turbulence intensity — done (#103)
+- dynamic atmospheric pressure P(t) — done (#106)
+- atmospheric-stability × Bastankhah k* coupling — done (#109)
+- atmospheric-stability × wind veer coupling — done (#111)
+- atmospheric-stability × wake meander τ_m coupling — done (#113)
+- atmospheric-stability × turbulence integral length scale L_u coupling — done (#115)
+- nacelle anemometer transfer function (NTF) — done (#117)
+- nacelle wind vane transfer function (WVTF) — done (#119)
+- Glauert yaw-skew correction on NTF + WVTF — done (#125)
+- SQLite vs time-series DB architecture decision — see #24（**windMindOM v0.8.1 計畫 M1 升 PostgreSQL + TimescaleDB**）
+- dependency security vulnerabilities (cryptography, pyjwt, etc.) — see #48
+- no automated test suite (pytest) — see #52
+- external data API documentation — see #50
+- RAG-based alert analysis — see #51（**windMindOM v0.8.1 M5 完成**）
+- frontend RUL visualization — see #57 (fatigue alarm event integration completed)
+
+## Source of Truth
+
+> **windMindOM 註**：以下檔案仍為 monitoring 層的 source of truth，但**整體產品**的 source of truth 是 `docs/product/`。
+
+Use these files for planning **monitoring layer**:
+- ~~`TODO.md`~~ — windMindOM v0.8.1 重新整理為 `docs/product/ROADMAP.md`
+- `docs/physics_model_status.md` — per-model completion status
+- `docs/API_GUIDE.md` — external API reference
+- ~~`STATUS.yaml`~~ — windMindOM v0.8.1 重新建立
+
+## Working Principle
+
+> **windMindOM 註**：以下原則對 monitoring 層的物理模擬改動仍 100% 適用。
+
+When making simulation changes:
+- prefer changing physical causes over directly offsetting output tags
+- prefer persistent per-turbine differences over random noise-only variation
+- prefer time-dependent transitions over instant jumps
+- keep new work observable in history charts whenever possible
+- validate changes with `examples/data_quality_analysis.py`

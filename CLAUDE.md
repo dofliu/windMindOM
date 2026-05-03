@@ -1,126 +1,180 @@
-# Project Notes
+# CLAUDE.md — windMindOM 開發守則
 
-## Current Position
+> 給 Claude（與其他 AI 助理）在這個 repo 工作時用的精簡指引。
+> 完整產品脈絡見 [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md)。
+> 任何新 session 開工前**必讀本檔**。
 
-A working wind farm simulation platform with 104 SCADA tags, comprehensive physics models, and full API access for external data consumers.
+---
 
-Platform includes:
-- backend REST + WebSocket APIs (40+ endpoints)
-- realtime streaming (2s broadcast cycle)
-- SQLite history with retention/downsampling
-- physics-based turbine simulation (14 turbines)
-- 11 fault scenarios with physics-coupled injection
-- grid and wind environment controls
-- Modbus TCP simulation
-- frontend dashboard, detail, settings, history, and maintenance views
-- fatigue/DEL load monitoring
-- vibration spectral alarm thresholds (ISO 10816-inspired)
+## 1. 專案一句話
 
-## Current Development Priority
+**離岸風場運維廠商工具**：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢，給運維廠商管理層 + 現場工程師雙 persona 用。
+從 digiWindTurbine（物理模擬器 + SCADA 平台）商業化升級而來。
 
-The main priority is physics realism and signal realism.
+---
 
-Primary focus (next improvements):
-- Region 3 power variation — fixed: Cp model replaces lookup table, pitch lag creates natural variation — see #61
-- tower dynamic response — fixed: SDOF first-mode filter (fn≈0.28 Hz) with structural+aero damping — see #62
-- spectral sideband analysis — fixed: gear mesh sideband model with fault-coupled amplitude modulation — see #58
-- bearing defect frequency (BPFO/BPFI) — fixed: geometry-based BPFO/BPFI with fault-coupled amplitude — see #58
-- tower shadow effect — fixed: rotor azimuth tracking + Gaussian 3P torque/thrust/load modulation — see #69
-- gearbox oil temperature/viscosity — fixed: Walther-type viscosity model with cold-start loss decay — see #73
-- gear tooth contact — fixed: contact-ratio mesh stiffness ripple + tooth wear index + GMF HSS-torsion excitation — see #76
-- ambient humidity air-cooling — fixed: moist-air density factor + dew-point condensation penalty on nacelle/cabinet fans — see #89
-- localized turbulence pockets — fixed: spatial Gaussian pockets boost per-turbine TI, observable via `WMET_LocalTi` — see #91
-- wake model upgrade — fixed: Bastankhah-Porté-Agel Gaussian wake (TI-dependent expansion, Ct-coupled deficit, sum-of-squares superposition), observable via `WMET_WakeDef` — see #93
-- dynamic wake meandering — fixed: Larsen-DWM AR(1) lateral oscillation of wake centerline (σ_θ≈0.3·TI, τ≈25 s), downstream `WMET_WakeDef` now has realistic time variability — see #95
-- yaw-induced wake deflection (wake steering) — fixed: Bastankhah 2016 θ_c = 0.3·γ·(1−√(1−Ct·cos γ))/cos γ coupled to per-turbine yaw_error, new `WMET_WakeDefl` tag — see #97
-- atmospheric stability / diurnal shear-TI coupling — fixed: continuous score s=solar·wind_damping·cloud_damping drives α ∈ [0.04, 0.30] and TI multiplier ∈ [0.5, 1.6], new `WMET_ShearAlpha` / `WMET_AtmStab` tags — see #99
-- air density coupling — fixed: ρ(T, RH) from ideal gas law + Magnus moist-air correction, updated every step and fed into PowerCurveModel so P ∝ ρ·V³ and F ∝ ρ·V² vary with temperature and humidity; new `WMET_AirDensity` tag — see #101
-- wake-added turbulence intensity — fixed: Crespo-Hernández (1996) TI_w = 0.73·a^0.8325·TI_∞^0.0325·(x/D)^-0.32, shared Bastankhah Gaussian radial + Frandsen quadrature; combined with pocket TI (#91) in the AR(1) generator so downstream σ_v actually rises; new `WMET_WakeTi` tag — see #103
-- dynamic atmospheric pressure coupling — fixed: `_pressure_state → P(t) = 101325 + s·1500 Pa` mapped synoptic state to Pa, fed into `get_air_density` so ρ gains another ±1.5% time variability from weather fronts; new `WMET_AmbPressure` tag — see #106
-- atmospheric stability × wake expansion coupling — fixed: Bastankhah `k* = k_neutral · clamp(1 + 0.30·s, 0.55, 1.45)` (Abkar & Porté-Agel 2015 / Peña 2016); stable night → longer wake (≈+34% deficit at 6 D), convective afternoon → shorter wake (≈−22% deficit); no new SCADA tag, observable via `WMET_WakeDef × WMET_AtmStab` correlation — see #109
-- atmospheric stability × wind veer coupling — fixed: `veer_rate_eff = veer_base · clamp(1 − s, 0.3, 2.5)` (Holton §5.3, Stull §8.5, van der Laan 2017); stable night ABL preserves Ekman spiral (~0.20 °/m, +37% TwrSS moment vs neutral), convective afternoon mixes it out (~0.03 °/m, −26%); no new SCADA tag, observable via `WMET_AtmStab × WLOD_TwrSsMom` correlation — see #111
-- atmospheric stability × wake meander timescale coupling — fixed: `τ_m_eff = 25 · clamp(1 − 0.6·s, 0.4, 2.0)` s (Counihan 1975 / Larsen DWM 2008); stable ABL → 40 s slow meander (lag-25 s autocorr ≈ 0.45), convective ABL → 10 s fast turnover (autocorr ≈ 0.01); σ_θ stays 0.3·TI, only timescale modulated; no new SCADA tag, observable via `WMET_WakeMndr × WMET_AtmStab` autocorrelation — see #113
-- atmospheric stability × turbulence integral length scale L_u coupling — fixed: `L_u_eff = 340 · clamp(1 − 0.6·s, 0.4, 2.0)` m (Counihan 1975 / Kaimal & Finnigan 1994 / Peña & Hahmann 2012); stable nocturnal ABL → 544 m, τ ≈ 54 s @ 10 m/s (lag-30 s autocorr ≈ 0.57), neutral → 340 m, τ ≈ 34 s (≈ 0.40), convective afternoon → 136 m, τ ≈ 14 s (≈ 0.10); σ_v amplitude unchanged (TI path owned by #99), only AR(1) timescale modulated; applied to both farm-wide `_turbulence_gen` and per-turbine `_turb_gens[i]`; no new SCADA tag, observable via `WMET_AtmStab × WROT_RotSpd` low-frequency autocorrelation — see #115
-- nacelle anemometer transfer function (NTF) — fixed: IEC 61400-12-1 Annex D NTF `V_raw = V_∞ · (1 − 0.55·a)` with `a = 0.5·(1 − √(1 − Ct))`; Region 2 (Ct≈0.82) → ≈0.84·V_∞, Region 3 (Ct≈0.30) → ≈0.96·V_∞, stopped → 1.04·V_∞ (bluff-body speed-up); reuses existing `aero_out.ct` so no extra computation; `WMET_WSpeedNac` keeps free-stream semantics (analysis backwards compat), new `WMET_WSpeedRaw` exposes the as-measured anemometer reading — see #117
-- nacelle wind vane transfer function (WVTF) — fixed: IEC 61400-12-2 Annex E swirl bias `θ_s ≈ Ct/(2·λ)` (Burton et al. 2011 §3.7); right-handed rotor → +bias; Region 2 (Ct≈0.82, λ≈7) ≈ +3.4°, Region 3 (Ct≈0.30, λ≈5) ≈ +1.7°, stopped/cut-out → 0°; clamp ±8°; reuses existing `aero_out.ct` and `aero_out.tsr`; `WMET_WDirAbs` keeps free-stream direction (analysis backwards compat, wake & yaw control unchanged), new `WMET_WDirRaw` exposes the as-measured vane reading — see #119
-- Glauert yaw-skew correction on NTF + WVTF — fixed: `a_skew = a · cos²(γ)` (Glauert 1935 / Coleman skewed-wake / Burton et al. 2011 §3.10) and `θ_swirl_eff = (Ct/(2λ)) · cos(γ)` (Burton §3.7 + planar projection); γ clamped ±45°; γ=0° fully reproduces #117/#119 baseline (NTF=0.842, bias=3.36°), γ=15° → NTF=0.852/bias=3.24° (cos²=0.933, cos=0.966), γ=30° → 0.881/2.91°, γ=45° → 0.921/2.37°; shared `cos(γ)` factor reused by NTF and WVTF (zero extra cost); no new SCADA tags (observable via `WMET_WSpeedRaw / WMET_WSpeedNac × WYAW_YwVn1AlgnAvg5s`); duplicate `WMET_WDirRaw` dict key (F601) and ScadaTag definition cleaned up at the same time — see #125
-- duplicate `get_wake_added_ti` in `PerTurbineWind` (F811 leftover from #103/#106 merge) — fixed — see #108
-- duplicate `WMET_WDirRaw` key in turbine_physics.py output dict and scada_registry.py tag list (F601 / merge leftover from #119) — fixed in #125
+## 2. 任何 session 接手的 3 步必做
 
-Secondary focus:
-- deployment hardening (JWT, Docker) — only when ready to share externally
+1. **讀本檔 CLAUDE.md** — 知道工作守則
+2. **讀 [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md)** — 產品定位、ICP、5 大功能
+3. **讀 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)** + [`STATUS.yaml`](STATUS.yaml) — 知道現在進到哪個 month / module
+4. （如有 ISSUES.md）從 `ISSUES.md` 找 `status: open` 的 WMOM-* 認領
 
-## Data Quality Status (2026-04-12)
+---
 
-Ran 2-hour automated analysis with mixed wind conditions + fault injection.
-Result: **18/21 checks passed**.
+## 3. 文件入口（按閱讀順序）
 
-Issues found:
-- Region 3 power CV=0.8-0.9% (should be 3-5%) — **fixed** in #61: switched to Cp aerodynamic model
-- Turbine spread 36.8% (partly due to mixed operating conditions in test, not a real issue)
+| 檔案 | 用途 | 何時讀 |
+|------|------|--------|
+| **本檔 `CLAUDE.md`** | 工作守則、repo 角色、commit 規範 | 任何新 session 第一個讀 |
+| [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md) | 產品願景、ICP（運維廠商）、5 大功能、商業模式、競品 | 對齊產品方向時 |
+| [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) | 5 modules 設計、外部介接、技術選型 | 設計與實作時 |
+| [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) | M1-M6 6 個月路線圖、每月主要交付 | 規劃 sprint 時 |
+| [`docs/product/decision_log.md`](docs/product/decision_log.md) | 重大決策 ADR 紀錄（含 v0.5 → v0.8.1 pivot） | 想改變方向前必讀 |
+| [`docs/legacy/digiwt_project_notes.md`](docs/legacy/digiwt_project_notes.md) | 既有 digiWT 物理模型 / SCADA 技術筆記 | 動 monitoring 層時讀 |
+| [`docs/API_GUIDE.md`](docs/API_GUIDE.md) | digiWT 既有 40+ REST/WS endpoints 規格 | 動 API 時讀 |
+| [`docs/physics_model_status.md`](docs/physics_model_status.md) | 物理模型完成度 | 動物理模型時讀 |
+| `STATUS.yaml` / `ISSUES.md` / `TODO.md` | （將於 M1 第一週重建為 windMindOM 版本） | 接手 + 找事做時 |
 
-All physical correlations verified:
-- Power curve shape ✓, temperature inertia ✓, vibration-RPM coupling ✓
-- Load-thrust correlation ✓, stopped-state behavior ✓, fault signatures ✓
+## 4. Repo 結構與角色
 
-Report: `examples/data_quality_report.txt`
+```
+windMindOM/                          ← 本 repo（從 digiWindTurbine 進化）
+├── api/                             ← FastAPI（既有 + 擴充）
+├── modules/                         ← 5 大功能 module（M1 起逐月建立）
+│   ├── monitoring/                  ← digiWT 既有 SCADA + simulator（M1 搬入）
+│   ├── workflow/                    ← 庫存 + 派工 + 簽核（M3-M4 新做）
+│   ├── cost/                        ← ECN 移植（M2）
+│   ├── reporting/                   ← 報表生成（M4）
+│   └── knowledge/                   ← RAG 警報查手冊（M5）
+├── shared/                          ← canonical schema、PLC clients、共用 domain model
+├── frontend/                        ← React + responsive design（admin + field 雙路徑）
+├── opc_bachmann/                    ← Z72 OPC client（既有，M1 抽到 shared/plc_clients/）
+├── tests/                           ← pytest
+├── docs/
+│   ├── product/                     ← v0.8.1 產品文件 ★ 主要 source of truth
+│   ├── legacy/                      ← digiWT 既有技術筆記
+│   ├── routines/                    ← daily-workflow.md（M1 從 v0.5 搬入）
+│   ├── API_GUIDE.md                 ← digiWT 既有 API 規格（沿用）
+│   ├── physics_model_status.md      ← digiWT 既有物理模型狀態（沿用）
+│   ├── __Z72UserManual.pdf          ← Z72 手冊（M5 餵 RAG）
+│   └── 1040610-Z72_PLC_OPC_TAG_1040510.xlsx ← Z72 PLC tag 對映表
+├── work-logs/                       ← 每日 routine 紀錄（M1 起每日新建）
+├── templates/                       ← work-log / issue / decision 模板
+├── deploys/                         ← docker-compose（single-farm / multi-farm）
+└── (root 既有 digiWT 檔案)            ← M1 第一週搬到 modules/monitoring/
+```
 
-## External API Access
+## 5. 與其他 7 個 repo 的關係
 
-- **API Guide**: `docs/API_GUIDE.md` (complete reference for students/researchers)
-- **Example scripts**: `examples/fetch_scada_data.py` (8 ready-to-use patterns)
-- **Data quality analysis**: `examples/data_quality_analysis.py`
-- **Swagger UI**: `http://<server-ip>:8100/docs`
-- No authentication (lab-internal use only)
-- CORS open, host binding 0.0.0.0
+| Repo | windMindOM 對它做什麼 |
+|------|---------------------|
+| **digiWindTurbine**（原 repo） | 不動，留作研究 / 教學版本；windMindOM 是它的商業化 fork |
+| **ECN** | M2 移植進 `modules/cost/`，原 repo archive |
+| **z72_etech** | M3-M4 取設計重寫進 `modules/workflow/`（**僅取設計、不取程式**），原 repo archive |
+| **z72hmiNew** | 留外面（Z72 服務性 repo） |
+| **windAILab** | 留外面（**另一公司業務**）；M6+ HTTP API 介接 AI 故障診斷 |
+| **RAG_Ultimate** | 留外面（research line）；M5 提供「策略檔 + 預計算向量檔」給 windMindOM/modules/knowledge/ |
+| **InduSpect** | 留外面（independent product）；M6+ HTTP API 介接 AI 視覺定檢 |
 
-## Pending Improvements
+## 6. 工作流（每個 session）
 
-Still pending or incomplete:
-- deployment hardening (JWT, RBAC, HTTPS) — see #26
-- spectral alarm threshold curves — see #58; BPFO/BPFI, sideband analysis, and crest factor/kurtosis anomaly alarms completed
-- full protection relay coordination (LVRT/OVRT) — see #67
-- coolant level / leak detection — done: level tracking + pump cavitation + fault coupling — see #75
-- gear tooth contact modeling — done: mesh stiffness ripple + tooth wear + GMF excitation — see #76
-- wind veer (directional shear with height) — done: Ekman spiral model + blade lateral force coupling — see #79
-- ambient humidity effect on air cooling — done: moist-air density + dew-point condensation penalty (#89)
-- localized turbulence pockets — done: Gaussian spatial pockets with per-turbine TI boost + `WMET_LocalTi` tag (#91)
-- wake model (Bastankhah-Porté-Agel Gaussian) — done: TI-dependent expansion, Ct-coupled max deficit, sum-of-squares superposition + `WMET_WakeDef` tag (#93)
-- dynamic wake meandering — done: Larsen-DWM lateral AR(1) oscillation (σ_θ=0.3·TI, τ=25 s) applied to source wake centerline, new `WMET_WakeMndr` tag (#95)
-- yaw-induced wake deflection — done: Bastankhah 2016 skew angle coupled to per-turbine yaw_error, new `WMET_WakeDefl` tag (#97)
-- atmospheric stability / diurnal shear-TI coupling — done: Monin-Obukhov-simplified score s drives α ∈ [0.04, 0.30] and TI multiplier ∈ [0.5, 1.6], new `WMET_ShearAlpha` + `WMET_AtmStab` tags (#99)
-- air density coupling — done: moist-air ρ(T, RH) via ideal gas + Magnus, fed per-step to PowerCurveModel; aero power and thrust now vary ±10% with temperature/humidity; new `WMET_AirDensity` tag (#101)
-- wake-added turbulence intensity — done: Crespo-Hernández 1996, shared Bastankhah σ for radial decay, Frandsen quadrature for multi-source, combined with pocket TI in the AR(1) generator so downstream σ_v observably rises; new `WMET_WakeTi` tag (#103)
-- dynamic atmospheric pressure P(t) — done: `_pressure_state` (OU random walk, τ≈2 h, frontal cycle 2–7 days) scaled to ±1500 Pa around 101325, fed through `get_air_density` so ρ gains another ±1.5% frontal swing on top of T/RH; new `WMET_AmbPressure` tag (#106)
-- atmospheric-stability × Bastankhah k* coupling — done: k* = k_neutral·(1 + 0.30·s) clamped to [0.55, 1.45]×; stable ABL yields ~+34% wake deficit at 6 D, convective ~−22%; no new SCADA tag (uses existing `WMET_WakeDef × WMET_AtmStab`) (#109)
-- atmospheric-stability × wind veer coupling — done: `veer_rate_eff = veer_base · clamp(1 − s, 0.3, 2.5)` (Holton/Stull/van der Laan 2017); stable night ~0.20 °/m with +37% TwrSS moment, convective afternoon ~0.03 °/m with −26%; per-turbine veer_rate retained as site/manufacturing variance; effective rate is shared between aero power-loss and fatigue tower/blade load paths; no new SCADA tag (#111)
-- atmospheric-stability × wake meander τ_m coupling — done: integral timescale `τ_m = 25 · clamp(1 − 0.6·s, 0.4, 2.0)` s (Counihan 1975 / Larsen DWM 2008 / Peña 2012); stable ABL → 40 s slow meander, convective ABL → 10 s fast turnover; σ_θ stays 0.3·TI (amplitude path is #99 TI mult); validated lag-25 s autocorr 0.45 vs 0.01 for stable vs convective; no new SCADA tag (`WMET_WakeMndr × WMET_AtmStab` autocorrelation) (#113)
-- atmospheric-stability × turbulence integral length scale L_u coupling — done: `L_u_eff = 340 · clamp(1 − 0.6·s, 0.4, 2.0)` m (Counihan 1975 / Kaimal & Finnigan 1994 / Peña & Hahmann 2012); stable nocturnal ABL → 544 m / τ ≈ 54 s @ 10 m/s, neutral → 340 m / τ ≈ 34 s, convective afternoon → 136 m / τ ≈ 14 s; validated lag-30 s AR(1) autocorr 0.57 vs 0.40 vs 0.10 (stable / neutral / convective); σ_v amplitude unchanged (TI path owned by #99); applied to both farm-wide `_turbulence_gen` and per-turbine `_turb_gens[i]`; no new SCADA tag (#115)
-- nacelle anemometer transfer function (NTF) — done: IEC 61400-12-1 Annex D NTF `V_raw = V_∞ · (1 − 0.55·a)` with `a = 0.5·(1 − √(1 − Ct))` derived from existing `aero_out.ct`; Region 2 → 0.84·V_∞, Region 3 → 0.96·V_∞, stopped → 1.04·V_∞; backwards compat — `WMET_WSpeedNac` keeps free-stream semantics, new `WMET_WSpeedRaw` exposes the as-measured anemometer reading (#117)
-- nacelle wind vane transfer function (WVTF) — done: IEC 61400-12-2 Annex E swirl-bias model `θ_swirl ≈ Ct / (2·λ)` rad (Burton et al. 2011, Wind Energy Handbook §3.7) for right-handed rotor; reuses `aero_out.ct` and `aero_out.tsr` already computed for #117 (no extra cost); Region 2 (Ct=0.82, λ=7) → +3.36°, Region 2.5 (Ct=0.65, λ=6) → +3.10°, Region 3 (Ct=0.30, λ=5) → +1.72°, stopped → 0°; clamp ±8°; double monotonicity Ct↑→bias↑ and λ↑→bias↓ verified; backwards compat — `WMET_WDirAbs` keeps free-stream semantics (wake-model upstream indexing + yaw-controller logic untouched), new `WMET_WDirRaw` exposes the as-measured vane reading; pairs with #117 to complete the IEC 61400-12-1/2 nacelle sensor transfer function chain (#119)
-- nacelle wind vane transfer function (WVTF) — done: IEC 61400-12-2 Annex E swirl bias `θ_s ≈ Ct/(2·λ)` rad (Burton et al. 2011 §3.7) reusing `aero_out.ct` / `aero_out.tsr` already in `step()`; right-handed rotor → +bias; Region 2 (Ct=0.82, λ=7) → +3.36°, Region 3 (Ct=0.30, λ=5) → +1.72°, stopped → 0°; clamped to ±8°; `WMET_WDirAbs` keeps free-stream semantics for wake indexing/yaw control, new `WMET_WDirRaw` exposes the as-measured vane reading (#119); 11/11 self-tests PASS including 360° wrap-around and Ct↑/λ↑ monotonicity
-- nacelle wind vane transfer function (WVTF) — done: IEC 61400-12-2 Annex E swirl bias `θ_swirl ≈ Ct / (2·λ)` rad (Burton et al. 2011 §3.7, derived from BEM tangential induction `a' = Ct/(4·λ)`); Region 2 (Ct≈0.82, λ≈7) → +3.4°, Region 3 (Ct≈0.30, λ≈5) → +1.7°, stopped → 0°; clamp ±8° (Pedersen 2008 measured 3–8° on real machines); right-handed rotor convention (industry standard); reuses `aero_out.ct` + `aero_out.tsr` (no extra cost, no new RNG); 10/10 self-test PASS + Ct↑→bias↑ + λ↑→bias↓ monotonicity + 360° wrap correctness; backwards compat — `WMET_WDirAbs` keeps free-stream semantics (yaw_model control-error and wake-source indexing unchanged), new `WMET_WDirRaw` exposes as-measured vane reading; with #117 NTF this completes the IEC 61400-12-1/2 nacelle sensor transfer-function pair (#119)
-- Glauert yaw-skew correction on NTF + WVTF — done: `a_skew = a · cos²(γ)` from Glauert (1935) / Coleman skewed-wake / Burton et al. 2011 §3.10, and `θ_swirl_eff = (Ct/(2λ)) · cos(γ)` from Burton §3.7 + planar-projection geometry; γ = `yaw_out["yaw_error"]` clamped ±45°; cos(γ) computed once and shared by NTF and WVTF (zero extra cost, no new RNG); 9/9 self-test PASS — γ=0° fully reproduces #117/#119 baseline (NTF=0.842, vane bias=3.36°), γ=15° → NTF=0.852 / bias=3.24° (cos²=0.933, cos=0.966), γ=30° → 0.881/2.91° (cos²=0.75), γ=45° → 0.921/2.37° (cos²=0.5); γ=±60° clamps to ±45° identically; ±15° symmetry confirmed; stopped rotor unchanged at NTF=1.04 / bias=0°; closes the IEC 61400-12-1/2 nacelle sensor transfer-function pair under non-zero yaw misalignment which is the typical operating condition (yaw_misalignment fault scenarios up to ±25°, dead-band ±5°); concurrently cleaned the residual duplicate `WMET_WDirRaw` dict key (F601) in `turbine_physics.py` output and the duplicate ScadaTag definition in `scada_registry.py`; no new SCADA tag — observable via `WMET_WSpeedRaw / WMET_WSpeedNac × WYAW_YwVn1AlgnAvg5s` and `(WMET_WDirRaw - WMET_WDirAbs)` vs yaw_error correlation (#125)
-- SQLite vs time-series DB architecture decision — see #24
-- dependency security vulnerabilities (cryptography, pyjwt, etc.) — see #48
-- no automated test suite (pytest) — see #52
-- external data API documentation — see #50
-- RAG-based alert analysis — see #51
-- frontend RUL visualization — see #57 (fatigue alarm event integration completed)
+### 6.1 開工
 
-## Source of Truth
+```
+1. 讀 CLAUDE.md（本檔）+ PRODUCT_VISION + ROADMAP + STATUS.yaml + ISSUES.md
+2. 從 ISSUES.md 認領一個 issue（或從 ROADMAP 該月 deliverable 拆 sub-issue）
+3. 開新 git 分支：claude/issue-{N}-YYYY-MM-DD
+4. 開新 work-log：work-logs/YYYY-MM/YYYY-MM-DD-{slug}.md
+5. 進 routine（見 docs/routines/daily-workflow.md）
+```
 
-Use these files for planning:
-- `TODO.md` — development roadmap and known issues
-- `docs/physics_model_status.md` — per-model completion status
-- `docs/API_GUIDE.md` — external API reference
-- `STATUS.yaml` — project metadata
+### 6.2 結尾
 
-## Working Principle
+```
+1. work-log 收尾（完成什麼、卡在哪、下次怎麼接手）
+2. 更新 STATUS.yaml + ISSUES.md
+3. Commit：type(#WMOM-{N}): 描述
+4. （人工確認後）git push
+```
 
-When making simulation changes:
-- prefer changing physical causes over directly offsetting output tags
-- prefer persistent per-turbine differences over random noise-only variation
-- prefer time-dependent transitions over instant jumps
-- keep new work observable in history charts whenever possible
-- validate changes with `examples/data_quality_analysis.py`
+### 6.3 重大決策
+
+任何「動到架構 / 改變方向 / 重新定位」必須寫進 `docs/product/decision_log.md` 為 DEC-{YYYYMMDD}-{NN}。
+
+## 7. Coding 規範
+
+- **Python**：型別標註必加；docstring Google style；繁中說明
+- **命名**：snake_case 變數函式、PascalCase class、UPPER_SNAKE 常數
+- **不用 `Any`**（必要時 `# type: ignore[原因]` 並註明）
+- **對使用者輸出繁體中文，技術術語保留英文**
+- **編輯前先 Read**；CRLF 行尾保留原樣
+- **Test-first 原則**（不嚴格 TDD，但每個 module 都要有 test）
+
+## 8. Git / commit 規範
+
+- 主分支：`main`（單 dev 階段直接 push）
+- Feature 分支：`claude/issue-{N}-YYYY-MM-DD`
+- Commit 訊息：`type(#WMOM-{N}): 描述`
+- type ∈ feat / fix / docs / refactor / chore / test
+- 帶 `#WMOM-{N}` 編號自動關聯本 repo 的 ISSUES.md
+
+## 9. 任務 ID 格式
+
+- Issue：`WMOM-{YYYYMMDD}-{NN}` （例：WMOM-20260503-01）
+- Work-log：`work-logs/YYYY-MM/YYYY-MM-DD-{slug}.md`
+- Decision：`docs/product/decision_log.md` 內以 `## DEC-{YYYYMMDD}-{NN}` 標號
+
+WMOM = WindMindOM 縮寫。
+
+## 10. 目前狀態（簡要）
+
+- **產品版本**：v0.8.1（2026-05-02 baseline）
+- **Milestone**：M1 Setup（2026-05）— repo baseline 整理 + 規劃文件就位 + friendly 客戶接觸
+- **下次工作**：見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) M1 的 issue 清單
+- **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
+
+## 11. v0.5 → v0.8.1 重大轉變（必知）
+
+2026-05-02 經過 1 天 5 輪規劃迭代，最終決定：
+
+- ❌ **廢棄**：v0.5 的「windMindOM 整合容器」「Plugin SDK」「4 類 Turbine Adapter ABC」「Workflow Hub 獨立 service」等過度工程
+- ✅ **採納**：windMindOM = digiWT 商業化升級版，monolithic 5 modules，外部介接走 API/artifact
+
+詳見 [`docs/product/decision_log.md`](docs/product/decision_log.md) DEC-20260502-06。
+
+## 12. 不要做的事
+
+- **不要在 master/main 直接做 risky 工作**（建分支再合）
+- **不要修改其他 7 個來源 repo 的 master 分支**（windMindOM 是獨立 fork）
+- **不要 fork 其他 repo 的程式碼進 windMindOM**（用 git submodule / pip install / npm link）
+- **不要創建沒列在 ISSUES.md 的工作**（除非開新 issue + 寫進 work-log）
+- **不要跳過 work-log**（即使是「只討論不寫 code」的 session 也要有紀錄）
+- **不要在 monitoring 層動物理模型而不參考 [`docs/legacy/digiwt_project_notes.md`](docs/legacy/digiwt_project_notes.md)**（避免破壞既有 18/21 quality check 通過的物理一致性）
+- **不要動 `geminiService.ts`** ← 但這是 RAG_Ultimate 的事，與本 repo 無關（提醒避免混淆）
+
+## 13. Daily Routine
+
+完整 routine 在 `docs/routines/daily-workflow.md`（M1 第一週從 v0.5 搬入）。
+精簡版 8 phase：Preflight → Claim → Branch+Log → Implement → Verify → Review → Wrap-up → Commit。
+
+哲學：**一日一項重要工作**。不貪多。
+
+## 14. Claude Code 專屬
+
+如果在 Claude Code 內工作（推薦從 M1 起）：
+
+- 啟動：`cd D:\Project_CodingSimulation\researchTopic\windMindOM && claude`
+- Slash commands（M1 第一週搬入）：`/daily-start`、`/claim-issue {ID}`、`/review`、`/daily-wrapup`
+- Sub-agents（M1 第一週搬入）：`code-reviewer`（Python async + 風電領域 + FastAPI 專長）
+
+範本在 `docs/claude-code-templates/`（M1 第一週從 v0.5 搬入）。
+
+## 15. 小提醒
+
+- **第一個客戶定 Z72** — 設計時先以 Z72 為 reference
+- **Simulator-first** — 任何功能都要能在純 simulator 模式下 demo（無實場是 sales killer feature）
+- **RAG 走「研究端策略檔 + 預計算向量檔」** — windMindOM 內只負責載入 + query，不重新 embed
+- **z72_etech 取材選 A** — dev team 自己讀程式產出 design notes（M3-M4 排定）
+- **windAILab 是另一公司業務** — AI 故障診斷透過 API 介接，不要嘗試把它整進 windMindOM 內部
+- **現場工程師也是 user** — 警報 RAG 與 mobile UI 是 PMF 關鍵，不是 nice-to-have
