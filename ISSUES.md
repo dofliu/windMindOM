@@ -1,0 +1,205 @@
+# windMindOM — Issues
+
+> 本檔案是 windMindOM 的單一 source of truth issue tracker。
+> 所有工作都從這裡認領；新工作請開新 issue 並寫進來。
+> Issue ID 格式：`WMOM-{YYYYMMDD}-{NN}`。模板見 `templates/issue-template.md`。
+>
+> Status 流轉：`open → in_progress → done`（或 `blocked`）。
+> 每次 session 開工 / 結尾，請更新 issue status 與下方統計表。
+
+---
+
+## 統計
+
+| Status | Count |
+|--------|------|
+| open | 3 |
+| in_progress | 0 |
+| blocked | 0 |
+| done | 2 |
+| **total (active)** | **5** |
+
+最後更新：2026-05-03（WMOM-20260503-01 完成）
+
+---
+
+## M1（2026-05）— Setup baseline
+
+### WMOM-20260503-01 — Repo baseline 整理（digiWT → modules/monitoring/）
+
+- **Status**: done（2026-05-03 完成）
+- **Milestone**: M1
+- **Priority**: critical
+- **Estimate**: 2-3 工作天 → **實際半天**（因採「move + sys.path 注入」策略，避開大規模 import 重寫）
+- **Owner**: Claude (session 2026-05-03)
+- **Completion summary**:
+  - ✅ 5 modules（monitoring / workflow / cost / reporting / knowledge）+ shared（schemas / plc_clients / domain）+ tests 骨架就位
+  - ✅ digiWT 既有 monitoring 程式（simulator、server、wind_model、scada_system、subsystems、turbine_model、opcua_interface、dashboard、main、common_types、main_architecture、examples、data、wind_farm_data.db、wind_turbine_data.db）全部搬到 modules/monitoring/
+  - ✅ opc_bachmann/ 抽到 shared/plc_clients/bachmann/
+  - ✅ run.py 注入 sys.path（modules/monitoring 在最前面），既有 `from simulator.x` / `from server.x` import 完全不用改
+  - ✅ Dockerfile + docker-compose.yml + .dockerignore 路徑更新（含 DB_PATH、FARM_DATA_DIR、volume mount、container_name）
+  - ✅ docs/legacy/digiwt_directory_layout.md 搬遷對照表 + sys.path 策略 + 影響相對路徑分析 + 驗證紀錄
+  - ✅ 6 項 smoke test 全通過：legacy import、modern import、5 modules 全 importable、18-秒模擬跑出 109 SCADA tag、FastAPI app 67 routes 載入、run.py compile 通過
+- **Decision resolved**: pyproject.toml 整合**未做**（保留 requirements.txt），下個 issue 處理 — 跟搬遷脫鉤可降低 risk
+- **Follow-up**（未做、留給後續 issue）：
+  - 完整跑 `python run.py` + 開 browser 看 dashboard
+  - `docker-compose up --build` 端到端驗證
+  - 重跑 examples/data_quality_analysis.py 確認 18/21 quality check 數值與搬遷前一致
+  - Mass-rewrite imports 為 fully qualified `modules.monitoring.*` 形式（M1-M2 穩定後）
+  - 盤點 modules/monitoring/main.py + main_architecture.py 是否為 dead code
+- **Reference**:
+  - [`docs/legacy/digiwt_directory_layout.md`](docs/legacy/digiwt_directory_layout.md)（搬遷對照表）
+  - [`work-logs/2026-05/2026-05-03-repo-baseline-and-tracking-files.md`](work-logs/2026-05/2026-05-03-repo-baseline-and-tracking-files.md)（session 紀錄）
+
+<details><summary>📜 原始 issue description（保留歷史 / 開工時範圍）</summary>
+
+- **Description**:
+  把根目錄既有 digiWT 檔案搬到 `modules/monitoring/`，建立 4 個空 module 占位
+  （`workflow/`、`cost/`、`reporting/`、`knowledge/`），以及 `shared/` / `tests/`
+  / `frontend/` 的標準骨架。確認搬完後 import path、Docker、既有 18/21 quality
+  check 仍能跑通；不破壞物理一致性。
+  - 子任務：
+    1. 建立 `modules/{monitoring,workflow,cost,reporting,knowledge}/` 與 `__init__.py` 占位
+    2. 建立 `shared/{schemas,plc_clients,domain}/` 占位（M1 後續 issue 才會放東西）
+    3. 把 root 的 `simulator/`、`server/`、`scada_system.py`、`turbine_model.py`、
+       `wind_model.py`、`subsystems.py`、`opcua_interface.py`、`dashboard.py`、
+       `main.py`、`run.py`、`common_types.py`、`main_architecture.py`、
+       `wind_farm_data.db`、`wind_turbine_data.db`、`config/`、`data/`、
+       `examples/` 搬進 `modules/monitoring/`
+    4. 把 `opc_bachmann/` 抽到 `shared/plc_clients/bachmann/`
+    5. 修 import path（`from simulator.x` → `from modules.monitoring.simulator.x` 等）
+    6. 更新 `Dockerfile` / `docker-compose.yml` 路徑
+    7. 跑 `python -m pytest`（如有）+ 啟動 backend 確認 endpoint 還活著
+    8. 留一個 `docs/legacy/digiwt_directory_layout.md` 紀錄搬遷對照表
+- **Deliverable**:
+  - `modules/monitoring/...`（搬遷後檔案）
+  - `modules/{workflow,cost,reporting,knowledge}/__init__.py`（空殼）
+  - `shared/plc_clients/bachmann/`
+  - `docs/legacy/digiwt_directory_layout.md`（搬遷對照表）
+  - 更新後的 `Dockerfile`、`docker-compose.yml`、`pyproject.toml`（或 requirements.txt）
+- **Decision needed**: 是否 M1 就把 `pyproject.toml` 整合好（vs M2 才做）→ 預設 M1 做
+- **Depends on**: -
+- **Blocks**: WMOM-20260503-02（v0.5 資產搬入路徑會用到新結構）、WMOM-20260603-* (M2 cost 移植)
+- **Reference**:
+  - `docs/product/MVP_ARCHITECTURE.md`（5 modules 設計）
+  - `docs/legacy/digiwt_project_notes.md`（既有物理層細節）
+  - `CLAUDE.md` §4 repo 結構
+
+</details>
+
+---
+
+### WMOM-20260503-02 — 搬入 v0.5 有用資產
+
+- **Status**: open
+- **Milestone**: M1
+- **Priority**: high
+- **Estimate**: 0.5-1 工作天
+- **Owner**: -
+- **Description**:
+  從 v0.5（windMindOM 早期 prototype）搬入仍有用的資產，不要重複造輪子：
+  - `pitch_deck.md` / `pitch_deck.pptx`（給客戶用的簡報）→ `docs/sales/`
+  - `daily-workflow.md`（已搬入 `docs/routines/`，確認最新版）
+  - `claude-code-templates/`（已存在 `docs/`，盤點是否完整）
+  - `templates/`（已存在 root，盤點 work-log / issue / decision 模板是否齊全）
+  - 其他 v0.5 規劃文件中**已被 v0.8.1 取代的廢棄**（如舊版 plugin SDK 設計）→ 不搬，但在 `docs/product/decision_log.md` 紀錄為何丟棄
+- **Deliverable**:
+  - `docs/sales/pitch_deck_v0.5_baseline.{md,pptx}`（先存底，v0.8.1 改版見 WMOM-20260503-04）
+  - `docs/routines/daily-workflow.md`（已存在）
+  - `templates/`（盤點清單）
+  - `docs/claude-code-templates/`（盤點清單）
+- **Depends on**: WMOM-20260503-01（搬遷後新結構就位才好搬）
+- **Blocks**: WMOM-20260503-04（pitch deck 改版前要先有 v0.5 baseline）
+- **Reference**: `CLAUDE.md` §3 文件入口
+
+---
+
+### WMOM-20260503-03 — Root CLAUDE.md 改為 windMindOM 產品脈絡
+
+- **Status**: done
+- **Milestone**: M1
+- **Priority**: high
+- **Estimate**: 0.5 工作天
+- **Owner**: 劉老師（pre-session, 2026-05-02）
+- **Description**:
+  既有 root `CLAUDE.md` 已於 2026-05-02 baseline commit 改為 windMindOM v0.8.1
+  產品脈絡（5 modules、ICP、其他 7 repo 關係、daily routine、coding 規範）。
+  既有 digiWT 版本的 root CLAUDE.md 已備份在 `docs/legacy/`（如未備份則本 issue 含此項）。
+- **Deliverable**:
+  - `CLAUDE.md`（已是 windMindOM v0.8.1 版本）
+  - `docs/legacy/digiwt_CLAUDE.md`（如尚未備份，補上）
+- **Reference**: 本檔案開頭 `CLAUDE.md` §1-15
+
+---
+
+### WMOM-20260503-04 — Pitch deck v0.8.1 改版
+
+- **Status**: open
+- **Milestone**: M1
+- **Priority**: high
+- **Estimate**: 1-2 工作天
+- **Owner**: -
+- **Description**:
+  把 v0.5 pitch deck（windMindOM 早期 framework 定位）改寫為 v0.8.1
+  「**離岸風場運維廠商工具**」定位。
+  - 主視覺改為「Operator-focused tool」
+  - 套餐改為 Operator Basic / Pro / Enterprise（取代 v0.5 的「整合容器」分層）
+  - 加上 5 modules 一張圖（monitoring / workflow / cost / reporting / knowledge）
+  - 加上 simulator-first demo flow（**無實場可成立**是 sales killer feature）
+  - 第一個目標客戶：Z72 機型運維廠商
+  - 用 `pptx-jliu-style` skill 出 Navy 主題（科技類）
+- **Deliverable**:
+  - `docs/sales/pitch_deck_v0.8.1.pptx`
+  - `docs/sales/pitch_deck_v0.8.1_outline.md`（投影片大綱）
+  - 一頁 onepager PDF（給 cold email 附件用）
+- **Depends on**: WMOM-20260503-02（先有 v0.5 baseline 才能改版）
+- **Blocks**: WMOM-20260503-05（接觸客戶要先有可寄的 deck）
+- **Reference**:
+  - `docs/product/PRODUCT_VISION.md`（套餐分層、ICP）
+  - `CLAUDE.md` §15 「第一個客戶定 Z72」
+
+---
+
+### WMOM-20260503-05 — Friendly 客戶接觸名單
+
+- **Status**: open
+- **Milestone**: M1
+- **Priority**: medium
+- **Estimate**: 0.5 工作天（盤點）+ 持續整月（接觸）
+- **Owner**: -
+- **Description**:
+  整理 1-2 個 friendly 運維廠商接觸名單（透過學界人脈、demo simulator 給他們看）。
+  - 來源：NCUT 學界人脈、台電/中能/CIP 風場運維分包商、Bachmann Taiwan 客戶
+  - 目標：M1 月底前約到 1 場 30 分鐘 demo
+  - 不需要 commit；目的是收集真實 pain points 餵 M3-M5 設計
+- **Deliverable**:
+  - `docs/sales/friendly_contacts.md`（私密清單，contact 資訊 + 接觸狀態 + 對應 pain points）
+  - 至少 1 場 demo 的回饋紀錄寫進 `docs/sales/customer_feedback/{YYYY-MM-DD}-{slug}.md`
+- **Depends on**: WMOM-20260503-04（先有 deck）
+- **Reference**: `docs/product/PRODUCT_VISION.md` §ICP（運維廠商）
+
+---
+
+## M2-M6 預留區（規劃時開新 issue）
+
+> 不在 M1 範圍。等 M1 結束時 / 每月最後一個 session 開新 issue。
+> ROADMAP 詳見 `docs/product/ROADMAP.md`。
+
+- M2 (2026-06)：ECN 移植 + K13 demo dataset 跑通（**第一週就要做**，避開最大 risk）
+- M3 (2026-07)：z72_etech 取設計（5-7 天讀程式 → design notes → 30 分鐘 walkthrough）
+- M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向
+- M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）
+- M6 (2026-10)：Friendly 廠商現場部署 + 第一份月報送業主沒被退件 + 簽 LOI/合約
+
+---
+
+## 廢棄 / 不做（避免反覆討論）
+
+| Item | 為什麼不做 | 取代方案 |
+|------|-----------|---------|
+| windMindOM 整合容器（v0.5） | 過度工程；客戶要的是 working tool 不是 framework | Monolithic 5 modules（DEC-20260502-06） |
+| Plugin SDK | 同上；M1-M6 內部就 5 個 module 不需要 plugin 抽象 | 直接寫進 `modules/` |
+| 4 類 Turbine Adapter ABC | 第一個客戶只有 Z72；過早抽象 | M1 只做 Bachmann Z72；第二個 OEM 再考慮 |
+| Workflow Hub 獨立 service | 一個 dev 維運不來 | 留在 monolith 內 `modules/workflow/` |
+
+詳見 `docs/product/decision_log.md` DEC-20260502-06。

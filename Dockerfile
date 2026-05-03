@@ -1,5 +1,6 @@
-# ── Backend Dockerfile ──
-# Python FastAPI backend + Wind Farm Simulator
+# ── windMindOM Backend Dockerfile ──
+# FastAPI backend + 5 modules（M1：僅 monitoring 有實質內容）
+# WMOM-20260503-01：repo baseline 整理後，monitoring 已搬到 modules/monitoring/
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -8,12 +9,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy entry point + 5 modules + shared
 COPY run.py .
-COPY wind_model.py .
-COPY common_types.py .
-COPY server/ server/
-COPY simulator/ simulator/
+COPY modules/ modules/
+COPY shared/ shared/
 
 # Default environment
 ENV BACKEND_PORT=8100

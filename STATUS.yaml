@@ -1,18 +1,81 @@
-name: Digital Wind Turbine
-name_zh: 數位孿生風機模擬器
+name: windMindOM
+name_zh: 風心智運維平台
 category: wind_energy
-progress: 85
+progress: 12
 status: active
-last_updated: "2026-04-21"
-next_milestone: "Deployment hardening (JWT auth, Docker Compose)"
+last_updated: "2026-05-03"
+next_milestone: "M1 (2026-05) — WMOM-20260503-02 搬入 v0.5 有用資產 + WMOM-20260503-04 pitch deck v0.8.1 改版"
 technologies:
   - FastAPI
   - React
   - SQLite
   - Modbus TCP
+  - OPC UA (Bachmann Z72)
+  - Docker
 outputs:
   - tool
   - paper
-description: "FastAPI-based physics-driven digital twin simulating wind turbine dynamics with 74 SCADA tags, fault injection, fatigue/DEL monitoring, vibration alarm thresholds, and Modbus TCP interface"
-description_zh: "風力發電機物理驅動型數位孿生平台。內含完整的轉子-發電機模型、熱力系統、振動譜與警報門檻、電氣反應、疲勞載荷與 DEL 損傷指標、7 種故障場景，模擬 74 個 SCADA 信號與電網事件，支援 Modbus TCP 介面與即時儀表板監控。"
-key_metrics: "74 SCADA tags, 7 fault scenarios, DEL fatigue monitoring"
+  - presentation
+description: "Operations & Maintenance platform for offshore wind farm service providers. Five modules — monitoring, workflow, cost, reporting, knowledge — with simulator-first demo path."
+description_zh: "離岸風場運維廠商工具：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢。從 digiWindTurbine（物理模擬器 + SCADA 平台）商業化升級而來，目標 2026-Q4 第一個運維廠商客戶 PoC + 第一筆合約（NT$2-4M）。"
+key_metrics: "5 modules / 6-month roadmap / Z72 first-customer reference"
+
+# ──────────────────────────────────────────────
+# windMindOM 額外欄位（v0.8.1 baseline）
+# ──────────────────────────────────────────────
+product_version: "v0.8.1"
+roadmap: "docs/product/ROADMAP.md"
+vision: "docs/product/PRODUCT_VISION.md"
+architecture: "docs/product/MVP_ARCHITECTURE.md"
+decision_log: "docs/product/decision_log.md"
+
+milestones:
+  M1:
+    name: "Setup baseline"
+    target_month: "2026-05"
+    status: in_progress
+    progress: 35   # WMOM-20260503-01 (repo baseline) + 03 (root CLAUDE.md) done; -02/-04/-05 待做
+  M2:
+    name: "Cost module（從 ECN 移植）"
+    target_month: "2026-06"
+    status: planned
+    progress: 0
+  M3:
+    name: "Workflow Part 1（Work Order + Approval）"
+    target_month: "2026-07"
+    status: planned
+    progress: 0
+  M4:
+    name: "Workflow Part 2（Inventory）+ Reporting"
+    target_month: "2026-08"
+    status: planned
+    progress: 0
+  M5:
+    name: "Knowledge / RAG + 現場 mobile UI"
+    target_month: "2026-09"
+    status: planned
+    progress: 0
+  M6:
+    name: "第一個運維廠商 PoC + 第一筆合約"
+    target_month: "2026-10"
+    status: planned
+    progress: 0
+
+issue_stats:
+  open: 3
+  in_progress: 0
+  blocked: 0
+  done: 2
+
+inherited_baseline:
+  source: digiWindTurbine
+  status_snapshot: "docs/legacy/digiwt_STATUS.yaml"
+  todo_snapshot: "docs/legacy/digiwt_TODO.md"
+  highlights:
+    - "104 SCADA tags（IEC 61400-12-1/2 anemometer/vane transfer functions）"
+    - "11 fault scenarios（unified physics-coupled path）"
+    - "Bastankhah-Porté-Agel Gaussian wake + dynamic meandering"
+    - "Atmospheric stability × shear/TI/wake/veer/L_u 五重耦合"
+    - "Fatigue + DEL + Miner damage + RUL"
+    - "FastAPI + React + SQLite + Modbus TCP + Docker Compose"
+    - "Data quality validation：18/21 checks passed (2026-04-12)"
