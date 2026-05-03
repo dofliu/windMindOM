@@ -112,6 +112,8 @@
 - **Blocks**: -（pitch deck 已從本 issue 移除）
 - **Reference**: `CLAUDE.md` §3 文件入口
 
+</details>
+
 ---
 
 ### WMOM-20260503-03 — Root CLAUDE.md 改為 windMindOM 產品脈絡

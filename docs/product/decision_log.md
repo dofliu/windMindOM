@@ -113,6 +113,70 @@
 
 ---
 
+## DEC-20260504-01 — v0.5 棄用資產清單明列化（檔案層級對應 DEC-20260502-06）
+
+**Date**: 2026-05-04
+**Status**: accepted
+**Version**: v0.8.1
+**Decision maker**: Dof（Claude session 紀錄）
+**Trigger**: WMOM-20260503-02「搬入 v0.5 有用資產」執行時，需要把 DEC-20260502-06 的「v0.5 廢棄文件不搬」拍板下沉到「具體哪些檔案不搬」的層級
+
+### Context
+
+DEC-20260502-06 在概念層拍板「v0.5 → v0.8.1 整體 pivot」，但沒有明列哪些 v0.5
+檔案要丟棄。本次搬資產時實際盤點 `../windFarmOM_bk/`，發現除了已知會丟的
+PRODUCT_VISION_v0.5 / MVP_ARCHITECTURE_v0.5 之外，還有一批容器架構衍生的
+程式 / 設計筆記同樣不適用。為避免未來 session 反覆討論「這個要不要從 v0.5 撿
+回來」，把清單一次性紀錄。
+
+### Decision
+
+下列 v0.5 資產**不搬入** windMindOM v0.8.1，全部留在 `../windFarmOM_bk/`：
+
+**設計文件**
+
+- `docs/MIGRATION_TO_CLAUDE_CODE.md`（306 行容器架構遷移指引）
+- `docs/ASSETS_MAP.md`（437 行 8-repo 整合容器資產地圖）
+- `docs/PRODUCT_VISION.md`（v0.2 框架版）
+- `docs/MVP_ARCHITECTURE.md`（v0.2 容器版）
+- `docs/decision_log.md`（v0.5 部分）
+- `docs/adapters/simulator_notes.md`（TurbineAdapter ABC 設計筆記）
+- `docs/design_notes/README.md`（z72_etech 取材設計筆記殼）
+- `docs/session_handoff.md`
+
+**程式 / scaffolding**
+
+- `api/adapters/`（SimulatorAdapter / Z72Adapter ABC 雛形）
+- `api/main.py` / `api/auth.py` / `api/config.py` / `api/models/`（容器骨架）
+- `alembic/` + `alembic.ini`（DB migration 框架）
+- `infra/`（容器 infra 設定）
+- `tests/`（v0.5 adapter ABC 的 unit tests）
+- `windmindom.egg-info/`（過渡期 setuptools 產物）
+- `pyproject.toml`（v0.5 plugin SDK 用 pyproject）
+
+**文件流**
+
+- `BOOTSTRAP.md`、`CHANGELOG.md`、`README.md`、`TODO.md`、`STATUS.yaml`、`ISSUES.md`、`CLAUDE.md`（v0.5 版本）
+- `docker-compose.yml`、`work-logs/`（v0.5）
+
+### Rationale
+
+1. **DEC-20260502-06 已拍板廢棄整套容器/plugin 架構** — 對應的設計文件、ABC 程式、
+   migration 指引在 v0.8.1 都失去 context；保留只會混淆未來 session
+2. **windMindOM v0.8.1 自有對等版本** — daily-workflow / templates / claude-code-templates
+   已單獨更新到 v1.1（早於本 session），不需要再從 v0.5 覆寫
+3. **git history 已保留** — `windFarmOM_bk/` 與 GitHub 上的舊 windMindOM repo 都還在，
+   隨時可回查；不需要把廢棄檔案複製到 windMindOM 內污染 codebase
+4. **真要撿回來時走「新 issue + 走 DEC」** — 本決策不是「永遠不准撿」，而是「不主動搬」
+
+### Consequences
+
+- ✅ `docs/sales/v05_assets_inventory.md` 是本決策的可執行附件（明列搬入/已現代化/棄用）
+- ✅ 本檔不再為 v0.5 廢棄物開新 DEC；除非有人想把某個檔案撿回來，才需要新 DEC 反向決策
+- ⚠️ `windFarmOM_bk/` 暫不刪；M2 結束後評估是否搬到 archive 目錄或刪除（git 仍保留）
+
+---
+
 ## v0.5 階段歷史決策摘要（DEC-01 ~ DEC-05）
 
 下面是 2026-05-02 早段 v0.1 → v0.5 規劃過程中的 5 個決策，**內容已被 DEC-06 整體 supersede**，但保留作歷史與 design reference。

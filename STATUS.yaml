@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 3
+  open: 2
   in_progress: 0
   blocked: 0
-  done: 2
+  done: 3
 
 inherited_baseline:
   source: digiWindTurbine
