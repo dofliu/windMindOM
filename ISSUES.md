@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 2 |
+| open | 1 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 3 |
+| done | 4 |
 | **total (active)** | **5** |
 
 最後更新：2026-05-03（WMOM-04 done；-02 範圍縮小，待認領；-05 待認領）
@@ -175,6 +175,8 @@
   - [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)（M1-M6 6 個月路線圖）
   - [`docs/product/decision_log.md`](docs/product/decision_log.md) DEC-20260502-06（v0.5→v0.8.1 pivot）
   - `CLAUDE.md` §15 「第一個客戶定 Z72」
+
+</details>
 
 ---
 
