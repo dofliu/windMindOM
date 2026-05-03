@@ -28,16 +28,20 @@
   - [x] `docker-compose` 設定驗證（**靜態**） ✅ 2026-05-03：YAML parse + COPY directives + env vars (DB_PATH, FARM_DATA_DIR) + volume mount + 相對路徑等價性 全部 PASS。實際 `docker compose up --build` deferred — 本機未裝 Docker Desktop，留給之後（部署 partner / 客戶端 / overnight 跑）做
   - [x] 重跑 `examples/data_quality_analysis.py` ✅ 2026-05-03：跑短版 0.17h × 5 turbines（3060 rows）→ 15/16 quality check pass，風速↔功率 r=+0.970、1P振動↔轉速 r=+0.944、無 NaN、無 out-of-range，物理鏈完整。完整 2h baseline 對照留給之後 overnight 跑。Driver：`modules/monitoring/examples/_post_migration_quick_validate.py`、Pre-migration baseline 已備份 `*_pre_migration_baseline.{txt,csv}`
 
+### 第一週收尾（提前完成）
+
+- [x] **WMOM-20260503-04** — Pitch deck v0.8.1（從零畫，A2 路線）✅ 2026-05-03 完成 — `docs/sales/pitch_deck_v0.8.1.pptx`（10 頁 Navy）+ outline.md + build script
+
 ### 第二、三週（2026-05-10 ~ 2026-05-23）
 
-- [ ] **WMOM-20260503-04** — Pitch deck v0.8.1 改版（Operator Basic/Pro/Enterprise + 5 modules 圖 + simulator-first demo flow）
+- [ ] **WMOM-20260503-02** — templates 盤點（範圍縮小：只剩盤點 templates/ + claude-code-templates/，pitch_deck 已併入 -04）
 - [ ] 整合 `pyproject.toml`（既有 digiWT deps + 預留 cost/workflow/RAG lib）
 - [ ] CHANGELOG.md 從零建立（記錄 v0.8.1 baseline 之後的變動）
 - [ ] 確認 `docs/routines/daily-workflow.md` 與本月實際跑的流程一致
+- [ ] **WMOM-20260503-05** — Friendly 客戶接觸名單（盤點 + 至少 1 場 demo）—— deck 已就位
 
 ### 第四週（2026-05-24 ~ 2026-05-30）
 
-- [ ] **WMOM-20260503-05** — Friendly 客戶接觸名單（盤點 + 至少 1 場 demo）
 - [ ] M1 月底 retro：更新 STATUS.yaml + ROADMAP M1 → done、決定 M2 第一週要先做哪個 risk validation
 
 ---
