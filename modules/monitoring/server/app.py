@@ -101,6 +101,9 @@ from server.routers.control import router as control_router  # noqa: E402
 from server.routers.maintenance import router as maintenance_router  # noqa: E402
 from server.routers.farms import router as farms_router  # noqa: E402
 
+# WMOM-20260504-07: cost module router (M2 cost API)
+from modules.cost.routers import router as cost_router  # noqa: E402
+
 app.include_router(turbines_router)
 app.include_router(config_router)
 app.include_router(export_router)
@@ -110,6 +113,7 @@ app.include_router(modbus_router)
 app.include_router(control_router)
 app.include_router(maintenance_router)
 app.include_router(farms_router)
+app.include_router(cost_router)
 
 
 @app.get("/api/health")

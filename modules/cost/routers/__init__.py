@@ -2,9 +2,19 @@
 
 不移植 ECN routers — windMindOM 自己設計 API 對齊 product flow。
 
-預定 endpoints（M2 後段，WMOM-20260504-07）：
-- POST /api/cost/forecast       觸發 cost calculation
-- GET  /api/cost/ledger         查詢實際成本（與 workflow 雙寫的 ledger）
-- GET  /api/cost/lcoe           LCOE dashboard 用
-- POST /api/cost/monte-carlo    Monte Carlo 風險分析
+Endpoints（WMOM-20260504-07 已實作）：
+
+| Method | Path                  | Body                | Response             |
+|--------|-----------------------|---------------------|----------------------|
+| POST   | /api/cost/forecast    | CostForecastRequest | CostForecastResponse |
+| POST   | /api/cost/lcoe        | LCOERequest         | LCOEResponse         |
+| POST   | /api/cost/monte-carlo | MonteCarloRequest   | MonteCarloResponse   |
+| POST   | /api/cost/var-fluct   | VarFluctRequest     | VarFluctResponse     |
+
+待補（M3+）：
+- GET /api/cost/ledger — 查詢實際成本（與 workflow 雙寫的 ledger）
 """
+
+from modules.cost.routers.cost_router import router
+
+__all__ = ["router"]

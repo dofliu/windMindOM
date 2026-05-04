@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 11 |
-| **total (active)** | **12** |
+| done | 12 |
+| **total (active)** | **13** |
 
-最後更新：2026-05-04（WMOM-20260504-09 SQLite 並發 lock 修復 — WAL + busy_timeout，3 stress test pass）
+最後更新：2026-05-04（WMOM-20260504-07 cost API done — 4 endpoints 上線，11 tests pass，整 cost module 41 tests）
 
 ---
 
@@ -240,6 +240,34 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-07 — FastAPI cost router（4 endpoints）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: high
+- **Estimate**: 0.5-1 工作天 → **實際 ~25 分鐘**
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ `modules/cost/routers/cost_router.py` (180 行) — 4 個 POST endpoints：
+    - POST /api/cost/forecast    — CostForecastRequest → CostForecastResponse
+    - POST /api/cost/lcoe         — LCOERequest → LCOEResponse
+    - POST /api/cost/monte-carlo  — MonteCarloRequest → MonteCarloResponse
+    - POST /api/cost/var-fluct    — VarFluctRequest → VarFluctResponse
+  - ✅ Mount 進主 FastAPI app (`modules/monitoring/server/app.py`)
+  - ✅ `modules/cost/tests/test_cost_api.py` (160 行) — **11 tests 全 PASS**：
+    - 4 endpoints × bit-perfect baseline 比對
+    - validation：unknown dataset → 422、n_simulations < 10 → 422
+    - var_fluct custom bathtub override / constant model
+  - ✅ 整 modules/ pytest：43 PASS + 1 XFAIL（cost 41 + monitoring 3，6.22s）
+  - ✅ Smoke test 主 app 4 routes 成功 mount 在 `/api/cost/*`
+- **可即時測試**: `python run.py` → `http://localhost:8100/docs` (FastAPI auto OpenAPI swagger)
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-cost-api.md`](work-logs/2026-05/2026-05-04-cost-api.md)
+  - [`modules/cost/routers/cost_router.py`](modules/cost/routers/cost_router.py)
+  - [`modules/cost/tests/test_cost_api.py`](modules/cost/tests/test_cost_api.py)
 
 ---
 
