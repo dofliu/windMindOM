@@ -6,6 +6,13 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from pathlib import Path
 
+try:
+    # Normal package import (when imported via `modules.monitoring.server.storage`)
+    from .sqlite_utils import open_sqlite
+except ImportError:
+    # sys.path-injected import (when imported via `server.storage` per run.py)
+    from sqlite_utils import open_sqlite  # type: ignore[no-redef]
+
 
 import os as _os
 DB_PATH = Path(_os.environ.get("DB_PATH", str(Path(__file__).parent.parent / "wind_farm_data.db")))
@@ -29,12 +36,14 @@ class Storage:
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self._db_path)
-            self._local.conn.row_factory = sqlite3.Row
+            # WAL + busy_timeout=5s — see sqlite_utils.open_sqlite for rationale.
+            # 修 #WMOM-20260504-09: 解決 maintenance thread 跑 cleanup 時其它 thread
+            # 撞到 "database is locked" 的並發問題。
+            self._local.conn = open_sqlite(self._db_path)
         return self._local.conn
 
     def _init_db(self):
-        conn = sqlite3.connect(self._db_path)
+        conn = open_sqlite(self._db_path)
 
         # ── Main raw data table (10s interval writes) ──
         conn.execute("""

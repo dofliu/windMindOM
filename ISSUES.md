@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 10 |
-| **total (active)** | **11** |
+| done | 11 |
+| **total (active)** | **12** |
 
-最後更新：2026-05-04（WMOM-20260504-06 cost adapter + schemas done — 4 test refactor 省 326 行，整 cost module 29 PASS + 1 XFAIL）
+最後更新：2026-05-04（WMOM-20260504-09 SQLite 並發 lock 修復 — WAL + busy_timeout，3 stress test pass）
 
 ---
 
@@ -240,6 +240,35 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-09 — SQLite 並發 lock 修復（hotfix）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M1 follow-up（hotfix，不在原規劃 issue 內）
+- **Priority**: high（production crash — 用戶實際跑 monitoring 時撞到）
+- **Estimate**: 0.25 工作天 → **實際 ~25 分鐘**
+- **Owner**: Claude (session 2026-05-04)
+- **Trigger**: 劉老師執行 `python run.py` 時 log 噴 `sqlite3.OperationalError: database is locked`，500 Error 在 `/api/maintenance/technicians`
+- **Root cause**:
+  - `Storage._get_conn()` 與 `FarmRegistry._get_conn()` 開 SQLite 沒設 PRAGMA
+  - 預設 `journal_mode=DELETE` + `busy_timeout=0` → 撞鎖立刻 raise
+  - 4 thread 並發（FastAPI handlers / DataBroker write / maintenance DELETE / simulator）撞鎖機率高
+- **Completion summary**:
+  - ✅ 新增 `modules/monitoring/server/sqlite_utils.py` (55 行) — `open_sqlite()` helper 統一設 WAL + synchronous=NORMAL + busy_timeout=5000
+  - ✅ 改 `storage.py` `_get_conn` + `_init_db` 用新 helper
+  - ✅ 改 `farm_registry.py` `_get_conn` 用新 helper
+  - ✅ 新增 `modules/monitoring/tests/test_storage_concurrency.py` (130 行) — 3 tests
+    - `test_pragmas_applied` — 驗證 connection 真的有 WAL + busy_timeout
+    - `test_concurrent_read_write_no_lock` — 4 thread 並發 1 秒，0 lock errors（reader×2 + writer + deleter，~8,800 ops）
+    - `test_storage_basic_crud_still_works` — regression: CRUD 仍正常
+  - ✅ 整 modules/ test suite：32 PASS + 1 XFAIL（cost 30 + monitoring 3）
+- **未動**: `modules/monitoring/scada_system.py` 的 4 個 sqlite3.connect()（看似 legacy，與 Storage 不共用 DB path，未在 crash 路徑上）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-sqlite-lock-fix.md`](work-logs/2026-05/2026-05-04-sqlite-lock-fix.md)
+  - [`modules/monitoring/server/sqlite_utils.py`](modules/monitoring/server/sqlite_utils.py)
+  - [`modules/monitoring/tests/test_storage_concurrency.py`](modules/monitoring/tests/test_storage_concurrency.py)
 
 ---
 

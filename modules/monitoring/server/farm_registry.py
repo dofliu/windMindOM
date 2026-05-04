@@ -14,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    from .sqlite_utils import open_sqlite
+except ImportError:
+    from sqlite_utils import open_sqlite  # type: ignore[no-redef]
+
 
 DATA_DIR = Path(os.environ.get(
     "FARM_DATA_DIR",
@@ -71,9 +76,9 @@ class FarmRegistry:
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._farms_db))
-        conn.row_factory = sqlite3.Row
-        return conn
+        # WAL + busy_timeout=5s — see sqlite_utils.open_sqlite for rationale.
+        # 修 #WMOM-20260504-09: 並發 lock 防護
+        return open_sqlite(self._farms_db)
 
     def _init_db(self):
         conn = self._get_conn()

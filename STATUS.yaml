@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 41
+progress: 42
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M2 後續 — WMOM-20260504-07 FastAPI cost router。adapter + 10 個 pydantic schema 已就位、29 tests pass。"
+next_milestone: "M2 後續 — WMOM-20260504-07 FastAPI cost router。adapter + 10 個 pydantic schema 已就位。M1 hotfix WMOM-09 已修 SQLite 並發 lock。"
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 0
   in_progress: 1
   blocked: 0
-  done: 10
+  done: 11
 
 inherited_baseline:
   source: digiWindTurbine
