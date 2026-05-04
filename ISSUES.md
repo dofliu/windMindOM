@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 3 |
-| in_progress | 1 |
+| open | 9 |
+| in_progress | 2 |
 | blocked | 0 |
-| done | 13 |
-| **total (active)** | **17** |
+| done | 14 |
+| **total (active)** | **25** |
 
-最後更新：2026-05-04（M2 100% done + 3 個 planning issue：cost↔farm / event ledger / frontend memory leak 觀察）
+最後更新：2026-05-04（M3 主線 7 個 sub-issue 開好；WMOM-14 z72_etech 取設計 in_progress — DN-01 雛形）
 
 ---
 
@@ -467,10 +467,27 @@
 
 ### WMOM-20260504-10 — Cost ↔ Wind farm config 整合（規劃缺口）
 
-- **Status**: open
-- **Milestone**: M3（建議）— **建議 M3 第一週做**，因為 Workflow 也會需要 farm context
+- **Status**: done（2026-05-04 完成 — M3 第一週插入工作）
+- **Milestone**: M3（第一週）
 - **Priority**: high（M2 demo OK 但對 friendly customer 不夠 personalize）
-- **Estimate**: 1-2 工作天
+- **Estimate**: 1-2 工作天 → **實際半天**（K13 overlay 模式收斂得快）
+- **Owner**: Claude (session 2026-05-04)
+- **Branch**: `claude/issue-20260504-10-2026-05-04`
+- **Work-log**: [`work-logs/2026-05/2026-05-04-cost-farm-integration.md`](work-logs/2026-05/2026-05-04-cost-farm-integration.md)
+- **Completion summary**:
+  - ✅ `cost_inputs.json` schema + `data/farms/{台中港曲風場,彰化離岸風場台電}/cost_inputs.json` 兩個 demo
+  - ✅ `adapter.py` 加 `FarmDatasetMeta` + `load_engine_params_from_farm()`：三層 lookup（farm_overlay → registry_derived → k13_fallback）
+  - ✅ `schemas/cost_schemas.py`：dataset 從 `Literal["k13"]` 改 str；4 個 response 加 optional `dataset_meta`
+  - ✅ `cost_router.py`：`_resolve_dataset()` 統一處理 `k13` / `farm:{id}` / 未知值（404）
+  - ✅ Tests +9：5 個 adapter farm loader（overlay / fallback / registry_derived / unknown / unknown_fields filter）+ 4 個 API endpoint（farm overlay / k13 meta / fallback / empty farm_id 422）
+  - ✅ Frontend `CostPage.tsx` 加 dataset selector dropdown（K13 + 動態 farm list 從 `/api/farms` 拉）+ `DatasetMetaBadge` 顯示 4 種 source；切 dataset 自動 re-run forecast
+  - ✅ `docs/product/MVP_ARCHITECTURE.md` 補節 5.4「Cost ↔ Farm config 整合」
+  - ✅ 整 modules pytest：52 PASS + 1 XFAIL（cost 49 / monitoring 3）；frontend Vite build 0 TS error
+- **Reference**:
+  - [`modules/cost/data/farms/README.md`](modules/cost/data/farms/README.md)
+  - [`modules/cost/adapter.py`](modules/cost/adapter.py)（`load_engine_params_from_farm` + `FarmDatasetMeta`）
+  - [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) §5.4
+  - [`work-logs/2026-05/2026-05-04-cost-farm-integration.md`](work-logs/2026-05/2026-05-04-cost-farm-integration.md)
 - **Source**: 劉老師 2026-05-04 收工提問："cost model 跟模擬風機 / 未來實際風機 有連結嗎？"
 - **問題描述**:
   目前 `modules/cost/adapter.py` 的 `load_k13_engine_params()` 完全 hard-coded 讀 K13 dataset
@@ -499,6 +516,31 @@
   - `docs/product/MVP_ARCHITECTURE.md` 補一節「Cost ↔ Farm config 整合」
 - **Reference**:
   - 已在 cost engine 的 K13_FTC_DEFAULTS / K13_MC_EQUIPMENT 是這個方向的 hard-code 版
+
+---
+
+### WMOM-20260504-13 — Cost 系列 fetch 加 AbortController 防 race
+
+- **Status**: open
+- **Milestone**: M5 / M6（不阻塞 demo）
+- **Priority**: low
+- **Estimate**: 0.25 工作天
+- **Source**: code-reviewer 對 WMOM-10 的 finding #5（2026-05-04）
+- **問題**:
+  - `useCostData` 的 `useAsync.run` 沒有 abort 機制
+  - React 18 Strict Mode dev 環境會 mount→unmount→mount，`useEffect([dataset])` 觸發兩次 fetch
+  - 若慢 fetch 比快 fetch 後回，會用舊 dataset 結果蓋新 dataset 結果（race）
+  - 用戶手動快速切 dataset 也會撞到同樣問題
+- **驗收**:
+  - 在 dev mode 切 dataset 5 次，最終顯示的 forecast 一定對應最後一次選的 dataset
+  - 取消舊 fetch 不會 throw 進 error state
+- **建議實作**:
+  - `useAsync.run` 內建立 `AbortController`，next run 前 abort 上一個
+  - fetch 受 AbortError 時不視為 error（直接 return）
+- **Reference**:
+  - `frontend/hooks/useCostData.ts`
+  - `frontend/services/costService.ts:postJSON`
+  - 本 review: WMOM-10 code-reviewer report finding #5
 
 ---
 
@@ -576,14 +618,145 @@
 
 ---
 
-## M3-M6 預留區（規劃時開新 issue）
+## M3 主線（2026-07）— Workflow Part 1: Work Order + Approval
 
-> 等對應 M 開始時 / 該月最後一個 session 開新 issue。
+> M3 主軸：從 z72_etech 取設計 → design notes → walkthrough → Work Order CRUD + 狀態機 + Approval。
+> 7 個 sub-issue。`WMOM-20260504-10` (cost↔farm) 已先在 M3 第一週插入完成。
+
+### WMOM-20260504-14 — z72_etech 取設計 + 3 份 design notes（**取材選 A**）
+
+- **Status**: in_progress（2026-05-04 開工 — 第一份 DN-01 雛形）
+- **Milestone**: M3
+- **Priority**: critical（**M3 spike**，blocking 後續 -16 / -17 / -18 設計決策）
+- **Estimate**: 1-2 工作天（單人讀完 ~20 個 module + 3 份 design notes）
+- **Owner**: Claude (session 2026-05-04 / 2026-05-05)
+- **Etech repo 路徑**: `D:\Project_CodingSimulation\researchTopic\windFarmMonitor\z72_SCADA_etech`
+- **Etech baseline**: `yitai-corp-cms-download1140811/`（2025-08-11 線上抓回）
+- **取材原則**：**僅取設計、不取程式**（CLAUDE.md §5）；產出 design notes 寫進 `docs/design-notes/m3/`，windMindOM 內全部重寫
+- **Description**:
+  劉老師 2026-05-04 給的 domain summary：
+  > etech 是 onshore 簡化版：故障 → 派工單 → 檢修 + 每日工作日誌 + 簽核 + (領料連庫存) → 連結人員 → work order；offshore 延伸 = vessel / weather window logistics
+
+  3 份 design notes：
+  1. **DN-01: Work Order Lifecycle** — repair/repairTemp/trackFrom/removeFrom 四 collection 的工單流程；onshore baseline + offshore 延伸 (vessel / WW / crew)
+  2. **DN-02: Approval Multi-level** — leadersign / supervisorsign / employeesign / affairsign 四個 sign collection 的權限分流（500/666/300/100 group）；windMindOM 統合為單表 + level 設計
+  3. **DN-03: Inventory ↔ Material Request** — `materialsForm` + `materialsFormNotic{,Led}` + 4 欄位（新品/良品/維修中/待檢驗）庫存模型（M4 主菜的前置）
+
+- **Deliverable**:
+  - [ ] `docs/design-notes/m3/DN-01-work-order-lifecycle.md`（**今天主軸**）
+  - [ ] `docs/design-notes/m3/DN-02-approval-multilevel.md`
+  - [ ] `docs/design-notes/m3/DN-03-inventory-material-request.md`
+  - [ ] `docs/design-notes/m3/README.md`（3 份 DN 索引 + etech repo 對照表）
+- **Reference**:
+  - 盤點報告：[`z72_SCADA_etech/專案盤點報告_2026-04-30.md`](../windFarmMonitor/z72_SCADA_etech/專案盤點報告_2026-04-30.md)
+  - 重構路線圖：[`z72_SCADA_etech/重構路線圖_2026-04-30.md`](../windFarmMonitor/z72_SCADA_etech/重構路線圖_2026-04-30.md)
+  - CLAUDE.md §5（z72_etech 取材選 A）
+  - CLAUDE.md §15（windMindOM 重寫不 fork etech 程式）
+
+---
+
+### WMOM-20260504-15 — 30 分鐘 walkthrough 跟劉老師確認 design notes
+
+- **Status**: open（依賴 -14 三份 DN 完成）
+- **Milestone**: M3
+- **Priority**: high
+- **Estimate**: 0.5 工作天
+- **Description**:
+  把 -14 的 3 份 DN 跑一遍，請劉老師驗證：
+  - 我對 etech 流程的理解有沒有誤解
+  - windMindOM 的 offshore 延伸方向（vessel / WW / crew / 雙 persona）對齊真實客戶需求
+  - 任何「etech 沒有的設計」是否該補（如 mobile field UX、RAG 警報整合 hook）
+  - 用「30 分鐘 walkthrough」的形式記錄問答進 DN 文件（增 `## walkthrough notes` 區塊）
+
+---
+
+### WMOM-20260504-16 — Work Order 領域模型 + 狀態機（pure domain）
+
+- **Status**: open（依賴 -14 DN-01 + -15 walkthrough confirm）
+- **Milestone**: M3
+- **Priority**: critical
+- **Estimate**: 1 工作天
+- **Description**:
+  根據 DN-01 寫 Python 領域模型（pure dataclass + enum + 狀態機 transitions）：
+  - `modules/workflow/domain/work_order.py`：`WorkOrder` dataclass / `WorkOrderStatus` Enum
+  - `modules/workflow/domain/state_machine.py`：states + allowed transitions + guard 條件
+  - `modules/workflow/tests/test_state_machine.py`：所有 transition 正例 / 反例
+  - **不接 SQLAlchemy / FastAPI**，純 domain 層；下個 issue 才 wrap
+
+---
+
+### WMOM-20260504-17 — Work Order CRUD + REST API + tests
+
+- **Status**: open（依賴 -16 domain model）
+- **Milestone**: M3
+- **Priority**: critical
+- **Estimate**: 1 工作天
+- **Description**:
+  - `modules/workflow/repository/work_order_repository.py`：SQLAlchemy / SQLite
+  - `modules/workflow/routers/work_order_router.py`：CRUD + 狀態 transition endpoints
+    - `POST /api/workflow/work-orders` (create draft)
+    - `POST /api/workflow/work-orders/{id}/dispatch` (transition)
+    - `POST /api/workflow/work-orders/{id}/start-work`
+    - `POST /api/workflow/work-orders/{id}/finish` + 含 followup 分支 (≡ etech `chooseschange`)
+    - `POST /api/workflow/work-orders/{id}/close`
+    - `GET /api/workflow/work-orders` (list with filter: status / farm_id / Hnumber)
+  - `modules/workflow/tests/test_work_order_api.py`
+
+---
+
+### WMOM-20260504-18 — Approval 多階簽核 + tests
+
+- **Status**: open（依賴 -14 DN-02 + -17 work order endpoints）
+- **Milestone**: M3
+- **Priority**: critical
+- **Estimate**: 1 工作天
+- **Description**:
+  根據 DN-02 把 etech 的 4 個 sign collection 統合：
+  - `modules/workflow/domain/signoff.py`：`Signoff` + `SignoffLevel` enum (employee / leader / supervisor / admin)
+  - `modules/workflow/routers/approval_router.py`：
+    - `GET /api/workflow/approvals/pending?user_role=...&user_id=...`（"我的待簽"）
+    - `POST /api/workflow/approvals/{id}/approve`
+    - `POST /api/workflow/approvals/{id}/reject`
+  - 工單完工 → 自動建 signoff entries (依 work order type + farm policy)
+  - tests: 單階簽核 / 多階串接 / reject / 並行多人
+
+---
+
+### WMOM-20260504-19 — `/admin/workflow/orders` frontend（建立精靈 + 列表 + 詳情）
+
+- **Status**: open（依賴 -17 API）
+- **Milestone**: M3
+- **Priority**: high
+- **Estimate**: 1-1.5 工作天
+- **Description**:
+  - `frontend/services/workOrderService.ts` (TypeScript API client)
+  - `frontend/hooks/useWorkOrders.ts`
+  - `frontend/components/WorkflowPage.tsx` 主入口
+  - `frontend/components/workflow/WorkOrderListPanel.tsx` 列表（含 status filter + Hnumber search）
+  - `frontend/components/workflow/CreateWorkOrderWizard.tsx` 建立精靈（多步：選風機 / 選故障代碼 / 派工人員 / 預估工時）
+  - `frontend/components/workflow/WorkOrderDetailModal.tsx` 詳情 + 狀態 transition 按鈕
+
+---
+
+### WMOM-20260504-20 — `/admin/workflow/approval` frontend（待簽列表 + 簽核操作）
+
+- **Status**: open（依賴 -18 API + -19 frontend baseline）
+- **Milestone**: M3
+- **Priority**: high
+- **Estimate**: 1 工作天
+- **Description**:
+  - `frontend/components/workflow/PendingApprovalPanel.tsx` 待簽列表（badge 含工單摘要 + 簽核層級）
+  - `frontend/components/workflow/ApprovalActionDialog.tsx` 簽核 / 駁回對話框（含意見輸入）
+  - 整合進 `WorkflowPage.tsx`（tab 切換 orders / approval）
+  - 全 zh / en i18n
+
+---
+
+## M2 後續 / M4-M6 預留區
+
 > ROADMAP 詳見 `docs/product/ROADMAP.md`。
 
-- M2 後續 (2026-06)：WMOM-20260504-03 (cost_cal) → -04 (monte_carlo) → -05 (var_fluct) → -06 (adapter) → -07 (API) → -08 (frontend)；模板見 `docs/legacy/ecn_engine_inventory.md` §8
-- M3 (2026-07)：z72_etech 取設計（5-7 天讀程式 → design notes → 30 分鐘 walkthrough）
-- M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向
+- M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向（依 DN-03）
 - M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）
 - M6 (2026-10)：Friendly 廠商現場部署 + 第一份月報送業主沒被退件 + 簽 LOI/合約
 

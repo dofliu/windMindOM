@@ -26,6 +26,8 @@ interface AsyncState<TData, TReq> {
   loading: boolean;
   error: string | null;
   run: (req?: TReq) => Promise<void>;
+  /** 清空 data + error（給 dataset 切換時 reset 用，避免顯示 stale 數字）。 */
+  reset: () => void;
 }
 
 function useAsync<TReq, TData>(
@@ -51,7 +53,12 @@ function useAsync<TReq, TData>(
     [fn],
   );
 
-  return { data, loading, error, run };
+  const reset = useCallback(() => {
+    setData(null);
+    setError(null);
+  }, []);
+
+  return { data, loading, error, run, reset };
 }
 
 export function useCostData() {

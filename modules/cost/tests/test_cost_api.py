@@ -56,8 +56,83 @@ def test_forecast_default_dataset_is_k13(client: TestClient):
 
 def test_forecast_unknown_dataset_404(client: TestClient):
     r = client.post("/api/cost/forecast", json={"dataset": "nonexistent"})
-    # pydantic Literal 驗證 → 422 (validation error)
+    # WMOM-10 後 dataset 改 str；router 在 _resolve_dataset 抛 404
+    assert r.status_code == 404
+    assert "Unknown dataset" in r.text
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Farm-aware dataset (WMOM-20260504-10)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_forecast_with_farm_overlay(client: TestClient):
+    """dataset='farm:台中港曲風場' → 套用 14×2 MW overrides，meta.source==farm_overlay。"""
+    r = client.post(
+        "/api/cost/forecast",
+        json={"dataset": "farm:台中港曲風場"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    meta = data["dataset_meta"]
+    assert meta["dataset_used"] == "farm:台中港曲風場"
+    assert meta["farm_id"] == "台中港曲風場"
+    assert meta["is_fallback"] is False
+    assert meta["source"] == "farm_overlay"
+    # 14×2 MW 規模 → revenue_loss 應顯著小於 K13 的 1.52e7
+    assert data["total_revenue_loss"] < 5e6
+
+
+def test_forecast_dataset_meta_present_for_k13(client: TestClient):
+    """k13 也要回 dataset_meta（source=k13_baseline, is_fallback=False）。"""
+    r = client.post("/api/cost/forecast", json={"dataset": "k13"})
+    assert r.status_code == 200, r.text
+    meta = r.json()["dataset_meta"]
+    assert meta["dataset_used"] == "k13"
+    assert meta["farm_id"] is None
+    assert meta["is_fallback"] is False
+    assert meta["source"] == "k13_baseline"
+
+
+def test_forecast_farm_unknown_falls_back_to_k13(client: TestClient):
+    """dataset='farm:does_not_exist' → fallback K13 + is_fallback=True。"""
+    r = client.post(
+        "/api/cost/forecast",
+        json={"dataset": "farm:totally_made_up_farm_xyz"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    meta = data["dataset_meta"]
+    assert meta["is_fallback"] is True
+    assert meta["source"] == "k13_fallback"
+    assert meta["farm_id"] == "totally_made_up_farm_xyz"
+    # 數字應該等於 K13 baseline
+    assert data["total_effort"] == 67964410.8982218
+
+
+def test_forecast_empty_farm_id_422(client: TestClient):
+    """dataset='farm:' → 422 (router 防呆)。"""
+    r = client.post("/api/cost/forecast", json={"dataset": "farm:"})
     assert r.status_code == 422
+    assert "farm_id" in r.text or "farm:" in r.text
+
+
+@pytest.mark.parametrize(
+    "bad_dataset",
+    [
+        "farm:../etc/passwd",         # path traversal
+        "farm:../../secrets",
+        "farm:foo/bar",                # 含 /
+        "farm:foo\\bar",               # 含 \
+        "farm:has internal space",    # 內含空白（外圍 strip 不掉）
+        "farm:tab\there",              # 含 tab
+    ],
+)
+def test_forecast_rejects_invalid_farm_id(client: TestClient, bad_dataset: str):
+    """非法 farm_id 字元 → 422，不可 silently fallback。"""
+    r = client.post("/api/cost/forecast", json={"dataset": bad_dataset})
+    assert r.status_code == 422, r.text
+    assert "farm_id" in r.text
 
 
 # ─────────────────────────────────────────────────────────────────────────

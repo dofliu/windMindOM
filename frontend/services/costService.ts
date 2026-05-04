@@ -9,7 +9,8 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 
 // ─── Request types ────────────────────────────────────────────────────────
 
-export type DatasetName = 'k13';
+/** Dataset 字串：'k13' 或 'farm:{farm_id}'（WMOM-20260504-10）。 */
+export type DatasetName = string;
 
 export interface CostForecastRequest {
   dataset?: DatasetName;
@@ -47,6 +48,15 @@ export interface VarFluctRequest {
 
 // ─── Response types ───────────────────────────────────────────────────────
 
+/** Cost API response 共用的 dataset 透明度資訊（WMOM-20260504-10）。 */
+export interface DatasetMeta {
+  dataset_used: string;
+  farm_id: string | null;
+  is_fallback: boolean;
+  source: 'k13_baseline' | 'farm_overlay' | 'registry_derived' | 'k13_fallback';
+  warning: string | null;
+}
+
 export interface SeasonalCostBreakdown {
   season: 'winter' | 'spring' | 'summer' | 'autumn';
   corrective_wt_material: number;
@@ -73,6 +83,7 @@ export interface CostForecastResponse {
   total_effort: number;
   cost_per_kwh: number;
   seasonal: Record<string, SeasonalCostBreakdown>;
+  dataset_meta?: DatasetMeta | null;
 }
 
 export interface LCOEResponse {
@@ -81,6 +92,7 @@ export interface LCOEResponse {
   opex_total_npv: number;
   energy_total_npv: number;
   total_cost_npv: number;
+  dataset_meta?: DatasetMeta | null;
 }
 
 export interface PercentileStats {
@@ -102,6 +114,7 @@ export interface MonteCarloResponse {
   seed: number;
   deterministic: CostForecastResponse;
   percentiles: MonteCarloPercentiles;
+  dataset_meta?: DatasetMeta | null;
 }
 
 export interface YearResultResponse {
@@ -134,6 +147,7 @@ export interface VarFluctSummaryResponse {
 export interface VarFluctResponse {
   yearly: YearResultResponse[];
   summary: VarFluctSummaryResponse;
+  dataset_meta?: DatasetMeta | null;
 }
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "farm_id": "台中港曲風場",
+  "name": "Z72-2000-MV 台中港曲風場",
+  "base_dataset": "k13",
+  "currency": "EUR",
+  "wind_farm_overrides": {
+    "nr_turbines": 14,
+    "capacity_kw": 2000,
+    "investment_cost_per_kw": 1100,
+    "kwh_price": 0.10,
+    "lifetime_years": 20,
+    "tech_yearly_salary": 70000,
+    "tech_count": {
+      "winter": 8,
+      "spring": 6,
+      "summer": 6,
+      "autumn": 7,
+      "year": 8
+    }
+  },
+  "notes": "台灣陸域 Z72 / 2 MW 配置；kwh_price 與 investment_cost 取自 2026 台電 onshore reference 換算 EUR。Component / FTC / Equipment / PM 沿用 K13 baseline，第二階段帶客戶實際 SCADA fault history 後再做 OEM-specific override。"
+}

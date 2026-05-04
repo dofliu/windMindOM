@@ -24,9 +24,25 @@ Migration baseline：
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# Numeric-coerce 對照（_apply_wind_farm_overrides 用）— 防 JSON 把 int 寫成 string
+_NUMERIC_FIELD_CASTS: dict[str, type] = {
+    "nr_turbines": int,
+    "lifetime_years": int,
+    "capacity_kw": float,
+    "investment_cost_per_kw": float,
+    "kwh_price": float,
+    "farm_efficiency": float,
+    "tech_hourly_rate": float,
+    "tech_yearly_salary": float,
+}
 
 from modules.cost.engine.cost_cal import CostCalResult
 from modules.cost.engine.cost_cal.data_classes import (
@@ -73,6 +89,7 @@ K13_MC_EQUIPMENT: dict[int, int | None] = {
 }
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data" / "demo"
+DEFAULT_FARMS_DIR = Path(__file__).resolve().parent / "data" / "farms"
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -92,6 +109,27 @@ class EngineParams:
     pm_schedules: list[PMParams]
     fixed_costs: list[FixedCostParams]
     poly_lookup: dict[tuple[int, str], WaitingTimePolynomial]
+
+
+@dataclass
+class FarmDatasetMeta:
+    """Cost API 回傳給前端的 dataset metadata。
+
+    讓客戶在 dashboard 上看得到「這次計算到底是用哪個 dataset、是否 fallback」。
+
+    source 值：
+    - ``k13_baseline``     — 純 K13 demo（dataset == "k13"）
+    - ``farm_overlay``     — 找到 ``cost_inputs.json``，套用 farm-specific overrides
+    - ``registry_derived`` — 沒有 cost_inputs.json，但 FarmRegistry 有此 farm，僅用其
+                             ``turbine_count`` + ``capacity_kw`` 推導 minimal overrides
+    - ``k13_fallback``     — 兩者皆無，退回 K13 + warning
+    """
+
+    dataset_used: str  # "k13" | "farm:{id}"
+    farm_id: str | None  # None when dataset_used == "k13"
+    is_fallback: bool  # True 表示「想要 farm-specific 但落到 K13」
+    source: str  # k13_baseline | farm_overlay | registry_derived | k13_fallback
+    warning: str | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -284,6 +322,186 @@ def load_k13_engine_params(
         pm_schedules=pm_schedules,
         fixed_costs=fixed_costs,
         poly_lookup=poly_lookup,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Farm-aware loader（K13 baseline + per-farm overrides）
+#
+# WMOM-20260504-10：客戶不應該被 hard-code K13（130 × 4 MW 北海離岸）綁住。
+# 三層 lookup：
+#   1. data/farms/{farm_id}/cost_inputs.json → wind_farm overrides
+#   2. FarmRegistry.get_farm(farm_id) → 從 turbine_count / rated_power_kw 推 overrides
+#   3. 兩者皆無 → 純 K13 + is_fallback=True
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _load_cost_inputs_json(
+    farm_id: str, farms_dir: Path | None = None
+) -> dict[str, Any] | None:
+    """讀取 farm 對應的 cost_inputs.json；找不到回 None。"""
+    fd = farms_dir or DEFAULT_FARMS_DIR
+    p = fd / farm_id / "cost_inputs.json"
+    if not p.exists():
+        return None
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _apply_wind_farm_overrides(
+    base: WindFarmParams, overrides: dict[str, Any]
+) -> WindFarmParams:
+    """以 dataclass.replace 套用覆寫；只認 ``WindFarmParams`` 既有欄位以避免亂填。
+
+    對 numeric 欄位做 type coerce（JSON 常把 int 寫成 string）；無效值 raise ValueError，
+    避免帶字串繼續跑、計算到一半才爆 TypeError 不好追。
+    """
+    valid_field_names = {f.name for f in fields(WindFarmParams)}
+    safe: dict[str, Any] = {}
+    for key, value in overrides.items():
+        if key not in valid_field_names:
+            continue
+        cast = _NUMERIC_FIELD_CASTS.get(key)
+        if cast is not None and value is not None:
+            try:
+                safe[key] = cast(value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"wind_farm_overrides.{key} 無法轉成 {cast.__name__}: {value!r}"
+                ) from e
+        else:
+            safe[key] = value
+    return replace(base, **safe)
+
+
+def _derive_overrides_from_registry(
+    farm_id: str, farm_registry: Any = None
+) -> dict[str, Any] | None:
+    """從 monitoring 的 FarmRegistry 推 minimum wind_farm overrides。
+
+    Returns ``None`` when registry 無法存取 / 找不到此 farm。
+
+    Exception handling 分兩層：
+    - ``ImportError`` — monitoring layer 不存在（合理：cost module 可獨立部署）→ silent
+    - 其他 Exception — registry init / get_farm 出狀況（DB 權限、corrupt schema...）→
+      log warning，避免「明明設定對 farm-specific 卻 silently 退回 K13」debug 不到根因
+    """
+    reg = farm_registry
+    if reg is None:
+        try:
+            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
+
+            reg = FarmRegistry()
+        except ImportError:
+            return None
+        except Exception as e:
+            logger.warning(
+                "FarmRegistry 初始化失敗，cost module 將跳過 registry-derived overrides: %s",
+                e,
+            )
+            return None
+
+    try:
+        farm = reg.get_farm(farm_id)
+    except Exception as e:
+        logger.warning("FarmRegistry.get_farm(%r) 失敗：%s", farm_id, e)
+        return None
+    if farm is None:
+        return None
+
+    overrides: dict[str, Any] = {}
+    if getattr(farm, "turbine_count", None):
+        overrides["nr_turbines"] = farm.turbine_count
+    rated = (getattr(farm, "turbine_spec", None) or {}).get("rated_power_kw")
+    if rated:
+        overrides["capacity_kw"] = float(rated)
+    return overrides if overrides else None
+
+
+def load_engine_params_from_farm(
+    farm_id: str,
+    stochastic: bool = False,
+    farm_registry: Any = None,
+    farms_dir: Path | None = None,
+    data_dir: Path | None = None,
+) -> tuple[EngineParams, FarmDatasetMeta]:
+    """載入 farm-aware engine params（K13 baseline + overlay）。
+
+    K13 component / FTC / equipment / PM / fixed_cost / waiting-time polynomial 全沿用，
+    僅 ``WindFarmParams`` 級欄位可被 farm-specific 覆寫。
+
+    Args:
+        farm_id: 與 monitoring/farm_registry 一致的 farm 識別符。
+        stochastic: 同 ``load_k13_engine_params``，給 monte_carlo 用。
+        farm_registry: 可選；測試可注入 mock。預設 lazy-import monitoring 的 singleton。
+        farms_dir: 覆寫 cost_inputs.json 根目錄（測試用）。
+        data_dir: 覆寫 K13 demo 根目錄（測試用）。
+
+    Returns:
+        ``(EngineParams, FarmDatasetMeta)`` — meta 透露實際走哪一層 lookup。
+    """
+    base = load_k13_engine_params(data_dir=data_dir, stochastic=stochastic)
+
+    # Tier 1: explicit cost_inputs.json
+    cost_inputs = _load_cost_inputs_json(farm_id, farms_dir=farms_dir)
+    if cost_inputs is not None:
+        overrides = cost_inputs.get("wind_farm_overrides", {}) or {}
+        new_wind_farm = _apply_wind_farm_overrides(base.wind_farm, overrides)
+        # 提醒客戶：M3 第一週 overlay 模式僅 scope wind_farm 級參數；component / FTC /
+        # equipment 沿用 K13 (offshore reference)，onshore 場合的 logistics / equipment cost
+        # 可能高估。第二客戶上線時延伸到 component-level override 解決。
+        meta = FarmDatasetMeta(
+            dataset_used=f"farm:{farm_id}",
+            farm_id=farm_id,
+            is_fallback=False,
+            source="farm_overlay",
+            warning=(
+                "Component / FTC / equipment 沿用 K13 (130×4 MW offshore reference)；"
+                "若為 onshore 風場，logistics / equipment cost 可能偏高 — 第二階段帶客戶實際 SCADA "
+                "fault history 後做 OEM-specific override。"
+            ),
+        )
+        return _replace_wind_farm(base, new_wind_farm), meta
+
+    # Tier 2: derive from FarmRegistry
+    derived = _derive_overrides_from_registry(farm_id, farm_registry)
+    if derived is not None:
+        new_wind_farm = _apply_wind_farm_overrides(base.wind_farm, derived)
+        meta = FarmDatasetMeta(
+            dataset_used=f"farm:{farm_id}",
+            farm_id=farm_id,
+            is_fallback=False,
+            source="registry_derived",
+            warning=(
+                f"farm '{farm_id}' 無 cost_inputs.json，"
+                "僅從 farm registry 推導 nr_turbines / capacity_kw；其餘沿用 K13"
+            ),
+        )
+        return _replace_wind_farm(base, new_wind_farm), meta
+
+    # Tier 3: pure K13 fallback
+    meta = FarmDatasetMeta(
+        dataset_used="k13",
+        farm_id=farm_id,
+        is_fallback=True,
+        source="k13_fallback",
+        warning=(
+            f"找不到 farm '{farm_id}' 的 cost_inputs.json，FarmRegistry 也無此 farm — "
+            "已套用 K13 預設"
+        ),
+    )
+    return base, meta
+
+
+def _replace_wind_farm(params: EngineParams, new_wind_farm: WindFarmParams) -> EngineParams:
+    """共用：用新 wind_farm 重組 EngineParams（其他欄位保持 reference 沿用）。"""
+    return EngineParams(
+        wind_farm=new_wind_farm,
+        components=params.components,
+        equipment_list=params.equipment_list,
+        pm_schedules=params.pm_schedules,
+        fixed_costs=params.fixed_costs,
+        poly_lookup=params.poly_lookup,
     )
 
 

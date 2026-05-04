@@ -20,8 +20,33 @@ from pydantic import BaseModel, Field
 # Common
 # ─────────────────────────────────────────────────────────────────────────
 
-DatasetName = Literal["k13"]
-"""支援的 demo dataset 名稱。M2 PoC 只有 k13；之後加 user-upload mode。"""
+DatasetName = str
+"""支援的 dataset 字串。
+
+合法格式：
+
+- ``"k13"`` — K13 demo baseline（130 × 4 MW 北海離岸 reference）
+- ``"farm:{farm_id}"`` — 指定 farm（與 monitoring/farm_registry 共用 ID），
+  從 ``modules/cost/data/farms/{farm_id}/cost_inputs.json`` 套用 overrides；
+  未提供 cost_inputs.json 時嘗試從 FarmRegistry 推導；皆無則 fallback K13。
+
+WMOM-20260504-10：擴成自由字串以支援 farm-specific dataset。
+"""
+
+
+class DatasetMeta(BaseModel):
+    """Cost API 回應的 dataset 透明度資訊。
+
+    讓前端能顯示「這次計算是用哪個 dataset、是否 fallback、有沒有 warning」。
+    """
+
+    dataset_used: str = Field(description='實際使用的 dataset string，例：k13 / farm:台中港曲風場')
+    farm_id: str | None = Field(default=None, description="對應的 farm_id；純 K13 時為 None")
+    is_fallback: bool = Field(default=False, description="True 表示原始要 farm-specific 但落到 K13")
+    source: Literal["k13_baseline", "farm_overlay", "registry_derived", "k13_fallback"] = Field(
+        description="dataset 來源層級"
+    )
+    warning: str | None = Field(default=None, description="可選的人類可讀警告訊息")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -31,7 +56,7 @@ DatasetName = Literal["k13"]
 class CostForecastRequest(BaseModel):
     """POST /api/cost/forecast 的 request body。"""
 
-    dataset: DatasetName = Field(default="k13", description="Demo dataset name")
+    dataset: DatasetName = Field(default="k13", description="Dataset name. 'k13' or 'farm:{farm_id}'")
 
 
 class SeasonalCostBreakdown(BaseModel):
@@ -71,6 +96,9 @@ class CostForecastResponse(BaseModel):
     seasonal: dict[str, SeasonalCostBreakdown] = Field(
         description="4-season breakdown (keys: winter/spring/summer/autumn)"
     )
+    dataset_meta: DatasetMeta | None = Field(
+        default=None, description="Dataset 來源透明度資訊（WMOM-10 起回傳）"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -93,6 +121,7 @@ class LCOEResponse(BaseModel):
     opex_total_npv: float = Field(description="OPEX NPV over lifetime (EUR)")
     energy_total_npv: float = Field(description="Energy NPV over lifetime (MWh)")
     total_cost_npv: float = Field(description="CAPEX + OPEX NPV (EUR)")
+    dataset_meta: DatasetMeta | None = Field(default=None)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -132,6 +161,7 @@ class MonteCarloResponse(BaseModel):
     seed: int
     deterministic: CostForecastResponse
     percentiles: MonteCarloPercentiles
+    dataset_meta: DatasetMeta | None = Field(default=None)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -196,3 +226,4 @@ class VarFluctResponse(BaseModel):
 
     yearly: list[YearResultResponse]
     summary: VarFluctSummaryResponse
+    dataset_meta: DatasetMeta | None = Field(default=None)

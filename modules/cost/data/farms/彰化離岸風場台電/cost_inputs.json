@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "farm_id": "彰化離岸風場台電",
+  "name": "彰化離岸風場（台電示範案）",
+  "base_dataset": "k13",
+  "currency": "EUR",
+  "wind_farm_overrides": {
+    "nr_turbines": 7,
+    "capacity_kw": 8000,
+    "investment_cost_per_kw": 2800,
+    "kwh_price": 0.16,
+    "lifetime_years": 25,
+    "tech_yearly_salary": 95000,
+    "tech_count": {
+      "winter": 12,
+      "spring": 10,
+      "summer": 10,
+      "autumn": 11,
+      "year": 12
+    }
+  },
+  "notes": "台灣離岸示範案 7 × 8 MW 配置；kwh_price 取台電離岸風電 FIT 級距換算 EUR；offshore investment cost 顯著高於 onshore。Component / FTC / Equipment / PM 沿用 K13 baseline（同為大型海上風電 reference）。"
+}
