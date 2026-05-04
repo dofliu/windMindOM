@@ -1,0 +1,96 @@
+{
+  "preventive_maintenance": [
+    {
+      "description": "Regular WT preventive maintenance",
+      "type_wt_bop": 0,
+      "pct_windfarm_shutdown": 1,
+      "occurrences_lifetime": 16,
+      "duration_hrs": 24,
+      "crew_size": 3,
+      "material_costs_euro": 10000,
+      "equipment_type": 1,
+      "equipment_name": "Windcat",
+      "weather_window": 3,
+      "travel_time_hr": 0.5,
+      "length_working_day": 0,
+      "season_distribution": {
+        "winter": 0,
+        "spring": 0.35,
+        "summer": 0.55,
+        "autumn": 0.1
+      }
+    },
+    {
+      "description": "Large WT preventive maintenance",
+      "type_wt_bop": 0,
+      "pct_windfarm_shutdown": 1,
+      "occurrences_lifetime": 3,
+      "duration_hrs": 48,
+      "crew_size": 6,
+      "material_costs_euro": 30000,
+      "equipment_type": 1,
+      "equipment_name": "Windcat",
+      "weather_window": 3,
+      "travel_time_hr": 0.5,
+      "length_working_day": 0,
+      "season_distribution": {
+        "winter": 0,
+        "spring": 0.35,
+        "summer": 0.55,
+        "autumn": 0.1
+      }
+    },
+    {
+      "description": "Regular BOP preventive maintenance",
+      "type_wt_bop": 1,
+      "pct_windfarm_shutdown": 0,
+      "occurrences_lifetime": 19,
+      "duration_hrs": 160,
+      "crew_size": 0,
+      "material_costs_euro": 10000,
+      "equipment_type": 5,
+      "equipment_name": "Diving support vessel",
+      "weather_window": 9,
+      "travel_time_hr": 0,
+      "length_working_day": 0,
+      "season_distribution": {
+        "winter": 0,
+        "spring": 0.35,
+        "summer": 0.55,
+        "autumn": 0.1
+      }
+    }
+  ],
+  "fixed_yearly_costs": [
+    {
+      "nr": 1,
+      "description": "Labour",
+      "total_euro": 8100000,
+      "season_distribution": {
+        "winter_pct": 0.24074074074074073,
+        "winter_euro": 1950000,
+        "spring_pct": 0.19444444444444445,
+        "spring_euro": 1575000,
+        "summer_pct": 0.19444444444444445,
+        "summer_euro": 1575000,
+        "autumn_pct": 0.23148148148148148,
+        "autumn_euro": 1875000
+      }
+    },
+    {
+      "nr": 2,
+      "description": "Equipment",
+      "total_euro": 14400000,
+      "season_distribution": {
+        "winter_pct": 0.25,
+        "winter_euro": 3600000,
+        "spring_pct": 0.25,
+        "spring_euro": 3600000,
+        "summer_pct": 0.25,
+        "summer_euro": 3600000,
+        "autumn_pct": 0.25,
+        "autumn_euro": 3600000
+      }
+    }
+  ]
+}

@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 5 |
-| **total (active)** | **6** |
+| done | 6 |
+| **total (active)** | **7** |
 
-最後更新：2026-05-04（M2 開工：WMOM-20260504-01 K13 baseline + skeleton done）
+最後更新：2026-05-04（WMOM-20260504-02 waiting_time engine migration done，bit-perfect）
 
 ---
 
@@ -243,12 +243,38 @@
 
 ---
 
+### WMOM-20260504-02 — `engine/waiting_time/` 移植 + K13 equivalence
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: high（migration pattern 樹立用）
+- **Estimate**: 0.5 工作天
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ 7 engine files (1,059 lines) 從 ECN 複製到 `modules/cost/engine/waiting_time/`，sed 一鍵改 import path
+  - ✅ Stub `data_processor.preprocess_metocean_data()` — 唯一 ECN-specific 依賴（function-level lazy import 到 SQLAlchemy ORM），engine pipeline 不會走到
+  - ✅ K13 demo data (7 檔，~32k 行) 搬到 `modules/cost/data/demo/`
+  - ✅ ECN test 適配 → `modules/cost/tests/test_waiting_time.py`：path 改、return → assert、加 xfail with reason
+  - ✅ 加 `test_migration_equivalence_pinned`：用 `repr()` 取 ECN float64 完整精度做 pin，windMindOM 必須 bit-perfect 一致
+  - ✅ 4 tests 結果：3 PASS（含 migration equivalence）+ 1 XFAIL（pre-existing ECN issue：spring/summer K13 ref 對不上 ECN compute，與 migration 無關）
+- **Migration pattern 樹立**（後續 cost_cal / monte_carlo / var_fluct 沿用）:
+  1. cp + sed 改 import
+  2. grep `from app\.` 找 ECN-specific 依賴 → stub or migrate
+  3. 適配 test：path 改、return → assert
+  4. 加 pinned equivalence test 用 `repr()` 取精度
+  5. xfail with reason 標記 pre-existing ECN issue
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-waiting-time-migration.md`](work-logs/2026-05/2026-05-04-waiting-time-migration.md)（session 紀錄）
+  - [`modules/cost/tests/test_waiting_time.py`](modules/cost/tests/test_waiting_time.py)（4 tests）
+
+---
+
 ## M3-M6 預留區（規劃時開新 issue）
 
 > 等對應 M 開始時 / 該月最後一個 session 開新 issue。
 > ROADMAP 詳見 `docs/product/ROADMAP.md`。
 
-- M2 後續 (2026-06)：WMOM-20260504-02 (waiting_time) → -03 (cost_cal) → -04 (monte_carlo) → -05 (var_fluct) → -06 (adapter) → -07 (API) → -08 (frontend)；模板見 `docs/legacy/ecn_engine_inventory.md` §8
+- M2 後續 (2026-06)：WMOM-20260504-03 (cost_cal) → -04 (monte_carlo) → -05 (var_fluct) → -06 (adapter) → -07 (API) → -08 (frontend)；模板見 `docs/legacy/ecn_engine_inventory.md` §8
 - M3 (2026-07)：z72_etech 取設計（5-7 天讀程式 → design notes → 30 分鐘 walkthrough）
 - M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向
 - M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）

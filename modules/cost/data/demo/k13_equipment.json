@@ -1,0 +1,218 @@
+[
+  {
+    "nr": 1,
+    "description": "Windcat",
+    "weather_window_normal": 3,
+    "normal_day": {
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5
+    },
+    "weather_window_long": 4,
+    "long_day": {
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5
+    },
+    "availability_nr": 3,
+    "logistic_time_hr": 0,
+    "travel_time_hr": 0.5,
+    "fixed_cost_freq_type": 0,
+    "fixed_cost_euro_per_year": 800000,
+    "mob_demob_cost_euro": 0
+  },
+  {
+    "nr": 2,
+    "description": "Helicopter WT",
+    "weather_window_normal": 11,
+    "normal_day": {
+      "vw": 12,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": 0,
+    "logistic_time_hr": 0,
+    "travel_time_hr": 0.5,
+    "fixed_cost_freq_type": 0,
+    "fixed_cost_euro_per_year": 2400000,
+    "mob_demob_cost_euro": 0
+  },
+  {
+    "nr": 3,
+    "description": "Helicopter BOP",
+    "weather_window_normal": 12,
+    "normal_day": {
+      "vw": 20,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": 8,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": 1,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": 6000
+  },
+  {
+    "nr": 4,
+    "description": "Jack-up barge (100 MT)",
+    "weather_window_normal": 8,
+    "normal_day": {
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": 2,
+    "long_day": {
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": 720,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": 1,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": 350000
+  },
+  {
+    "nr": 5,
+    "description": "Diving support vessel",
+    "weather_window_normal": 9,
+    "normal_day": {
+      "vw": 25,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": 360,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": 1,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": 150000
+  },
+  {
+    "nr": 6,
+    "description": "Cable laying vessel",
+    "weather_window_normal": 7,
+    "normal_day": {
+      "vw": 25,
+      "hs": 1,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": 720,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": 1,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": 450000
+  },
+  {
+    "nr": 7,
+    "description": "Turbine crane",
+    "weather_window_normal": 1,
+    "normal_day": {
+      "vw": 10,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": null,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": null,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": null
+  },
+  {
+    "nr": 8,
+    "description": "Mother vessel - Ampelmann",
+    "weather_window_normal": 10,
+    "normal_day": {
+      "vw": 12,
+      "hs": 4,
+      "hsd_max": 360,
+      "hsd_min": 0
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": 1,
+    "logistic_time_hr": 0,
+    "travel_time_hr": 0.5,
+    "fixed_cost_freq_type": 0,
+    "fixed_cost_euro_per_year": 12000000,
+    "mob_demob_cost_euro": 0
+  },
+  {
+    "nr": 9,
+    "description": "Blade inspection",
+    "weather_window_normal": 13,
+    "normal_day": {
+      "vw": 8,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5
+    },
+    "weather_window_long": null,
+    "long_day": {
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0
+    },
+    "availability_nr": null,
+    "logistic_time_hr": null,
+    "travel_time_hr": null,
+    "fixed_cost_freq_type": null,
+    "fixed_cost_euro_per_year": null,
+    "mob_demob_cost_euro": null
+  }
+]

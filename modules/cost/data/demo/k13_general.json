@@ -1,0 +1,145 @@
+{
+  "wind_farm_name": "ECN O&M Tool V5 Case Study",
+  "kwh_price": 0.13,
+  "number_of_turbines": 130,
+  "lifetime_years": 20,
+  "wind_farm_efficiency": 0.9,
+  "wind_profile_exponent": 0.1,
+  "turbine": {
+    "type": "Name WTB 4.0 MW",
+    "p_rated_kw": 4000,
+    "investment_costs_euro_per_kw": 1250,
+    "hub_height_m": 85,
+    "v_in_ms": 4,
+    "v_out_ms": 25
+  },
+  "pv_curve": [
+    {
+      "v_ms": 4,
+      "p_kw": 88.88888888888889
+    },
+    {
+      "v_ms": 5,
+      "p_kw": 264.44444444444446
+    },
+    {
+      "v_ms": 6,
+      "p_kw": 526.6666666666667
+    },
+    {
+      "v_ms": 7,
+      "p_kw": 891.1111111111112
+    },
+    {
+      "v_ms": 8,
+      "p_kw": 1371.1111111111113
+    },
+    {
+      "v_ms": 9,
+      "p_kw": 1970
+    },
+    {
+      "v_ms": 10,
+      "p_kw": 2643.3333333333335
+    },
+    {
+      "v_ms": 11,
+      "p_kw": 3275.555555555555
+    },
+    {
+      "v_ms": 12,
+      "p_kw": 3704.444444444445
+    },
+    {
+      "v_ms": 13,
+      "p_kw": 3905.555555555555
+    },
+    {
+      "v_ms": 14,
+      "p_kw": 3974.444444444445
+    },
+    {
+      "v_ms": 15,
+      "p_kw": 3993.3333333333335
+    },
+    {
+      "v_ms": 16,
+      "p_kw": 3998.8888888888887
+    },
+    {
+      "v_ms": 17,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 18,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 19,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 20,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 21,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 22,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 23,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 24,
+      "p_kw": 4000
+    },
+    {
+      "v_ms": 25,
+      "p_kw": 4000
+    }
+  ],
+  "capacity_factors": {
+    "winter": 0.5949237734309356,
+    "spring": 0.3925537129692737,
+    "summer": 0.28147393399476056,
+    "autumn": 0.5257483680379822,
+    "year": 0.4477833609443246
+  },
+  "weighing_factors": {
+    "winter": 0.25,
+    "spring": 0.25,
+    "summer": 0.25,
+    "autumn": 0.25
+  },
+  "working_day": {
+    "normal_shifts": {
+      "winter": 1,
+      "spring": 1,
+      "summer": 1,
+      "autumn": 1,
+      "year": 1
+    }
+  },
+  "technician_costs": {
+    "yearly_salary": 150000,
+    "employed_technicians": {
+      "winter": 52,
+      "spring": 42,
+      "summer": 42,
+      "autumn": 50,
+      "year": 54
+    },
+    "total_salary_cost": {
+      "winter": 1950000,
+      "spring": 1575000,
+      "summer": 1575000,
+      "autumn": 1875000,
+      "year": 8100000
+    }
+  }
+}

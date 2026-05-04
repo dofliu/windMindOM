@@ -1,0 +1,252 @@
+{
+  "definition_sheet": [
+    {
+      "window_nr": 10,
+      "vw": 12,
+      "hs": 4,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 1,
+      "vw": 10,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 2,
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 1,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 3,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 4,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 1,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 5,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 6,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 1,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 7,
+      "vw": 25,
+      "hs": 1,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 8,
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 9,
+      "vw": 25,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 10,
+      "vw": 12,
+      "hs": 4,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 11,
+      "vw": 12,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 12,
+      "vw": 20,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0,
+      "h_vw": 85
+    },
+    {
+      "window_nr": 13,
+      "vw": 8,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 0,
+      "h_vw": 85
+    }
+  ],
+  "equipment_sheet": [
+    {
+      "window_nr": 1,
+      "vw": 10,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 2,
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 1
+    },
+    {
+      "window_nr": 3,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 0
+    },
+    {
+      "window_nr": 4,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 1
+    },
+    {
+      "window_nr": 5,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 6,
+      "vw": 12,
+      "hs": 1.5,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 1
+    },
+    {
+      "window_nr": 7,
+      "vw": 25,
+      "hs": 1,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 8,
+      "vw": 10,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 9,
+      "vw": 25,
+      "hs": 2,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 10,
+      "vw": 12,
+      "hs": 4,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 11,
+      "vw": 12,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 12,
+      "vw": 20,
+      "hs": 10,
+      "hsd_max": 360,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 13,
+      "vw": 8,
+      "hs": 1.5,
+      "hsd_max": 355,
+      "hsd_min": 5,
+      "lwd": 0
+    },
+    {
+      "window_nr": 14,
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0,
+      "lwd": 0
+    },
+    {
+      "window_nr": 15,
+      "vw": 0,
+      "hs": 0,
+      "hsd_max": 0,
+      "hsd_min": 0,
+      "lwd": 0
+    }
+  ]
+}

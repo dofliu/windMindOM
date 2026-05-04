@@ -1,0 +1,837 @@
+{
+  "maintenance_categories": [
+    {
+      "category_nr": 1,
+      "description": "no crew, Repair = 2 hr, no costs",
+      "ftc_nr": 1,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0,
+      "material_cost_max": 0.00012,
+      "material_cost_euro": 0,
+      "crew_size": 0
+    },
+    {
+      "category_nr": 2,
+      "description": "small crew, Repair = 4 hr, consumables",
+      "ftc_nr": 2,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.0001,
+      "material_cost_max": 0.00012,
+      "material_cost_euro": 500,
+      "crew_size": 3
+    },
+    {
+      "category_nr": 3,
+      "description": "small crew, Repair = 8 hr, consumables",
+      "ftc_nr": 3,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.0001,
+      "material_cost_max": 0.0012,
+      "material_cost_euro": 500,
+      "crew_size": 3
+    },
+    {
+      "category_nr": 4,
+      "description": "small crew, Repair = 8 hr, low costs",
+      "ftc_nr": 4,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.001,
+      "material_cost_max": 0.0012,
+      "material_cost_euro": 5000,
+      "crew_size": 3
+    },
+    {
+      "category_nr": 4,
+      "description": "small crew, Repair = 16 hr, low costs",
+      "ftc_nr": 5,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.001,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 5000,
+      "crew_size": 3
+    },
+    {
+      "category_nr": 4,
+      "description": "large crew, Repair = 16 hr, medium costs",
+      "ftc_nr": 6,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.01,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 50000,
+      "crew_size": 4
+    },
+    {
+      "category_nr": 4,
+      "description": "large crew, Repair = 24 hr, medium costs",
+      "ftc_nr": 7,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.01,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 50000,
+      "crew_size": 4
+    },
+    {
+      "category_nr": 4,
+      "description": "large crew, Repair = 24 hr, high costs",
+      "ftc_nr": 8,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.05,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 250000,
+      "crew_size": 4
+    },
+    {
+      "category_nr": 5,
+      "description": "small crew, Repair = 8 hr, low costs",
+      "ftc_nr": 9,
+      "type_corr_cbm": 1,
+      "material_cost_pct": 0.001,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 5000,
+      "crew_size": 3
+    },
+    {
+      "category_nr": 5,
+      "description": "large crew, Repair = 16 hr, medium costs",
+      "ftc_nr": 10,
+      "type_corr_cbm": 1,
+      "material_cost_pct": 0.01,
+      "material_cost_max": 0.12,
+      "material_cost_euro": 50000,
+      "crew_size": 4
+    },
+    {
+      "category_nr": 6,
+      "description": "large crew, Repair = 24 hr, medium/high costs",
+      "ftc_nr": 11,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.02,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 100000,
+      "crew_size": 6
+    },
+    {
+      "category_nr": 6,
+      "description": "large crew, Repair = 40 hr, medium/high costs",
+      "ftc_nr": 12,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.02,
+      "material_cost_max": 0.12,
+      "material_cost_euro": 100000,
+      "crew_size": 6
+    },
+    {
+      "category_nr": 6,
+      "description": "large crew, Repair = 40 hr, very high costs",
+      "ftc_nr": 13,
+      "type_corr_cbm": 0,
+      "material_cost_pct": 0.1,
+      "material_cost_max": 0.012,
+      "material_cost_euro": 500000,
+      "crew_size": 6
+    }
+  ],
+  "components": [
+    {
+      "name": "MDA10 - Rotor system - blades",
+      "annual_failure_freq": 0.0653,
+      "annual_failure_freq_min": 0.2025,
+      "annual_failure_freq_ml": 0.405,
+      "annual_failure_freq_max": 0.81,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.4,
+          "annual_failure_freq": 0.0653,
+          "cumulative_freq": 0.02612,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 3,
+          "probability": 0.1,
+          "annual_failure_freq": 0.00653,
+          "cumulative_freq": 0.00653,
+          "additional_inspections": null,
+          "ftc": 3,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.15,
+          "annual_failure_freq": 0.009795,
+          "cumulative_freq": 0.009795,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.25,
+          "annual_failure_freq": 0.016325,
+          "cumulative_freq": 0.016325,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.1,
+          "annual_failure_freq": 0.00653,
+          "cumulative_freq": 0.00653,
+          "additional_inspections": 2,
+          "ftc": 13,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MDA20 - Rotor system - Hub",
+      "annual_failure_freq": 0.0653,
+      "annual_failure_freq_min": 0.05625,
+      "annual_failure_freq_ml": 0.1125,
+      "annual_failure_freq_max": 0.225,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.65,
+          "annual_failure_freq": 0.068565,
+          "cumulative_freq": 0.042445,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.15,
+          "annual_failure_freq": 0.009795,
+          "cumulative_freq": 0.009795,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.15,
+          "annual_failure_freq": 0.009795,
+          "cumulative_freq": 0.009795,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.05,
+          "annual_failure_freq": 0.003265,
+          "cumulative_freq": 0.003265,
+          "additional_inspections": 2,
+          "ftc": 12,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 100000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MDC - Blade adjustment",
+      "annual_failure_freq": 0.9779,
+      "annual_failure_freq_min": 0.03375,
+      "annual_failure_freq_ml": 0.0675,
+      "annual_failure_freq_max": 0.135,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.65,
+          "annual_failure_freq": 0.831215,
+          "cumulative_freq": 0.6356350000000001,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.1,
+          "annual_failure_freq": 0.09779,
+          "cumulative_freq": 0.09779,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 5,
+          "probability": 0.2,
+          "annual_failure_freq": 0.19558,
+          "cumulative_freq": 0.19558,
+          "additional_inspections": null,
+          "ftc": 9,
+          "type_corr_cbm": 1,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.05,
+          "annual_failure_freq": 0.048895,
+          "cumulative_freq": 0.048895,
+          "additional_inspections": 2,
+          "ftc": 11,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 100000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MDK10 - Drive train - main shaft/bearing",
+      "annual_failure_freq": 0.014,
+      "annual_failure_freq_min": 0.045,
+      "annual_failure_freq_ml": 0.09,
+      "annual_failure_freq_max": 0.18,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.6,
+          "annual_failure_freq": 0.0147,
+          "cumulative_freq": 0.0084,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.25,
+          "annual_failure_freq": 0.0035,
+          "cumulative_freq": 0.0035,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.1,
+          "annual_failure_freq": 0.0014000000000000002,
+          "cumulative_freq": 0.0014000000000000002,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.05,
+          "annual_failure_freq": 0.0007000000000000001,
+          "cumulative_freq": 0.0007000000000000001,
+          "additional_inspections": 2,
+          "ftc": 11,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 100000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MDK30 - Drive train - brake system",
+      "annual_failure_freq": 0.0212,
+      "annual_failure_freq_min": 0.07875,
+      "annual_failure_freq_ml": 0.1575,
+      "annual_failure_freq_max": 0.315,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.5,
+          "annual_failure_freq": 0.0212,
+          "cumulative_freq": 0.0106,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.5,
+          "annual_failure_freq": 0.0106,
+          "cumulative_freq": 0.0106,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        }
+      ]
+    },
+    {
+      "name": "MDL - Yaw gearbox",
+      "annual_failure_freq": 0.5076,
+      "annual_failure_freq_min": 0.1575,
+      "annual_failure_freq_ml": 0.315,
+      "annual_failure_freq_max": 0.63,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.45,
+          "annual_failure_freq": 0.32994000000000007,
+          "cumulative_freq": 0.22842000000000004,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 5,
+          "probability": 0.45,
+          "annual_failure_freq": 0.22842000000000004,
+          "cumulative_freq": 0.22842000000000004,
+          "additional_inspections": null,
+          "ftc": 10,
+          "type_corr_cbm": 1,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.1,
+          "annual_failure_freq": 0.050760000000000007,
+          "cumulative_freq": 0.050760000000000007,
+          "additional_inspections": 2,
+          "ftc": 12,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 100000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MDX - Hydraulic system",
+      "annual_failure_freq": 0.0536,
+      "annual_failure_freq_min": 0.09,
+      "annual_failure_freq_ml": 0.18,
+      "annual_failure_freq_max": 0.36,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.6,
+          "annual_failure_freq": 0.0536,
+          "cumulative_freq": 0.03216,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.4,
+          "annual_failure_freq": 0.02144,
+          "cumulative_freq": 0.02144,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "MDY - Control and protection system turbine",
+      "annual_failure_freq": 0.8483,
+      "annual_failure_freq_min": 0.18,
+      "annual_failure_freq_ml": 0.36,
+      "annual_failure_freq_max": 0.72,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.55,
+          "annual_failure_freq": 0.8483,
+          "cumulative_freq": 0.46656500000000006,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.45,
+          "annual_failure_freq": 0.38173500000000005,
+          "cumulative_freq": 0.38173500000000005,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "MKA - Generator ",
+      "annual_failure_freq": 0.4252,
+      "annual_failure_freq_min": 0.135,
+      "annual_failure_freq_ml": 0.27,
+      "annual_failure_freq_max": 0.54,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.45,
+          "annual_failure_freq": 0.46772,
+          "cumulative_freq": 0.19134,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.45,
+          "annual_failure_freq": 0.19134,
+          "cumulative_freq": 0.19134,
+          "additional_inspections": 1,
+          "ftc": 6,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.1,
+          "annual_failure_freq": 0.04252,
+          "cumulative_freq": 0.04252,
+          "additional_inspections": 2,
+          "ftc": 13,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "MKY - Control and protection system generator",
+      "annual_failure_freq": 0.7821,
+      "annual_failure_freq_min": null,
+      "annual_failure_freq_ml": 0.09,
+      "annual_failure_freq_max": 0.18,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.45,
+          "annual_failure_freq": 0.7821,
+          "cumulative_freq": 0.351945,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.45,
+          "annual_failure_freq": 0.351945,
+          "cumulative_freq": 0.351945,
+          "additional_inspections": 1,
+          "ftc": 5,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.1,
+          "annual_failure_freq": 0.07821,
+          "cumulative_freq": 0.07821,
+          "additional_inspections": 1,
+          "ftc": 8,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 250000,
+          "labour_cost_euro_per_hr": 4e-10
+        }
+      ]
+    },
+    {
+      "name": "MSA - Generator lead / transmission cables",
+      "annual_failure_freq": 0.4577,
+      "annual_failure_freq_min": 0.045,
+      "annual_failure_freq_ml": 0.09,
+      "annual_failure_freq_max": 0.18,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.55,
+          "annual_failure_freq": 0.45770000000000005,
+          "cumulative_freq": 0.25173500000000004,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.45,
+          "annual_failure_freq": 0.205965,
+          "cumulative_freq": 0.205965,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "MST - Transformer",
+      "annual_failure_freq": 0.077,
+      "annual_failure_freq_min": 0.24751,
+      "annual_failure_freq_ml": 0.49502,
+      "annual_failure_freq_max": 0.99004,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.45,
+          "annual_failure_freq": 0.077,
+          "cumulative_freq": 0.03465,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.45,
+          "annual_failure_freq": 0.03465,
+          "cumulative_freq": 0.03465,
+          "additional_inspections": 1,
+          "ftc": 5,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.1,
+          "annual_failure_freq": 0.0077,
+          "cumulative_freq": 0.0077,
+          "additional_inspections": 1,
+          "ftc": 8,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 250000,
+          "labour_cost_euro_per_hr": 4e-10
+        }
+      ]
+    },
+    {
+      "name": "MUD - Machinery enclosure",
+      "annual_failure_freq": 0.0135,
+      "annual_failure_freq_min": 0.03375,
+      "annual_failure_freq_ml": 0.0675,
+      "annual_failure_freq_max": 0.135,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.4,
+          "annual_failure_freq": 0.0135,
+          "cumulative_freq": 0.0054,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.6,
+          "annual_failure_freq": 0.0081,
+          "cumulative_freq": 0.0081,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "UMD - Turbine structure / tower",
+      "annual_failure_freq": 0.1512,
+      "annual_failure_freq_min": 0.09,
+      "annual_failure_freq_ml": 0.18,
+      "annual_failure_freq_max": 0.36,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.55,
+          "annual_failure_freq": 0.15876,
+          "cumulative_freq": 0.08316000000000001,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.3,
+          "annual_failure_freq": 0.04536,
+          "cumulative_freq": 0.04536,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.1,
+          "annual_failure_freq": 0.015120000000000001,
+          "cumulative_freq": 0.015120000000000001,
+          "additional_inspections": 1,
+          "ftc": 7,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 50000,
+          "labour_cost_euro_per_hr": 4e-10
+        },
+        {
+          "maintenance_category": 6,
+          "probability": 0.05,
+          "annual_failure_freq": 0.007560000000000001,
+          "cumulative_freq": 0.007560000000000001,
+          "additional_inspections": 2,
+          "ftc": 13,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500000,
+          "labour_cost_euro_per_hr": 6e-10
+        }
+      ]
+    },
+    {
+      "name": "XA - Heating, ventilation, air conditioning",
+      "annual_failure_freq": 0.014,
+      "annual_failure_freq_min": null,
+      "annual_failure_freq_ml": null,
+      "annual_failure_freq_max": null,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.5,
+          "annual_failure_freq": 0.014,
+          "cumulative_freq": 0.007,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.5,
+          "annual_failure_freq": 0.007,
+          "cumulative_freq": 0.007,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "XM - Crane system",
+      "annual_failure_freq": 0.0144,
+      "annual_failure_freq_min": 0.01125,
+      "annual_failure_freq_ml": 0.0225,
+      "annual_failure_freq_max": 0.045,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 0.5,
+          "annual_failure_freq": 0.0144,
+          "cumulative_freq": 0.0072,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        },
+        {
+          "maintenance_category": 4,
+          "probability": 0.5,
+          "annual_failure_freq": 0.0072,
+          "cumulative_freq": 0.0072,
+          "additional_inspections": 1,
+          "ftc": 4,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 5000,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "AB - Lightning protection / grounding",
+      "annual_failure_freq": 0.0117,
+      "annual_failure_freq_min": 0.2475,
+      "annual_failure_freq_ml": 0.495,
+      "annual_failure_freq_max": 0.99,
+      "sub_categories": [
+        {
+          "maintenance_category": 2,
+          "probability": 1,
+          "annual_failure_freq": 0.0117,
+          "cumulative_freq": 0.0117,
+          "additional_inspections": null,
+          "ftc": 2,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 500,
+          "labour_cost_euro_per_hr": 3e-10
+        }
+      ]
+    },
+    {
+      "name": "MD - Remote Resets",
+      "annual_failure_freq": 5,
+      "annual_failure_freq_min": null,
+      "annual_failure_freq_ml": null,
+      "annual_failure_freq_max": null,
+      "sub_categories": [
+        {
+          "maintenance_category": 1,
+          "probability": 1,
+          "annual_failure_freq": 5,
+          "cumulative_freq": 5,
+          "additional_inspections": null,
+          "ftc": 1,
+          "type_corr_cbm": 0,
+          "material_cost_euro": 0,
+          "labour_cost_euro_per_hr": 0
+        }
+      ]
+    }
+  ]
+}
