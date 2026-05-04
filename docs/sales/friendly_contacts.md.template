@@ -1,0 +1,111 @@
+# Friendly 客戶接觸名單（模板）
+
+> 對應 issue：WMOM-20260503-05
+> **使用方式**：`cp friendly_contacts.md.template friendly_contacts.md`，
+> 然後在 `friendly_contacts.md` 內填實際資訊。**`friendly_contacts.md` 已 gitignore，不會 push 到 GitHub。**
+>
+> 目標：M1 月底前約到 1 場 30 分鐘 demo（無壓力 discovery，餵 M3-M5 設計需求）。
+> 哲學：3-5 封 cold email > 不停想要找誰；先動再修。
+
+---
+
+## 1. 接觸渠道分類（4 大來源）
+
+依「接觸難度 × 客戶 fit」排序，從 A → D：
+
+### A. NCUT 學界人脈（最容易，先打）
+
+- **NCUT 智動系同事**：誰的研究有跟風電廠商合作過？同事的學長姐 / 業師 / 校友
+- **NCUT 校友會**（風電 / 電力工程相關）
+- **跨校學會**：能源學會、風能協會、台灣風能產學聯盟
+- **既有 advisor 角色**：劉老師現有指導學生的家屬 / 業界轉介
+
+→ 接觸成本最低，回應率最高；先從這裡盤 3-5 位
+
+### B. Bachmann Taiwan / OEM 廠商客戶（中，需 intro）
+
+- **Bachmann Taiwan 在地代理**：他們手上有 Z72 客戶名單；windMindOM 用 Bachmann M1 PLC = 對他們是「擴大 footprint」的工具，立場 align
+- **Z72 機型直接相關**：Harakosan / Zephyros 已退出市場，但既有 Z72 業主與運維分包商還在
+- **OPC UA / DCOM 整合 partner**：曾合作過的整合商
+- **接觸方式**：請 NCUT 系上設備供應商 / 既有合作 contact 介紹
+
+→ 較需暖場，但客戶 fit 很高（已是 Z72 用戶）
+
+### C. 第三階段風場運維分包商（中高，需主動 outreach）
+
+公開可查的台灣離岸風場營運商與其運維體系：
+
+- **台電風場**：海洋風電（Formosa 1）、海能風電（Formosa 2）— 運維分包商可能多家
+- **沃旭（Ørsted）大彰化**：自有運維 + 在地分包
+- **CIP（哥本哈根基建）彰芳/西島**：在地運維分包
+- **中能風場**：中油 + Macquarie 合資，在地運維體系
+- **海龍離岸風電（Northland Power）**：第三階段重點開發商
+
+→ 規模較大、決策層級高，但市場拉力強；可從**運維分包商**而非開發商切入更實際
+
+### D. 業界研討會 / 展會（廣撒網，低 conversion）
+
+- **台灣國際智慧能源週**（10 月，台北）
+- **離岸風電產業協會（TOWIA）研討會**
+- **能源署 / 能源局 業界座談會**
+
+→ 不主動但會撞到合適 contact 的場合；先報名行事曆
+
+---
+
+## 2. Contact 名單（在此填寫，本機 only）
+
+> 格式：每位 contact 一個區塊。**請依此模板填寫，不要簡化欄位**。
+
+### Contact #001 — {姓名}
+
+- **Company**: {公司名}
+- **Role**: {職稱}
+- **Channel**: A / B / C / D（見上方分類）
+- **Source**: {誰介紹的 / 從哪知道的}
+- **Contact**:
+  - email: {email}
+  - phone: {phone，可選}
+  - LinkedIn: {url，可選}
+- **Wind farm / 機型**: {他們運維的風場 + OEM 機型清單}
+- **Likely pain points**: {猜測或已知的痛點 — 用來客製化 cold email}
+- **Status**: planning | reached_out | replied | demo_scheduled | demo_done | follow_up | no_interest
+- **Last touch**: YYYY-MM-DD（最後互動日期）
+- **Next action**: {下一步做什麼 + 期限}
+- **Notes**: {自由筆記 — 對方關心什麼、提過什麼具體案例、合作意願評估}
+
+---
+
+### Contact #002 — {姓名}
+
+（同上模板）
+
+---
+
+## 3. 月度盤點（M1 結束時自評）
+
+- [ ] 已盤出 5+ 位潛在 contact
+- [ ] 寄出 3+ 封 cold email
+- [ ] 收到 1+ 個正向回應
+- [ ] 約到 1 場 30 分鐘 demo
+- [ ] Demo 後寫進 `customer_feedback/YYYY-MM-DD-{客戶代號}.md`
+
+如以上 5 項至少 3 項勾起來，M1 sales 線就 OK。
+
+---
+
+## 4. 對應的工具與資產
+
+- **Pitch deck**: [`pitch_deck_v0.8.1.pdf`](pitch_deck_v0.8.1.pdf)（12 頁）
+- **Onepager**（給 cold email 附件用）: [`pitch_deck_v0.8.1_onepager.pdf`](pitch_deck_v0.8.1_onepager.pdf)（A4 直式 1 頁）
+- **Cold email 腳本**: [`outreach_script.md`](outreach_script.md)
+- **Demo 後回饋紀錄模板**: [`customer_feedback/_TEMPLATE.md`](customer_feedback/_TEMPLATE.md)
+
+---
+
+## 5. 重要提醒
+
+- 第一場 demo 不是賣產品 — 是 **discovery interview**：聽他們說現況怎麼做、最痛的是什麼、看到 simulator 反應如何
+- 不要承諾還沒做的功能；如果對方問 RAG / cost / inventory，誠實說 M2-M5 才會有
+- 寄 cold email 的時間：**週二 10am 或週四 2pm** 開信率最高（避開週一 morning rush 與週五 afternoon）
+- 第一封被忽略 → 7 天後 follow-up 一次（簡短一行 + 重附 pdf）；第二次無回應就 park 不要 burn relationship

@@ -19,3 +19,9 @@ z72SCADA_New/wind-backup/Z72_Data
 
 # Pitch deck builder
 tools/pitch_deck/node_modules/
+
+# Sales — 私密 contact / customer feedback（PII，本機 only）
+docs/sales/friendly_contacts.md
+docs/sales/customer_feedback/20*-*-*-*.md
+!docs/sales/customer_feedback/_TEMPLATE.md
+!docs/sales/customer_feedback/README.md

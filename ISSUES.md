@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 1 |
-| in_progress | 0 |
+| open | 0 |
+| in_progress | 1 |
 | blocked | 0 |
 | done | 4 |
 | **total (active)** | **5** |
 
-最後更新：2026-05-04（WMOM-20260503-04 完成）
+最後更新：2026-05-04（WMOM-20260503-05 infrastructure done，contact 持續中）
 
 ---
 
@@ -193,21 +193,26 @@
 
 ### WMOM-20260503-05 — Friendly 客戶接觸名單
 
-- **Status**: open
+- **Status**: in_progress（infrastructure done 2026-05-04；contact 持續整月）
 - **Milestone**: M1
 - **Priority**: medium
-- **Estimate**: 0.5 工作天（盤點）+ 持續整月（接觸）
-- **Owner**: -
-- **Description**:
-  整理 1-2 個 friendly 運維廠商接觸名單（透過學界人脈、demo simulator 給他們看）。
-  - 來源：NCUT 學界人脈、台電/中能/CIP 風場運維分包商、Bachmann Taiwan 客戶
-  - 目標：M1 月底前約到 1 場 30 分鐘 demo
-  - 不需要 commit；目的是收集真實 pain points 餵 M3-M5 設計
-- **Deliverable**:
-  - `docs/sales/friendly_contacts.md`（私密清單，contact 資訊 + 接觸狀態 + 對應 pain points）
-  - 至少 1 場 demo 的回饋紀錄寫進 `docs/sales/customer_feedback/{YYYY-MM-DD}-{slug}.md`
-- **Depends on**: WMOM-20260503-04（先有 deck）
-- **Reference**: `docs/product/PRODUCT_VISION.md` §ICP（運維廠商）
+- **Estimate**: 0.5 工作天（infrastructure）+ 持續整月（contact）
+- **Owner**: 劉老師（contact 執行）/ Claude session 2026-05-04（infrastructure）
+- **Infrastructure done（2026-05-04）**:
+  - ✅ [`docs/sales/friendly_contacts.md.template`](docs/sales/friendly_contacts.md.template) — 4 大渠道分類（NCUT 學界 / Bachmann / 第三階段運維分包商 / 業界研討會）+ contact entry 模板
+  - ✅ [`docs/sales/outreach_script.md`](docs/sales/outreach_script.md) — cold email 3 範本（介紹 / cold / follow-up）+ 30 分鐘 demo agenda + objection handling FAQ + 寄送 logistics
+  - ✅ [`docs/sales/customer_feedback/README.md`](docs/sales/customer_feedback/README.md) + [`_TEMPLATE.md`](docs/sales/customer_feedback/_TEMPLATE.md) — demo 後 24 小時內紀錄結構
+  - ✅ `.gitignore`：`friendly_contacts.md` + `customer_feedback/202*-*-*-*.md` 不入 git（PII），但模板與 README 可 commit
+- **Pending（劉老師執行）**:
+  - ⬜ `cp friendly_contacts.md.template friendly_contacts.md`，從 4 大渠道盤 5-10 位潛在 contact
+  - ⬜ 寄出 3-5 封 cold email（用 outreach_script.md 範本 A / B）
+  - ⬜ 約到第一場 30 分鐘 demo（M1 月底前）
+  - ⬜ Demo 後 24 小時內寫 `customer_feedback/YYYY-MM-DD-{客戶代號}.md`
+- **完成定義**：1+ 場 demo done + feedback 寫進 customer_feedback/ → 標 done
+- **Depends on**: WMOM-20260503-04（done — deck 已就位）
+- **Reference**:
+  - `docs/product/PRODUCT_VISION.md` §ICP（運維廠商）
+  - `work-logs/2026-05/2026-05-04-friendly-contacts.md`（infrastructure session 紀錄）
 
 ---
 
