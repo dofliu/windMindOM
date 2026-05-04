@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 22
 status: active
-last_updated: "2026-05-03"
-next_milestone: "M1 (2026-05) — WMOM-20260503-02 templates 盤點 + WMOM-20260503-05 friendly 客戶名單"
+last_updated: "2026-05-04"
+next_milestone: "M1 (2026-05) — WMOM-20260503-05 friendly 客戶接觸名單（deck 已就位 docs/sales/pitch_deck_v0.8.1.{pptx,pdf} + onepager）"
 technologies:
   - FastAPI
   - React
@@ -34,7 +34,7 @@ milestones:
     name: "Setup baseline"
     target_month: "2026-05"
     status: in_progress
-    progress: 60   # -01 + -03 + -04 done；-02 (templates 盤點) + -05 (友 customers) 待做
+    progress: 75   # WMOM-20260503-01/02/03/04 done; -05 (客戶名單) 待做
   M2:
     name: "Cost module（從 ECN 移植）"
     target_month: "2026-06"

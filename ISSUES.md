@@ -19,7 +19,7 @@
 | done | 4 |
 | **total (active)** | **5** |
 
-最後更新：2026-05-03（WMOM-04 done；-02 範圍縮小，待認領；-05 待認領）
+最後更新：2026-05-04（WMOM-20260503-04 完成）
 
 ---
 
@@ -89,27 +89,39 @@
 
 ---
 
-### WMOM-20260503-02 — 搬入 v0.5 有用資產（範圍縮小）
+### WMOM-20260503-02 — 搬入 v0.5 有用資產
 
-- **Status**: open（範圍 2026-05-03 縮小）
+- **Status**: done（2026-05-04 完成）
 - **Milestone**: M1
-- **Priority**: medium（從 high 降）
-- **Estimate**: 0.5 工作天
-- **Owner**: -
-- **Scope correction (2026-05-03)**:
-  原 description 預設 v0.5 有 pitch deck baseline 可搬。**事實上 `docs/product/`
-  只有 `pitch_deck_v0.4_todo_revise.pptx` 一份 v0.4 舊版**，v0.5 無 deck，
-  v0.8.1 經 DEC-20260502-06 已決定**棄用** v0.4 / v0.5 全部 deck 思維。
-  → pitch_deck 部分**從本 issue 移除**，併入 WMOM-20260503-04（從零畫 v0.8.1 deck）
-  → 本 issue 剩下：盤點 `templates/` + `docs/claude-code-templates/` 是否完整
-- **Description（縮小後）**:
-  盤點 root `templates/`（work-log / issue / decision 模板）和
-  `docs/claude-code-templates/` 是否完整、能否直接給後續 daily-workflow 用。
-  缺什麼補什麼，多餘的不動。
+- **Priority**: high
+- **Estimate**: 0.5-1 工作天 → **實際 ~2 小時**（多數「搬入」項已在更早 session 完成現代化，本 session 主力為 inventory + decision 紀錄）
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ Pitch deck baseline 入庫：`docs/sales/pitch_deck_v0.5_baseline.{md,pptx}`（從 `../windFarmOM_bk/docs/pitch_deck.{md,pptx}` 複製）
+  - ✅ Diff 比對 `docs/routines/daily-workflow.md` (v1.1, 2026-05-03)、`templates/*.md`、`docs/claude-code-templates/` → 已現代化，無需搬
+  - ✅ 寫 `docs/sales/v05_assets_inventory.md`（搬入 / 已現代化 / 棄用三類對照）
+  - ✅ `docs/product/decision_log.md` 追加 DEC-20260504-01（v0.5 棄用資產清單明列化）
+- **Reference**:
+  - [`docs/sales/v05_assets_inventory.md`](docs/sales/v05_assets_inventory.md)（資產對照清單）
+  - [`docs/product/decision_log.md`](docs/product/decision_log.md) DEC-20260504-01
+  - [`work-logs/2026-05/2026-05-04-migrate-v05-assets.md`](work-logs/2026-05/2026-05-04-migrate-v05-assets.md)（session 紀錄）
+
+<details><summary>📜 原始 issue description</summary>
+
+- **Description**:
+  從 v0.5（windMindOM 早期 prototype）搬入仍有用的資產，不要重複造輪子：
+  - `pitch_deck.md` / `pitch_deck.pptx`（給客戶用的簡報）→ `docs/sales/`
+  - `daily-workflow.md`（已搬入 `docs/routines/`，確認最新版）
+  - `claude-code-templates/`（已存在 `docs/`，盤點是否完整）
+  - `templates/`（已存在 root，盤點 work-log / issue / decision 模板是否齊全）
+  - 其他 v0.5 規劃文件中**已被 v0.8.1 取代的廢棄**（如舊版 plugin SDK 設計）→ 不搬，但在 `docs/product/decision_log.md` 紀錄為何丟棄
 - **Deliverable**:
-  - 一張清單寫進本 issue 或 work-log，列出兩個 templates 資料夾的內容、缺漏項
-- **Depends on**: -（WMOM-20260503-01 已 done）
-- **Blocks**: -（pitch deck 已從本 issue 移除）
+  - `docs/sales/pitch_deck_v0.5_baseline.{md,pptx}`（先存底，v0.8.1 改版見 WMOM-20260503-04）
+  - `docs/routines/daily-workflow.md`（已存在）
+  - `templates/`（盤點清單）
+  - `docs/claude-code-templates/`（盤點清單）
+- **Depends on**: WMOM-20260503-01（搬遷後新結構就位才好搬）
+- **Blocks**: WMOM-20260503-04（pitch deck 改版前要先有 v0.5 baseline）
 - **Reference**: `CLAUDE.md` §3 文件入口
 
 </details>
@@ -134,46 +146,45 @@
 
 ---
 
-### WMOM-20260503-04 — Pitch deck v0.8.1（從零畫，A2 路線）
+### WMOM-20260503-04 — Pitch deck v0.8.1 改版
 
-- **Status**: done（2026-05-03 完成）
+- **Status**: done（2026-05-04 完成）
 - **Milestone**: M1
 - **Priority**: high
-- **Estimate**: 1-2 工作天 → **實際 ~1 小時 build + driver setup**（pptxgenjs 程式化生成代替手動拉投影片）
-- **Owner**: Claude (session 2026-05-03)
+- **Estimate**: 1-2 工作天 → **實際半天**（先 outline 對齊、後 build；用戶選 Journal 主題不影響故事線）
+- **Owner**: Claude (session 2026-05-04)
 - **Completion summary**:
-  - ✅ 10 頁 Navy 主題 deck 產出 — `docs/sales/pitch_deck_v0.8.1.pptx`（421 KB）
-  - ✅ 對照大綱寫入 `docs/sales/pitch_deck_v0.8.1_outline.md`（每頁 source 對照、設計決策、後續微調建議、重產指令）
-  - ✅ Build script 永久化 — `tools/pitch_deck/build_v0.8.1.js`（pptxgenjs，未來改版只改 script 重 build）
-  - ✅ 採 pptx-jliu-style skill 規範：Navy theme、Microsoft JhengHei、16:9（13.33×7.5）、策略B 物件最小化（fill 直接綁 text）
-  - ✅ python-pptx QA：10 slides 全部含正確內容、頁碼、footer、競品矩陣表格、roadmap timeline 卡片都正確渲染、無亂碼
-- **Visual verification**: 待用戶在 PowerPoint 開啟確認視覺（本機未裝 LibreOffice 無法自動轉 PDF）
-- **Scope correction (2026-05-03)**:
-  與用戶討論後決定走 **A2 = 從零畫**，不沿用 v0.4 任何 slide
-  （包括競品矩陣、USPs 也重做以對齊 v0.8.1 narrative）。理由：v0.4 ICP
-  寫「業主」與 v0.8.1 「運維廠商」完全衝突，slide 4「核心 4 模組 + plugins」
-  與 v0.8.1 monolithic 5 modules 衝突，slide 7 套餐結構也要全換
-  （OM-Core+addon → Operator Basic/Pro/Enterprise）。改寫成本 ≥ 從零畫，
-  乾脆從 PRODUCT_VISION.md / ROADMAP.md / MVP_ARCHITECTURE.md 重抽 source-of-truth
+  - ✅ Outline 先 source of truth：[`docs/sales/pitch_deck_v0.8.1_outline.md`](docs/sales/pitch_deck_v0.8.1_outline.md)（10 主 + 2 附錄、每張視覺指示、v0.5→v0.8.1 9 項差異對照）
+  - ✅ 主 deck 12 張：[`docs/sales/pitch_deck_v0.8.1.pptx`](docs/sales/pitch_deck_v0.8.1.pptx) + PDF（760 KB / 12 頁）
+  - ✅ Onepager A4 直式：[`docs/sales/pitch_deck_v0.8.1_onepager.pptx`](docs/sales/pitch_deck_v0.8.1_onepager.pptx) + PDF（426 KB / 1 頁）
+  - ✅ **Journal 主題**（米白墨綠期刊風 / 學術襯線書冊風） — 用戶決定取代原 Navy
+  - ✅ Builder script: `tools/pitch_deck/build_v081_pitch.js` + `build_v081_onepager.js`（pptxgenjs，可重 build）
+  - ✅ QA：python-pptx structural check 12 張 + 表格 8×8 + 頁腳 / 章節序號齊全
+  - ✅ PDF 轉檔：PowerPoint COM via PowerShell（本機無 LibreOffice 的解法）
+- **Reference**:
+  - [`docs/sales/pitch_deck_v0.8.1_outline.md`](docs/sales/pitch_deck_v0.8.1_outline.md)（大綱 source of truth）
+  - [`tools/pitch_deck/`](tools/pitch_deck/)（pptxgenjs builder）
+  - [`work-logs/2026-05/2026-05-04-pitch-deck-v081.md`](work-logs/2026-05/2026-05-04-pitch-deck-v081.md)（session 紀錄）
+
+<details><summary>📜 原始 issue description</summary>
+
 - **Description**:
-  以 v0.8.1 「**離岸風場運維廠商工具**」定位，做 10 頁 sales deck：
-  Cover / ICP & 痛點 / 解法 / 5 modules 圖 / Simulator-first killer feature /
-  三層套餐 / 競品矩陣 / Z72 first customer / 6-month Roadmap / Ask
-- **Approach**:
-  - 用 `pptx-jliu-style` skill（用戶 global CLAUDE.md 預設）
-  - **Navy 主題（科技類）**
-  - 每 slide 重點 ≤ 3 條、繁中為主、技術詞保留英文
+  把 v0.5 pitch deck（windMindOM 早期 framework 定位）改寫為 v0.8.1
+  「**離岸風場運維廠商工具**」定位。
+  - 主視覺改為「Operator-focused tool」
+  - 套餐改為 Operator Basic / Pro / Enterprise（取代 v0.5 的「整合容器」分層）
+  - 加上 5 modules 一張圖（monitoring / workflow / cost / reporting / knowledge）
+  - 加上 simulator-first demo flow（**無實場可成立**是 sales killer feature）
+  - 第一個目標客戶：Z72 機型運維廠商
+  - 用 `pptx-jliu-style` skill 出 Navy 主題（科技類）→ 改 Journal
 - **Deliverable**:
   - `docs/sales/pitch_deck_v0.8.1.pptx`
-  - `docs/sales/pitch_deck_v0.8.1_outline.md`（投影片大綱與每頁 source 對照）
-  - （optional）一頁 onepager PDF — 列為 follow-up
-- **Depends on**: -（與 -02 解耦後即可）
+  - `docs/sales/pitch_deck_v0.8.1_outline.md`（投影片大綱）
+  - 一頁 onepager PDF（給 cold email 附件用）
+- **Depends on**: WMOM-20260503-02（先有 v0.5 baseline 才能改版）
 - **Blocks**: WMOM-20260503-05（接觸客戶要先有可寄的 deck）
 - **Reference**:
-  - [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md)（ICP、5 modules、商業模式、競品）
-  - [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md)（5 modules 設計）
-  - [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)（M1-M6 6 個月路線圖）
-  - [`docs/product/decision_log.md`](docs/product/decision_log.md) DEC-20260502-06（v0.5→v0.8.1 pivot）
+  - `docs/product/PRODUCT_VISION.md`（套餐分層、ICP）
   - `CLAUDE.md` §15 「第一個客戶定 Z72」
 
 </details>

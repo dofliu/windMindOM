@@ -2,9 +2,11 @@
   "name": "windmindom-pitch-deck-builder",
   "version": "0.8.1",
   "private": true,
-  "description": "Generate windMindOM sales pitch decks via pptxgenjs (Navy theme).",
+  "description": "Generate windMindOM sales pitch decks via pptxgenjs (Journal theme).",
   "scripts": {
-    "build:v0.8.1": "node build_v0.8.1.js"
+    "build": "node build_v081_pitch.js && node build_v081_onepager.js",
+    "build:deck": "node build_v081_pitch.js",
+    "build:onepager": "node build_v081_onepager.js"
   },
   "dependencies": {
     "pptxgenjs": "^3.12.0"
