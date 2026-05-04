@@ -25,6 +25,9 @@ import {
 } from 'recharts';
 import { useCostData } from '../hooks/useCostData';
 import { useI18n } from '../hooks/useI18n';
+import type { DatasetMeta } from '../services/costService';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Formatters ───────────────────────────────────────────────────────────
 
@@ -104,12 +107,81 @@ const ErrorBox: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
+// ─── Dataset selector + meta badge (WMOM-20260504-10) ─────────────────────
+
+interface FarmOption {
+  farm_id: string;
+  name: string;
+  turbine_count: number;
+  rated_kw: number | null;
+}
+
+const DatasetMetaBadge: React.FC<{
+  meta: DatasetMeta | null | undefined;
+  ui: (en: string, zh: string) => string;
+}> = ({ meta, ui }) => {
+  if (!meta) return null;
+
+  const styleMap: Record<DatasetMeta['source'], string> = {
+    k13_baseline: 'bg-gray-700 text-gray-200 border-gray-600',
+    farm_overlay: 'bg-cyan-900/40 text-cyan-200 border-cyan-700',
+    registry_derived: 'bg-amber-900/30 text-amber-200 border-amber-700',
+    k13_fallback: 'bg-red-900/30 text-red-200 border-red-700',
+  };
+  const labelMap: Record<DatasetMeta['source'], string> = {
+    k13_baseline: ui('K13 baseline', 'K13 預設'),
+    farm_overlay: ui('Farm overlay', '風場覆寫'),
+    registry_derived: ui('Registry-derived', '風場註冊推導'),
+    k13_fallback: ui('K13 fallback', 'K13 退回'),
+  };
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded border ${styleMap[meta.source]}`}
+        title={`dataset_used = ${meta.dataset_used}`}
+      >
+        {labelMap[meta.source]}
+        {meta.farm_id && <span className="ml-1.5 opacity-70">· {meta.farm_id}</span>}
+      </span>
+      {meta.warning && (
+        <span className="text-amber-300/80">⚠ {meta.warning}</span>
+      )}
+    </div>
+  );
+};
+
+const DatasetSelector: React.FC<{
+  dataset: string;
+  setDataset: (d: string) => void;
+  farms: FarmOption[];
+  ui: (en: string, zh: string) => string;
+}> = ({ dataset, setDataset, farms, ui }) => (
+  <div className="flex items-center gap-2">
+    <label className="text-sm text-gray-300">{ui('Dataset', '資料集')}</label>
+    <select
+      value={dataset}
+      onChange={(e) => setDataset(e.target.value)}
+      className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-100 text-sm"
+    >
+      <option value="k13">{ui('K13 demo (130 × 4 MW offshore)', 'K13 範例（130 × 4 MW 離岸）')}</option>
+      {farms.map((f) => (
+        <option key={f.farm_id} value={`farm:${f.farm_id}`}>
+          {f.name}
+          {f.rated_kw ? ` · ${f.turbine_count}×${(f.rated_kw / 1000).toFixed(1)} MW` : ` · ${f.turbine_count} 台`}
+        </option>
+      ))}
+    </select>
+  </div>
+);
+
 // ─── Panel 1: Forecast ────────────────────────────────────────────────────
 
 const ForecastPanel: React.FC<{
   forecast: ReturnType<typeof useCostData>['forecast'];
+  dataset: string;
   ui: (en: string, zh: string) => string;
-}> = ({ forecast, ui }) => {
+}> = ({ forecast, dataset, ui }) => {
   // 對應 zh / en 的 stack key（chart legend 用）
   const k = {
     corrective: ui('Corrective', '矯正性維修'),
@@ -149,13 +221,14 @@ const ForecastPanel: React.FC<{
       )}
     >
       <Btn
-        onClick={() => forecast.run()}
+        onClick={() => forecast.run({ dataset })}
         loading={forecast.loading}
         loadingText={ui('Loading…', '計算中…')}
       >
         {ui('Run Forecast', '執行預測')}
       </Btn>
       {forecast.error && <ErrorBox message={forecast.error} />}
+      <DatasetMetaBadge meta={forecast.data?.dataset_meta} ui={ui} />
 
       {forecast.data && (
         <>
@@ -218,8 +291,9 @@ const ForecastPanel: React.FC<{
 
 const LCOEPanel: React.FC<{
   lcoe: ReturnType<typeof useCostData>['lcoe'];
+  dataset: string;
   ui: (en: string, zh: string) => string;
-}> = ({ lcoe, ui }) => {
+}> = ({ lcoe, dataset, ui }) => {
   const [capex, setCapex] = useState(1250);
   const [discount, setDiscount] = useState(0.08);
 
@@ -252,7 +326,7 @@ const LCOEPanel: React.FC<{
           />
         </label>
         <Btn
-          onClick={() => lcoe.run({ capex_per_kw: capex, discount_rate: discount })}
+          onClick={() => lcoe.run({ dataset, capex_per_kw: capex, discount_rate: discount })}
           loading={lcoe.loading}
           loadingText={ui('Loading…', '計算中…')}
         >
@@ -260,6 +334,7 @@ const LCOEPanel: React.FC<{
         </Btn>
       </div>
       {lcoe.error && <ErrorBox message={lcoe.error} />}
+      <DatasetMetaBadge meta={lcoe.data?.dataset_meta} ui={ui} />
 
       {lcoe.data && (
         <div className="mt-5 grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -295,8 +370,9 @@ const LCOEPanel: React.FC<{
 
 const MonteCarloPanel: React.FC<{
   monteCarlo: ReturnType<typeof useCostData>['monteCarlo'];
+  dataset: string;
   ui: (en: string, zh: string) => string;
-}> = ({ monteCarlo, ui }) => {
+}> = ({ monteCarlo, dataset, ui }) => {
   const [nSim, setNSim] = useState(100);
   const [seed, setSeed] = useState(42);
 
@@ -342,7 +418,7 @@ const MonteCarloPanel: React.FC<{
           />
         </label>
         <Btn
-          onClick={() => monteCarlo.run({ n_simulations: nSim, seed })}
+          onClick={() => monteCarlo.run({ dataset, n_simulations: nSim, seed })}
           loading={monteCarlo.loading}
           loadingText={ui('Loading…', '計算中…')}
         >
@@ -350,6 +426,7 @@ const MonteCarloPanel: React.FC<{
         </Btn>
       </div>
       {monteCarlo.error && <ErrorBox message={monteCarlo.error} />}
+      <DatasetMetaBadge meta={monteCarlo.data?.dataset_meta} ui={ui} />
 
       {monteCarlo.data && (
         <>
@@ -408,8 +485,9 @@ const MonteCarloPanel: React.FC<{
 
 const VarFluctPanel: React.FC<{
   varFluct: ReturnType<typeof useCostData>['varFluct'];
+  dataset: string;
   ui: (en: string, zh: string) => string;
-}> = ({ varFluct, ui }) => {
+}> = ({ varFluct, dataset, ui }) => {
   // Localised legend keys
   const k = {
     totalEffort: ui('Total Effort (M EUR)', '總成本（M EUR）'),
@@ -437,13 +515,14 @@ const VarFluctPanel: React.FC<{
       )}
     >
       <Btn
-        onClick={() => varFluct.run()}
+        onClick={() => varFluct.run({ dataset })}
         loading={varFluct.loading}
         loadingText={ui('Loading…', '計算中…')}
       >
         {ui('Run Lifetime Simulation', '執行生命週期模擬')}
       </Btn>
       {varFluct.error && <ErrorBox message={varFluct.error} />}
+      <DatasetMetaBadge meta={varFluct.data?.dataset_meta} ui={ui} />
 
       {varFluct.data && (
         <>
@@ -555,29 +634,70 @@ const CostPage: React.FC<CostPageProps> = () => {
   const cost = useCostData();
   const { ui } = useI18n();  // 取現時 lang，不靠 props（與既有 maintenance / history page 一致）
 
-  // Auto-run forecast on first mount so user 一進來就有東西看
+  // Dataset selector state（WMOM-20260504-10）
+  const [dataset, setDataset] = useState<string>('k13');
+  const [farms, setFarms] = useState<FarmOption[]>([]);
+
+  // 拉一次 farm list 給 selector
   useEffect(() => {
-    cost.forecast.run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/farms`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled) return;
+        const opts: FarmOption[] = (body.farms || []).map((f: {
+          farm_id: string;
+          name: string;
+          turbine_count?: number;
+          turbine_spec?: Record<string, unknown>;
+        }) => ({
+          farm_id: f.farm_id,
+          name: f.name,
+          turbine_count: f.turbine_count ?? 0,
+          rated_kw: (f.turbine_spec?.rated_power_kw as number | undefined) ?? null,
+        }));
+        setFarms(opts);
+      } catch {
+        /* farm API 無法存取就不顯示 farm 選項 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // 進頁面 + 切 dataset → forecast 自動重跑；非 forecast 三個 panel 清空既有結果
+  // 避免顯示前一個 dataset 的 stale 數字（用戶切完要主動 Run 才看新結果）。
+  useEffect(() => {
+    cost.forecast.run({ dataset });
+    cost.lcoe.reset();
+    cost.monteCarlo.reset();
+    cost.varFluct.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataset]);
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <header className="mb-2">
-        <h1 className="text-2xl font-bold text-gray-100">{ui('Cost Module', '成本模組')}</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          {ui(
-            'ECN-port engine · K13 demo dataset · 4 endpoints (forecast / LCOE / Monte Carlo / VarFluct)',
-            'ECN 移植引擎 · K13 示範資料集 · 4 個端點（預測 / LCOE / 蒙地卡羅 / 生命週期）',
-          )}
-        </p>
+      <header className="mb-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-100">{ui('Cost Module', '成本模組')}</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            {ui(
+              'ECN-port engine · 4 endpoints (forecast / LCOE / Monte Carlo / VarFluct)',
+              'ECN 移植引擎 · 4 個端點（預測 / LCOE / 蒙地卡羅 / 生命週期）',
+            )}
+          </p>
+        </div>
+        <DatasetSelector dataset={dataset} setDataset={setDataset} farms={farms} ui={ui} />
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ForecastPanel forecast={cost.forecast} ui={ui} />
-        <LCOEPanel lcoe={cost.lcoe} ui={ui} />
-        <MonteCarloPanel monteCarlo={cost.monteCarlo} ui={ui} />
-        <VarFluctPanel varFluct={cost.varFluct} ui={ui} />
+        <ForecastPanel forecast={cost.forecast} dataset={dataset} ui={ui} />
+        <LCOEPanel lcoe={cost.lcoe} dataset={dataset} ui={ui} />
+        <MonteCarloPanel monteCarlo={cost.monteCarlo} dataset={dataset} ui={ui} />
+        <VarFluctPanel varFluct={cost.varFluct} dataset={dataset} ui={ui} />
       </div>
     </div>
   );

@@ -16,10 +16,10 @@
 | open | 3 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 13 |
-| **total (active)** | **17** |
+| done | 14 |
+| **total (active)** | **18** |
 
-最後更新：2026-05-04（M2 100% done + 3 個 planning issue：cost↔farm / event ledger / frontend memory leak 觀察）
+最後更新：2026-05-04（WMOM-10 cost↔farm done + code review fix；新開 WMOM-13 follow-up：dataset切換 race 防護）
 
 ---
 
@@ -467,10 +467,27 @@
 
 ### WMOM-20260504-10 — Cost ↔ Wind farm config 整合（規劃缺口）
 
-- **Status**: open
-- **Milestone**: M3（建議）— **建議 M3 第一週做**，因為 Workflow 也會需要 farm context
+- **Status**: done（2026-05-04 完成 — M3 第一週插入工作）
+- **Milestone**: M3（第一週）
 - **Priority**: high（M2 demo OK 但對 friendly customer 不夠 personalize）
-- **Estimate**: 1-2 工作天
+- **Estimate**: 1-2 工作天 → **實際半天**（K13 overlay 模式收斂得快）
+- **Owner**: Claude (session 2026-05-04)
+- **Branch**: `claude/issue-20260504-10-2026-05-04`
+- **Work-log**: [`work-logs/2026-05/2026-05-04-cost-farm-integration.md`](work-logs/2026-05/2026-05-04-cost-farm-integration.md)
+- **Completion summary**:
+  - ✅ `cost_inputs.json` schema + `data/farms/{台中港曲風場,彰化離岸風場台電}/cost_inputs.json` 兩個 demo
+  - ✅ `adapter.py` 加 `FarmDatasetMeta` + `load_engine_params_from_farm()`：三層 lookup（farm_overlay → registry_derived → k13_fallback）
+  - ✅ `schemas/cost_schemas.py`：dataset 從 `Literal["k13"]` 改 str；4 個 response 加 optional `dataset_meta`
+  - ✅ `cost_router.py`：`_resolve_dataset()` 統一處理 `k13` / `farm:{id}` / 未知值（404）
+  - ✅ Tests +9：5 個 adapter farm loader（overlay / fallback / registry_derived / unknown / unknown_fields filter）+ 4 個 API endpoint（farm overlay / k13 meta / fallback / empty farm_id 422）
+  - ✅ Frontend `CostPage.tsx` 加 dataset selector dropdown（K13 + 動態 farm list 從 `/api/farms` 拉）+ `DatasetMetaBadge` 顯示 4 種 source；切 dataset 自動 re-run forecast
+  - ✅ `docs/product/MVP_ARCHITECTURE.md` 補節 5.4「Cost ↔ Farm config 整合」
+  - ✅ 整 modules pytest：52 PASS + 1 XFAIL（cost 49 / monitoring 3）；frontend Vite build 0 TS error
+- **Reference**:
+  - [`modules/cost/data/farms/README.md`](modules/cost/data/farms/README.md)
+  - [`modules/cost/adapter.py`](modules/cost/adapter.py)（`load_engine_params_from_farm` + `FarmDatasetMeta`）
+  - [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) §5.4
+  - [`work-logs/2026-05/2026-05-04-cost-farm-integration.md`](work-logs/2026-05/2026-05-04-cost-farm-integration.md)
 - **Source**: 劉老師 2026-05-04 收工提問："cost model 跟模擬風機 / 未來實際風機 有連結嗎？"
 - **問題描述**:
   目前 `modules/cost/adapter.py` 的 `load_k13_engine_params()` 完全 hard-coded 讀 K13 dataset
@@ -499,6 +516,31 @@
   - `docs/product/MVP_ARCHITECTURE.md` 補一節「Cost ↔ Farm config 整合」
 - **Reference**:
   - 已在 cost engine 的 K13_FTC_DEFAULTS / K13_MC_EQUIPMENT 是這個方向的 hard-code 版
+
+---
+
+### WMOM-20260504-13 — Cost 系列 fetch 加 AbortController 防 race
+
+- **Status**: open
+- **Milestone**: M5 / M6（不阻塞 demo）
+- **Priority**: low
+- **Estimate**: 0.25 工作天
+- **Source**: code-reviewer 對 WMOM-10 的 finding #5（2026-05-04）
+- **問題**:
+  - `useCostData` 的 `useAsync.run` 沒有 abort 機制
+  - React 18 Strict Mode dev 環境會 mount→unmount→mount，`useEffect([dataset])` 觸發兩次 fetch
+  - 若慢 fetch 比快 fetch 後回，會用舊 dataset 結果蓋新 dataset 結果（race）
+  - 用戶手動快速切 dataset 也會撞到同樣問題
+- **驗收**:
+  - 在 dev mode 切 dataset 5 次，最終顯示的 forecast 一定對應最後一次選的 dataset
+  - 取消舊 fetch 不會 throw 進 error state
+- **建議實作**:
+  - `useAsync.run` 內建立 `AbortController`，next run 前 abort 上一個
+  - fetch 受 AbortError 時不視為 error（直接 return）
+- **Reference**:
+  - `frontend/hooks/useCostData.ts`
+  - `frontend/services/costService.ts:postJSON`
+  - 本 review: WMOM-10 code-reviewer report finding #5
 
 ---
 

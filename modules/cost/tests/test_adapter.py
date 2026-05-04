@@ -21,8 +21,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.cost.adapter import (  # noqa: E402
     EngineParams,
+    FarmDatasetMeta,
+    _apply_wind_farm_overrides,
     cost_result_to_response,
     lcoe_result_to_response,
+    load_engine_params_from_farm,
     load_k13_engine_params,
     mc_result_to_response,
     vf_result_to_response,
@@ -205,3 +208,171 @@ def test_loader_produces_pinned_baseline():
     assert result.total_repair_cost == 52761689.17773973
     assert result.total_effort == 67964410.8982218
     assert result.cost_per_kwh == 0.036948752282382154
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Farm-aware loader（WMOM-20260504-10）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def farm_overrides_dir(tmp_path):
+    """臨時目錄 + 一個合法的 cost_inputs.json（test_farm / 14 × 2 MW）。"""
+    farms_root = tmp_path / "farms"
+    farm_dir = farms_root / "test_farm"
+    farm_dir.mkdir(parents=True)
+    (farm_dir / "cost_inputs.json").write_text(
+        '{\n'
+        '  "schema_version": "1.0",\n'
+        '  "farm_id": "test_farm",\n'
+        '  "base_dataset": "k13",\n'
+        '  "wind_farm_overrides": {\n'
+        '    "nr_turbines": 14,\n'
+        '    "capacity_kw": 2000,\n'
+        '    "kwh_price": 0.10,\n'
+        '    "investment_cost_per_kw": 1100\n'
+        '  }\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    return farms_root
+
+
+def test_load_from_farm_with_cost_inputs_overlay(farm_overrides_dir):
+    """有 cost_inputs.json → 套用 overrides，meta.source == farm_overlay。"""
+    params, meta = load_engine_params_from_farm(
+        "test_farm", farms_dir=farm_overrides_dir
+    )
+    assert isinstance(meta, FarmDatasetMeta)
+    assert meta.dataset_used == "farm:test_farm"
+    assert meta.farm_id == "test_farm"
+    assert meta.is_fallback is False
+    assert meta.source == "farm_overlay"
+    # farm_overlay 仍有 K13 onshore-mismatch 警語
+    assert meta.warning is not None and "K13" in meta.warning
+
+    # wind_farm 級 overrides 套上
+    assert params.wind_farm.nr_turbines == 14
+    assert params.wind_farm.capacity_kw == 2000
+    assert params.wind_farm.kwh_price == 0.10
+    assert params.wind_farm.investment_cost_per_kw == 1100
+
+    # 未覆寫的 K13 預設保留（K13 efficiency = 0.9）
+    assert params.wind_farm.farm_efficiency == 0.9
+    # Components 等沿用 K13
+    assert len(params.components) == 18
+
+
+def test_load_from_farm_with_cost_inputs_changes_revenue_loss(farm_overrides_dir):
+    """套用 14×2MW overrides 後跑 cost_cal → revenue_loss 應顯著小於 K13（130×4MW）。"""
+    from modules.cost.engine.cost_cal import run_cost_calculation
+
+    params, _ = load_engine_params_from_farm("test_farm", farms_dir=farm_overrides_dir)
+    result = run_cost_calculation(
+        wind_farm=params.wind_farm,
+        components=params.components,
+        equipment_list=params.equipment_list,
+        pm_schedules=params.pm_schedules,
+        fixed_costs=params.fixed_costs,
+        poly_lookup=params.poly_lookup,
+    )
+    # K13 baseline total_revenue_loss == 1.52e7；14 × 2 MW（規模 ~14/130 × 2/4 ≈ 5.4%）
+    # 不需 bit-perfect，只要明顯縮小
+    assert result.total_revenue_loss < 5e6, (
+        f"farm overlay 應大幅縮小 revenue loss，實得 {result.total_revenue_loss}"
+    )
+
+
+class _StubFarmRegistry:
+    """測試用 mock — 模擬 monitoring 的 FarmRegistry。"""
+
+    def __init__(self, farm_id, turbine_count, rated_power_kw):
+        from types import SimpleNamespace
+
+        self._farm = SimpleNamespace(
+            farm_id=farm_id,
+            turbine_count=turbine_count,
+            turbine_spec={"rated_power_kw": rated_power_kw},
+        )
+        self._farm_id = farm_id
+
+    def get_farm(self, farm_id):
+        return self._farm if farm_id == self._farm_id else None
+
+
+def test_load_from_farm_registry_derived_when_no_cost_inputs(tmp_path):
+    """沒有 cost_inputs.json 但 registry 有此 farm → derive minimal overrides + 帶 warning。"""
+    empty_farms = tmp_path / "farms"
+    empty_farms.mkdir()
+    reg = _StubFarmRegistry("z72_taichung", turbine_count=14, rated_power_kw=2000)
+
+    params, meta = load_engine_params_from_farm(
+        "z72_taichung", farm_registry=reg, farms_dir=empty_farms
+    )
+    # 驗 source（authoritative）— warning 文字之後 i18n 微調不應 break test
+    assert meta.source == "registry_derived"
+    assert meta.is_fallback is False
+    assert meta.warning  # 該層必發 warning（具體文字由 source 蘊含，不重 assert wording）
+    assert params.wind_farm.nr_turbines == 14
+    assert params.wind_farm.capacity_kw == 2000.0
+    # 其餘沿用 K13
+    assert params.wind_farm.kwh_price == 0.13  # K13 default
+    assert params.wind_farm.investment_cost_per_kw == 1250  # K13 default
+
+
+def test_load_from_farm_falls_back_to_k13_when_unknown(tmp_path):
+    """cost_inputs.json 沒有、registry 也沒有 → fallback K13 + is_fallback=True。"""
+    empty_farms = tmp_path / "farms"
+    empty_farms.mkdir()
+    reg = _StubFarmRegistry("other_farm", turbine_count=10, rated_power_kw=3000)
+
+    params, meta = load_engine_params_from_farm(
+        "ghost_farm", farm_registry=reg, farms_dir=empty_farms
+    )
+    assert meta.source == "k13_fallback"
+    assert meta.is_fallback is True
+    assert meta.dataset_used == "k13"
+    assert meta.farm_id == "ghost_farm"
+    assert meta.warning is not None
+    # Wind farm 必須是純 K13
+    assert params.wind_farm.nr_turbines == 130
+    assert params.wind_farm.capacity_kw == 4000
+
+
+def test_apply_overrides_ignores_unknown_fields():
+    """_apply_wind_farm_overrides 只接受 WindFarmParams 既有欄位，未知 key 安靜略過。"""
+    base = load_k13_engine_params().wind_farm
+    new_wf = _apply_wind_farm_overrides(
+        base,
+        {
+            "nr_turbines": 7,
+            "kwh_price": 0.20,
+            "rogue_field": "should_be_ignored",
+            "another_unknown": 42,
+        },
+    )
+    assert new_wf.nr_turbines == 7
+    assert new_wf.kwh_price == 0.20
+    # 沒有亂加 attr（非 WindFarmParams field）
+    assert not hasattr(new_wf, "rogue_field")
+
+
+def test_apply_overrides_coerces_string_numbers():
+    """JSON 寫成 string 的 int / float 應被 coerce — 不會帶字串繼續跑。"""
+    base = load_k13_engine_params().wind_farm
+    new_wf = _apply_wind_farm_overrides(
+        base,
+        {"nr_turbines": "14", "capacity_kw": "2000.0", "kwh_price": "0.1"},
+    )
+    assert new_wf.nr_turbines == 14
+    assert isinstance(new_wf.nr_turbines, int)
+    assert new_wf.capacity_kw == 2000.0
+    assert isinstance(new_wf.capacity_kw, float)
+    assert new_wf.kwh_price == 0.1
+
+
+def test_apply_overrides_rejects_invalid_numeric():
+    """無法 cast 成數字的值應 raise ValueError，避免 TypeError 在計算半路爆。"""
+    base = load_k13_engine_params().wind_farm
+    with pytest.raises(ValueError, match="nr_turbines"):
+        _apply_wind_farm_overrides(base, {"nr_turbines": "fourteen"})

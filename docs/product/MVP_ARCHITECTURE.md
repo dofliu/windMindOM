@@ -397,6 +397,93 @@ windMindOM                       InduSpect (另一獨立產品)
 
 實作時程：M6+，Enterprise 套餐獨立加值。
 
+### 5.4 Cost ↔ Farm config 整合（內部，跨 module）
+
+不是「外部介接」，但同樣是「不同 source of truth 串接」的事。記錄在這節以便客戶 demo 與第二客戶上線時不再重新討論。
+
+#### 問題
+
+`modules/cost/` 移植自 ECN，預設 dataset 是 K13（130 × 4 MW 北海離岸 reference）；`modules/monitoring/` 的 `farm_registry` 則維護真實風場（如 14 × 2 MW Z72 / 7 × 8 MW 離岸示範）。**兩邊預設互不知道彼此**——demo 給客戶看會被問倒：「我風場 30 台 V164，你算 130 台 K13 給我看幹嘛？」
+
+#### 解法：K13 baseline + per-farm overlay
+
+```
+                       ┌─────────────────────────────┐
+                       │ K13 baseline                │
+                       │  components / FTC /         │
+   POST /api/cost/*    │  equipment / PM /           │
+   { dataset: "k13"   │  fixed_costs / poly         │
+   |"farm:<id>" }     │  + WindFarmParams 預設       │
+        │              └─────────────────────────────┘
+        ▼                          │
+   _resolve_dataset() ─────────────┤
+   (cost_router.py)                │
+        │                          ▼
+        │           ┌──────────────────────────────────┐
+        │  Tier 1   │ data/farms/{id}/cost_inputs.json │  ← 客戶帶完整 cost 參數時
+        ├──────────►│   wind_farm_overrides 套 K13     │     (source = farm_overlay)
+        │           └──────────────────────────────────┘
+        │                          │
+        │  Tier 2   ┌──────────────────────────────────┐
+        ├──────────►│ FarmRegistry.get_farm(id)        │  ← monitoring 已有 farm 但
+        │           │   推 nr_turbines + capacity_kw   │     沒帶 cost_inputs.json
+        │           └──────────────────────────────────┘     (source = registry_derived)
+        │                          │
+        │  Tier 3   ┌──────────────────────────────────┐
+        └──────────►│ 純 K13 baseline + warning        │  ← 無此 farm
+                    └──────────────────────────────────┘     (source = k13_fallback,
+                                                              is_fallback = True)
+                                  │
+                                  ▼
+                       Engine compute → response
+                       含 dataset_meta（前端 badge 顯示）
+```
+
+#### Schema：`modules/cost/data/farms/{farm_id}/cost_inputs.json`
+
+```json
+{
+  "schema_version": "1.0",
+  "farm_id": "台中港曲風場",
+  "base_dataset": "k13",
+  "wind_farm_overrides": {
+    "nr_turbines": 14,
+    "capacity_kw": 2000,
+    "kwh_price": 0.10,
+    "investment_cost_per_kw": 1100,
+    "tech_yearly_salary": 70000,
+    "tech_count": {"winter": 8, "spring": 6, "summer": 6, "autumn": 7, "year": 8}
+  }
+}
+```
+
+只有 `WindFarmParams` 級的欄位可被 farm-specific 覆寫；component / FTC / equipment / PM / fixed_cost / waiting-time polynomial 全沿用 K13。詳見 [`modules/cost/data/farms/README.md`](../../modules/cost/data/farms/README.md)。
+
+#### 採此設計的取捨
+
+- ✅ M3 第一週可完成（adapter 約 100 行 + schema + 2 個 demo dataset）
+- ✅ 客戶 demo 可說「14 台 Z72 / 台中港 / 0.10 EUR/kWh」對齊 monitoring 顯示的真實風機
+- ✅ 第二個 OEM 客戶要不同 FTC 時，再延伸到 component-level override（非 breaking change）
+- ❌ 沒有 cost_inputs.json 的 farm 仍套 K13 component 假設 — 對「14 × Z72」這種小場規模誤差可接受，對「30 × V164」可能失真（驗證點：第二客戶上線時測 PoC）
+
+#### 跨 module 共用的 `farm_id`
+
+monitoring / cost / workflow / ledger 全部用同一個 `farm_id`（與 FarmRegistry 一致）：
+
+```
+monitoring/farm_registry.farms.farm_id           (root of truth)
+  ├── cost/data/farms/{farm_id}/cost_inputs.json
+  ├── workflow/work_orders.farm_id (M3+)
+  ├── cost/ledger.farm_id          (M4+)
+  └── reporting/monthly_report 的 farm 維度       (M4+)
+```
+
+新增客戶風場流程：
+
+1. `POST /api/farms` 建 farm（取得 `farm_id`）
+2. `modules/cost/data/farms/{farm_id}/cost_inputs.json` 填 cost 參數
+3. `POST /api/cost/forecast { "dataset": "farm:{farm_id}" }` → `dataset_meta.source = farm_overlay`
+
 ---
 
 ## 6. 資料模型（核心 SQLAlchemy schema）

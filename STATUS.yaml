@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 50
+progress: 52
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M3 (2026-07) — Workflow Part 1。**M3 第一週插入 WMOM-10 cost↔farm 整合**（M2 補 personalize 缺口）；M4 補 WMOM-11 event-driven cost ledger（含發電收入入帳 + 故障即時影響 + 零件 RUL）。"
+next_milestone: "M3 (2026-07) — Workflow Part 1（z72_etech 取設計 + Work Order CRUD + Approval）。**WMOM-10 cost↔farm 已 done**（2026-05-04 — M3 第一週插入工作）；M4 補 WMOM-11 event-driven cost ledger（含發電收入入帳 + 故障即時影響 + 零件 RUL）。"
 technologies:
   - FastAPI
   - React
@@ -43,8 +43,8 @@ milestones:
   M3:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
-    status: planned
-    progress: 0
+    status: in_progress
+    progress: 10  # WMOM-10 cost↔farm 整合 done（M3 第一週插入工作）；主軸 z72_etech 取設計 + Work Order 待開
   M4:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
@@ -65,7 +65,7 @@ issue_stats:
   open: 3
   in_progress: 1
   blocked: 0
-  done: 13
+  done: 14
 
 inherited_baseline:
   source: digiWindTurbine
