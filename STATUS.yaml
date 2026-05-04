@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 25
+progress: 27
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M2 (2026-06) — Cost module（從 ECN 移植）；K13 demo dataset 第一週跑通是最大 risk。M1 sales 線（WMOM-05 contact）持續中。"
+next_milestone: "M2 後續 — WMOM-20260504-02 waiting_time engine 移植（推薦先做）。K13 baseline + skeleton 已 ready。"
 technologies:
   - FastAPI
   - React
@@ -38,8 +38,8 @@ milestones:
   M2:
     name: "Cost module（從 ECN 移植）"
     target_month: "2026-06"
-    status: planned
-    progress: 0
+    status: in_progress
+    progress: 10   # WMOM-20260504-01 (K13 baseline + inventory + skeleton) done; -02..-08 待開
   M3:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
@@ -65,7 +65,7 @@ issue_stats:
   open: 0
   in_progress: 1
   blocked: 0
-  done: 4
+  done: 5
 
 inherited_baseline:
   source: digiWindTurbine

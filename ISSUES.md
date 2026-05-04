@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 4 |
-| **total (active)** | **5** |
+| done | 5 |
+| **total (active)** | **6** |
 
-最後更新：2026-05-04（WMOM-20260503-05 infrastructure done，contact 持續中）
+最後更新：2026-05-04（M2 開工：WMOM-20260504-01 K13 baseline + skeleton done）
 
 ---
 
@@ -216,12 +216,39 @@
 
 ---
 
-## M2-M6 預留區（規劃時開新 issue）
+## M2（2026-06）— Cost module（從 ECN 移植）
 
-> 不在 M1 範圍。等 M1 結束時 / 每月最後一個 session 開新 issue。
+### WMOM-20260504-01 — ECN K13 baseline + 移植規劃（discovery-first）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: critical（**M2 第一個 issue**，blocking 所有後續 cost migration）
+- **Estimate**: 0.5 工作天
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ 在 ECN 跑 4 支 test 全 pass（cost_cal + waiting_time × 3 + monte_carlo），抓到 K13 黃金數字
+  - ✅ 寫 [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)：K13 reference vs computed 偏差表 + 4 季 breakdown + Monte Carlo + LCOE = 72.94 EUR/MWh + 重跑 SOP
+  - ✅ 寫 [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)：4 submodule × ~3,000 行 inventory + 跨模組依賴 + migration mapping + 風險評估 + 不移的東西明列
+  - ✅ 在 `modules/cost/` 建 skeleton（10 個 sub-namespace `engine/{cost_cal,waiting_time,monte_carlo,var_fluct}` + `models/` + `routers/` + `schemas/` + `tests/` + `data/demo/`），import smoke test pass
+  - ✅ 確認 ECN engine **完全 pure compute**（grep 無 `app.models / app.schemas / app.config` 引用），migration 邊界乾淨
+- **Key decisions documented**:
+  - windMindOM `modules/cost/` 結構鏡像 ECN backend/app/，降低移植 risk
+  - 只移 engine（4 submodule），**不**移 models / routers / schemas / database / utils — windMindOM 自己做
+  - 推薦 migration 順序：waiting_time → cost_cal → monte_carlo → var_fluct（總估時 3-3.5 天）
+  - 浮點誤差容忍：< 1e-6（嚴格 numerical equivalence）
+- **Reference**:
+  - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
+  - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
+  - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+## M3-M6 預留區（規劃時開新 issue）
+
+> 等對應 M 開始時 / 該月最後一個 session 開新 issue。
 > ROADMAP 詳見 `docs/product/ROADMAP.md`。
 
-- M2 (2026-06)：ECN 移植 + K13 demo dataset 跑通（**第一週就要做**，避開最大 risk）
+- M2 後續 (2026-06)：WMOM-20260504-02 (waiting_time) → -03 (cost_cal) → -04 (monte_carlo) → -05 (var_fluct) → -06 (adapter) → -07 (API) → -08 (frontend)；模板見 `docs/legacy/ecn_engine_inventory.md` §8
 - M3 (2026-07)：z72_etech 取設計（5-7 天讀程式 → design notes → 30 分鐘 walkthrough）
 - M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向
 - M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）
