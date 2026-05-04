@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 38
+progress: 41
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M2 後續 — WMOM-20260504-06 cost adapter（schema ⇄ engine 雙向轉換）。4 ECN engine submodule 全 ported bit-perfect、20 tests pass。"
+next_milestone: "M2 後續 — WMOM-20260504-07 FastAPI cost router。adapter + 10 個 pydantic schema 已就位、29 tests pass。"
 technologies:
   - FastAPI
   - React
@@ -39,7 +39,7 @@ milestones:
     name: "Cost module（從 ECN 移植）"
     target_month: "2026-06"
     status: in_progress
-    progress: 75   # -01 skeleton + -02..-05 全 4 個 ECN engine submodule done; -06 (adapter) / -07 (API) / -08 (frontend) 待開
+    progress: 85   # -01..-06 done (skeleton + 4 engine + adapter + schemas); -07 API / -08 frontend 待開
   M3:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
@@ -65,7 +65,7 @@ issue_stats:
   open: 0
   in_progress: 1
   blocked: 0
-  done: 9
+  done: 10
 
 inherited_baseline:
   source: digiWindTurbine

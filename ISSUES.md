@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 9 |
-| **total (active)** | **10** |
+| done | 10 |
+| **total (active)** | **11** |
 
-最後更新：2026-05-04（WMOM-20260504-05 var_fluct done — **4 ECN engine submodule 全 ported**，bit-perfect K13 equivalence）
+最後更新：2026-05-04（WMOM-20260504-06 cost adapter + schemas done — 4 test refactor 省 326 行，整 cost module 29 PASS + 1 XFAIL）
 
 ---
 
@@ -240,6 +240,32 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-06 — Cost adapter + pydantic schemas（M2 抽象層）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: high
+- **Estimate**: 0.5-1 工作天 → **實際 ~1 小時**
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ `modules/cost/adapter.py` (393 行)：`EngineParams` dataclass + `load_k13_engine_params(stochastic=)` + 4 個 result→response 轉換器
+  - ✅ `modules/cost/schemas/cost_schemas.py` (198 行)：10 個 pydantic models（Request × 4 + Response × 4 + 子 model × 2）
+  - ✅ Refactor 3 個 engine test 用新 loader：
+    - test_k13_equivalence.py: 362 → 155 行（省 207）
+    - test_monte_carlo.py: 370 → 203 行（省 167）
+    - test_var_fluct.py: 402 → 243 行（省 159）
+    - test_waiting_time.py 不動（讀 metocean CSV，scope 不重複）
+  - ✅ `modules/cost/tests/test_adapter.py` (207 行)：9 tests 涵蓋 K13 loader + 4 個 result→response + pydantic round-trip + regression gate
+  - ✅ 整 cost module pytest：**29 PASS + 1 XFAIL**（4.17s，比 -05 多 9 個 adapter test）
+- **Code metrics**: tests 1439 → 1113（省 326）；adapter + schemas +591；淨 +265 行
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-cost-adapter.md`](work-logs/2026-05/2026-05-04-cost-adapter.md)
+  - [`modules/cost/adapter.py`](modules/cost/adapter.py)
+  - [`modules/cost/schemas/cost_schemas.py`](modules/cost/schemas/cost_schemas.py)
+  - [`modules/cost/tests/test_adapter.py`](modules/cost/tests/test_adapter.py)
 
 ---
 
