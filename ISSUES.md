@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 12 |
-| **total (active)** | **13** |
+| done | 13 |
+| **total (active)** | **14** |
 
-最後更新：2026-05-04（WMOM-20260504-07 cost API done — 4 endpoints 上線，11 tests pass，整 cost module 41 tests）
+最後更新：2026-05-04（WMOM-20260504-08 cost frontend done — **M2 100% 完成**，CostPage 4 panel 上線）
 
 ---
 
@@ -240,6 +240,36 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-08 — Cost dashboard frontend（M2 收官）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: high
+- **Estimate**: 1-2 工作天 → **實際 ~30 分鐘**
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ `frontend/services/costService.ts` (160 行) — TypeScript API client + 完整 type chain 對齊 backend pydantic schemas
+  - ✅ `frontend/hooks/useCostData.ts` (70 行) — `useAsync` 通用 hook，4 個 endpoint state（data/loading/error/run）
+  - ✅ `frontend/components/CostPage.tsx` (440 行) — 4 panel dashboard：
+    - **ForecastPanel**: 6 metric cards + 4 季 stacked bar chart（auto-run on mount）
+    - **LCOEPanel**: capex/discount input → LCOE breakdown
+    - **MonteCarloPanel**: n_sim/seed input → P10/P50/Mean/P90 bar
+    - **VarFluctPanel**: 20 年 line chart（Total Effort + Multiplier + Availability 三線）
+    - 共用 UI bits: MetricCard / Panel / Btn / ErrorBox + money formatter
+  - ✅ `frontend/App.tsx` 加 nav button (Cost icon) + view router case
+  - ✅ Vite production build pass：710 modules, 1020 KB（含 recharts），0 TS errors
+- **可即時測試**:
+  ```bash
+  python run.py                    # backend
+  cd frontend && npm run dev       # frontend
+  # → http://localhost:5173 → 點 nav "Cost"
+  ```
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-cost-frontend.md`](work-logs/2026-05/2026-05-04-cost-frontend.md)
+  - [`frontend/components/CostPage.tsx`](frontend/components/CostPage.tsx)
 
 ---
 

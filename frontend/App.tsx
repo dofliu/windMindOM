@@ -15,6 +15,7 @@ import SettingsPage from './components/SettingsPage';
 import { useSettings } from './hooks/useSettings';
 import HistoryPage from './components/HistoryPage';
 import FarmSelector from './components/FarmSelector';
+import CostPage from './components/CostPage';
 
 const NavButton = ({ isActive, onClick, children }: {isActive: boolean, onClick: ()=>void, children: React.ReactNode}) => (
     <button
@@ -43,7 +44,7 @@ const App: React.FC = () => {
   const { workOrders } = maintenance;
 
   const [selectedTurbine, setSelectedTurbine] = useState<TurbineData | null>(null);
-  const [view, setView] = useState<'dashboard' | 'history' | 'maintenance' | 'faults' | 'settings'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'history' | 'maintenance' | 'faults' | 'cost' | 'settings'>('dashboard');
 
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [turbineToDispatch, setTurbineToDispatch] = useState<TurbineData | null>(null);
@@ -136,6 +137,8 @@ const App: React.FC = () => {
             return <HistoryPage turbines={turbines} lang={lang} />;
         case 'faults':
             return <FaultInjectionPanel lang={lang} />;
+        case 'cost':
+            return <CostPage lang={lang} />;
         case 'settings':
             return <SettingsPage settings={settings} onSave={saveSettings} lang={lang} />;
         default:
@@ -171,6 +174,12 @@ const App: React.FC = () => {
                 {faultCount > 0 && (
                   <span className="ml-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{faultCount}</span>
                 )}
+            </NavButton>
+            <NavButton isActive={view === 'cost'} onClick={() => { setView('cost'); setSelectedTurbine(null); }}>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-2.21 0-4-1.343-4-3s1.79-3 4-3 4 1.343 4 3M12 6V3m0 18v-3" />
+                </svg>
+                <span className="hidden sm:inline">{ui('Cost', '成本')}</span>
             </NavButton>
         </div>
         <div className="flex items-center space-x-3">
