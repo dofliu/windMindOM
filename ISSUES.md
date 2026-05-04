@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 2 |
+| open | 3 |
 | in_progress | 1 |
 | blocked | 0 |
 | done | 13 |
-| **total (active)** | **16** |
+| **total (active)** | **17** |
 
-最後更新：2026-05-04（M2 100% done + 開 2 個 M3-M4 planning issue：cost ↔ farm 整合 + event-driven cost ledger）
+最後更新：2026-05-04（M2 100% done + 3 個 planning issue：cost↔farm / event ledger / frontend memory leak 觀察）
 
 ---
 
@@ -499,6 +499,35 @@
   - `docs/product/MVP_ARCHITECTURE.md` 補一節「Cost ↔ Farm config 整合」
 - **Reference**:
   - 已在 cost engine 的 K13_FTC_DEFAULTS / K13_MC_EQUIPMENT 是這個方向的 hard-code 版
+
+---
+
+### WMOM-20260504-12 — Frontend 長時間執行記憶體成長（觀察）
+
+- **Status**: open
+- **Milestone**: M5 / M6（不阻塞 demo，可選優化）
+- **Priority**: low
+- **Estimate**: 0.5-1 工作天
+- **Source**: 劉老師 2026-05-04 跑長時間測試 →「記憶體不足、refresh 後就好」
+- **觀察結果**:
+  - **Backend 儲存沒問題**：`storage.py` 4 層 tiered retention 正常運作（turbine_data 3-day raw + 1m 90-day + 10m 永久 + snapshots 永久）
+  - **前端跑數小時記憶體成長** = 典型 React SPA 長時間運行 GC 跟不上問題，與資料儲存無關，refresh 即重置
+- **可能來源（依嫌疑度）**:
+  1. **MiniTrendChart × 14 張卡** — 每張 turbine card 帶一個 Recharts SVG mini-chart，每次 WebSocket push（10s）都 re-render 14 個 SVG，DOM 節點累積
+  2. **`useRealtimeData` 整批替換 state** — 每次 WS push 整 array of 14 turbines 全替換而非 selective update，React diff 開銷大
+  3. **Recharts ResponsiveContainer** 已知 resize observer / portal listener 在某些版本長時間執行有 leak
+  4. WebSocket 重連時的 listener 累積（要查 cleanup）
+- **建議的緩解（順序）**:
+  1. 對 TurbineCard / MiniTrendChart 加 `React.memo` + 自訂 `areEqual`（只在 power/status 變才 re-render）
+  2. `useRealtimeData` selective update：比對舊新 turbine list 只 mutate 改變的，不整批 setState
+  3. 評估把 MiniTrendChart 換成 canvas-based（chart.js / 自寫 canvas），跳過 SVG DOM
+  4. 加「自動 24h 軟 reload」機制（demo 用）— 簡單暴力但有效
+  5. 升級 / pin recharts 版本，看 changelog 有沒有 leak fix
+- **不阻塞**: refresh 即解決，不影響資料儲存，不影響客戶 demo（30 分鐘 demo 不會撞到）
+- **驗收**: 24 小時連續執行記憶體成長 < 50% 視為可接受
+- **Reference**:
+  - `frontend/hooks/useRealtimeData.ts:229` — turbines state 整批替換
+  - `frontend/components/MiniTrendChart.tsx` — 14 個 SVG re-render 來源
 
 ---
 
