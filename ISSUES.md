@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 8 |
-| **total (active)** | **9** |
+| done | 9 |
+| **total (active)** | **10** |
 
-最後更新：2026-05-04（WMOM-20260504-04 monte_carlo engine migration done，LCOE 72.94 EUR/MWh bit-perfect）
+最後更新：2026-05-04（WMOM-20260504-05 var_fluct done — **4 ECN engine submodule 全 ported**，bit-perfect K13 equivalence）
 
 ---
 
@@ -240,6 +240,29 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-05 — `engine/var_fluct/` 移植（4 engine 收官）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: medium
+- **Estimate**: 0.5 工作天 → **實際 ~25 分鐘**
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ 3 engine files (360 行) 從 ECN 複製 + sed 改 import + grep 確認無 ECN-specific 依賴
+  - ✅ ECN 沒有對應 unit test → **從零寫 9 tests**
+  - ✅ `tools/pin_var_fluct.py` 取 ~30 個 pinned 數字（20 年 bathtub 曲線 + 6 邊界 + Year 1/10/20 完整 YearResult + Summary）
+  - ✅ `modules/cost/tests/test_var_fluct.py` 9 tests 全 PASS：
+    - bathtub_default_curve / bathtub_edges / bathtub_curve_helper
+    - varfluct_lifetime_length / year_1_pinned (early peak 1.5x) / year_10_pinned (mid life) / year_20_pinned (late peak 2.0x) / summary_pinned / year_index_consistency
+  - ✅ Cross-test invariant: Year 10 var_fluct availability == -03 cost_cal pinned baseline (0.9402)
+- **整 cost module pytest**: **20 PASS + 1 XFAIL**（4.88s，含 -02/-03/-04/-05 累計 21 tests）
+- **4 個 ECN engine submodule 全部 ported**: cost_cal + waiting_time + monte_carlo + var_fluct
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-var-fluct-migration.md`](work-logs/2026-05/2026-05-04-var-fluct-migration.md)（session 紀錄）
+  - [`modules/cost/tests/test_var_fluct.py`](modules/cost/tests/test_var_fluct.py)
 
 ---
 
