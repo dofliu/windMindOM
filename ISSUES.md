@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 6 |
-| **total (active)** | **7** |
+| done | 7 |
+| **total (active)** | **8** |
 
-最後更新：2026-05-04（WMOM-20260504-02 waiting_time engine migration done，bit-perfect）
+最後更新：2026-05-04（WMOM-20260504-03 cost_cal engine migration done，K13 主驗證 bit-perfect）
 
 ---
 
@@ -240,6 +240,29 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-03 — `engine/cost_cal/` 移植 + K13 equivalence（M2 主菜）
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: critical（M2 主菜，K13 主驗證 gate）
+- **Estimate**: 1-1.5 工作天 → **實際 ~30 分鐘**（SOP 第二次跑就快很多）
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ 8 engine files (957 lines) 從 ECN 複製到 `modules/cost/engine/cost_cal/`，sed 改 import
+  - ✅ Grep 確認 cost_cal **完全乾淨**：無任何 ECN-specific 依賴（比 waiting_time 更乾淨，不需要 stub 任何 function）
+  - ✅ 寫 `tools/pin_cost_cal.py` 一次性工具取 ECN baseline 26 個數字（用 `repr()` 取 float64 完整精度）→ 跑完刪掉
+  - ✅ `modules/cost/tests/test_k13_equivalence.py`：3 tests 全 PASS
+    - `test_k13_migration_equivalence_pinned` — 6 top-level metrics（availability time/energy、revenue loss、repair cost、total effort、cost per kWh）bit-perfect
+    - `test_k13_migration_equivalence_seasonal` — 4 seasons × 5 cost subcategories（material / equipment / revenue_loss / preventive_material / fixed_cost）bit-perfect
+    - `test_k13_cost_calculation` — ECN V5 reference 比對（與 ECN 原版同 tolerance 5-30%）
+  - ✅ 用 `@pytest.fixture(scope="module")` 共用 K13 結果，3 tests 跑 0.22s
+- **整個 cost module pytest**: 6 PASS + 1 XFAIL（含 -02 waiting_time 的 4 tests）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-cost-cal-migration.md`](work-logs/2026-05/2026-05-04-cost-cal-migration.md)（session 紀錄）
+  - [`modules/cost/tests/test_k13_equivalence.py`](modules/cost/tests/test_k13_equivalence.py)（3 tests + 26 pinned 數字）
 
 ---
 
