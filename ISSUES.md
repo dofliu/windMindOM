@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 0 |
+| open | 2 |
 | in_progress | 1 |
 | blocked | 0 |
 | done | 13 |
-| **total (active)** | **14** |
+| **total (active)** | **16** |
 
-最後更新：2026-05-04（WMOM-20260504-08 cost frontend done — **M2 100% 完成**，CostPage 4 panel 上線）
+最後更新：2026-05-04（M2 100% done + 開 2 個 M3-M4 planning issue：cost ↔ farm 整合 + event-driven cost ledger）
 
 ---
 
@@ -460,6 +460,90 @@
 - **Reference**:
   - [`work-logs/2026-05/2026-05-04-waiting-time-migration.md`](work-logs/2026-05/2026-05-04-waiting-time-migration.md)（session 紀錄）
   - [`modules/cost/tests/test_waiting_time.py`](modules/cost/tests/test_waiting_time.py)（4 tests）
+
+---
+
+## M3-M4 Planning Open（劉老師 2026-05-04 提的 product 議題）
+
+### WMOM-20260504-10 — Cost ↔ Wind farm config 整合（規劃缺口）
+
+- **Status**: open
+- **Milestone**: M3（建議）— **建議 M3 第一週做**，因為 Workflow 也會需要 farm context
+- **Priority**: high（M2 demo OK 但對 friendly customer 不夠 personalize）
+- **Estimate**: 1-2 工作天
+- **Source**: 劉老師 2026-05-04 收工提問："cost model 跟模擬風機 / 未來實際風機 有連結嗎？"
+- **問題描述**:
+  目前 `modules/cost/adapter.py` 的 `load_k13_engine_params()` 完全 hard-coded 讀 K13 dataset
+  （130 turbines, 4 MW, EUR-based, North Sea offshore wind ECN reference）。
+  **與既有 monitoring 完全脫鉤**：
+  - 14 台模擬風機（Z72, MW range, 台中港）跑著
+  - cost engine 跑著
+  - 兩邊互不知道對方存在
+- **客戶問會被問倒的**:
+  > 「我的風場只有 30 台 Vestas V164，你算 130 台 K13 給我看幹嘛？」
+- **要做什麼**:
+  1. **設計 farm-aware cost dataset schema**（per-customer JSON）
+     - 風場參數：turbine count、capacity_kw、location（→ vessel rates）、kWh tariff、CAPEX
+     - 故障率：per-turbine-model FTC table（Z72 / Vestas / SGRE 各別 MTBF）
+     - 設備 / 船：local market rates（台灣海域 ≠ 北海）
+  2. **adapter 多支援一個 entry point**：
+     `load_engine_params_from_farm(farm_id)` — 從 `monitoring/farm_registry` 取 farm config
+     + 對應 cost dataset → engine params
+  3. **API endpoint 加 dataset 參數**：
+     `POST /api/cost/forecast { "dataset": "farm:taichung-z72-001" }`（vs `"k13"`）
+  4. **預設 fallback**：找不到 farm-specific dataset 時用 K13 + warning
+- **Deliverable**:
+  - `modules/cost/data/farms/{farm_id}/cost_inputs.json` 雛形
+  - `adapter.py` 加 `load_engine_params_from_farm(farm_id)`
+  - frontend 「dataset selector」（dropdown 選 K13 demo / 真實 farm）
+  - `docs/product/MVP_ARCHITECTURE.md` 補一節「Cost ↔ Farm config 整合」
+- **Reference**:
+  - 已在 cost engine 的 K13_FTC_DEFAULTS / K13_MC_EQUIPMENT 是這個方向的 hard-code 版
+
+---
+
+### WMOM-20260504-11 — Event-driven cost ledger（M4 增強）
+
+- **Status**: open
+- **Milestone**: M4（部分覆蓋）+ **新功能延伸到 M5/M6**
+- **Priority**: high
+- **Estimate**: 2-3 工作天（M4 既有 work order → ledger 之上補完）
+- **Source**: 劉老師 2026-05-04 提問："cost 是否會隨故障/更換零件/發電/停機 來計算（收入支出）？"
+- **既有 ROADMAP 涵蓋**:
+  - ✅ M4 規劃「Cost ↔ Workflow 雙向: Work Order 完工 → cost ledger（actual）」
+  - ✅ `GET /api/cost/ledger` endpoint
+  - ✅ `/admin/cost/ledger` UI
+- **規劃缺口（要補進來）**:
+  1. **收入端**：發電量 × 電價 → 每日 / 每月入帳
+     - Source：monitoring 的 `turbine_data` 表（每 10 秒 power_output kW）
+     - Aggregate：每日 sum × tariff → daily_revenue table
+     - 目前 turbine_data 已 ready，缺 aggregator + ledger entry
+  2. **故障即時影響**：fault 發生 → 估推 revenue loss = downtime × expected_power × tariff
+     - 整合 `modules/monitoring/scada_system.py` 的 fault scenario detection
+     - Push pending revenue_loss 到 ledger（status: estimated → confirmed when 完工）
+  3. **零件更換成本 + RUL 影響**：
+     - 工單填料件清單 → 對應 component 表 → cost + RUL adjustment
+     - 影響下次 monte_carlo 的 freq_min/ml/max（empirical update）
+  4. **Ledger schema 設計**：
+     ```
+     CostLedger {
+       id, farm_id, timestamp, type: 'revenue' | 'expense',
+       category: 'generation' | 'corrective' | 'preventive' | 'fixed' | 'revenue_loss',
+       amount, source_event_id, status: 'estimated' | 'confirmed'
+     }
+     ```
+- **Deliverable**:
+  - `modules/cost/models/cost_ledger.py` — SQLAlchemy / dataclass schema
+  - `modules/cost/services/revenue_aggregator.py` — turbine_data → daily revenue
+  - `modules/cost/services/event_ledger.py` — fault / work-order / inventory → ledger entries
+  - 整合 `modules/workflow/work_order.py`（M3 完成後）— 工單完工 → ledger expense
+  - 新 endpoint `GET /api/cost/ledger?farm_id=&from=&to=&type=`
+  - frontend `/admin/cost/ledger` page — 實際 vs 預測對比
+- **依賴**:
+  - WMOM-10（farm 整合）必須先做 — ledger 需要 farm_id 維度
+  - M3 work order CRUD 完成 — expense ledger 才能寫入
+  - M4 inventory 完成 — 零件 cost 才能拆分
+- **設計筆記應該寫進**: `docs/product/decision_log.md` DEC-{date}-XX「Cost 從 budget calculator 升級為 real-time ledger」
 
 ---
 

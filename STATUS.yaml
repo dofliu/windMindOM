@@ -4,7 +4,7 @@ category: wind_energy
 progress: 50
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M3 (2026-07) — Workflow Part 1（Work Order + Approval）。M1 + M2 全 100% 完成（13 issue done + 1 hotfix）。"
+next_milestone: "M3 (2026-07) — Workflow Part 1。**M3 第一週插入 WMOM-10 cost↔farm 整合**（M2 補 personalize 缺口）；M4 補 WMOM-11 event-driven cost ledger（含發電收入入帳 + 故障即時影響 + 零件 RUL）。"
 technologies:
   - FastAPI
   - React
@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 0
+  open: 2
   in_progress: 1
   blocked: 0
   done: 13
