@@ -24,6 +24,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useCostData } from '../hooks/useCostData';
+import { useI18n } from '../hooks/useI18n';
 
 // ─── Formatters ───────────────────────────────────────────────────────────
 
@@ -78,9 +79,10 @@ const Panel: React.FC<{ title: string; subtitle?: string; children: React.ReactN
 const Btn: React.FC<{
   onClick: () => void;
   loading?: boolean;
+  loadingText?: string;
   children: React.ReactNode;
   variant?: 'primary' | 'secondary';
-}> = ({ onClick, loading, children, variant = 'primary' }) => {
+}> = ({ onClick, loading, loadingText, children, variant = 'primary' }) => {
   const cls =
     variant === 'primary'
       ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
@@ -91,7 +93,7 @@ const Btn: React.FC<{
       disabled={loading}
       className={`px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}
     >
-      {loading ? '計算中…' : children}
+      {loading ? (loadingText ?? 'Loading…') : children}
     </button>
   );
 };
@@ -106,29 +108,52 @@ const ErrorBox: React.FC<{ message: string }> = ({ message }) => (
 
 const ForecastPanel: React.FC<{
   forecast: ReturnType<typeof useCostData>['forecast'];
-}> = ({ forecast }) => {
+  ui: (en: string, zh: string) => string;
+}> = ({ forecast, ui }) => {
+  // 對應 zh / en 的 stack key（chart legend 用）
+  const k = {
+    corrective: ui('Corrective', '矯正性維修'),
+    preventive: ui('Preventive', '預防性維修'),
+    revenueLoss: ui('Revenue Loss', '收入損失'),
+    fixed: ui('Fixed', '固定成本'),
+  };
+  const seasonLabel: Record<string, string> = {
+    winter: ui('Winter', '冬'),
+    spring: ui('Spring', '春'),
+    summer: ui('Summer', '夏'),
+    autumn: ui('Autumn', '秋'),
+  };
+
   const seasonalChartData = useMemo(() => {
     if (!forecast.data) return [];
     const seasons = ['winter', 'spring', 'summer', 'autumn'];
     return seasons.map((s) => {
       const sr = forecast.data!.seasonal[s];
       return {
-        season: s,
-        Corrective: sr.corrective_wt_material + sr.corrective_wt_equipment + sr.corrective_wt_mob,
-        'Revenue Loss': sr.corrective_wt_revenue_loss + sr.preventive_revenue_loss,
-        Preventive: sr.preventive_total,
-        Fixed: sr.fixed_cost,
+        season: seasonLabel[s] ?? s,
+        [k.corrective]: sr.corrective_wt_material + sr.corrective_wt_equipment + sr.corrective_wt_mob,
+        [k.revenueLoss]: sr.corrective_wt_revenue_loss + sr.preventive_revenue_loss,
+        [k.preventive]: sr.preventive_total,
+        [k.fixed]: sr.fixed_cost,
       };
     });
-  }, [forecast.data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forecast.data, k.corrective, k.preventive, k.revenueLoss, k.fixed]);
 
   return (
     <Panel
-      title="Cost Forecast"
-      subtitle="K13 dataset · annual cost breakdown · seasonal stacked bar"
+      title={ui('Cost Forecast', '成本預測')}
+      subtitle={ui(
+        'K13 dataset · annual cost breakdown · seasonal stacked bar',
+        'K13 資料集 · 年度成本分解 · 四季堆疊圖',
+      )}
     >
-      <Btn onClick={() => forecast.run()} loading={forecast.loading}>
-        Run Forecast
+      <Btn
+        onClick={() => forecast.run()}
+        loading={forecast.loading}
+        loadingText={ui('Loading…', '計算中…')}
+      >
+        {ui('Run Forecast', '執行預測')}
       </Btn>
       {forecast.error && <ErrorBox message={forecast.error} />}
 
@@ -136,26 +161,35 @@ const ForecastPanel: React.FC<{
         <>
           <div className="mt-5 grid grid-cols-2 md:grid-cols-3 gap-3">
             <MetricCard
-              label="Availability (time)"
+              label={ui('Availability (time)', '可用度（時間）')}
               value={fmtPct(forecast.data.availability_time)}
             />
             <MetricCard
-              label="Availability (energy)"
+              label={ui('Availability (energy)', '可用度（能量）')}
               value={fmtPct(forecast.data.availability_energy)}
             />
             <MetricCard
-              label="Cost per kWh"
+              label={ui('Cost per kWh', '每度電成本')}
               value={fmtKwh(forecast.data.cost_per_kwh)}
               highlight
             />
-            <MetricCard label="Total Effort" value={fmtMoney(forecast.data.total_effort)} />
-            <MetricCard label="Repair Cost" value={fmtMoney(forecast.data.total_repair_cost)} />
-            <MetricCard label="Revenue Loss" value={fmtMoney(forecast.data.total_revenue_loss)} />
+            <MetricCard
+              label={ui('Total Effort', '總成本')}
+              value={fmtMoney(forecast.data.total_effort)}
+            />
+            <MetricCard
+              label={ui('Repair Cost', '維修成本')}
+              value={fmtMoney(forecast.data.total_repair_cost)}
+            />
+            <MetricCard
+              label={ui('Revenue Loss', '收入損失')}
+              value={fmtMoney(forecast.data.total_revenue_loss)}
+            />
           </div>
 
           <div className="mt-6 h-72">
             <ResponsiveContainer>
-              <BarChart data={seasonalChartData}>
+              <BarChart data={seasonalChartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                 <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
                 <XAxis dataKey="season" stroke="#9ca3af" />
                 <YAxis
@@ -166,11 +200,11 @@ const ForecastPanel: React.FC<{
                   contentStyle={{ background: '#1f2937', border: '1px solid #374151' }}
                   formatter={(v: number) => fmtMoney(v)}
                 />
-                <Legend />
-                <Bar dataKey="Corrective" stackId="a" fill="#06b6d4" />
-                <Bar dataKey="Preventive" stackId="a" fill="#0891b2" />
-                <Bar dataKey="Revenue Loss" stackId="a" fill="#fbbf24" />
-                <Bar dataKey="Fixed" stackId="a" fill="#6b7280" />
+                <Legend wrapperStyle={{ paddingTop: 8 }} />
+                <Bar dataKey={k.corrective} stackId="a" fill="#06b6d4" />
+                <Bar dataKey={k.preventive} stackId="a" fill="#0891b2" />
+                <Bar dataKey={k.revenueLoss} stackId="a" fill="#fbbf24" />
+                <Bar dataKey={k.fixed} stackId="a" fill="#6b7280" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -182,18 +216,24 @@ const ForecastPanel: React.FC<{
 
 // ─── Panel 2: LCOE ────────────────────────────────────────────────────────
 
-const LCOEPanel: React.FC<{ lcoe: ReturnType<typeof useCostData>['lcoe'] }> = ({ lcoe }) => {
+const LCOEPanel: React.FC<{
+  lcoe: ReturnType<typeof useCostData>['lcoe'];
+  ui: (en: string, zh: string) => string;
+}> = ({ lcoe, ui }) => {
   const [capex, setCapex] = useState(1250);
   const [discount, setDiscount] = useState(0.08);
 
   return (
     <Panel
-      title="LCOE Calculation"
-      subtitle="Levelized Cost of Energy · CAPEX + OPEX NPV / Energy NPV"
+      title={ui('LCOE Calculation', 'LCOE 計算')}
+      subtitle={ui(
+        'Levelized Cost of Energy · CAPEX + OPEX NPV / Energy NPV',
+        '均化電力成本 · CAPEX + OPEX 現值 / 能量現值',
+      )}
     >
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-gray-300 block">
-          CAPEX (EUR/kW)
+          {ui('CAPEX (EUR/kW)', '建置成本（EUR/kW）')}
           <input
             type="number"
             value={capex}
@@ -202,7 +242,7 @@ const LCOEPanel: React.FC<{ lcoe: ReturnType<typeof useCostData>['lcoe'] }> = ({
           />
         </label>
         <label className="text-sm text-gray-300 block">
-          Discount Rate
+          {ui('Discount Rate', '折現率')}
           <input
             type="number"
             step="0.01"
@@ -214,8 +254,9 @@ const LCOEPanel: React.FC<{ lcoe: ReturnType<typeof useCostData>['lcoe'] }> = ({
         <Btn
           onClick={() => lcoe.run({ capex_per_kw: capex, discount_rate: discount })}
           loading={lcoe.loading}
+          loadingText={ui('Loading…', '計算中…')}
         >
-          Calculate LCOE
+          {ui('Calculate LCOE', '計算 LCOE')}
         </Btn>
       </div>
       {lcoe.error && <ErrorBox message={lcoe.error} />}
@@ -225,17 +266,23 @@ const LCOEPanel: React.FC<{ lcoe: ReturnType<typeof useCostData>['lcoe'] }> = ({
           <MetricCard
             label="LCOE"
             value={`${lcoe.data.lcoe.toFixed(2)} EUR/MWh`}
-            hint="Lifetime average"
+            hint={ui('Lifetime average', '生命週期平均')}
             highlight
           />
-          <MetricCard label="CAPEX Total" value={fmtMoney(lcoe.data.capex_total)} />
-          <MetricCard label="OPEX NPV" value={fmtMoney(lcoe.data.opex_total_npv)} />
           <MetricCard
-            label="Energy NPV"
+            label={ui('CAPEX Total', 'CAPEX 總額')}
+            value={fmtMoney(lcoe.data.capex_total)}
+          />
+          <MetricCard
+            label={ui('OPEX NPV', 'OPEX 現值')}
+            value={fmtMoney(lcoe.data.opex_total_npv)}
+          />
+          <MetricCard
+            label={ui('Energy NPV', '能量現值')}
             value={`${(lcoe.data.energy_total_npv / 1e6).toFixed(1)} M MWh`}
           />
           <MetricCard
-            label="Total Cost NPV"
+            label={ui('Total Cost NPV', '總成本現值')}
             value={fmtMoney(lcoe.data.total_cost_npv)}
           />
         </div>
@@ -248,7 +295,8 @@ const LCOEPanel: React.FC<{ lcoe: ReturnType<typeof useCostData>['lcoe'] }> = ({
 
 const MonteCarloPanel: React.FC<{
   monteCarlo: ReturnType<typeof useCostData>['monteCarlo'];
-}> = ({ monteCarlo }) => {
+  ui: (en: string, zh: string) => string;
+}> = ({ monteCarlo, ui }) => {
   const [nSim, setNSim] = useState(100);
   const [seed, setSeed] = useState(42);
 
@@ -257,20 +305,24 @@ const MonteCarloPanel: React.FC<{
     const c = monteCarlo.data.percentiles.cost;
     return [
       { name: 'P10', value: c.p10, color: '#10b981' },
-      { name: 'P50 (median)', value: c.p50, color: '#06b6d4' },
-      { name: 'Mean', value: c.mean, color: '#fbbf24' },
+      { name: ui('P50 (median)', 'P50（中位數）'), value: c.p50, color: '#06b6d4' },
+      { name: ui('Mean', '平均'), value: c.mean, color: '#fbbf24' },
       { name: 'P90', value: c.p90, color: '#ef4444' },
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monteCarlo.data]);
 
   return (
     <Panel
-      title="Monte Carlo Risk Analysis"
-      subtitle="Stochastic sampling on failure rates / costs · P10 / P50 / P90"
+      title={ui('Monte Carlo Risk Analysis', '蒙地卡羅風險分析')}
+      subtitle={ui(
+        'Stochastic sampling on failure rates / costs · P10 / P50 / P90',
+        '對故障率 / 成本做隨機抽樣 · P10 / P50 / P90',
+      )}
     >
       <div className="flex flex-wrap gap-3 items-end">
         <label className="text-sm text-gray-300 block">
-          # Simulations (10–10000)
+          {ui('# Simulations (10–10000)', '模擬次數（10–10000）')}
           <input
             type="number"
             value={nSim}
@@ -281,7 +333,7 @@ const MonteCarloPanel: React.FC<{
           />
         </label>
         <label className="text-sm text-gray-300 block">
-          Seed
+          {ui('Seed', '亂數種子')}
           <input
             type="number"
             value={seed}
@@ -292,8 +344,9 @@ const MonteCarloPanel: React.FC<{
         <Btn
           onClick={() => monteCarlo.run({ n_simulations: nSim, seed })}
           loading={monteCarlo.loading}
+          loadingText={ui('Loading…', '計算中…')}
         >
-          Run Monte Carlo
+          {ui('Run Monte Carlo', '執行蒙地卡羅')}
         </Btn>
       </div>
       {monteCarlo.error && <ErrorBox message={monteCarlo.error} />}
@@ -302,31 +355,31 @@ const MonteCarloPanel: React.FC<{
         <>
           <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
             <MetricCard
-              label="Deterministic"
+              label={ui('Deterministic', '確定值')}
               value={fmtMoney(monteCarlo.data.deterministic.total_effort)}
-              hint="Single-point estimate"
+              hint={ui('Single-point estimate', '單點估算')}
             />
             <MetricCard
-              label="P50 (median)"
+              label={ui('P50 (median)', 'P50（中位數）')}
               value={fmtMoney(monteCarlo.data.percentiles.cost.p50)}
               highlight
             />
             <MetricCard
-              label="P10 → P90 spread"
+              label={ui('P10 → P90 spread', 'P10 → P90 區間')}
               value={fmtMoney(
                 monteCarlo.data.percentiles.cost.p90 - monteCarlo.data.percentiles.cost.p10,
               )}
-              hint="Risk window"
+              hint={ui('Risk window', '風險範圍')}
             />
             <MetricCard
-              label="Std Deviation"
+              label={ui('Std Deviation', '標準差')}
               value={fmtMoney(monteCarlo.data.percentiles.cost.std)}
             />
           </div>
 
           <div className="mt-6 h-64">
             <ResponsiveContainer>
-              <BarChart data={percentileChartData}>
+              <BarChart data={percentileChartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                 <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#9ca3af" />
                 <YAxis
@@ -355,24 +408,40 @@ const MonteCarloPanel: React.FC<{
 
 const VarFluctPanel: React.FC<{
   varFluct: ReturnType<typeof useCostData>['varFluct'];
-}> = ({ varFluct }) => {
+  ui: (en: string, zh: string) => string;
+}> = ({ varFluct, ui }) => {
+  // Localised legend keys
+  const k = {
+    totalEffort: ui('Total Effort (M EUR)', '總成本（M EUR）'),
+    failureMultiplier: ui('Failure Multiplier', '故障倍率'),
+    availability: ui('Availability (%)', '可用度（%）'),
+  };
+
   const yearlyChartData = useMemo(() => {
     if (!varFluct.data) return [];
     return varFluct.data.yearly.map((y) => ({
       year: y.year,
-      'Total Effort': y.total_effort / 1e6,
-      'Failure Multiplier': y.failure_multiplier,
-      Availability: y.availability_time * 100,
+      [k.totalEffort]: y.total_effort / 1e6,
+      [k.failureMultiplier]: y.failure_multiplier,
+      [k.availability]: y.availability_time * 100,
     }));
-  }, [varFluct.data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [varFluct.data, k.totalEffort, k.failureMultiplier, k.availability]);
 
   return (
     <Panel
-      title="Lifetime Variation (VarFluct)"
-      subtitle="Year-by-year cost evolution · bathtub failure rate · NPV summary"
+      title={ui('Lifetime Variation (VarFluct)', '生命週期變化（VarFluct）')}
+      subtitle={ui(
+        'Year-by-year cost evolution · bathtub failure rate · NPV summary',
+        '逐年成本變化 · 浴缸曲線故障率 · NPV 總結',
+      )}
     >
-      <Btn onClick={() => varFluct.run()} loading={varFluct.loading}>
-        Run Lifetime Simulation
+      <Btn
+        onClick={() => varFluct.run()}
+        loading={varFluct.loading}
+        loadingText={ui('Loading…', '計算中…')}
+      >
+        {ui('Run Lifetime Simulation', '執行生命週期模擬')}
       </Btn>
       {varFluct.error && <ErrorBox message={varFluct.error} />}
 
@@ -380,53 +449,73 @@ const VarFluctPanel: React.FC<{
         <>
           <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
             <MetricCard
-              label="NPV Total Effort"
+              label={ui('NPV Total Effort', 'NPV 總成本')}
               value={fmtMoney(varFluct.data.summary.npv_total_effort)}
-              hint="20-year discounted"
+              hint={ui('20-year discounted', '20 年折現')}
               highlight
             />
             <MetricCard
-              label="Avg Annual Effort"
+              label={ui('Avg Annual Effort', '年均成本')}
               value={fmtMoney(varFluct.data.summary.avg_annual_effort)}
             />
             <MetricCard
-              label="Min Year"
-              value={`Year ${varFluct.data.summary.min_year_index}: ${fmtMoney(
-                varFluct.data.summary.min_year_effort,
-              )}`}
+              label={ui('Min Year', '最低年')}
+              value={`${ui('Year', '第')} ${varFluct.data.summary.min_year_index}${ui(
+                '',
+                ' 年',
+              )}: ${fmtMoney(varFluct.data.summary.min_year_effort)}`}
             />
             <MetricCard
-              label="Max Year"
-              value={`Year ${varFluct.data.summary.max_year_index}: ${fmtMoney(
-                varFluct.data.summary.max_year_effort,
-              )}`}
+              label={ui('Max Year', '最高年')}
+              value={`${ui('Year', '第')} ${varFluct.data.summary.max_year_index}${ui(
+                '',
+                ' 年',
+              )}: ${fmtMoney(varFluct.data.summary.max_year_effort)}`}
             />
           </div>
 
-          <div className="mt-6 h-72">
+          {/* Chart 給更多空間：h-80（下移 legend 不撞）+ 增加 right margin 給 right axis */}
+          <div className="mt-6 h-80">
             <ResponsiveContainer>
-              <LineChart data={yearlyChartData}>
+              <LineChart
+                data={yearlyChartData}
+                margin={{ top: 5, right: 20, bottom: 30, left: 0 }}
+              >
                 <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
-                <XAxis dataKey="year" stroke="#9ca3af" label={{ value: 'Year', fill: '#9ca3af', position: 'bottom' }} />
+                <XAxis
+                  dataKey="year"
+                  stroke="#9ca3af"
+                  label={{
+                    value: ui('Year', '年'),
+                    fill: '#9ca3af',
+                    position: 'insideBottom',
+                    offset: -5,
+                  }}
+                />
+                {/* 左軸：M EUR — 不放 axis label，靠 legend 顏色說明 */}
                 <YAxis
                   yAxisId="left"
                   stroke="#06b6d4"
-                  label={{ value: 'M EUR', fill: '#06b6d4', angle: -90, position: 'insideLeft' }}
+                  tickFormatter={(v) => `${v.toFixed(0)}M`}
                 />
+                {/* 右軸：multiplier 倍率 + availability %（共用刻度 0–100） */}
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   stroke="#fbbf24"
-                  label={{ value: 'Multiplier × Avail %', fill: '#fbbf24', angle: 90, position: 'insideRight' }}
+                  tickFormatter={(v) => `${v.toFixed(0)}`}
                 />
                 <Tooltip
                   contentStyle={{ background: '#1f2937', border: '1px solid #374151' }}
                 />
-                <Legend />
+                <Legend
+                  wrapperStyle={{ paddingTop: 8, fontSize: 12 }}
+                  iconType="line"
+                />
                 <Line
                   yAxisId="left"
                   type="monotone"
-                  dataKey="Total Effort"
+                  dataKey={k.totalEffort}
                   stroke="#06b6d4"
                   strokeWidth={2}
                   dot={false}
@@ -434,7 +523,7 @@ const VarFluctPanel: React.FC<{
                 <Line
                   yAxisId="right"
                   type="monotone"
-                  dataKey="Failure Multiplier"
+                  dataKey={k.failureMultiplier}
                   stroke="#fbbf24"
                   strokeWidth={2}
                   dot={false}
@@ -442,7 +531,7 @@ const VarFluctPanel: React.FC<{
                 <Line
                   yAxisId="right"
                   type="monotone"
-                  dataKey="Availability"
+                  dataKey={k.availability}
                   stroke="#10b981"
                   strokeWidth={2}
                   dot={false}
@@ -464,6 +553,7 @@ interface CostPageProps {
 
 const CostPage: React.FC<CostPageProps> = () => {
   const cost = useCostData();
+  const { ui } = useI18n();  // 取現時 lang，不靠 props（與既有 maintenance / history page 一致）
 
   // Auto-run forecast on first mount so user 一進來就有東西看
   useEffect(() => {
@@ -474,17 +564,20 @@ const CostPage: React.FC<CostPageProps> = () => {
   return (
     <div className="p-4 md:p-6 space-y-6">
       <header className="mb-2">
-        <h1 className="text-2xl font-bold text-gray-100">Cost Module</h1>
+        <h1 className="text-2xl font-bold text-gray-100">{ui('Cost Module', '成本模組')}</h1>
         <p className="text-sm text-gray-400 mt-1">
-          ECN-port engine · K13 demo dataset · 4 endpoints (forecast / LCOE / Monte Carlo / VarFluct)
+          {ui(
+            'ECN-port engine · K13 demo dataset · 4 endpoints (forecast / LCOE / Monte Carlo / VarFluct)',
+            'ECN 移植引擎 · K13 示範資料集 · 4 個端點（預測 / LCOE / 蒙地卡羅 / 生命週期）',
+          )}
         </p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ForecastPanel forecast={cost.forecast} />
-        <LCOEPanel lcoe={cost.lcoe} />
-        <MonteCarloPanel monteCarlo={cost.monteCarlo} />
-        <VarFluctPanel varFluct={cost.varFluct} />
+        <ForecastPanel forecast={cost.forecast} ui={ui} />
+        <LCOEPanel lcoe={cost.lcoe} ui={ui} />
+        <MonteCarloPanel monteCarlo={cost.monteCarlo} ui={ui} />
+        <VarFluctPanel varFluct={cost.varFluct} ui={ui} />
       </div>
     </div>
   );

@@ -245,6 +245,16 @@
 
 ### WMOM-20260504-08 — Cost dashboard frontend（M2 收官）
 
+**Polish update（2026-05-04 同日）**：
+- VarFluct chart 軸 label / legend 重疊修復（移除過長右軸 label，靠 legend 顏色說明；增加 chart 高度 + bottom margin）
+- 全頁中文 i18n（用既有 `useI18n` hook + `ui()` 模式，與 maintenance / history page 一致）：
+  panel title / subtitle / button / metric label / chart legend keys / season names 全雙語
+- 預設 lang 從 `localStorage.windFarmLang` 讀（既有設計，預設 zh）
+- Vite build 仍 pass（0 TS errors）
+
+---
+
+
 - **Status**: done（2026-05-04 完成）
 - **Milestone**: M2
 - **Priority**: high
