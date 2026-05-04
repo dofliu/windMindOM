@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 33
+progress: 35
 status: active
 last_updated: "2026-05-04"
-next_milestone: "M2 後續 — WMOM-20260504-04 monte_carlo engine 移植（依賴 cost_cal，估 ~30 分鐘）。cost_cal K13 主驗證 done bit-perfect。"
+next_milestone: "M2 後續 — WMOM-20260504-05 var_fluct engine 移植（最後一個 engine submodule，最簡單）。LCOE 72.94 EUR/MWh bit-perfect。"
 technologies:
   - FastAPI
   - React
@@ -39,7 +39,7 @@ milestones:
     name: "Cost module（從 ECN 移植）"
     target_month: "2026-06"
     status: in_progress
-    progress: 45   # WMOM-20260504-01 (skeleton) + 02 (waiting_time) + 03 (cost_cal K13 主驗證) bit-perfect done; -04..-08 待開
+    progress: 60   # -01 (skeleton) + -02 (waiting_time) + -03 (cost_cal) + -04 (monte_carlo + LCOE) bit-perfect done; -05/-06/-07/-08 待開
   M3:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
@@ -65,7 +65,7 @@ issue_stats:
   open: 0
   in_progress: 1
   blocked: 0
-  done: 7
+  done: 8
 
 inherited_baseline:
   source: digiWindTurbine

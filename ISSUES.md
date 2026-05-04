@@ -16,10 +16,10 @@
 | open | 0 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 7 |
-| **total (active)** | **8** |
+| done | 8 |
+| **total (active)** | **9** |
 
-最後更新：2026-05-04（WMOM-20260504-03 cost_cal engine migration done，K13 主驗證 bit-perfect）
+最後更新：2026-05-04（WMOM-20260504-04 monte_carlo engine migration done，LCOE 72.94 EUR/MWh bit-perfect）
 
 ---
 
@@ -240,6 +240,31 @@
   - [`docs/legacy/ecn_k13_baseline.md`](docs/legacy/ecn_k13_baseline.md)（K13 黃金數字）
   - [`docs/legacy/ecn_engine_inventory.md`](docs/legacy/ecn_engine_inventory.md)（移植計畫 + risk）
   - [`work-logs/2026-05/2026-05-04-ecn-k13-baseline.md`](work-logs/2026-05/2026-05-04-ecn-k13-baseline.md)（session 紀錄）
+
+---
+
+### WMOM-20260504-04 — `engine/monte_carlo/` 移植 + LCOE bit-perfect
+
+- **Status**: done（2026-05-04 完成）
+- **Milestone**: M2
+- **Priority**: high
+- **Estimate**: 0.5 工作天 → **實際 ~25 分鐘**
+- **Owner**: Claude (session 2026-05-04)
+- **Completion summary**:
+  - ✅ 4 engine files (674 lines) 從 ECN 複製到 `modules/cost/engine/monte_carlo/`，sed 改 import
+  - ✅ Grep 確認 monte_carlo 完全乾淨（無 ECN-specific 依賴），跟 cost_cal 一樣
+  - ✅ ECN 用 `np.random.default_rng(seed)` modern API，seed=42 完全 reproducible
+  - ✅ `tools/pin_monte_carlo.py` 一次性工具取 21 個 pinned 數字（4 deterministic + 11 percentile + 6 LCOE，含 LCOE = 72.94 EUR/MWh）
+  - ✅ `modules/cost/tests/test_monte_carlo.py` 5 tests 全 PASS：
+    - `test_mc_deterministic_pinned` — 4 metric bit-perfect（reuse cost_cal）
+    - `test_mc_percentiles_pinned` — 11 percentile bit-perfect
+    - `test_mc_lcoe_pinned` — LCOE 72.94 EUR/MWh bit-perfect
+    - `test_mc_sanity_checks` — P10<P50<P90 / std>0 / CDF monotonic
+    - `test_mc_tornado` — bars > 0 且 cost_range 排序正確
+- **整個 cost module pytest**: 11 PASS + 1 XFAIL（含 -02/-03/-04 累計 12 tests）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-04-monte-carlo-migration.md`](work-logs/2026-05/2026-05-04-monte-carlo-migration.md)（session 紀錄）
+  - [`modules/cost/tests/test_monte_carlo.py`](modules/cost/tests/test_monte_carlo.py)
 
 ---
 
