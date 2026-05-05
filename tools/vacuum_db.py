@@ -23,6 +23,11 @@
 
   # 不要 cleanup，只 VACUUM（如已用其他方式清過）
   python tools/vacuum_db.py "modules/monitoring/data/farms/彰化離岸風場台電/wind_farm.db" --no-cleanup
+
+  # 強制清空 turbine_snapshots 整個表（救火場景：retroactive write 重複造成失控時）
+  # → 例如 WMOM-20260505-01 修補前累積的「98.9% 重複 row」測試資料，retention-based cleanup
+  #    清不掉（因為都在 7 天內），需要直接 truncate
+  python tools/vacuum_db.py "modules/monitoring/data/farms/彰化離岸風場台電/wind_farm.db" --purge-snapshots
 """
 
 from __future__ import annotations
@@ -45,6 +50,25 @@ def fmt_size(bytes_: int) -> str:
             return f"{bytes_:.2f} {unit}"
         bytes_ /= 1024  # type: ignore[assignment]
     return f"{bytes_:.2f} TB"  # type: ignore[str-format]
+
+
+def purge_snapshots_table(db_path: Path) -> int:
+    """強制清空 turbine_snapshots — 救火用，跳過 retention 邏輯。
+
+    Returns 被清掉的 row 數。
+
+    用途：retroactive write bug 累積的重複 row 全在 retention 內，
+    用 ``run_cleanup(snapshots_retention_days=7)`` 清不掉時的最後手段。
+    Caller 應確認 app 已停（否則資料漂移）— 由 ``_check_app_stopped`` 把關。
+    """
+    con = sqlite3.connect(str(db_path))
+    try:
+        before = con.execute("SELECT COUNT(*) FROM turbine_snapshots").fetchone()[0]
+        con.execute("DELETE FROM turbine_snapshots")
+        con.commit()
+        return before
+    finally:
+        con.close()
 
 
 def get_table_counts(db_path: Path) -> dict:
@@ -79,7 +103,8 @@ def _check_app_stopped(db_path: Path) -> str | None:
 
 
 def run(db_path: Path, *, do_cleanup: bool, dry_run: bool,
-        snapshots_retention_days: int = 7) -> int:
+        snapshots_retention_days: int = 7,
+        purge_snapshots: bool = False) -> int:
     if not db_path.exists():
         print(f"❌ DB not found: {db_path}", file=sys.stderr)
         return 2
@@ -106,15 +131,28 @@ def run(db_path: Path, *, do_cleanup: bool, dry_run: bool,
         print(f"  {t:<30} {n:>15,}")
     print()
 
-    # Step 1: cleanup
+    # Step 1a: purge snapshots（救火用，跳過 retention 邏輯）
+    if purge_snapshots:
+        print(f"--- Step 1a/3: PURGE turbine_snapshots ---")
+        if dry_run:
+            n_to_purge = counts_before.get("turbine_snapshots", 0)
+            print(f"  [dry-run] would DELETE all {n_to_purge:,} rows")
+        else:
+            n_purged = purge_snapshots_table(db_path)
+            print(f"  removed {n_purged:,} rows from turbine_snapshots")
+        print()
+
+    # Step 1b: retention-based cleanup（保留 raw / 1m 既有清理，snapshots 已 purge 跳過）
     if do_cleanup:
-        print(f"--- Step 1/3: run_cleanup (snapshots_retention_days={snapshots_retention_days}) ---")
+        # 若已 purge_snapshots，傳 retention=0 跳過 snapshots（仍清 raw / 1m）
+        effective_snap_retention = 0 if purge_snapshots else snapshots_retention_days
+        print(f"--- Step 1b/3: run_cleanup (snapshots_retention_days={effective_snap_retention}) ---")
         if dry_run:
             print("  [dry-run] skip")
         else:
             from server.storage import Storage  # type: ignore
             s = Storage(db_path=str(db_path))
-            res = s.run_cleanup(snapshots_retention_days=snapshots_retention_days)
+            res = s.run_cleanup(snapshots_retention_days=effective_snap_retention)
             print(f"  removed: raw={res['deleted_raw']:,}  1m={res['deleted_1m']:,}  "
                   f"snapshots={res['deleted_snapshots']:,}")
             # close connection (Storage 用 thread-local)
@@ -161,9 +199,9 @@ def run(db_path: Path, *, do_cleanup: bool, dry_run: bool,
         for t in counts_before:
             if counts_before[t] != counts_after.get(t, 0):
                 diffs.append((t, counts_before[t], counts_after.get(t, 0)))
-        if diffs and not do_cleanup:
-            # 沒做 cleanup 卻 row 數變了 = 異常
-            print(f"⚠ Row count mismatch (no cleanup but rows differ):")
+        if diffs and not do_cleanup and not purge_snapshots:
+            # 沒做 cleanup 也沒 purge 卻 row 數變了 = 異常
+            print(f"⚠ Row count mismatch (no cleanup/purge but rows differ):")
             for t, before, after in diffs:
                 print(f"  {t}: {before:,} → {after:,}")
             return 3
@@ -213,6 +251,9 @@ def main():
                    help="Skip run_cleanup before VACUUM (default: do cleanup)")
     p.add_argument("--snapshots-retention-days", type=int, default=7,
                    help="Cleanup retention for turbine_snapshots (default: 7)")
+    p.add_argument("--purge-snapshots", action="store_true",
+                   help="DELETE entire turbine_snapshots table (跳過 retention) — "
+                        "救火用，例如 retroactive write bug 累積的重複 row 全在 retention 內")
     p.add_argument("--dry-run", action="store_true",
                    help="Estimate savings without modifying anything")
     args = p.parse_args()
@@ -222,6 +263,7 @@ def main():
         do_cleanup=not args.no_cleanup,
         dry_run=args.dry_run,
         snapshots_retention_days=args.snapshots_retention_days,
+        purge_snapshots=args.purge_snapshots,
     )
 
 

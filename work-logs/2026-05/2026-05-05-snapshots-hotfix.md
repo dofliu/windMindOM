@@ -51,12 +51,29 @@
 | #9 `_seed_raw` 缺欄位 | 加註解標明「不適合 aggregation test」 |
 | #10 7 天 retention 取捨 | 寫進 [`docs/product/decision_log.md`](../../docs/product/decision_log.md) DEC-20260505-01 |
 
-### 2.3 卡住或延後的事
+### 2.3 實際執行 VACUUM 結果（劉老師 2026-05-05 跑）+ 加 --purge-snapshots
 
-- **VACUUM 實際執行**：留給劉老師在 prod 環境跑（41.9 GB → 預估 < 1 GB）。step:
-  1. 停 `python run.py`（避開 EXCLUSIVE lock pre-check 失敗）
-  2. `python tools/vacuum_db.py "modules/monitoring/data/farms/彰化離岸風場台電/wind_farm.db" --dry-run` 看會省多少
-  3. 確認 ok → 拿掉 `--dry-run` 跑
+劉老師跑 `tools/vacuum_db.py` retention=7 天 → **只省 50 MB / 0.1%**：
+
+```
+removed: raw=0  1m=0  snapshots=2,135
+✅ Done. 41.89 GB → 41.84 GB  (saved 50.82 MB, 0.1%)
+```
+
+**原因**：分析 distinct (turbine_id, timestamp) 發現 1080 萬 row 裡 **98.9% 都是重複** —
+只有 11.7 萬 row 是真實 distinct timestamp。retroactive write 把 in-memory 600 row 
+歷史一寫再寫，retention-based cleanup 清不掉（重複 row 的 timestamp 也都在 7 天內）。
+
+**修補追加**（小延伸）：加 `tools/vacuum_db.py --purge-snapshots` flag：
+- 強制 truncate 整個 turbine_snapshots table（跳過 retention 邏輯）
+- 救火用：retroactive write bug 累積的「重複 row 全在 retention 內」場景
+- +5 tests `test_vacuum_db.py`（含 dry-run / purge+cleanup 互動 / fresh row 也清）
+- 對應 row count mismatch check 加 `not purge_snapshots` 條件
+
+劉老師 SOP 改為：
+1. 停 `python run.py`
+2. `rm wind_farm.db.bak`（先前 vacuum 留下的，41.89 GB 釋放）
+3. `python tools/vacuum_db.py "..." --purge-snapshots` → 41.84 GB → ~50 MB
 
 ### 2.4 重大決策
 
