@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 78
+progress: 80
 status: active
 last_updated: "2026-05-05"
-next_milestone: "M3 (2026-07) — Workflow Part 1 實作中。WMOM-18 Approval signoff API done（4 階 chain + 自動整合 work_order finish/approve/reject + 11 review findings 處理）；M3 backend 已 100% 完成（-14/-15/-16/-17/-18 全 done）；下一步 WMOM-19 /admin/workflow/orders frontend → -20 approval frontend。"
+next_milestone: "M3 backend 100% done + 架構圖到位（PR #4-#8 全 merged）。今日 5 PR 連發 — WMOM-14/-15 設計、-16/-17/-18 backend 實作 + 兩輪 code review 共 32 finding 處理 + 架構圖 + 生圖 prompts。下次 session 開 WMOM-19 /admin/workflow/orders frontend；對齊既有 cost frontend pattern（services/hooks/components 三層）。"
 technologies:
   - FastAPI
   - React
