@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 10 |
+| open | 9 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 17 |
+| done | 18 |
 | **total (active)** | **27** |
 
-最後更新：2026-05-05（**M3 設計階段全結束**：WMOM-14/-15 done — 三份 DN + walkthrough 一次完成；WMOM-01 hotfix done；衍生 WMOM-21 day_work_form / WMOM-22 inspection_schedule 開好；下一步進 WMOM-16 Work Order domain 落地）
+最後更新：2026-05-05（**M3 主線實作開工**：WMOM-16 Work Order domain + 狀態機 done — 73 tests，code review 13 finding 全處理；下一步 WMOM-17 CRUD/REST API）
 
 ---
 
@@ -700,16 +700,21 @@
 
 ### WMOM-20260504-16 — Work Order 領域模型 + 狀態機（pure domain）
 
-- **Status**: open（依賴 -14 DN-01 + -15 walkthrough confirm）
+- **Status**: done（2026-05-05 完成）
 - **Milestone**: M3
 - **Priority**: critical
-- **Estimate**: 1 工作天
-- **Description**:
-  根據 DN-01 寫 Python 領域模型（pure dataclass + enum + 狀態機 transitions）：
-  - `modules/workflow/domain/work_order.py`：`WorkOrder` dataclass / `WorkOrderStatus` Enum
-  - `modules/workflow/domain/state_machine.py`：states + allowed transitions + guard 條件
-  - `modules/workflow/tests/test_state_machine.py`：所有 transition 正例 / 反例
-  - **不接 SQLAlchemy / FastAPI**，純 domain 層；下個 issue 才 wrap
+- **Estimate**: 1 工作天 → **實際半天**（含 code review fix）
+- **Owner**: Claude (session 2026-05-05)
+- **Branch**: `claude/issue-20260504-16-2026-05-05`
+- **Completion summary**:
+  - ✅ `modules/workflow/domain/work_order.py`：4 Enum + ProgressNote + WorkOrderFollowup + WorkOrder dataclass
+  - ✅ `modules/workflow/domain/state_machine.py`：TransitionRule + WORK_ORDER_TRANSITIONS（9 rule / 8 action）+ 6 guard + WorkOrderStateMachine + helper
+  - ✅ Tests +73：test_work_order.py (20) + test_state_machine.py (53) — 含完整 lifecycle / parametrized 反例 / guard 不污染 state regression
+  - ✅ Code review 13 finding 全處理（5 must-fix + 5 should-fix + 3 nice-to-have）
+  - ✅ 整 pytest 163 PASS + 1 XFAIL（cost 49 + monitoring 35 + workflow 79）
+- **Reference**:
+  - [`modules/workflow/domain/`](modules/workflow/domain/)
+  - [`work-logs/2026-05/2026-05-05-work-order-domain.md`](work-logs/2026-05/2026-05-05-work-order-domain.md)
 
 ---
 

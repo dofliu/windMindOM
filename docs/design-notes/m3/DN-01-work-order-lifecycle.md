@@ -230,11 +230,17 @@ class WorkOrder:
     closed_at: datetime | None = None
     cancelled_at: datetime | None = None
     cancel_reason: str | None = None
+    rejected_at: datetime | None = None
+    reject_reason: str | None = None
 
-    # ── audit（取代 etech allForm collection）────
-    created_at: datetime
+    # ── reopen（fix #7：reopen_reason 走獨立欄位，不污染 followup_note）──
+    reopened_at: datetime | None = None
+    reopen_reason: str | None = None
+
+    # ── audit（取代 etech allForm collection；timestamps 一律 UTC）──
+    created_at: datetime                    # tz=UTC（fix #5）
     created_by: UUID
-    updated_at: datetime
+    updated_at: datetime                    # tz=UTC
     # 完整 transition history 不在這個 dataclass，去查 work_order_event_log 表
 ```
 
