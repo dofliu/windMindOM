@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 8 |
+| open | 7 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 19 |
+| done | 20 |
 | **total (active)** | **27** |
 
-最後更新：2026-05-05（WMOM-17 Work Order CRUD + REST API done — 50 tests / 11 endpoints / 9 review findings 全處理；下一步 WMOM-18 Approval signoff API）
+最後更新：2026-05-05（WMOM-18 Approval signoff API done — 3 endpoints + 4 階 chain + auto-integration with work_order finish/approve_all/reject + 11 review findings 全處理；下一步 WMOM-19 frontend orders）
 
 ---
 
@@ -742,19 +742,25 @@
 
 ### WMOM-20260504-18 — Approval 多階簽核 + tests
 
-- **Status**: open（依賴 -14 DN-02 + -17 work order endpoints）
+- **Status**: done（2026-05-05 完成）
 - **Milestone**: M3
 - **Priority**: critical
-- **Estimate**: 1 工作天
-- **Description**:
-  根據 DN-02 把 etech 的 4 個 sign collection 統合：
-  - `modules/workflow/domain/signoff.py`：`Signoff` + `SignoffLevel` enum (employee / leader / supervisor / admin)
-  - `modules/workflow/routers/approval_router.py`：
-    - `GET /api/workflow/approvals/pending?user_role=...&user_id=...`（"我的待簽"）
-    - `POST /api/workflow/approvals/{id}/approve`
-    - `POST /api/workflow/approvals/{id}/reject`
-  - 工單完工 → 自動建 signoff entries (依 work order type + farm policy)
-  - tests: 單階簽核 / 多階串接 / reject / 並行多人
+- **Estimate**: 1 工作天 → **實際 ~1 天**（含 code review 11 finding 全處理）
+- **Owner**: Claude (session 2026-05-05)
+- **Branch**: `claude/issue-20260504-18-2026-05-05`
+- **Completion summary**:
+  - ✅ `modules/workflow/domain/signoff.py`：4 階 SignoffLevel + chain/step/history dataclasses + chain policy + user_group_to_level helper
+  - ✅ `modules/workflow/repository/orm_models.py`：+3 個 SQLAlchemy 2.0 mapped class
+  - ✅ `modules/workflow/repository/signoff_repository.py`：create_chain + approve/reject + pending list + history audit
+  - ✅ `modules/workflow/schemas/signoff_schemas.py`：6 個 pydantic v2 model
+  - ✅ `modules/workflow/routers/approval_router.py`：3 個 endpoints + factory injection
+  - ✅ Integration: work_order finish → auto-create chain；approve last → 自動 work_order.approve_all；reject → 自動 work_order.reject
+  - ✅ Mount 進主 FastAPI app
+  - ✅ Tests +34（signoff repo 28 + approval API 9）；整 pytest 250 PASS + 1 XFAIL
+  - ✅ Code review 11 finding 全處理（5 must-fix + 4 should-fix + 2 nice-to-have）
+- **Reference**:
+  - [`modules/workflow/`](modules/workflow/)（domain/signoff.py + repository/signoff_repository.py + routers/approval_router.py）
+  - [`work-logs/2026-05/2026-05-05-approval-signoff-api.md`](work-logs/2026-05/2026-05-05-approval-signoff-api.md)
 
 ---
 

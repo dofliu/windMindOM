@@ -165,3 +165,84 @@ class WorkOrderEventLogORM(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     work_order: Mapped["WorkOrderORM"] = relationship(back_populates="event_log")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Approval signoff（WMOM-20260504-18 / DN-02）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class SignoffChainORM(Base):
+    """≡ DN-02 SignoffChain — 整個簽核流程實體。"""
+
+    __tablename__ = "signoff_chains"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)        # UUID str
+    subject_type: Mapped[str] = mapped_column(String(32), index=True)    # "work_order" | "material_request"
+    subject_id: Mapped[str] = mapped_column(String(36), index=True)
+    farm_id: Mapped[str] = mapped_column(String(128), index=True)
+    levels_json: Mapped[str] = mapped_column(Text)                       # JSON list of SignoffLevel.value
+    current_level_index: Mapped[int] = mapped_column(Integer, default=0)
+    overall_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_at_level: Mapped[Optional[str]] = mapped_column(String(32))
+    rejected_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    steps: Mapped[list["SignoffStepORM"]] = relationship(
+        back_populates="chain",
+        cascade="all, delete-orphan",
+        order_by="SignoffStepORM.sequence",
+    )
+    history: Mapped[list["SignoffHistoryORM"]] = relationship(
+        back_populates="chain",
+        cascade="all, delete-orphan",
+        order_by="SignoffHistoryORM.id",
+    )
+
+
+class SignoffStepORM(Base):
+    """≡ DN-02 SignoffStep — chain 內每個 level 對應一筆。"""
+
+    __tablename__ = "signoff_steps"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)        # UUID str
+    chain_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("signoff_chains.id", ondelete="CASCADE"), index=True
+    )
+    level: Mapped[str] = mapped_column(String(32), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    parallel_group_id: Mapped[Optional[str]] = mapped_column(String(36))
+    assignee_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[Optional[str]] = mapped_column(String(36))
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    chain: Mapped["SignoffChainORM"] = relationship(back_populates="steps")
+
+    __table_args__ = (
+        Index(
+            "ix_signoff_steps_chain_status",
+            "chain_id", "status",
+        ),
+    )
+
+
+class SignoffHistoryORM(Base):
+    """≡ DN-02 SignoffHistoryEntry — 完整事件 log（給 KPI 用）。"""
+
+    __tablename__ = "signoff_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chain_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("signoff_chains.id", ondelete="CASCADE"), index=True
+    )
+    step_id: Mapped[Optional[str]] = mapped_column(String(36))     # None = chain-level event
+    event_type: Mapped[str] = mapped_column(String(64))            # "chain_created" | "step_approved" | ...
+    actor_id: Mapped[Optional[str]] = mapped_column(String(36))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    chain: Mapped["SignoffChainORM"] = relationship(back_populates="history")

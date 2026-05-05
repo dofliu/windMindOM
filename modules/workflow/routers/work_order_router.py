@@ -241,9 +241,15 @@ async def finish(
     req: FinishRequest,
     farm_id: str = Query(..., min_length=1),
 ) -> WorkOrderResponse:
-    """IN_PROGRESS → AWAITING_SIGNOFF。`actual_hours` + `followup_kind` 必填。"""
+    """IN_PROGRESS → AWAITING_SIGNOFF + 自動建 signoff chain（DN-02 整合）。
+
+    `actual_hours` + `followup_kind` 必填。
+    Side-effect (WMOM-20260504-18)：finish 成功後自動建 signoff chain（依 work_order
+    類型 + priority），並 backlink 到 ``work_order.signoff_chain_id``。
+    chain 建失敗不會 rollback finish（工單已 AWAITING_SIGNOFF 留著，caller 可重試）。
+    """
     repo = _get_repo(farm_id)
-    return _run_transition(
+    response = _run_transition(
         repo, work_order_id, "finish",
         actual_hours=req.actual_hours,
         followup_kind=req.followup_kind,
@@ -251,6 +257,47 @@ async def finish(
         unfinished_items=req.unfinished_items,
         followup_note=req.followup_note,
     )
+
+    try:
+        from modules.workflow.domain import Priority
+        # review fix #4：用 public factory 而非 private _get_signoff_repo
+        from modules.workflow.routers.approval_router import (
+            get_signoff_repo_for_farm,
+        )
+
+        signoff_repo = get_signoff_repo_for_farm(farm_id)
+        wo_priority = response.priority
+        if isinstance(wo_priority, str):
+            wo_priority = Priority(wo_priority)
+        escalate = wo_priority is Priority.CRITICAL
+        chain = signoff_repo.create_chain_for_work_order(
+            work_order_id=response.id,
+            farm_id=farm_id,
+            escalate_to_supervisor=escalate,
+            actor_id=None,
+        )
+        repo.set_signoff_chain_id(response.id, chain.id)
+        wo = repo.get(response.id)
+        if wo is not None:
+            return WorkOrderResponse.model_validate(wo)
+    except (ValueError, LookupError) as e:
+        # review fix #8：細分 expected failure（config 錯誤 / wo 不見）vs 未知 error
+        # ValueError → build_chain_levels 全 disabled 拒絕 / overlay 型別錯誤
+        # LookupError → 工單建好後馬上消失（罕見）
+        import logging
+        logging.getLogger(__name__).warning(
+            "Work order %s finished but signoff chain creation failed (config/lookup): %s",
+            work_order_id, e,
+        )
+    except Exception as e:
+        # 未預期錯誤（IntegrityError / DB connection 等） — log error 但不 raise，
+        # 工單已 AWAITING_SIGNOFF，caller 可走 manual backfill endpoint（M3+ 再加）
+        import logging
+        logging.getLogger(__name__).error(
+            "Unexpected error creating signoff chain for work_order %s: %s",
+            work_order_id, e, exc_info=True,
+        )
+    return response
 
 
 @router.post("/work-orders/{work_order_id}/approve", response_model=WorkOrderResponse)

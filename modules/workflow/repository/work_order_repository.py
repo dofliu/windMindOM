@@ -299,6 +299,20 @@ class WorkOrderRepository:
             orm = sess.get(WorkOrderORM, str(work_order_id))
             return self._to_domain(orm) if orm else None
 
+    def set_signoff_chain_id(self, work_order_id: UUID, chain_id: UUID) -> None:
+        """Wire signoff chain id 進工單（給 approval router 在建 chain 後 backlink 用）。
+
+        不走 state machine（純 metadata link，不影響 status / business rule）。
+        WMOM-20260504-18 整合點。
+        """
+        with self._sessionmaker() as sess:
+            orm = sess.get(WorkOrderORM, str(work_order_id))
+            if orm is None:
+                raise LookupError(f"work_order {work_order_id} not found")
+            orm.signoff_chain_id = str(chain_id)
+            orm.updated_at = _utc_now()
+            sess.commit()
+
     def get_by_business_key(self, business_key: str) -> WorkOrder | None:
         with self._sessionmaker() as sess:
             stmt = select(WorkOrderORM).where(WorkOrderORM.business_key == business_key)
