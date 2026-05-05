@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
+| open | 13 |
 | in_progress | 0 |
 | blocked | 0 |
 | done | 20 |
-| **total (active)** | **27** |
+| **total (active)** | **33** |
 
-最後更新：2026-05-05（WMOM-18 Approval signoff API done — 3 endpoints + 4 階 chain + auto-integration with work_order finish/approve_all/reject + 11 review findings 全處理；下一步 WMOM-19 frontend orders）
+最後更新：2026-05-05（劉老師決議：暫緩 WMOM-19 frontend，回頭處理物理模型強化。新增 6 條 physics issue（-23 ~ -28）+ 3 條 parking lot；下一步擇一認領，建議從 -23 pytest 骨架或 -24 data quality 修正開始）
 
 ---
 
@@ -836,6 +836,330 @@
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - etech 對應：`server/regularlistForm.js` + `server/regularSetting.js`
+
+---
+
+## 物理模型強化（M3 並行 / 從 digiWT 階段延續未完工）
+
+> 來源：`docs/physics_model_status.md` 「Still missing」段 + `examples/data_quality_report.txt` 3 項 fail + `docs/legacy/digiwt_TODO.md` 仍 open 項。
+> 商業 demo 風險（P0）優先；學術深度（P2）可拖到 M5 之後。
+> 開工順序建議：**-23（測試骨架）→ -24（data quality 修正）→ -25（前端可視化）→ 看 M3 frontend 進度再決定 -26/-27/-28**。
+
+---
+
+### WMOM-20260505-23 — Physics 自我驗證框架（self-validation framework）
+
+- **Status**: open
+- **Milestone**: M3 並行（infrastructure，不卡 workflow）
+- **Priority**: critical（**P0 — 物理正確性的根基；劉老師 2026-05-05 review 強調「不能只是說有採用，要知道結果是否準確」**）
+- **Estimate**: 4-6 工作天（拆 6 layer，可逐層 commit）
+- **Source**:
+  - 劉老師 2026-05-05 review：物理模型要有自我測試機制，要能驗證結果準確性
+  - `docs/legacy/digiwt_TODO.md` Testing 段（issue #52 升級版）
+- **Description**:
+  既有物理模組 14 個 + 26 條進階修正（#61~#127），但只有 `examples/data_quality_analysis.py` 一個半自動 21 項 check。**痛點**：
+  1. **不驗證物理定律 / 文獻 benchmark** — Betz 限、IEC 61400-1 Kaimal、ISO 10816、Bastankhah wake 文獻值都沒比對
+  2. **不驗證故障注入 sanity** — `bearing_wear` 注入後 HF band 該升、`gearbox_overheat` 注入後 oil_temp 該升 — 沒人自動驗
+  3. **不驗證跨模組一致性** — rotor power × η_drivetrain × η_converter ≈ P_elec 沒驗
+  4. 改 physics 只能「憑感覺」 — 改完跑一次看儀表板，遺漏邊角 case 沒人發現
+  
+  **「regression test（鎖住現況）」與「validation（驗證物理正確）」是兩件事**，本 issue 兩者都要做，但**重點是後者**。
+
+- **Deliverable**（6 層 validator，每層獨立 commit）：
+  
+  **Layer 1 — Conservation Laws / Physical Bounds（守恆律 + 物理上限）**
+  - `tests/physics/test_invariants.py`
+  - Betz 限：所有 (V, λ, β) 條件下 Cp ≤ 0.593
+  - 能量守恆：P_aero × η_drivetrain × η_converter ≈ P_elec（容差 ±5%）
+  - 動量平衡：thrust × V_∞ × A 與 aero power 透過動量定理對得上
+  - 角動量：rotor_speed × gearbox_ratio ≈ generator_speed（含 slip 容差）
+  - 熱平衡：input heat - removed heat = thermal mass × dT（熱慣性容差）
+  - 質量守恆（冷卻液）：level decay 與 leak rate 對得上
+  
+  **Layer 2 — Literature / Standard Benchmarks（文獻 / 標準 benchmark）**
+  - `tests/physics/test_benchmarks.py`
+  - **IEC 61400-1 Kaimal**：σ_v / V_mean ≈ TI（強風下測）
+  - **Bastankhah wake**：Ct=0.82, TI=8%, x=5D → deficit 落 25-35%（Niayifar & Porté-Agel 2016）
+  - **Glauert NTF**：Region 2 a≈0.33 → V_raw/V_∞ ≈ 0.84（IEC 61400-12-1 Annex D）
+  - **BPFO/BPFI**：n=23, d/D=0.18, α=10° → 計算值對應 Tedric Harris formula
+  - **ISO 10816-3 Class III**：vibration RMS zone boundaries（A < 2.3, B 2.3-4.5, C 4.5-7.1, D > 7.1 mm/s）
+  - **Walther viscosity**：cold-start 後 ~10 min decay 達 ~63% 穩態值
+  - **Air density (ISA 15°C, dry)**：1.2250 kg/m³ ± 0.5%（WMOM #101）
+  
+  **Layer 3 — Operating Envelope（操作邊界）**
+  - `tests/physics/test_envelope.py`
+  - cut-in 以下 → power < 1 kW、rotor 漸停
+  - cut-out 以上 → 30 s 內 power 歸零、進 stop 狀態
+  - emergency stop → rotor speed 5 s 內降 50%、tower load 1.8× 衝擊出現
+  - pitch rate ≤ 10 °/s（actuator 物理上限）
+  - yaw rate ≤ 0.5 °/s
+  - rotor overspeed margin：≤ rated × 1.2
+  - generator slip：< 5%
+  
+  **Layer 4 — Cross-module Consistency（跨模組一致性）**
+  - `tests/physics/test_consistency.py`
+  - 風機個體 power spread 落 [10%, 25%]（與 -24 目標一致）
+  - Region 3 power CV 落 [3%, 8%]
+  - Region 2 power 對 wind 之 cubic fit R² > 0.95
+  - Stator temp 與 power 之 lagged correlation：r > 0.5 但 lag > 60 s
+  - 同一 grid event 下，不同 turbine 因 derate sensitivity 不同 → spread 在 [5%, 20%]
+  - Atmospheric stability s × shear α 五重耦合：相關係數方向正確（#99/#109/#111/#113/#115）
+  
+  **Layer 5 — Fault Injection Signature（故障注入 sanity）**
+  - `tests/physics/test_fault_signature.py`
+  - 對 11 個 fault scenario 各跑短 sim，驗證 SCADA tag 該動的有動：
+    - `bearing_wear` → HF band 升 ≥30%、crest factor ≥5
+    - `gearbox_overheat` → oil_temp 升 ≥10°C、GMF sideband ratio 升
+    - `pitch_imbalance` → 1P band 升、tower SS moment 升
+    - `blade_icing` → 1P + 3P 都升、power 跌
+    - `generator_overspeed` → HF band 升 + stator temp 升
+    - `converter_cooling_fault` → power 跌 + cabin temp 升 + cooling level 降
+    - `yaw_misalignment` → 3P band 升 + power 跌（cos³γ）
+    - `stator_winding_degradation` → HF 升（電氣噪訊）
+    - `hydraulic_leak` → broadband 升 + brake pressure 異常
+    - `gearbox_oil_leak` → oil_level 降 + viscosity 異常
+    - `grid_protection_trip`（如 -27 完成）→ relay status flip + emergency stop
+  - 健康基線（無故障）：crest factor < 5, kurtosis < 4, RMS 落 ISO zone A/B
+  
+  **Layer 6 — Physics Health Check CLI（一鍵體檢報告）**
+  - `tools/physics_health_check.py`：CLI 工具
+    - 跑完 Layer 1-5 全 validator
+    - 跑一次 30-min short sim 5 turbines（含 1 個 fault injection）
+    - 產出 markdown 報告 + JSON + matplotlib 關鍵圖（Cp 曲面、wake deficit、ISO 10816 zones、fault signature）
+    - exit code：失敗 → 1，全 pass → 0（適合 CI）
+    - argparse `--save-report` (default on) / `--baseline-diff` / `--update-baseline`
+  - 整進 [docs/routines/daily-workflow.md](docs/routines/daily-workflow.md)：每次改 physics 模組後 + 大版本發布前必跑
+  - 寫入 README：`python tools/physics_health_check.py` 是「物理體檢」單一入口
+  
+  **Layer 7 — Test Report Persistence（測試紀錄保存機制）⭐ 劉老師 2026-05-05 要求**
+  
+  每次測試自動留下可追蹤的紀錄文件，避免「跑過就忘了」、無從查歷史軌跡。
+  
+  資料夾結構（**新增於 `tests/physics/reports/`**）：
+  ```
+  tests/physics/reports/
+  ├── _baseline/                          ← 最新 baseline（人手動 review 後 commit）
+  │   ├── pytest_baseline.md              ← 6 layer 全 pass 的 baseline 數值
+  │   ├── pytest_baseline.json            ← machine-readable，diff 用
+  │   └── health_baseline.md
+  ├── 2026/05/                            ← 按月歸檔
+  │   ├── 2026-05-05-1430-pytest.md       ← pytest 自動產
+  │   ├── 2026-05-05-1430-pytest.json
+  │   ├── 2026-05-06-0915-pytest.md
+  │   └── 2026-05-06-1000-health/         ← health check CLI 產
+  │       ├── report.md
+  │       ├── report.json
+  │       ├── baseline_diff.md
+  │       └── figures/
+  │           ├── cp_surface.png
+  │           ├── wake_deficit.png
+  │           ├── iso10816_zones.png
+  │           └── fault_signatures.png
+  └── README.md                           ← 怎麼讀報告 / 怎麼回滾 baseline / retention 規則
+  ```
+  
+  每份紀錄頂端必含 YAML metadata：
+  ```yaml
+  ---
+  timestamp: 2026-05-05T14:30:12+08:00
+  git_commit: abc1234
+  git_branch: claude/issue-20260505-23-2026-05-05
+  git_dirty: false                        # working tree 是否有未 commit 變動
+  python_version: 3.12.5
+  test_type: pytest | health_check
+  duration_sec: 42.3
+  total_pass: 87
+  total_fail: 0
+  total_warn: 2
+  baseline_compared: _baseline/pytest_baseline.json
+  baseline_drift: see baseline_diff section below
+  ---
+  ```
+  
+  機制：
+  - `tests/physics/conftest.py`：`pytest_sessionfinish` hook 自動產 `pytest-{ts}.md` + `.json`
+  - `tools/physics_health_check.py`：CLI 預設寫入 `health-{ts}/` 子目錄
+  - `tools/physics_baseline_update.py`：人手動 review 後 promote 為 baseline（**禁止自動 update**，避免 silent drift）
+  - **Git 策略**：報告檔 commit 進 repo（這就是「紀錄」的意義）；`figures/*.png` 視大小決定（超過 1 MB 改 git-lfs 或 ignore）
+  - **Retention**：保留近 6 個月每日；超過 6 個月只留每月最後一份；超過 1 年只留每年 release 對應的；baseline 永留
+  - **README.md**：寫清楚「為什麼這個資料夾存在 / 怎麼比對兩份報告 / 怎麼決定該不該更新 baseline」
+  
+- **Acceptance**:
+  - `pytest tests/physics/ -q` 100% PASS（7 層共 ~80-120 條 test）
+  - 跑時間 < 60 s（不含 Layer 6 CLI 的 short sim）
+  - `python tools/physics_health_check.py` 產出可讀的 markdown 體檢報告
+  - **負向測試**：故意把 `power_curve.py` 一個常數改錯（例如把 Betz 限改成 0.7），framework 必須 catch 到並 fail
+  - 既有 26 條物理修正（#61~#127）每條至少有 1 個 validator 對應
+  - **Layer 7 驗收（測試紀錄保存）**：
+    - 跑完 `pytest tests/physics/` → `tests/physics/reports/2026/MM/` 自動新增 `*-pytest.md` + `.json`
+    - 跑完 `python tools/physics_health_check.py` → 自動新增 `health-{ts}/` 子目錄含 `report.md` + `report.json` + `figures/*.png`
+    - 每份報告開頭都有 YAML metadata（timestamp / git_commit / git_branch / git_dirty / python_version / pass-fail counts）
+    - `tests/physics/reports/_baseline/` 已 commit baseline，且 `baseline_diff` 段在新報告中能正確顯示「無漂移」或「漂移 X%」
+    - `tests/physics/reports/README.md` 解釋資料夾用途 / 比對方法 / baseline update 流程
+    - retention policy 至少寫成 docstring（實作可延到下次 cleanup）
+  
+- **Reference**:
+  - 既有 `examples/data_quality_analysis.py`（21 check 已寫，可整合進 Layer 4/5）
+  - `docs/physics_model_status.md`（每條 # issue 對應的 validation point 來源）
+  - IEC 61400-1, IEC 61400-12-1/2, ISO 10816-3
+  - Burton, Sharpe, Jenkins, Bossanyi (2011) *Wind Energy Handbook* 2nd ed.
+  - Niayifar & Porté-Agel (2016) — wake deficit benchmark
+  
+- **Risk / Note**:
+  - **不要過度收緊 acceptance** — 物理模型有隨機項（turbulence、AR(1)），驗證要用統計量（mean / std / 相關係數）+ 容差，不要硬 == 比對
+  - 跑時間若爆掉 → Layer 5 fault sim 改成「先建 fixture 再跑 assertion」
+  - 對應 -24 修正的目標（spread / CV）會在 Layer 4 體現，兩 issue 互相驗證
+
+---
+
+### WMOM-20260505-24 — Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV）
+
+- **Status**: open
+- **Milestone**: M3 並行（demo 必修）
+- **Priority**: high（P0 — demo 被客戶質疑會傷信任）
+- **Estimate**: 0.5-1 工作天
+- **Source**: `examples/data_quality_report.txt` 「待改善列表」3 項
+- **Description**:
+  最新 data quality run 仍有 3 項警告：
+  1. **Wind 15-20 m/s region CV=0.9% 太低** — rated region 訊號過度平滑，pitch dead-band / lag 還是不夠
+  2. **Wind 20-25 m/s region CV=0.8% 太低** — 同上
+  3. **風機間平均功率差 36.8% (>30%)** — individuality 參數調太大，看起來像異常值不像真實 fleet
+- **Deliverable**:
+  - `simulator/physics/power_curve.py`：rated region 加更多 controller jitter（pitch micro-correction noise + power setpoint dither，幅度依 #61 Cp 模型回推合理範圍）
+  - `simulator/turbine_individuality.py` 或對應位置：`per_turbine_power_offset` / `cp_offset` 從 ±15% 收斂到 ±10-12%（保留個體差但合理）
+  - 重跑 `examples/data_quality_analysis.py` 短版 0.17h × 5 turbines，確認 3 項全 pass，且不破壞既有 18 項 pass
+  - 同步更新 `data_quality_report.txt`（commit 進 repo）
+- **Acceptance**:
+  - 21/21 quality check pass（或至少 20/21，spread 落在 25-30% 區間）
+  - 既有 #117/#119/#125/#127 物理鏈不被破壞
+- **Reference**:
+  - `modules/monitoring/examples/data_quality_report.txt`
+  - `modules/monitoring/examples/_post_migration_quick_validate.py`
+  - issue #61（Cp 模型升級 commit 應該已部分緩解，但 Region 3 仍偏平）
+
+---
+
+### WMOM-20260505-25 — Frontend：RUL 顯示 + 多 band alarm 視覺化（#57/#58 收尾）
+
+- **Status**: open
+- **Milestone**: M3 並行 / M5 demo 增值
+- **Priority**: medium（P1 — M5 RAG demo 視覺化 PMF 關鍵）
+- **Estimate**: 1.5-2 工作天
+- **Source**: `docs/legacy/digiwt_TODO.md` Priority E + Priority F（issue #57 + #58 frontend 部分）
+- **Description**:
+  Backend 已完成：
+  - #57：fatigue 4-level alarm + RUL（剩餘壽命）estimation + 自動寫進 history events
+  - #58：vibration 5 band alarm（1P/3P/gear/HF/Bb）+ crest/kurtosis alarm + BPFO/BPFI + GMF sideband
+  缺前端可視化 — M5 RAG demo 時客戶看不到「AI 預警」直觀畫面。
+- **Deliverable**:
+  - `frontend/components/turbine/RulPanel.tsx`：RUL 倒數（年/月/日）+ 4-level alarm badge（notice/warning/danger/shutdown）+ 觸發時間軸
+  - `frontend/components/turbine/SpectralAlarmPanel.tsx`：5 band 動態 threshold curve（A/B/C/D zones）+ 即時 RMS 落在哪一區 + crest/kurtosis trend
+  - `frontend/components/turbine/BearingDiagPanel.tsx`：BPFO/BPFI 即時頻率 + 軸承幾何來源說明 + GMF sideband ratio
+  - 整合進既有 turbine detail page 為新 tab「Condition / RUL」
+  - i18n（zh/en 雙語）
+- **Acceptance**:
+  - 3 個 panel 在 simulator 模式下能看到資料流動
+  - 故障注入（bearing_wear / gearbox_overheat）時 alarm badge 會升級
+  - M5 demo 時可直接 screenshot 進 pitch deck
+- **Reference**:
+  - 後端 API：`server/routers/turbines.py`（已 expose 對應 SCADA tag）
+  - 既有 `frontend/components/turbine/LoadFatiguePanel.tsx`（pattern 參考）
+
+---
+
+### WMOM-20260505-26 — SCADA tag 深度擴充（protection / cooling loop / converter internal / service-state）
+
+- **Status**: open
+- **Milestone**: M3 後續 / M5 RAG 之前必須做
+- **Priority**: medium（P1 — M5 RAG 警報多樣性的素材庫）
+- **Estimate**: 3-5 工作天（可拆 4 個 sub-issue 分批）
+- **Source**: `docs/physics_model_status.md` §3.5「Expanded SCADA Tag Set」
+- **Description**:
+  目前 104 SCADA tags 多在感測層（風速 / 溫度 / 振動 / 載荷）。M5 RAG demo 要對應 Z72 手冊的警報碼（數百條），但現況只有 ~20 種警報事件可觸發，警報 → 手冊 retrieval 的 demo 廣度不夠。
+- **Deliverable**:
+  - **Protection 層**：grid breaker status / under-voltage relay / over-current trip / earth fault relay / phase loss（5-8 tags）
+  - **Cooling loop 深度**：3-way valve position / heat exchanger ΔT / coolant flow per branch / pump RPM / accumulator pressure（5-8 tags）
+  - **Converter internal**：DC link voltage / IGBT junction temp / firing angle / harmonic distortion / common mode voltage（5-8 tags）
+  - **Service / Maintenance state**：service mode flag / lockout-tagout state / manual override active / calibration mode / firmware version（4-6 tags）
+  - 對應 OPC suffix 對齊 Bachmann Z72 命名規則
+  - 寫進 `scada_registry.py` `_TAGS` + `turbine_physics.py::step()` 輸出
+  - 物理耦合：能由現有 fault scenario（converter_cooling_fault / generator_overspeed / hydraulic_leak 等）自然觸發，不要手刻 mock
+- **Acceptance**:
+  - SCADA tag 從 104 擴到 ~125-130
+  - 既有 18/21 quality check 不被破壞
+  - 至少 5 條新 tag 能在 fault scenario 下看到變化
+- **Reference**:
+  - `docs/__Z72UserManual.pdf`（M5 餵 RAG，要先確認 tag 名稱對得上）
+  - `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx`
+
+---
+
+### WMOM-20260505-27 — 保護電驛協調模型（51 / 27 / 59 / 81）
+
+- **Status**: open
+- **Milestone**: M3 後續 / 也可 park 到 M5 後
+- **Priority**: medium-low（P2 — academic paper 章節價值高，demo 直接價值中等）
+- **Estimate**: 1-2 週
+- **Source**: `docs/physics_model_status.md` §2.5「Still missing: protection coordination relay model」
+- **Description**:
+  既有 LVRT/HVRT envelope 是 ride-through curve 的 envelope 判定，沒有真實的保護電驛動作邏輯。發 paper 給 Applied Energy 的「grid integration」章節時，這層是 reviewer 通常會問的細節。
+  四類保護電驛：
+  - **51（過電流時間反延時）**：I × t curve，極反延時 / 一般反延時 / 中反延時
+  - **27（低電壓）**：V < threshold + delay
+  - **59（過電壓）**：V > threshold + delay
+  - **81（頻率異常）**：df/dt + f range（U/F + O/F）
+- **Deliverable**:
+  - `simulator/physics/protection_relay.py`：4 個 relay class + coordination logic（main + backup + 動作時間 selectivity）
+  - 與 `electrical_model.py` 串接：relay 動作 → trigger trip event → cascading 到 turbine state machine 的 emergency stop
+  - 6-10 條新 SCADA tag（relay status / pickup current / trip count / last trip time）
+  - 至少 3 個 demo grid event 能跑通（distant fault / nearby short circuit / frequency excursion）
+  - 對應 fault scenario 至少 1 個（grid_protection_trip）
+- **Acceptance**:
+  - 4 relay 都有單元測試（依賴 -23 測試骨架）
+  - 與 IEC 60255 / IEEE C37.112 inverse-time curve 標準對得上（不要求 bit-perfect）
+  - 至少 2 種 selectivity 場景能驗證（main 先動 vs backup 接手）
+- **Reference**:
+  - IEC 60255 / IEEE C37.112（inverse-time overcurrent curve）
+  - `simulator/physics/electrical_model.py` LVRT/HVRT 段是 baseline
+
+---
+
+### WMOM-20260505-28 — 單齒 pitting / spalling defect signature
+
+- **Status**: open
+- **Milestone**: park 到 M5 後（學術強化用）
+- **Priority**: low（P2 — paper value 高，商業 demo value 低）
+- **Estimate**: 1 工作週
+- **Source**: `docs/physics_model_status.md` §2.2「Still missing: per-tooth pitting/spalling frequency model (individual tooth defect)」
+- **Description**:
+  目前 #76 已有 GMF + sideband + tooth wear scalar（aggregate），缺單顆齒缺陷的窄頻譜訊號。診斷論文裡軸承 BPFO/BPFI 已建（#58），齒輪單齒 defect 是配對的另一面。
+- **Deliverable**:
+  - `simulator/physics/drivetrain_model.py`：擴充 `tooth_defect` state（哪一階 / 哪一顆 / 缺陷嚴重度）
+  - 對應頻譜 signature：GMF × shaft frequency 的 modulation pattern + envelope demodulation 可觀察的衝擊
+  - 新 fault scenario：`gear_tooth_defect`（從 baseline 幾乎看不到，到 severe 時 GMF sideband 大幅升起 + crest factor 異常）
+  - 1-2 條新 SCADA tag（`WDRV_TthDefSev` / `WDRV_TthDefHs`）
+- **Acceptance**:
+  - test_drivetrain.py 覆蓋（依 -23）
+  - 與既有 11 fault scenario 相容（不破壞 fault_engine 邏輯）
+  - 故障注入後 frontend SpectralAlarmPanel（依 -25）能看到 GMF 區段升起
+- **Reference**:
+  - Randall 2011 *Vibration-based Condition Monitoring* §6.4
+  - 既有 #76 / #58 GMF sideband 為 baseline
+
+---
+
+## 物理模型 parking lot（學術深度，等 M5 後再評估）
+
+> 不開正式 issue，但記錄在這以避免反覆討論「為什麼還沒做」。
+> 投入大、商業 demo 直接價值低；如果劉老師要投 paper 才考慮排期。
+
+| Item | 為什麼 park | 投入估計 | 觸發條件 |
+|------|------------|----------|----------|
+| 完整 BEM aerodynamic loading distribution | Cp(λ,β) + tower shadow + wind shear + wind veer 已涵蓋 trend 級 demo；BEM 主要對應「葉片 root 細部載荷分布 paper」 | 2-3 週 | 投 Renewable Energy / Wind Energy 期刊章節需要時 |
+| Curled-wake model（yaw skew 反向旋轉渦流對） | Bastankhah 2016 線性 deflection + DWM meander 已涵蓋 90% 場景；curled wake 補的是 yaw > 20° 時的細節 | 2 週 | 對齊 NREL FAST.Farm / Floris 比對驗證時 |
+| Aeroelastic tower / blade FEM coupling | tower SDOF first-mode + blade 3P/1P modulation 已能看到關鍵特徵；FEM 是月級工程 | 1-2 個月 | 與材料力學 / 結構合作另開 paper 線時 |
+| Cooling 系統 radiator fin 細部模型 | 整體換熱 + fouling 已能 demo cooling 故障；fin-level 細節是熱交換器論文用 | 1 週 | 投 Applied Thermal Engineering 時 |
+| Sub-transient electrical X"d/X'd 行為 | LVRT/HVRT envelope + ride-through 已涵蓋 grid event；sub-transient 是 power system 細節 | 1 週 | 與 -27 保護電驛協調合併投 paper 時 |
 
 ---
 

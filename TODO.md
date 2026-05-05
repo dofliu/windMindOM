@@ -8,7 +8,7 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-05-03（WMOM-20260503-01 完成）
+最後更新：2026-05-05（暫緩 WMOM-19 frontend，回頭強化物理模型；新增 6 條 physics issue WMOM-23~28 進 ISSUES.md。WMOM-23 升級為「Physics 自我驗證框架」— 含 6 層 validator + 體檢 CLI + 負向測試 acceptance）
 
 ---
 
@@ -34,11 +34,24 @@
 
 ### 第二、三週（2026-05-10 ~ 2026-05-23）
 
+> 主軸調整：暫緩 WMOM-19 frontend，回頭強化物理模型（劉老師 2026-05-05 決議）。
+> M3 後段（-19 / -20 frontend）排到 -25 收尾後再回頭做。
+
+- [ ] **WMOM-20260505-23** — Physics 自我驗證框架（**7 層** validator + health check CLI + **測試紀錄保存機制**）⬅ next（**P0 critical**，4-6 天；劉老師 2026-05-05 強調「驗證準確性」+「每次測試留紀錄到測試資料夾」）
+- [ ] **WMOM-20260505-24** — Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV，0.5-1 天）
+- [ ] **WMOM-20260505-25** — Frontend RUL + 多 band alarm 視覺化（#57/#58 收尾，1.5-2 天）
+- [ ] （視時間）**WMOM-20260505-26** — SCADA tag 深度擴充（M5 RAG 素材庫，3-5 天可拆）
 - [ ] **WMOM-20260503-02** — templates 盤點（範圍縮小：只剩盤點 templates/ + claude-code-templates/，pitch_deck 已併入 -04）
 - [ ] 整合 `pyproject.toml`（既有 digiWT deps + 預留 cost/workflow/RAG lib）
 - [ ] CHANGELOG.md 從零建立（記錄 v0.8.1 baseline 之後的變動）
 - [ ] 確認 `docs/routines/daily-workflow.md` 與本月實際跑的流程一致
 - [ ] **WMOM-20260503-05** — Friendly 客戶接觸名單（盤點 + 至少 1 場 demo）—— deck 已就位
+
+### 物理模型強化期（park 到 M5 後再評估的學術深度題）
+
+- WMOM-20260505-27 — 保護電驛協調 51/27/59/81（paper value 高，1-2 週）
+- WMOM-20260505-28 — 單齒 pitting/spalling defect signature（1 週）
+- Parking lot：BEM / curled-wake / aeroelastic FEM / radiator fin / sub-transient — 詳見 ISSUES.md「物理模型 parking lot」表
 
 ### 第四週（2026-05-24 ~ 2026-05-30）
 

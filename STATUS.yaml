@@ -4,7 +4,7 @@ category: wind_energy
 progress: 80
 status: active
 last_updated: "2026-05-05"
-next_milestone: "M3 backend 100% done + 架構圖到位（PR #4-#8 全 merged）。今日 5 PR 連發 — WMOM-14/-15 設計、-16/-17/-18 backend 實作 + 兩輪 code review 共 32 finding 處理 + 架構圖 + 生圖 prompts。下次 session 開 WMOM-19 /admin/workflow/orders frontend；對齊既有 cost frontend pattern（services/hooks/components 三層）。"
+next_milestone: "暫緩 WMOM-19 frontend；劉老師決議回頭強化物理模型 + 要求『自我驗證 + 每次測試留紀錄』。WMOM-23 升級為『Physics 自我驗證框架』(7 層 validator，4-6 天)：Layer 1 守恆律 / Layer 2 文獻 benchmark / Layer 3 操作邊界 / Layer 4 跨模組一致性 / Layer 5 故障注入 sanity / Layer 6 health check CLI / Layer 7 測試紀錄保存（tests/physics/reports/ 結構 + YAML metadata + baseline diff + retention）。驗收含負向測試。下一步開工 WMOM-23 Layer 1。"
 technologies:
   - FastAPI
   - React
@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 7
+  open: 13
   in_progress: 0
   blocked: 0
   done: 20
