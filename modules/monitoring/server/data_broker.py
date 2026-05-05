@@ -1,3 +1,4 @@
+import re
 import sys
 import os
 import threading
@@ -230,6 +231,12 @@ class DataBroker:
     AGG_1M_RETENTION_DAYS = 90
     # Snapshot window: seconds of 1s data to capture before/after event
     SNAPSHOT_WINDOW_S = 600  # 10 minutes
+    # Snapshot retention (days) — WMOM-20260505-01
+    SNAPSHOTS_RETENTION_DAYS = 7
+    # Snapshot dedupe cooldown — WMOM-20260505-01：同 turbine 同類 event_class 在這秒內
+    # 重新 trigger 時，僅延長 active window，不重複 retroactive write 10 分鐘 history。
+    # 解決 simulator state machine flapping 把同類 stop 反覆 emit 的放大效應。
+    SNAPSHOT_DEDUPE_COOLDOWN_S = 300  # 5 minutes
 
     def __init__(self, farm_registry: Optional[FarmRegistry] = None):
         self.mode = DataSourceMode.SIMULATION
@@ -255,6 +262,9 @@ class DataBroker:
         # Snapshot state: when an event occurs, capture 1s data for a window
         self._snapshot_active: Dict[str, float] = {}  # turbine_id -> end_time
         self._snapshot_event_ref: Dict[str, str] = {}
+        # WMOM-20260505-01：同類 event 觸發 dedupe cooldown 用
+        # turbine_id -> (event_class, last_seen_time) — last_seen 為「上次 trigger 的時間」
+        self._snapshot_last_class: Dict[str, tuple[str, float]] = {}
         # Background maintenance thread
         self._maintenance_thread: Optional[threading.Thread] = None
         self._maintenance_running = False
@@ -388,20 +398,69 @@ class DataBroker:
             elif snap_end and now >= snap_end:
                 del self._snapshot_active[tid]
                 del self._snapshot_event_ref[tid]
+                # _snapshot_last_class 刻意保留 — cooldown 機制需在 active window
+                # 結束後仍能阻擋同類 event 馬上再 retroactive write（WMOM-20260505-01）。
+                # 若內存壓力大，未來可加「last_class 過期清理」(now - last_seen > cooldown*N)。
 
         # Throttled regular writes
         if now - self._last_write_time >= self.WRITE_INTERVAL_S:
             self._last_write_time = now
             self.storage.store_readings(readings, self._session_id)
 
+    @staticmethod
+    def _extract_event_class(event_ref: str) -> str:
+        """Strip the trailing ISO timestamp from an event_ref to get a dedupe key.
+
+        WMOM-20260505-01：用 event_class 而非 full event_ref 做 dedupe，
+        讓 simulator flapping 在 80 秒內 emit 11 個不同 timestamp 的 stop event 不會
+        各自觸發新 snapshot capture window。
+
+        Examples
+        --------
+        >>> _extract_event_class("stop:WT007:7:2026-05-04T18:01:03.553883")
+        "stop:WT007:7"
+        >>> _extract_event_class("fault_trip:WT003:2026-05-04T18:01:03.553")
+        "fault_trip:WT003"
+        >>> _extract_event_class("custom_no_timestamp")
+        "custom_no_timestamp"
+        """
+        # 嚴格匹配 `:YYYY-MM-DDTHH:` 結構（含時分），避免 turbine_id 含 4 位數年份
+        # 樣字串（如 maint:WT2026:1:...）誤截。
+        m = re.search(r":\d{4}-\d{2}-\d{2}T\d{2}:", event_ref)
+        return event_ref[:m.start()] if m else event_ref
+
     def _trigger_snapshot(self, turbine_id: str, event_ref: str):
         """Activate 1s snapshot capture for a turbine around an event.
 
         Also retroactively saves recent in-memory history as snapshot data.
+
+        WMOM-20260505-01: 加 dedupe + cooldown — 同 turbine 同 event_class 在
+        SNAPSHOT_DEDUPE_COOLDOWN_S 秒內重新 trigger 時，僅延長現有 active window 結束時間，
+        ★ 不重新 retroactive write 10 分鐘 history（這是失控的主因），
+        ★ 沿用既有 event_ref（保持 grouping，避免 distinct event_ref 暴增）。
         """
         now = _time.time()
+        event_class = self._extract_event_class(event_ref)
+
+        last = self._snapshot_last_class.get(turbine_id)
+        in_cooldown = (
+            last is not None
+            and last[0] == event_class
+            and (now - last[1]) < self.SNAPSHOT_DEDUPE_COOLDOWN_S
+        )
+
+        if in_cooldown:
+            # 同類事件在 cooldown 內：只延長 active window，不動 event_ref，不 retroactive。
+            # ★ 不更新 _snapshot_last_class — cooldown 從「第一次同類 trigger」起算，
+            # 而非「最近一次刷新」。否則 flapping 持續超過 cooldown 期間時，
+            # cooldown 永遠不會過期，與 design intent（同類 N 分鐘合併）矛盾。
+            self._snapshot_active[turbine_id] = now + self.SNAPSHOT_WINDOW_S
+            return
+
+        # 新事件 / 不同類 / cooldown 過期：完整啟動 snapshot capture
         self._snapshot_active[turbine_id] = now + self.SNAPSHOT_WINDOW_S
         self._snapshot_event_ref[turbine_id] = event_ref
+        self._snapshot_last_class[turbine_id] = (event_class, now)
 
         # Retroactively save recent history from in-memory buffer
         if self.simulator:
@@ -464,6 +523,7 @@ class DataBroker:
                     self.storage.run_cleanup(
                         raw_retention_days=self.RAW_RETENTION_DAYS,
                         agg_1m_retention_days=self.AGG_1M_RETENTION_DAYS,
+                        snapshots_retention_days=self.SNAPSHOTS_RETENTION_DAYS,
                     )
                     last_cleanup = now
             except Exception as e:
