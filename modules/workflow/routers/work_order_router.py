@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 from uuid import UUID
 
@@ -16,8 +17,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 from modules.workflow.domain import (
     InvalidTransition,
+    Priority,
     WorkOrderStatus,
 )
+
+# review fix #14：logging 走 top-level，不放函式體內
+_logger = logging.getLogger(__name__)
 from modules.workflow.repository import (
     BusinessRuleViolation,
     WorkOrderRepository,
@@ -53,10 +58,13 @@ def set_repository_factory(
 ) -> None:
     """注入 repository factory：``factory(farm_id) -> WorkOrderRepository``。
 
-    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path）。
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清掉
+    `_FARM_REGISTRY` lazy singleton 避免 test 間殘留（review fix #1）。
     """
-    global _repository_factory
+    global _repository_factory, _FARM_REGISTRY
     _repository_factory = factory
+    if factory is None:
+        _FARM_REGISTRY = None
 
 
 # fix #3：FarmRegistry singleton（避免每個 API call 重 init + 開新 sqlite connection）
@@ -156,11 +164,14 @@ async def list_work_orders(
     status: WorkOrderStatus | None = None,
     only_open: bool = False,
     limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> WorkOrderListResponse:
     """查詢工單列表（必帶 farm_id；其餘為 filter）。
 
-    回傳 ``total`` = 符合 filter 的真實 row 數（不受 ``limit`` 截斷）；
-    ``items`` 為 limit 後的工單清單。前端分頁用 ``total`` 做頁碼計算。
+    回傳 ``total`` = 符合 filter 的真實 row 數（不受 ``limit/offset`` 截斷）；
+    ``items`` 為 page 後的工單清單。前端分頁用 ``offset`` + ``total`` 做頁碼計算。
+
+    Review fix #11：加 ``offset`` 支援真分頁（之前只有 limit，超過 200 張看不到）。
     """
     repo = _get_repo(farm_id)
     items, total = repo.list(
@@ -169,6 +180,7 @@ async def list_work_orders(
         status=status,
         only_open=only_open,
         limit=limit,
+        offset=offset,
     )
     return WorkOrderListResponse(
         total=total,
@@ -259,17 +271,16 @@ async def finish(
     )
 
     try:
-        from modules.workflow.domain import Priority
-        # review fix #4：用 public factory 而非 private _get_signoff_repo
+        # circular import guard：approval_router 在 module level import work_order
+        # 相關物件，這裡反方向 import 必須是 runtime 而非 top-level（review fix #9）。
         from modules.workflow.routers.approval_router import (
             get_signoff_repo_for_farm,
         )
 
         signoff_repo = get_signoff_repo_for_farm(farm_id)
-        wo_priority = response.priority
-        if isinstance(wo_priority, str):
-            wo_priority = Priority(wo_priority)
-        escalate = wo_priority is Priority.CRITICAL
+        # review fix #7：response.priority 已是 Priority enum（pydantic v2 coerce），
+        # 不需 isinstance 多一層 — 直接用即可
+        escalate = response.priority is Priority.CRITICAL
         chain = signoff_repo.create_chain_for_work_order(
             work_order_id=response.id,
             farm_id=farm_id,
@@ -284,16 +295,14 @@ async def finish(
         # review fix #8：細分 expected failure（config 錯誤 / wo 不見）vs 未知 error
         # ValueError → build_chain_levels 全 disabled 拒絕 / overlay 型別錯誤
         # LookupError → 工單建好後馬上消失（罕見）
-        import logging
-        logging.getLogger(__name__).warning(
+        _logger.warning(
             "Work order %s finished but signoff chain creation failed (config/lookup): %s",
             work_order_id, e,
         )
     except Exception as e:
         # 未預期錯誤（IntegrityError / DB connection 等） — log error 但不 raise，
         # 工單已 AWAITING_SIGNOFF，caller 可走 manual backfill endpoint（M3+ 再加）
-        import logging
-        logging.getLogger(__name__).error(
+        _logger.error(
             "Unexpected error creating signoff chain for work_order %s: %s",
             work_order_id, e, exc_info=True,
         )
@@ -305,8 +314,40 @@ async def approve(
     work_order_id: UUID,
     farm_id: str = Query(..., min_length=1),
 ) -> WorkOrderResponse:
-    """AWAITING_SIGNOFF → CLOSED（簽核全通過後呼叫；DN-02 chain 完整 approved）。"""
+    """AWAITING_SIGNOFF → CLOSED — 但只在 signoff chain 全通過後才放行。
+
+    Review fix #4 (security)：阻擋 client 繞過 DN-02 直接 close 工單。先驗工單有
+    signoff_chain_id + chain.overall_status == APPROVED；不過 → 409。
+    正常流程是透過 ``POST /api/workflow/approvals/{step_id}/approve`` 的最後一階自動
+    觸發此 endpoint（由 approval_router 內部呼叫 ``wo_repo.transition('approve_all')``，
+    跳過此 router endpoint，所以不影響整合）。
+    """
     repo = _get_repo(farm_id)
+    wo = repo.get(work_order_id)
+    if wo is None:
+        raise HTTPException(status_code=404, detail=f"work_order {work_order_id} not found")
+    if wo.signoff_chain_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="cannot approve directly: no signoff chain linked. "
+                   "Use POST /approvals/{step_id}/approve workflow instead.",
+        )
+    # 確認 chain 真的全 approved
+    from modules.workflow.routers.approval_router import get_signoff_repo_for_farm
+    chain = get_signoff_repo_for_farm(farm_id).get_chain(wo.signoff_chain_id)
+    if chain is None:
+        raise HTTPException(
+            status_code=409,
+            detail="cannot approve: linked signoff chain not found",
+        )
+    from modules.workflow.domain import SignoffStatus
+    if chain.overall_status is not SignoffStatus.APPROVED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"cannot approve: signoff chain not completed "
+                   f"(current status: {chain.overall_status.value}). "
+                   "Process all signoff steps first.",
+        )
     return _run_transition(repo, work_order_id, "approve_all")
 
 

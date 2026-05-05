@@ -29,33 +29,41 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.workflow.repository import (
+    SignoffRepository,
     WorkOrderRepository,
     get_repository,
+    get_signoff_repository,
 )
 from modules.workflow.repository.work_order_repository import (
     clear_engine_cache_for_test,
 )
-from modules.workflow.routers import router as workflow_router
+from modules.workflow.routers import approval_router, router as workflow_router
+from modules.workflow.routers.approval_router import set_signoff_factories
 from modules.workflow.routers.work_order_router import set_repository_factory
 
 
 @pytest.fixture
 def client(tmp_path) -> TestClient:
-    """FastAPI TestClient — 注入 tmp DB repository factory。"""
+    """FastAPI TestClient — 注入 tmp DB factories（含 approval router 給完整 lifecycle test）。"""
     clear_engine_cache_for_test()
     db_path = str(tmp_path / "wind_farm.db")
 
-    def factory(farm_id: str) -> WorkOrderRepository:
-        # 為簡化，所有 farm_id 走同一 tmp DB（test 內 farm_id 區隔由 row 層 farm_id 欄位即可）
+    def wo_factory(farm_id: str) -> WorkOrderRepository:
         return get_repository(db_path)
 
-    set_repository_factory(factory)
+    def sg_factory(farm_id: str) -> SignoffRepository:
+        return get_signoff_repository(db_path)
+
+    set_repository_factory(wo_factory)
+    set_signoff_factories(sg_factory, wo_factory)
 
     app = FastAPI(title="workflow-test")
     app.include_router(workflow_router)
+    app.include_router(approval_router)
     yield TestClient(app)
 
     set_repository_factory(None)
+    set_signoff_factories(None, None)
     clear_engine_cache_for_test()
 
 
@@ -237,52 +245,72 @@ def test_dispatch_422_missing_actor(client):
 
 
 def test_full_happy_path_lifecycle_via_api(client):
-    """完整 lifecycle: DRAFT → DISPATCHED → IN_PROGRESS → AWAITING_SIGNOFF → CLOSED。"""
+    """完整 lifecycle: DRAFT → DISPATCHED → IN_PROGRESS → AWAITING_SIGNOFF → CLOSED。
+
+    Review fix #4：``/approve`` endpoint 強制檢查 signoff chain 全通過，
+    所以 lifecycle test 必須走 ``/approvals/{step_id}/approve`` 把 chain 跑完，
+    chain 完成後 approval_router 會自動觸發 work_order.approve_all。
+    """
+    actor = str(uuid4())
+    created = client.post(
+        "/api/workflow/work-orders",
+        json=_create_payload(assignee_id=actor),
+    ).json()
+    farm_id = "台中港曲風場"
+    qs = f"?farm_id={farm_id}"
+
+    # dispatch / start / progress / finish — 同既有
+    client.post(f"/api/workflow/work-orders/{created['id']}/dispatch{qs}",
+                json={"actor_id": actor})
+    client.post(f"/api/workflow/work-orders/{created['id']}/start-work{qs}",
+                json={"require_weather_window": False})
+    client.post(f"/api/workflow/work-orders/{created['id']}/update-progress{qs}",
+                json={"actor_id": actor, "note": "拆下軸承"})
+    finish_resp = client.post(
+        f"/api/workflow/work-orders/{created['id']}/finish{qs}",
+        json={"actual_hours": 3.5, "followup_kind": "none", "work_summary": "完成"},
+    ).json()
+    assert finish_resp["status"] == "awaiting_signoff"
+    assert finish_resp["signoff_chain_id"] is not None  # auto-created chain
+
+    # 走 signoff approve flow (2 階)
+    for level in ("employee", "leader"):
+        pending = client.get(
+            f"/api/workflow/approvals/pending?farm_id={farm_id}&level={level}"
+        ).json()
+        assert pending["total"] == 1
+        step_id = pending["items"][0]["step"]["id"]
+        client.post(
+            f"/api/workflow/approvals/{step_id}/approve{qs}",
+            json={"actor_id": actor},
+        )
+
+    # 工單已 CLOSED
+    final = client.get(f"/api/workflow/work-orders/{created['id']}{qs}").json()
+    assert final["status"] == "closed"
+
+
+def test_direct_approve_blocked_when_chain_not_completed(client):
+    """Review fix #4 (security)：POST /approve 必須 chain 全通過才放行；
+    繞過 signoff flow 直接 close 工單應被擋（409）。"""
     actor = str(uuid4())
     created = client.post(
         "/api/workflow/work-orders",
         json=_create_payload(assignee_id=actor),
     ).json()
     qs = "?farm_id=台中港曲風場"
-
-    # dispatch
-    r = client.post(
-        f"/api/workflow/work-orders/{created['id']}/dispatch{qs}",
-        json={"actor_id": actor},
-    )
-    assert r.json()["status"] == "dispatched"
-
-    # start_work
-    r = client.post(
-        f"/api/workflow/work-orders/{created['id']}/start-work{qs}",
-        json={"require_weather_window": False},
-    )
-    assert r.json()["status"] == "in_progress"
-
-    # update_progress
-    r = client.post(
-        f"/api/workflow/work-orders/{created['id']}/update-progress{qs}",
-        json={"actor_id": actor, "note": "拆下軸承"},
-    )
-    assert r.status_code == 200
-    assert len(r.json()["progress_notes"]) == 1
-
-    # finish
-    r = client.post(
+    client.post(f"/api/workflow/work-orders/{created['id']}/dispatch{qs}",
+                json={"actor_id": actor})
+    client.post(f"/api/workflow/work-orders/{created['id']}/start-work{qs}",
+                json={"require_weather_window": False})
+    client.post(
         f"/api/workflow/work-orders/{created['id']}/finish{qs}",
-        json={
-            "actual_hours": 3.5,
-            "followup_kind": "none",
-            "work_summary": "完成",
-        },
+        json={"actual_hours": 1.0, "followup_kind": "none"},
     )
-    assert r.json()["status"] == "awaiting_signoff"
-
-    # approve
-    r = client.post(
-        f"/api/workflow/work-orders/{created['id']}/approve{qs}"
-    )
-    assert r.json()["status"] == "closed"
+    # chain 為 PENDING 狀態 — 直接 /approve 應 409
+    r = client.post(f"/api/workflow/work-orders/{created['id']}/approve{qs}")
+    assert r.status_code == 409
+    assert "signoff" in r.json()["detail"].lower()
 
 
 def test_reject_returns_to_in_progress(client):
@@ -310,13 +338,17 @@ def test_reject_returns_to_in_progress(client):
 
 
 def test_reopen_uses_independent_reason_field(client):
-    """walkthrough fix #7：reopen_reason 走獨立欄位，不污染 followup_note。"""
+    """walkthrough fix #7：reopen_reason 走獨立欄位，不污染 followup_note。
+
+    Review fix #4：要 close 工單必須走 signoff approve flow，不能直接 /approve。
+    """
     actor = str(uuid4())
     created = client.post(
         "/api/workflow/work-orders",
         json=_create_payload(assignee_id=actor),
     ).json()
-    qs = "?farm_id=台中港曲風場"
+    farm_id = "台中港曲風場"
+    qs = f"?farm_id={farm_id}"
 
     client.post(f"/api/workflow/work-orders/{created['id']}/dispatch{qs}",
                 json={"actor_id": actor})
@@ -330,7 +362,15 @@ def test_reopen_uses_independent_reason_field(client):
             "followup_note": "完工觀察一週",
         },
     )
-    client.post(f"/api/workflow/work-orders/{created['id']}/approve{qs}")
+    # 走 signoff approve flow 把工單帶到 CLOSED
+    for level in ("employee", "leader"):
+        pending = client.get(
+            f"/api/workflow/approvals/pending?farm_id={farm_id}&level={level}"
+        ).json()
+        client.post(
+            f"/api/workflow/approvals/{pending['items'][0]['step']['id']}/approve{qs}",
+            json={"actor_id": actor},
+        )
 
     r = client.post(
         f"/api/workflow/work-orders/{created['id']}/reopen{qs}",

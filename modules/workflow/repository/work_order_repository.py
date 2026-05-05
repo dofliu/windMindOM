@@ -40,6 +40,13 @@ from modules.workflow.domain import (
 )
 from modules.workflow.domain.work_order import _utc_now
 
+from ._helpers import (
+    assert_utc as _assert_utc_helper,
+    ensure_utc,
+    json_safe,
+    str_to_uuid,
+    uuid_to_str,
+)
 from .orm_models import (
     Base,
     ProgressNoteORM,
@@ -136,24 +143,12 @@ def get_repository(db_path: str) -> "WorkOrderRepository":
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _uuid_to_str(value: UUID | None) -> str | None:
-    return str(value) if value is not None else None
-
-
-def _str_to_uuid(value: str | None) -> UUID | None:
-    return UUID(value) if value else None
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    """SQLite ``DateTime(timezone=True)`` 在 SQLite 後端 round-trip 後會丟掉 tzinfo
-    （SQLite 沒 native datetime type；只儲 ISO 字串）。讀回時補 tzinfo=UTC，確保
-    下游（cost ledger / API serialization）拿到的都是 timezone-aware UTC。
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+# Backward-compat aliases — review fix #5：helpers 抽到 _helpers.py 後保留舊名
+# 給既有 caller import 不破。新 code 應直接用 _helpers 版本。
+_ensure_utc = ensure_utc
+_uuid_to_str = uuid_to_str
+_str_to_uuid = str_to_uuid
+_json_safe = json_safe
 
 
 def _farm_id_short(farm_id: str) -> str:
@@ -327,10 +322,11 @@ class WorkOrderRepository:
         status: WorkOrderStatus | None = None,
         only_open: bool = False,
         limit: int = 200,
+        offset: int = 0,
     ) -> tuple[list[WorkOrder], int]:
-        """Returns (items, total) — total is real DB count（pre-limit），給前端分頁用。
+        """Returns (items, total) — total 是真實 DB count（不受 limit/offset 截斷）。
 
-        nice-to-have #1: list 回傳真實 DB count 不只是 len(items)。
+        Review fix #11：加 ``offset`` 支援分頁（前端能跳第 N 頁）。
         """
         with self._sessionmaker() as sess:
             base = select(WorkOrderORM)
@@ -344,11 +340,13 @@ class WorkOrderRepository:
                 base = base.where(
                     WorkOrderORM.status.in_([s.value for s in open_states()])
                 )
-            # 真實 total（不受 limit 影響）
             total_stmt = select(func.count()).select_from(base.subquery())
             total = int(sess.execute(total_stmt).scalar_one())
-            # 取頁
-            page_stmt = base.order_by(WorkOrderORM.created_at.desc()).limit(limit)
+            page_stmt = (
+                base.order_by(WorkOrderORM.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
             items = [self._to_domain(o) for o in sess.execute(page_stmt).scalars()]
             return items, total
 
@@ -455,17 +453,35 @@ class WorkOrderRepository:
     # ── Business key generation ─────────────────────────────────────
 
     def _next_business_key(self, sess: Session, farm_id: str) -> str:
-        """Generate next ``WO-{short}-{YYYYMM}-{NN}`` for farm in current month。"""
+        """Generate next ``WO-{short}-{YYYYMM}-{NNN}`` for farm in current month.
+
+        Review fix #3：用 ``MAX(business_key)`` 取最後一筆的 NN segment 而非 ``COUNT``，
+        避免 DB DELETE 導致 count < max 撞 unique。同時改 ``03d`` 三位零填補（M3 客戶
+        每月可能 ≥ 100 張單，``02d`` 從第 100 張起變 3-char 數字，破壞格式一致性）。
+        """
         short = _farm_id_short(farm_id)
         ym = datetime.now(tz=timezone.utc).strftime("%Y%m")
         prefix = f"WO-{short}-{ym}-"
         stmt = (
-            select(func.count(WorkOrderORM.id))
+            select(func.max(WorkOrderORM.business_key))
             .where(WorkOrderORM.farm_id == farm_id)
             .where(WorkOrderORM.business_key.like(f"{prefix}%"))
         )
-        n = int(sess.execute(stmt).scalar_one())
-        return f"{prefix}{n + 1:02d}"
+        last_key: str | None = sess.execute(stmt).scalar_one_or_none()
+        if last_key is None:
+            n = 0
+        else:
+            try:
+                n = int(last_key[len(prefix):])
+            except ValueError:
+                # 萬一有 legacy 格式 NN segment 不是純數字 → fallback to COUNT
+                count_stmt = (
+                    select(func.count(WorkOrderORM.id))
+                    .where(WorkOrderORM.farm_id == farm_id)
+                    .where(WorkOrderORM.business_key.like(f"{prefix}%"))
+                )
+                n = int(sess.execute(count_stmt).scalar_one())
+        return f"{prefix}{n + 1:03d}"
 
     # ── Event log ───────────────────────────────────────────────────
 
@@ -548,16 +564,12 @@ class WorkOrderRepository:
 
     @staticmethod
     def _assert_utc(name: str, dt: datetime | None) -> None:
-        """fix #2：write 路徑強制 datetime 必須 UTC-aware；防止 naive / non-UTC datetime
-        漏進 DB（將來換 PostgreSQL 時尤其重要）。
+        """Write 路徑 UTC validation — delegate 給 ``_helpers.assert_utc``。
+
+        Review fix #5：原本兩個 repository 各複製此函式，現統一抽到 _helpers.py。
+        保留 staticmethod 是讓 test 用 ``WorkOrderRepository._assert_utc(...)`` 不破。
         """
-        if dt is None:
-            return
-        if dt.tzinfo is None:
-            raise ValueError(f"{name}: datetime must be timezone-aware (UTC)")
-        offset = dt.utcoffset()
-        if offset is None or offset.total_seconds() != 0:
-            raise ValueError(f"{name}: datetime must be UTC (offset={offset})")
+        _assert_utc_helper(name, dt)
 
     @staticmethod
     def _apply_domain_to_orm(wo: WorkOrder, orm: WorkOrderORM) -> None:
@@ -606,12 +618,5 @@ class WorkOrderRepository:
         orm.updated_at = wo.updated_at
 
 
-def _json_safe(obj: Any) -> Any:
-    """`json.dumps` 用的 default — UUID / datetime / Enum 都序列化。"""
-    if isinstance(obj, UUID):
-        return str(obj)
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if hasattr(obj, "value"):  # str-Enum
-        return obj.value
-    return str(obj)
+# review fix #5：原 _json_safe 移到 _helpers.py 統一管理。本檔頂部已 alias
+# `_json_safe = json_safe` 給內部 import 用。

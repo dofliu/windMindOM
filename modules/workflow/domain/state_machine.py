@@ -277,6 +277,10 @@ def _apply_side_effects(
     elif action == "reject":
         wo.rejected_at = now
         wo.reject_reason = kwargs["reject_reason"]
+        # review fix #2：清 signoff_chain_id — 舊 chain 已 REJECTED，避免 client 拿
+        # 此 stale pointer 去 GET 看到 mismatched 狀態。下次 finish 會建新 chain 再
+        # 重新 backlink。
+        wo.signoff_chain_id = None
     elif action == "cancel":
         wo.cancelled_at = now
         wo.cancel_reason = kwargs["cancel_reason"]

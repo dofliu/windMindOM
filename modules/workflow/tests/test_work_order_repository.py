@@ -146,12 +146,11 @@ def test_list_only_open_excludes_terminal(repo):
 
 def test_business_key_format(repo):
     wo = _make(repo, farm_id="台中港曲風場")
-    # WO-{short}-{YYYYMM}-{NN}
+    # WO-{short}-{YYYYMM}-{NNN} — review fix #3：03d 三位零填補
     parts = wo.business_key.split("-")
     assert parts[0] == "WO"
-    # 中文 farm_id → H{5位} (見 _farm_id_short)
     assert len(parts) == 4
-    assert parts[3] == "01"
+    assert parts[3] == "001"
 
 
 def test_business_key_increments_within_same_farm(repo):
@@ -169,11 +168,33 @@ def test_business_key_separate_per_farm(repo):
     a = _make(repo, farm_id="台中港曲風場")
     b = _make(repo, farm_id="彰化離岸風場台電")
 
-    # 兩 farm 各自 NN=01
-    assert a.business_key.endswith("-01")
-    assert b.business_key.endswith("-01")
+    # 兩 farm 各自 NN=001（review fix #3：03d 格式）
+    assert a.business_key.endswith("-001")
+    assert b.business_key.endswith("-001")
     # short 不同
     assert a.business_key != b.business_key
+
+
+def test_business_key_format_remains_3digit_above_99(repo, monkeypatch):
+    """review fix #3：第 100+ 張工單的 NN 仍應 3 位零填補（不破格式）。"""
+    from modules.workflow.repository import work_order_repository as wo_module
+
+    # 用 monkeypatch override _next_business_key 模擬「已有 99 張」場景，
+    # 不需真的建 99 張單（會撞 max-3-OPEN constraint）
+    real_next = wo_module.WorkOrderRepository._next_business_key
+
+    n_calls = {"i": 99}
+
+    def fake_next(self, sess, farm_id):
+        # 第一次呼叫返回 NN=100 的 key
+        prefix = real_next(self, sess, farm_id).rsplit("-", 1)[0]
+        return f"{prefix}-{n_calls['i'] + 1:03d}"
+
+    monkeypatch.setattr(wo_module.WorkOrderRepository, "_next_business_key", fake_next)
+    wo = _make(repo, source_alarm_code="A100")
+    # NN 應為 100（3 位零填補時實際 = 100，不是 0100；但仍 3 位）
+    assert wo.business_key.endswith("-100")
+    assert len(wo.business_key.rsplit("-", 1)[1]) == 3
 
 
 def test_farm_id_short_ascii():

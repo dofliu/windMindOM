@@ -14,10 +14,14 @@ Integration（DN-02）：
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+
+# review fix #14：logging 走 top-level
+_logger = logging.getLogger(__name__)
 
 from modules.workflow.domain import (
     InvalidTransition,
@@ -61,11 +65,14 @@ def set_signoff_factories(
 ) -> None:
     """注入兩個 factory：``signoff(farm_id)`` + ``work_order(farm_id)``。
 
-    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path）。
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
+    singleton 避免 test 間殘留（review fix #1）。
     """
-    global _signoff_factory, _work_order_factory_for_approval
+    global _signoff_factory, _work_order_factory_for_approval, _FARM_REGISTRY
     _signoff_factory = signoff
     _work_order_factory_for_approval = work_order
+    if signoff is None and work_order is None:
+        _FARM_REGISTRY = None
 
 
 def _get_signoff_repo(farm_id: str) -> SignoffRepository:
@@ -121,14 +128,25 @@ def _resolve_farm_db_path(farm_id: str) -> str:
 async def list_pending_approvals(
     farm_id: str = Query(..., min_length=1),
     level: SignoffLevel = Query(...),
+    subject_type: SignoffSubjectType | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> PendingSignoffListResponse:
     """「我這層的待簽」列表 — caller 帶 ``level`` 對應 user group。
 
-    回傳每筆含 step + 對應 chain（chain.subject_id 給 frontend 查工單摘要）。
+    Returns:
+        - ``items``：當前 page 的 step + chain
+        - ``total``：filter 後的真實 DB count（不受 limit/offset 截斷；review fix #6）
+
+    Review fix #11/#12：``offset`` 分頁 + ``subject_type`` filter
+    （M4 領料單上線後 EMPLOYEE 待簽會混工單 / 領料單，預留 filter）。
     """
     repo = _get_signoff_repo(farm_id)
-    pairs = repo.list_pending_for_level(farm_id=farm_id, level=level, limit=limit)
+    pairs, total = repo.list_pending_for_level(
+        farm_id=farm_id, level=level,
+        subject_type=subject_type,
+        limit=limit, offset=offset,
+    )
     items = [
         PendingSignoffItem(
             step=SignoffStepResponse.model_validate(step),
@@ -136,7 +154,7 @@ async def list_pending_approvals(
         )
         for (step, chain) in pairs
     ]
-    return PendingSignoffListResponse(total=len(items), items=items)
+    return PendingSignoffListResponse(total=total, items=items)
 
 
 @router.post(
@@ -172,8 +190,7 @@ async def approve_step(
             # 工單被外部改過 status / 被刪）。回 200 + ``subject_transition_error``，
             # 讓 caller 看到 chain 已通過但 subject 沒跟上 — 走 backfill / 通報 ops。
             # 不 raise 500 否則 client 完全看不到 chain 已 APPROVED 的事實。
-            import logging
-            logging.getLogger(__name__).error(
+            _logger.error(
                 "signoff %s approved but work_order %s transition failed: %s",
                 chain.id, chain.subject_id, e,
             )
@@ -221,8 +238,7 @@ async def reject_step(
         except (LookupError, InvalidTransition) as e:
             # review fix #2：同 approve 處理 — chain 已 REJECTED 落地，回 200 帶錯誤
             # 訊息給 caller，不 raise 500 隱藏 chain 已結束的事實。
-            import logging
-            logging.getLogger(__name__).error(
+            _logger.error(
                 "signoff %s rejected but work_order %s transition failed: %s",
                 chain.id, chain.subject_id, e,
             )

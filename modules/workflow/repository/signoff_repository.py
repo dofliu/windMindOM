@@ -33,6 +33,12 @@ from modules.workflow.domain import (
 )
 from modules.workflow.domain.work_order import _utc_now
 
+from ._helpers import (
+    ensure_utc,
+    json_safe,
+    str_to_uuid,
+    uuid_to_str,
+)
 from .orm_models import (
     Base,
     SignoffChainORM,
@@ -40,6 +46,12 @@ from .orm_models import (
     SignoffStepORM,
 )
 from .work_order_repository import _ENGINE_LOCK, _SCHEMA_INITIALIZED, _get_engine
+
+# Backward-compat aliases (review fix #5)
+_ensure_utc = ensure_utc
+_uuid_to_str = uuid_to_str
+_str_to_uuid = str_to_uuid
+_json_safe = json_safe
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -55,35 +67,9 @@ class SignoffActionError(Exception):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Helpers
+# Helpers — review fix #5：改 import from _helpers.py，不再本地定義
+# （見 file top: _ensure_utc / _uuid_to_str / _str_to_uuid / _json_safe alias）
 # ─────────────────────────────────────────────────────────────────────────
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    """SQLite roundtrip 補 tzinfo（同 work_order_repository._ensure_utc）。"""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _uuid_to_str(value: UUID | None) -> str | None:
-    return str(value) if value is not None else None
-
-
-def _str_to_uuid(value: str | None) -> UUID | None:
-    return UUID(value) if value else None
-
-
-def _json_safe(obj: Any) -> Any:
-    if isinstance(obj, UUID):
-        return str(obj)
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if hasattr(obj, "value"):
-        return obj.value
-    return str(obj)
 
 
 def get_signoff_repository(db_path: str) -> "SignoffRepository":
@@ -232,36 +218,52 @@ class SignoffRepository:
             return [self._step_to_domain(s) for s in sess.execute(stmt).scalars()]
 
     def list_pending_for_level(
-        self, *, farm_id: str, level: SignoffLevel, limit: int = 200,
-    ) -> list[tuple[SignoffStep, SignoffChain]]:
+        self,
+        *,
+        farm_id: str,
+        level: SignoffLevel,
+        subject_type: SignoffSubjectType | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> tuple[list[tuple[SignoffStep, SignoffChain]], int]:
         """「我的待簽」query — 給某 level 的 user 看「我這層 pending 的 steps + 對應 chain」。
 
-        Returns ``[(step, chain), ...]`` — 帶 chain 是給 frontend 顯示 subject 摘要用。
+        Review fix #6：回 ``(items, total)``，total 是真實 DB count（前端分頁用）。
+        Review fix #11：加 ``offset`` 支援分頁。
+        Review fix #12：加 ``subject_type`` filter — M4 領料單上線後 EMPLOYEE level
+        待簽會混入工單 / 領料單，現在就預留。
+
+        Returns ``([(step, chain), ...], total)`` — 帶 chain 給 frontend 顯示 subject 摘要。
         只回「current_level_index 已走到此 step.sequence」的 steps（不會早於 chain 進度）。
         """
         with self._sessionmaker() as sess:
-            stmt = (
+            base = (
                 select(SignoffStepORM, SignoffChainORM)
                 .join(SignoffChainORM, SignoffStepORM.chain_id == SignoffChainORM.id)
                 .where(SignoffChainORM.farm_id == farm_id)
                 .where(SignoffStepORM.level == level.value)
                 .where(SignoffStepORM.status == SignoffStatus.PENDING.value)
-                .where(
-                    SignoffChainORM.overall_status == SignoffStatus.PENDING.value
-                )
-                .where(
-                    SignoffStepORM.sequence == SignoffChainORM.current_level_index
-                )
-                .order_by(SignoffChainORM.started_at.asc())
-                .limit(limit)
+                .where(SignoffChainORM.overall_status == SignoffStatus.PENDING.value)
+                .where(SignoffStepORM.sequence == SignoffChainORM.current_level_index)
             )
+            if subject_type is not None:
+                base = base.where(SignoffChainORM.subject_type == subject_type.value)
+
+            # 真實 total — 不受 limit / offset 影響
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = int(sess.execute(count_stmt).scalar_one())
+
+            page_stmt = base.order_by(
+                SignoffChainORM.started_at.asc()
+            ).offset(offset).limit(limit)
+
             results = []
-            for step_orm, chain_orm in sess.execute(stmt).all():
+            for step_orm, chain_orm in sess.execute(page_stmt).all():
                 results.append((
                     self._step_to_domain(step_orm),
                     self._chain_to_domain(chain_orm),
                 ))
-            return results
+            return results, total
 
     # ── Approve / Reject ────────────────────────────────────────────
 
@@ -284,7 +286,8 @@ class SignoffRepository:
         PostgreSQL 時即可用；當前 single-process busy_timeout=5s 已足夠 serialize 寫入。
         """
         with self._sessionmaker() as sess:
-            step_orm = sess.get(SignoffStepORM, str(step_id))
+            # review fix #10：step + chain 雙 row lock — 防 PG 並發 last-write-wins
+            step_orm = sess.get(SignoffStepORM, str(step_id), with_for_update=True)
             if step_orm is None:
                 raise LookupError(f"signoff_step {step_id} not found")
             chain_orm = sess.get(
@@ -343,10 +346,10 @@ class SignoffRepository:
             raise SignoffActionError("reject requires non-empty reason")
 
         with self._sessionmaker() as sess:
-            step_orm = sess.get(SignoffStepORM, str(step_id))
+            # review fix #7+#10：step + chain 雙 row lock
+            step_orm = sess.get(SignoffStepORM, str(step_id), with_for_update=True)
             if step_orm is None:
                 raise LookupError(f"signoff_step {step_id} not found")
-            # review fix #7：with_for_update 同 approve_step
             chain_orm = sess.get(
                 SignoffChainORM, step_orm.chain_id, with_for_update=True
             )

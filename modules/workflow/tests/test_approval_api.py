@@ -52,8 +52,11 @@ def client(tmp_path) -> TestClient:
     clear_engine_cache_for_test()
 
 
-def _create_and_finish_wo(client) -> tuple[str, str]:
-    """Helper：建工單 → dispatch → start_work → finish。回 (wo_id, farm_id)。"""
+def _create_and_finish_wo(client) -> tuple[str, str, dict]:
+    """Helper：建工單 → dispatch → start_work → finish。
+
+    Returns ``(wo_id, farm_id, finish_response_dict)``（review fix #8：原 type hint 標錯）。
+    """
     actor = str(uuid4())
     farm_id = "台中港曲風場"
     qs = f"?farm_id={farm_id}"
@@ -288,3 +291,58 @@ def test_approve_409_for_terminal_chain(client):
         json={"actor_id": actor},
     )
     assert r.status_code == 409
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Review fix #2 — reject 後 work_order.signoff_chain_id 應清掉
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_reject_clears_work_order_signoff_chain_pointer(client):
+    """review fix #2：reject 後 wo.signoff_chain_id 應為 None（避免 stale pointer）。"""
+    wo_id, farm_id, finish_resp = _create_and_finish_wo(client)
+    qs = f"?farm_id={farm_id}"
+
+    # finish 後有 chain id
+    assert finish_resp["signoff_chain_id"] is not None
+
+    # reject
+    pending = client.get(
+        f"/api/workflow/approvals/pending?farm_id={farm_id}&level=employee"
+    ).json()
+    client.post(
+        f"/api/workflow/approvals/{pending['items'][0]['step']['id']}/reject{qs}",
+        json={"actor_id": str(uuid4()), "reason": "x"},
+    )
+
+    # wo 應回 IN_PROGRESS + signoff_chain_id 已清
+    wo = client.get(f"/api/workflow/work-orders/{wo_id}{qs}").json()
+    assert wo["status"] == "in_progress"
+    assert wo["signoff_chain_id"] is None  # ← 關鍵 assertion
+
+
+def test_re_finish_after_reject_creates_new_chain(client):
+    """review fix #2：reject → 重新 finish 應建新 chain，wo.signoff_chain_id 指向新 chain。"""
+    wo_id, farm_id, finish1 = _create_and_finish_wo(client)
+    qs = f"?farm_id={farm_id}"
+    actor = str(uuid4())
+    chain1_id = finish1["signoff_chain_id"]
+
+    # reject 第一輪
+    pending1 = client.get(
+        f"/api/workflow/approvals/pending?farm_id={farm_id}&level=employee"
+    ).json()
+    client.post(
+        f"/api/workflow/approvals/{pending1['items'][0]['step']['id']}/reject{qs}",
+        json={"actor_id": actor, "reason": "缺料"},
+    )
+
+    # 第二輪 finish — 重新建 chain
+    finish2 = client.post(
+        f"/api/workflow/work-orders/{wo_id}/finish{qs}",
+        json={"actual_hours": 4.0, "followup_kind": "none"},
+    ).json()
+
+    chain2_id = finish2["signoff_chain_id"]
+    assert chain2_id is not None
+    assert chain2_id != chain1_id  # 新 chain，不是舊的

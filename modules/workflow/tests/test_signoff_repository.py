@@ -162,23 +162,34 @@ def test_create_chain_with_escalate(repo):
     ]
 
 
-def test_get_chain_for_subject_returns_latest(repo):
+def test_get_chain_for_subject_returns_latest(repo, monkeypatch):
     """若同一 work_order reject 後重送會有多個 chain，取最新的。
 
-    review fix #5：兩個極近時間 chain 用 ID secondary sort 確保穩定。實務上 a 跟 b
-    started_at 可能相同 millisecond，但 chain.id (UUID) 字典序有確定 ordering，
-    取「started_at desc, id desc」確定 latest。
+    review fix #5+#13：原本 sleep(0.01) 是 timing-dependent；改 monkey-patch
+    ``_utc_now`` 給確定不同時間，避免 CI scheduler granularity 撞到。
+    取「started_at desc, id desc」雙 sort 確保 latest 穩定。
     """
-    import time as _time
+    from datetime import datetime, timedelta, timezone
+    from modules.workflow.repository import signoff_repository as sg_mod
+
+    base_time = datetime(2026, 5, 5, 12, 0, 0, tzinfo=timezone.utc)
+    times = [base_time, base_time + timedelta(seconds=10)]
+    idx = {"i": 0}
+
+    def fake_now():
+        t = times[min(idx["i"], len(times) - 1)]
+        idx["i"] += 1
+        return t
+
+    monkeypatch.setattr(sg_mod, "_utc_now", fake_now)
 
     wo_id = uuid4()
     a = repo.create_chain_for_work_order(work_order_id=wo_id, farm_id="x")
-    _time.sleep(0.01)  # 確保 b.started_at > a.started_at
     b = repo.create_chain_for_work_order(work_order_id=wo_id, farm_id="x")
 
     latest = repo.get_chain_for_subject(SignoffSubjectType.WORK_ORDER, wo_id)
     assert latest is not None
-    # 修正後：b 一定是最新的（started_at 較晚）
+    # b 的 started_at 比 a 晚 10s — latest 必是 b
     assert latest.id == b.id
 
 
@@ -324,15 +335,17 @@ def test_list_pending_only_returns_current_step(repo):
     repo.approve_step(steps_b[0].id, actor_id=actor)
 
     # 現在 EMPLOYEE 待簽：只有 chain A 的 step1（chain_b 已過 EMPLOYEE 階段）
-    employee_pending = repo.list_pending_for_level(
+    # review fix #6：list_pending_for_level 回 (items, total)
+    employee_pending, employee_total = repo.list_pending_for_level(
         farm_id="x", level=SignoffLevel.EMPLOYEE
     )
     assert len(employee_pending) == 1
+    assert employee_total == 1
 
-    leader_pending = repo.list_pending_for_level(
+    leader_pending, leader_total = repo.list_pending_for_level(
         farm_id="x", level=SignoffLevel.LEADER
     )
-    assert len(leader_pending) == 1
+    assert leader_total == 1
     # chain_b 的 leader step 才會出現
     assert leader_pending[0][1].id == chain_b.id
 
@@ -348,25 +361,108 @@ def test_list_pending_excludes_terminal_chain(repo):
         actor_id=actor, reason="X",
     )
 
-    pending = repo.list_pending_for_level(
+    pending, total = repo.list_pending_for_level(
         farm_id="x", level=SignoffLevel.EMPLOYEE
     )
     assert pending == []
+    assert total == 0
 
 
 def test_list_pending_filters_by_farm(repo):
     repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="A")
     repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="B")
 
-    a_pending = repo.list_pending_for_level(
+    a_pending, a_total = repo.list_pending_for_level(
         farm_id="A", level=SignoffLevel.EMPLOYEE
     )
-    b_pending = repo.list_pending_for_level(
+    b_pending, b_total = repo.list_pending_for_level(
         farm_id="B", level=SignoffLevel.EMPLOYEE
     )
-    assert len(a_pending) == 1
-    assert len(b_pending) == 1
+    assert (a_total, b_total) == (1, 1)
     assert a_pending[0][1].farm_id == "A"
+
+
+def test_list_pending_real_total_unaffected_by_limit(repo):
+    """review fix #6：list 回的 total 是真實 DB count（不受 limit 截斷）。"""
+    actor = uuid4()
+    for _ in range(5):
+        repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+
+    items, total = repo.list_pending_for_level(
+        farm_id="x", level=SignoffLevel.EMPLOYEE, limit=2,
+    )
+    assert len(items) == 2
+    assert total == 5
+
+
+def test_list_pending_offset_pagination(repo):
+    """review fix #11：offset 跳過前 N 筆。"""
+    actor = uuid4()
+    chains = [
+        repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+        for _ in range(3)
+    ]
+
+    # offset=1 跳第一個
+    items_off, total = repo.list_pending_for_level(
+        farm_id="x", level=SignoffLevel.EMPLOYEE, limit=10, offset=1,
+    )
+    assert total == 3
+    assert len(items_off) == 2  # 跳掉一個
+
+
+def test_list_pending_subject_type_filter(repo):
+    """review fix #12：subject_type filter — M4 領料單上線後預留。
+
+    M3 還沒 material_request domain，本 test 直接 SQL 塞一個 subject_type=
+    material_request 的 chain，驗 filter 能區分。
+    """
+    from sqlalchemy import insert
+    from modules.workflow.repository.orm_models import SignoffChainORM, SignoffStepORM
+    from datetime import datetime, timezone
+    import json
+    from uuid import uuid4 as _uuid4
+
+    # 先建一個正常 work_order chain
+    repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+
+    # 直接塞一個 material_request chain（M3 schema 已預留）
+    with repo._sessionmaker() as sess:
+        mr_chain_id = str(_uuid4())
+        mr_step_id = str(_uuid4())
+        now = datetime.now(tz=timezone.utc)
+        sess.add(SignoffChainORM(
+            id=mr_chain_id,
+            subject_type="material_request",
+            subject_id=str(_uuid4()),
+            farm_id="x",
+            levels_json=json.dumps(["employee", "leader", "treasury"]),
+            current_level_index=0,
+            overall_status="pending",
+            started_at=now,
+        ))
+        sess.add(SignoffStepORM(
+            id=mr_step_id,
+            chain_id=mr_chain_id,
+            level="employee",
+            sequence=0,
+            status="pending",
+            created_at=now,
+        ))
+        sess.commit()
+
+    # 不 filter — 兩個都看到
+    _, total_all = repo.list_pending_for_level(
+        farm_id="x", level=SignoffLevel.EMPLOYEE
+    )
+    assert total_all == 2
+
+    # filter work_order — 只看到一個
+    _, total_wo = repo.list_pending_for_level(
+        farm_id="x", level=SignoffLevel.EMPLOYEE,
+        subject_type=SignoffSubjectType.WORK_ORDER,
+    )
+    assert total_wo == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────
