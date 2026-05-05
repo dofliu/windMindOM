@@ -10,7 +10,7 @@
 
 - **Source**: `D:\Project_CodingSimulation\researchTopic\windFarmMonitor\z72_SCADA_etech\yitai-corp-cms-download1140811\` (2025-08-11 線上 baseline)
 - **方針**: 讀 etech 程式 → 寫 design notes → windMindOM 重寫，**不 fork 程式碼**
-- **Walkthrough**: 3 份 DN 完成後跟劉老師走一次（[WMOM-20260504-15](../../../ISSUES.md)），把確認 / 修正寫進 DN 文件 `## walkthrough notes` 區塊
+- **Walkthrough**: 已完成（2026-05-05）— 劉老師逐一確認 DN-01 的 7 個 Q + DN-02 / DN-03 的 10 個 Q，內容已直接整合進對應 DN 文件的 `## Walkthrough Q&A` 區塊。詳見 [WMOM-20260504-15](../../../ISSUES.md)
 
 ---
 
@@ -18,9 +18,9 @@
 
 | ID | 標題 | 對應 etech module | windMindOM module | Status |
 |----|------|-------------------|-------------------|--------|
-| **DN-01** | [Work Order Lifecycle](DN-01-work-order-lifecycle.md) | `repair` / `repairTemp` / `trackFrom` / `removeFrom` / `allForm` | `modules/workflow/domain/work_order.py` | ✅ 雛形 done（2026-05-04） |
-| **DN-02** | Approval Multi-level | `leadersign` / `supervisorsign` / `employeesign` / `affairsign` | `modules/workflow/domain/signoff.py` | ⬜ 待補（下次 session） |
-| **DN-03** | Inventory ↔ Material Request | `materialsForm` / `materialsFormNotic{,Led}` / `inventory*` (×4) | `modules/workflow/domain/material_request.py` + M4 inventory | ⬜ 待補（下次 session） |
+| **DN-01** | [Work Order Lifecycle](DN-01-work-order-lifecycle.md) | `repair` / `repairTemp` / `trackFrom` / `removeFrom` / `allForm` | `modules/workflow/domain/work_order.py` | ✅ done（2026-05-05 walkthrough confirmed） |
+| **DN-02** | [Approval Multi-level](DN-02-approval-multilevel.md) | `leadersign` / `supervisorsign` / `employeesign` / `affairsign` | `modules/workflow/domain/signoff.py` | ✅ done（2026-05-05 walkthrough confirmed） |
+| **DN-03** | [Inventory ↔ Material Request](DN-03-inventory-material-request.md) | `materialsForm` / `materialsFormNotic{,Led}` / `inventory*` (×4) | `modules/workflow/domain/material_request.py` + M4 inventory | ✅ done（2026-05-05 walkthrough confirmed） |
 
 ## etech repo 對照表（10 大功能模組 → windMindOM module）
 

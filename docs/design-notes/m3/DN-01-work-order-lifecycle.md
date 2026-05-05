@@ -89,9 +89,21 @@ class WorkOrderType(str, Enum):
 
 
 class FollowupKind(str, Enum):
-    NONE              = "none"            # 完工無後續
-    OBSERVATION       = "observation"     # 追蹤觀察（onshore '追蹤觀察'）
-    NEEDS_IMPROVEMENT = "needs_improvement"  # 需改善 → 會自動建 followup work_order
+    """工單完工的後續處理（walkthrough Q2 確認：縮二元）。
+
+    etech 原本的 `chooseschange ∈ {完成, 追蹤觀察, 需改善}` 三分類，walkthrough 確認
+    SLA 沒有實質差異 → 縮為 NONE / FOLLOWUP_NEEDED 二元；嚴重度走獨立 priority 欄位。
+    """
+    NONE             = "none"               # 完工無後續
+    FOLLOWUP_NEEDED  = "followup_needed"    # 需追蹤（自動建 WorkOrderFollowup）
+
+
+class Priority(str, Enum):
+    """工單優先級（walkthrough Q2 後新增 — 取代 followup 三分類的「嚴重度」）。"""
+    LOW       = "low"
+    NORMAL    = "normal"
+    HIGH      = "high"
+    CRITICAL  = "critical"
 ```
 
 ### 2.2 狀態機 transitions
@@ -148,7 +160,15 @@ class FollowupKind(str, Enum):
 | `approve_all` | AWAITING_SIGNOFF | CLOSED | 所有必要 signoff 階段都 approved（DN-02） | system |
 | `reject` | AWAITING_SIGNOFF | IN_PROGRESS | 任一 signoff 階段 rejected | 簽核人 |
 | `cancel` | DRAFT \| DISPATCHED \| IN_PROGRESS | CANCELLED | 帶 `cancel_reason` | 班長 / 主管 |
-| `reopen` | CLOSED | REOPENED | followup_kind == NEEDS_IMPROVEMENT 觸發；或人工 | system / 主管 |
+| `reopen` | CLOSED | REOPENED | followup_kind == FOLLOWUP_NEEDED 觸發；或人工 | system / 主管 |
+
+#### Multi-WO constraint（walkthrough Q3 確認）
+
+一台風機可同時有多張 OPEN 工單，但雙重防護：
+
+- **DB-level**: unique `(turbine_id, source_alarm_code) WHERE status IN open_states` — 不同 issue（不同警報碼）才能多張，相同 issue 重開要 reopen / reuse 既有單
+- **Application-level**: `count(open_work_orders WHERE turbine_id=X) <= 3` — 超過 3 張同台 OPEN 拒絕新建
+- 此 constraint 可由 farm config 覆寫（例：超大型機可放寬到 5 張）
 
 ### 2.3 Schema（含 offshore 延伸）
 
@@ -163,8 +183,9 @@ class WorkOrder:
     # ── core ─────────────────────────────────────
     farm_id: str                            # = monitoring/farm_registry farm_id
     turbine_id: str                         # 14 台中哪一台（etech Hnumber 對應）
-    type: WorkOrderType
+    type: WorkOrderType                     # 4 種：corrective / preventive / inspection / commissioning
     status: WorkOrderStatus
+    priority: Priority = Priority.NORMAL    # walkthrough Q2: 取代 followup 三分類的「嚴重度」
     title: str                              # 一句話描述
     description: str                        # 詳細問題
 
@@ -180,8 +201,10 @@ class WorkOrder:
     dispatched_by: UUID | None = None
 
     # ── offshore 延伸 ────────────────────────────
+    # walkthrough Q5 確認：陸域 farm.config.requires_weather_window=False 時，
+    # start_work guard 跳過 weather_window_id 檢查；onshore 全程不用此欄位。
     vessel_id: UUID | None = None           # CTV / SOV / Jack-up（M3 reserved，M6 才用）
-    weather_window_id: UUID | None = None   # 對應 K13 cost engine WW index
+    weather_window_id: UUID | None = None   # 對應 K13 cost engine WW index（onshore 永遠 None）
     logistic_hours: float | None = None     # 來回航程（給 cost ledger M4 用）
 
     # ── 進行 ─────────────────────────────────────
@@ -303,6 +326,33 @@ WO-{farm_id_short}-{YYYYMM}-{NN}
 - 工單 detail page 上有 "RAG 建議" 區塊：用 `source_alarm_code` 查 vector store
 - 工單 closed 後可選擇把 `work_summary` 餵回 RAG（成為 corpus 的一部分；M6+）
 
+### 3.3 與「定檢清單 / 每日工作日誌」的關係（walkthrough Q6/Q7 確認）
+
+劉老師確認：
+
+- **`work_order` 工作對象 = 風機**（一張單對應一台風機的一個維修任務）
+- **`day_work_form` 工作對象 = 員工 × 當天**（一份日誌包含該員工當天做的「完成 1 張工單 + 完成 2 個定檢項 + 巡視」等）
+- **`inspection_schedule` = 定檢計畫表**（如「每月一次塔筒螺栓檢查」「每季一次潤滑油檢查」）
+
+三者關係：
+
+```
+inspection_schedule (定檢計畫)            work_order (工單，type=INSPECTION/CORRECTIVE/PM/COMMISSIONING)
+       │                                          │
+       │  scheduler 到期 auto-spawn              │  維修人 finish 後寫進當天的 day_work_form
+       └──→ INSPECTION 工單  ────────────────┐  │
+                                               ▼  │
+                                       day_work_form (每日工作日誌)
+                                              │
+                                       activities[]:
+                                       - { kind: "completed_wo", wo_id: ... }
+                                       - { kind: "inspection_item", item_id: ..., result: ... }
+                                       - { kind: "patrol", area: ... }
+                                       - { kind: "training", topic: ... }
+```
+
+衍生 sub-issue（**不在 M3 主線 7 個 sub-issue 內**，已獨立開：`WMOM-20260505-21` `day_work_form` + `WMOM-20260505-22` `inspection_schedule`）。
+
 ---
 
 ## 4. 對應劉老師 onshore → offshore 軸線
@@ -319,17 +369,17 @@ WO-{farm_id_short}-{YYYYMM}-{NN}
 
 ---
 
-## 5. Open questions（walkthrough 待確認）
+## 5. Walkthrough Q&A（已 confirmed 2026-05-05）
 
-| # | 問題 | 影響 |
-|---|------|------|
-| Q1 | etech `removeFrom` 的真實 use case 是什麼？看不到 frontend 入口 | 決定 windMindOM CANCELLED state 是否要保留 cancel_reason 強制欄位 |
-| Q2 | `chooseschange` 的「追蹤觀察」vs「需改善」業務上 SLA 差異？需保留二分還是縮成布林？ | 決定 FollowupKind enum 要 3 還是 2 值 |
-| Q3 | 一台風機可同時有多張 OPEN 工單嗎？（ECN K13 假設一機一機停） | M3 unique constraint 設計 |
-| Q4 | etech 沒有 PM / inspection 工單，全是 corrective — windMindOM 是否預留 4 種 type？ | M3 schema 是否一次設計到位（建議是） |
-| Q5 | 離岸案例 weather_window block 工單，但 etech 沒這概念。`weather_window_id` 是 hard FK 還是可空？ | 我設計可空（onshore 不用），但 offshore start_work guard 強制要求 |
-| Q6 | dayworkForm（每日工作日誌）是 work_order 的子實體，還是獨立 entity？etech 是獨立 | 預設保留獨立 entity 不合併 work_order，等 M3 後續評估 |
-| Q7 | 工單與「定檢清單 regularlistForm」的關係？etech 是並行兩個系統 | M3 暫不合併；設計 work_order.type=INSPECTION 預留入口 |
+| # | 問題 | 劉老師答覆 | 設計調整 |
+|---|------|-----------|---------|
+| Q1 | etech `removeFrom` 真實 use case？ | 不清楚 | windMindOM **不做** removeFrom 表；用 `status=CANCELLED` 取代，`cancel_reason` 選填 |
+| Q2 | 「追蹤觀察」vs「需改善」差別？ | 不清楚，請建議 | **縮成二元** `FollowupKind ∈ {NONE, FOLLOWUP_NEEDED}`；嚴重度走獨立 `Priority` enum（low/normal/high/critical） |
+| Q3 | 一台風機可同時多張 OPEN 工單？ | **≤ 3 張**，但要不同 issue | 雙重 constraint：(a) DB unique `(turbine_id, source_alarm_code) WHERE status IN open_states`（不同 issue 才能多張） (b) 應用層 `count(open) <= 3 per turbine_id`，可由 farm config 覆寫 |
+| Q4 | 預留 4 種 type？ | 確認 ✓ | enum `CORRECTIVE / PREVENTIVE / INSPECTION / COMMISSIONING` |
+| Q5 | weather_window 陸域不需 | 確認 ✓ | `weather_window_id` 可空；start_work guard 看 `farm.config.requires_weather_window` |
+| Q6 | dayworkForm 是工單子實體還是獨立 entity？ | **不同表**：工單 = 風機；日誌 = 員工 × 當天 | 確認獨立 entity，schema：`employee × date + activities[]`（含 `completed_wo` / `inspection_item` / `patrol` / `training`）；衍生 issue WMOM-20260505-21 |
+| Q7 | 工單 vs 定檢清單關係？ | 工單 = 故障；定檢清單獨立；定檢到期可自動產 PM 工單 | 三層設計：`work_order` (4 type) + `inspection_schedule` (獨立) + scheduler auto-spawn `INSPECTION` 工單；衍生 issue WMOM-20260505-22 |
 
 ---
 
@@ -341,6 +391,16 @@ WO-{farm_id_short}-{YYYYMM}-{NN}
 - ⬜ Walkthrough 7 個 Q（[WMOM-20260504-15](../../../ISSUES.md)）
 - ⬜ 實作 [WMOM-20260504-16](../../../ISSUES.md) domain model + state machine（依本 DN）
 
-## 7. Walkthrough notes
+## 7. Walkthrough notes（2026-05-05）
 
-> 待 [WMOM-20260504-15](../../../ISSUES.md) walkthrough 後填入劉老師確認 / 修正內容。
+WMOM-20260504-15 walkthrough done — Q&A 已直接整合進 §5；額外要點記錄如下：
+
+- **D2-Q5 簽核歷史保留**：DN-02 的 `signoff_history` 表會被 work_order detail page 的 timeline 視覺化（「2026-07-15 14:32 主管 reject — 理由：未附完工照片」之類）
+- **D3-Q2 紙本流程**：劉老師補充「歸還流程的紙本由倉庫管理人員填單管理」— 系統不做這層，但 inventory adjustment endpoint 要支援「庫管員手動 +/- 調整」並寫 ledger
+- **新衍生 issue**：
+  - [WMOM-20260505-21](../../../ISSUES.md) — `day_work_form` 設計（員工日誌，含工單 + 定檢 + 巡視 + 訓練 4 種 activity kind）
+  - [WMOM-20260505-22](../../../ISSUES.md) — `inspection_schedule` 設計（定檢計畫 + scheduler auto-spawn PM 工單）
+
+兩個衍生 issue 都不在 M3 主線 7 sub-issue 內，列為 M3 後續或 M4 之後評估。
+
+DN-02 / DN-03 同步在本次 walkthrough 內完成（劉老師全 agree default 建議），詳見對應檔案。
