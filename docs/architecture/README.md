@@ -6,7 +6,8 @@
 
 | 檔案 | 內容 | 何時看 |
 |------|------|--------|
-| [windMindOM-architecture.md](windMindOM-architecture.md) | **主文件** — 系統架構全貌（一張圖）+ 7 張補充細節圖 | 第一次接觸專案 / 客戶 demo / partner 對接 |
+| [windMindOM-architecture.md](windMindOM-architecture.md) | **主文件** — 系統架構全貌（一張圖）+ 7 張補充細節圖（Mermaid） | 第一次接觸專案 / 客戶 demo / partner 對接 |
+| [image-prompts.md](image-prompts.md) | 給生圖模型用的 prompts（hero 圖 / infographic / pitch deck 封面） | 做投影片 / 網站 / 行銷物時 |
 
 ## 主文件涵蓋的 8 章
 
