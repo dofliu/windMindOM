@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 9 |
+| open | 8 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 18 |
+| done | 19 |
 | **total (active)** | **27** |
 
-最後更新：2026-05-05（**M3 主線實作開工**：WMOM-16 Work Order domain + 狀態機 done — 73 tests，code review 13 finding 全處理；下一步 WMOM-17 CRUD/REST API）
+最後更新：2026-05-05（WMOM-17 Work Order CRUD + REST API done — 50 tests / 11 endpoints / 9 review findings 全處理；下一步 WMOM-18 Approval signoff API）
 
 ---
 
@@ -720,20 +720,23 @@
 
 ### WMOM-20260504-17 — Work Order CRUD + REST API + tests
 
-- **Status**: open（依賴 -16 domain model）
+- **Status**: done（2026-05-05 完成）
 - **Milestone**: M3
 - **Priority**: critical
-- **Estimate**: 1 工作天
-- **Description**:
-  - `modules/workflow/repository/work_order_repository.py`：SQLAlchemy / SQLite
-  - `modules/workflow/routers/work_order_router.py`：CRUD + 狀態 transition endpoints
-    - `POST /api/workflow/work-orders` (create draft)
-    - `POST /api/workflow/work-orders/{id}/dispatch` (transition)
-    - `POST /api/workflow/work-orders/{id}/start-work`
-    - `POST /api/workflow/work-orders/{id}/finish` + 含 followup 分支 (≡ etech `chooseschange`)
-    - `POST /api/workflow/work-orders/{id}/close`
-    - `GET /api/workflow/work-orders` (list with filter: status / farm_id / Hnumber)
-  - `modules/workflow/tests/test_work_order_api.py`
+- **Estimate**: 1 工作天 → **實際 ~1 天**（含 code review 9 finding 全處理）
+- **Owner**: Claude (session 2026-05-05)
+- **Branch**: `claude/issue-20260504-17-2026-05-05`
+- **Completion summary**:
+  - ✅ `modules/workflow/repository/`：3 個 SQLAlchemy 2.0 ORM + WorkOrderRepository（CRUD + transition + multi-WO constraint + business_key + event log）
+  - ✅ `modules/workflow/schemas/work_order_schemas.py`：10 個 pydantic v2 model
+  - ✅ `modules/workflow/routers/work_order_router.py`：11 個 FastAPI endpoints
+  - ✅ Mount 進主 FastAPI app
+  - ✅ Tests +50：repository 31 + API 19
+  - ✅ Code review 9 finding 全處理（3 must-fix + 5 should-fix + 1 nice-to-have）
+  - ✅ 整 pytest 213 PASS + 1 XFAIL（cost 49 + monitoring 35 + workflow 129）
+- **Reference**:
+  - [`modules/workflow/`](modules/workflow/)
+  - [`work-logs/2026-05/2026-05-05-work-order-crud-api.md`](work-logs/2026-05/2026-05-05-work-order-crud-api.md)
 
 ---
 

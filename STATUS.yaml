@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 64
+progress: 70
 status: active
 last_updated: "2026-05-05"
-next_milestone: "M3 (2026-07) — Workflow Part 1 實作中。WMOM-16 Work Order domain + 狀態機 done（73 tests + code review 13 finding 全處理）；下一步 WMOM-17 CRUD/REST API → -18 Approval signoff → -19/-20 frontend。"
+next_milestone: "M3 (2026-07) — Workflow Part 1 實作中。WMOM-17 Work Order CRUD + REST API done（11 endpoints + 50 tests + 9 review findings 處理；SQLAlchemy 2.0 / pydantic v2 / FastAPI）；下一步 WMOM-18 Approval signoff API → -19/-20 frontend。"
 technologies:
   - FastAPI
   - React
@@ -44,7 +44,7 @@ milestones:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
     status: in_progress
-    progress: 50  # WMOM-16 domain + 狀態機 done；M3 主線 7 sub-issue 中 3 done（-14/-15/-16），剩 4 個（-17/-18/-19/-20）
+    progress: 65  # WMOM-17 done；M3 主線 7 sub-issue 中 4 done（-14/-15/-16/-17），剩 3 個（-18/-19/-20）
   M4:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 9
+  open: 8
   in_progress: 0
   blocked: 0
-  done: 18
+  done: 19
 
 inherited_baseline:
   source: digiWindTurbine

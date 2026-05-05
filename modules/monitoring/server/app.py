@@ -104,6 +104,9 @@ from server.routers.farms import router as farms_router  # noqa: E402
 # WMOM-20260504-07: cost module router (M2 cost API)
 from modules.cost.routers import router as cost_router  # noqa: E402
 
+# WMOM-20260504-17: workflow module router (M3 work order CRUD/API)
+from modules.workflow.routers import router as workflow_router  # noqa: E402
+
 app.include_router(turbines_router)
 app.include_router(config_router)
 app.include_router(export_router)
@@ -114,6 +117,7 @@ app.include_router(control_router)
 app.include_router(maintenance_router)
 app.include_router(farms_router)
 app.include_router(cost_router)
+app.include_router(workflow_router)
 
 
 @app.get("/api/health")
