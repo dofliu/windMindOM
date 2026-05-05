@@ -1,0 +1,188 @@
+"""Pydantic request / response schemas for workflow router（WMOM-20260504-17）。
+
+設計：
+- Response 直接從 dataclass 對映；用 ``ConfigDict(from_attributes=True)``
+- str-Enum 透明序列化（pydantic v2 直接支援）
+- UUID / datetime 由 pydantic v2 預設處理
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from modules.workflow.domain import (
+    FollowupKind,
+    Priority,
+    WorkOrderStatus,
+    WorkOrderType,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sub-models
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class ProgressNoteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: datetime
+    actor_id: UUID
+    note: str
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Request bodies
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class CreateWorkOrderRequest(BaseModel):
+    """``POST /api/workflow/work-orders`` body — 建立 DRAFT 工單。"""
+
+    farm_id: str = Field(min_length=1, max_length=128)
+    turbine_id: str = Field(min_length=1, max_length=64)
+    type: WorkOrderType
+    title: str = Field(min_length=1, max_length=256)
+    description: str
+    priority: Priority = Priority.NORMAL
+    source_alarm_id: Optional[UUID] = None
+    source_alarm_code: Optional[str] = Field(default=None, max_length=64)
+    assignee_id: Optional[UUID] = None
+    crew_size: int = Field(default=1, ge=1, le=20)
+    estimated_hours: Optional[float] = Field(default=None, ge=0)
+    created_by: Optional[UUID] = None
+
+
+class DispatchRequest(BaseModel):
+    """``POST /api/workflow/work-orders/{id}/dispatch`` — 派工。
+
+    actor_id 必填（誰派工的，給 audit）；assignee_id 若還沒在工單上會 reject —
+    建議建單時就帶 assignee_id。
+    """
+
+    actor_id: UUID
+
+
+class StartWorkRequest(BaseModel):
+    """``/start-work`` — 開始維修。
+
+    onshore 場景：``require_weather_window=False`` 即可。
+    offshore 場景：``require_weather_window=True``，工單需先綁 weather_window_id。
+    """
+
+    require_weather_window: bool = False
+
+
+class UpdateProgressRequest(BaseModel):
+    """``/update-progress`` — 進行中加 progress note。"""
+
+    actor_id: UUID
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class FinishRequest(BaseModel):
+    """``/finish`` — 完工，工單進 AWAITING_SIGNOFF。"""
+
+    actual_hours: float = Field(ge=0)
+    followup_kind: FollowupKind
+    work_summary: Optional[str] = Field(default=None, max_length=4000)
+    unfinished_items: Optional[str] = Field(default=None, max_length=4000)
+    followup_note: Optional[str] = Field(default=None, max_length=4000)
+
+
+class RejectRequest(BaseModel):
+    """``/reject`` — 簽核 reject，工單回 IN_PROGRESS。"""
+
+    reject_reason: str = Field(min_length=1, max_length=2000)
+
+
+class CancelRequest(BaseModel):
+    """``/cancel`` — 取消工單。可在 DRAFT / DISPATCHED / IN_PROGRESS 階段呼叫。"""
+
+    cancel_reason: str = Field(min_length=1, max_length=2000)
+
+
+class ReopenRequest(BaseModel):
+    """``/reopen`` — 從 CLOSED 重開（``followup_kind=FOLLOWUP_NEEDED`` 或人工）。"""
+
+    reopen_reason: str = Field(min_length=1, max_length=2000)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Response
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class WorkOrderResponse(BaseModel):
+    """完整工單視圖（list / detail / 任何 transition 後共用）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    # identity
+    id: UUID
+    business_key: str
+
+    # core
+    farm_id: str
+    turbine_id: str
+    type: WorkOrderType
+    status: WorkOrderStatus
+    priority: Priority
+    title: str
+    description: str
+
+    # 來源
+    source_alarm_id: Optional[UUID] = None
+    source_alarm_code: Optional[str] = None
+
+    # 派工
+    assignee_id: Optional[UUID] = None
+    crew_size: int = 1
+    estimated_hours: Optional[float] = None
+    dispatched_at: Optional[datetime] = None
+    dispatched_by: Optional[UUID] = None
+
+    # offshore
+    vessel_id: Optional[UUID] = None
+    weather_window_id: Optional[UUID] = None
+    logistic_hours: Optional[float] = None
+
+    # 進行
+    started_at: Optional[datetime] = None
+    progress_notes: list[ProgressNoteResponse] = Field(default_factory=list)
+
+    # 完工
+    finished_at: Optional[datetime] = None
+    actual_hours: Optional[float] = None
+    work_summary: Optional[str] = None
+    unfinished_items: Optional[str] = None
+    followup_kind: FollowupKind = FollowupKind.NONE
+    followup_note: Optional[str] = None
+
+    # 簽核
+    signoff_chain_id: Optional[UUID] = None
+
+    # 取消 / 駁回 / 結案 / 重開
+    closed_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    reject_reason: Optional[str] = None
+    reopened_at: Optional[datetime] = None
+    reopen_reason: Optional[str] = None
+
+    # audit
+    created_at: datetime
+    created_by: Optional[UUID] = None
+    updated_at: datetime
+
+
+class WorkOrderListResponse(BaseModel):
+    """``GET /api/workflow/work-orders`` 回應 — 帶 total + items。"""
+
+    total: int
+    items: list[WorkOrderResponse]
