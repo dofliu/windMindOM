@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 9 |
-| in_progress | 3 |
+| open | 10 |
+| in_progress | 0 |
 | blocked | 0 |
-| done | 14 |
-| **total (active)** | **26** |
+| done | 17 |
+| **total (active)** | **27** |
 
-最後更新：2026-05-05（WMOM-20260505-01 hotfix 開工 — snapshots 表失控 41.9 GB；WMOM-14 並行 in_progress 在 PR #2 內）
+最後更新：2026-05-05（**M3 設計階段全結束**：WMOM-14/-15 done — 三份 DN + walkthrough 一次完成；WMOM-01 hotfix done；衍生 WMOM-21 day_work_form / WMOM-22 inspection_schedule 開好；下一步進 WMOM-16 Work Order domain 落地）
 
 ---
 
@@ -546,7 +546,7 @@
 
 ### WMOM-20260505-01 — Snapshots 表失控（41.9 GB SQLite hotfix）
 
-- **Status**: in_progress（2026-05-05 開工）
+- **Status**: done（2026-05-05 — PR #3 merged, VACUUM 釋放 41 GB 確認）
 - **Milestone**: M1 follow-up（hotfix — production blocker，不在原規劃 issue 內）
 - **Priority**: critical（production data growth — 17.5 天累積 41.9 GB；不修一個月可達 1 TB+）
 - **Estimate**: 0.5-1 工作天
@@ -663,48 +663,38 @@
 
 ### WMOM-20260504-14 — z72_etech 取設計 + 3 份 design notes（**取材選 A**）
 
-- **Status**: in_progress（2026-05-04 開工 — 第一份 DN-01 雛形）
+- **Status**: done（2026-05-05 完成 — 三份 DN 全寫 + walkthrough confirmed 一次到位）
 - **Milestone**: M3
-- **Priority**: critical（**M3 spike**，blocking 後續 -16 / -17 / -18 設計決策）
-- **Estimate**: 1-2 工作天（單人讀完 ~20 個 module + 3 份 design notes）
+- **Priority**: critical（M3 spike，已解 blocking）
+- **Estimate**: 1-2 工作天 → **實際 1 天**（劉老師全 agree default 建議，walkthrough 跟設計一次合併）
 - **Owner**: Claude (session 2026-05-04 / 2026-05-05)
-- **Etech repo 路徑**: `D:\Project_CodingSimulation\researchTopic\windFarmMonitor\z72_SCADA_etech`
-- **Etech baseline**: `yitai-corp-cms-download1140811/`（2025-08-11 線上抓回）
-- **取材原則**：**僅取設計、不取程式**（CLAUDE.md §5）；產出 design notes 寫進 `docs/design-notes/m3/`，windMindOM 內全部重寫
-- **Description**:
-  劉老師 2026-05-04 給的 domain summary：
-  > etech 是 onshore 簡化版：故障 → 派工單 → 檢修 + 每日工作日誌 + 簽核 + (領料連庫存) → 連結人員 → work order；offshore 延伸 = vessel / weather window logistics
-
-  3 份 design notes：
-  1. **DN-01: Work Order Lifecycle** — repair/repairTemp/trackFrom/removeFrom 四 collection 的工單流程；onshore baseline + offshore 延伸 (vessel / WW / crew)
-  2. **DN-02: Approval Multi-level** — leadersign / supervisorsign / employeesign / affairsign 四個 sign collection 的權限分流（500/666/300/100 group）；windMindOM 統合為單表 + level 設計
-  3. **DN-03: Inventory ↔ Material Request** — `materialsForm` + `materialsFormNotic{,Led}` + 4 欄位（新品/良品/維修中/待檢驗）庫存模型（M4 主菜的前置）
-
-- **Deliverable**:
-  - [ ] `docs/design-notes/m3/DN-01-work-order-lifecycle.md`（**今天主軸**）
-  - [ ] `docs/design-notes/m3/DN-02-approval-multilevel.md`
-  - [ ] `docs/design-notes/m3/DN-03-inventory-material-request.md`
-  - [ ] `docs/design-notes/m3/README.md`（3 份 DN 索引 + etech repo 對照表）
+- **Branch**: `claude/issue-20260504-14-2026-05-04` (DN-01 part) + `claude/issue-20260504-15-walkthrough-2026-05-05` (DN-02/03 + walkthrough)
+- **Completion summary**:
+  - ✅ z72_SCADA_etech repo inventory（盤點報告 + 重構路線圖 + 5+ 個關鍵 module 程式）
+  - ✅ DN-01 [Work Order Lifecycle](docs/design-notes/m3/DN-01-work-order-lifecycle.md) — 含 walkthrough 7 Q 答覆 + schema 微調（FollowupKind 二元 / Priority enum / multi-WO constraint / inspection auto-spawn hook）
+  - ✅ DN-02 [Approval Multi-level](docs/design-notes/m3/DN-02-approval-multilevel.md) — 4 階 signoff / 工單 2 階 / 領料 3 階 / reject 回 IN_PROGRESS / signoff_history KPI
+  - ✅ DN-03 [Inventory ↔ Material Request](docs/design-notes/m3/DN-03-inventory-material-request.md) — 3 欄位庫存 / 估計 vs 實際領料 / 退料 4 種分類 / 多倉預留 / inventory_adjustment_log 給庫管員手動 +/-
+  - ✅ [README](docs/design-notes/m3/README.md) — 三份 DN 索引 + etech 10 大模組對照表 + 不取的東西清單
+  - ✅ 衍生兩個新 issue：[WMOM-20260505-21](#wmom-20260505-21) (day_work_form) + [WMOM-20260505-22](#wmom-20260505-22) (inspection_schedule)
 - **Reference**:
-  - 盤點報告：[`z72_SCADA_etech/專案盤點報告_2026-04-30.md`](../windFarmMonitor/z72_SCADA_etech/專案盤點報告_2026-04-30.md)
-  - 重構路線圖：[`z72_SCADA_etech/重構路線圖_2026-04-30.md`](../windFarmMonitor/z72_SCADA_etech/重構路線圖_2026-04-30.md)
-  - CLAUDE.md §5（z72_etech 取材選 A）
-  - CLAUDE.md §15（windMindOM 重寫不 fork etech 程式）
+  - [`docs/design-notes/m3/`](docs/design-notes/m3/)（三份 DN + README）
+  - [`work-logs/2026-05/2026-05-05-walkthrough-and-dn02-dn03.md`](work-logs/2026-05/2026-05-05-walkthrough-and-dn02-dn03.md)
 
 ---
 
 ### WMOM-20260504-15 — 30 分鐘 walkthrough 跟劉老師確認 design notes
 
-- **Status**: open（依賴 -14 三份 DN 完成）
+- **Status**: done（2026-05-05 完成 — 與 -14 合併走完）
 - **Milestone**: M3
 - **Priority**: high
-- **Estimate**: 0.5 工作天
-- **Description**:
-  把 -14 的 3 份 DN 跑一遍，請劉老師驗證：
-  - 我對 etech 流程的理解有沒有誤解
-  - windMindOM 的 offshore 延伸方向（vessel / WW / crew / 雙 persona）對齊真實客戶需求
-  - 任何「etech 沒有的設計」是否該補（如 mobile field UX、RAG 警報整合 hook）
-  - 用「30 分鐘 walkthrough」的形式記錄問答進 DN 文件（增 `## walkthrough notes` 區塊）
+- **Estimate**: 0.5 工作天 → **實際 30 分**（合併在 -14 內，劉老師逐一答 17 個 Q）
+- **Owner**: Claude + 劉老師
+- **Completion summary**:
+  - ✅ DN-01 7 個 Q 全 confirmed（含 removeFrom / chooseschange / multi-WO / 4 type / weather_window / dayworkForm / inspection）
+  - ✅ DN-02 5 個 Q 全 agree default（4 階 signoff / 工單 2 階 vs 領料 3 階 / reject 回 IN_PROGRESS / 線性 / history 保留）
+  - ✅ DN-03 5 個 Q 全 agree default（3 欄位庫存 / 系統追蹤部分 + 紙本歸還 / 估計 vs 實際 / 4 種退料分類 / 多倉預留）
+  - ✅ Q&A 直接整合進對應 DN 文件（取代原「open questions」section）
+  - ✅ 兩個衍生 issue 開好（WMOM-21 + WMOM-22）
 
 ---
 
@@ -787,6 +777,51 @@
   - `frontend/components/workflow/ApprovalActionDialog.tsx` 簽核 / 駁回對話框（含意見輸入）
   - 整合進 `WorkflowPage.tsx`（tab 切換 orders / approval）
   - 全 zh / en i18n
+
+---
+
+## M3 衍生 issue（從 walkthrough Q6 / Q7 衍生 — 不在 M3 主線 7 sub-issue 內）
+
+### WMOM-20260505-21 — `day_work_form` 員工日誌設計與實作
+
+- **Status**: open
+- **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
+- **Priority**: medium
+- **Estimate**: 1-1.5 工作天
+- **Source**: DN-01 walkthrough Q6（劉老師 2026-05-05 確認）
+- **Description**:
+  工單對象 = 風機；員工日誌對象 = 員工 × 當天。兩個 entity 不同，但有引用關係。
+  日誌可包含「完成 1 張工單 + 完成 2 個定檢項 + 巡視 + 訓練」等 4 種 activity kind。
+- **Deliverable**:
+  - `modules/workflow/domain/day_work_form.py`：DayWorkForm + ActivityEntry + ActivityKind enum
+  - `modules/workflow/repository/day_work_form_repository.py`
+  - `modules/workflow/routers/day_work_form_router.py`：CRUD + 「我今天做了什麼」query
+  - frontend `/admin/workflow/daywork` 列表 + 個人填單頁
+  - 整合 work_order.finish() 時自動寫進當天 day_work_form
+- **Reference**:
+  - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
+  - etech 對應：`server/dayworkForm.js` + `pages/dayworkForm.vue`
+
+---
+
+### WMOM-20260505-22 — `inspection_schedule` 定檢計畫 + scheduler auto-spawn
+
+- **Status**: open
+- **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
+- **Priority**: medium
+- **Estimate**: 1-1.5 工作天
+- **Source**: DN-01 walkthrough Q7（劉老師 2026-05-05 確認）
+- **Description**:
+  定檢清單獨立 entity（如「每月一次塔筒螺栓檢查」「每季一次潤滑油檢查」）。
+  Scheduler 把到期 inspection auto-spawn `work_order(type=INSPECTION)`，避免人工漏排。
+- **Deliverable**:
+  - `modules/workflow/domain/inspection_schedule.py`：InspectionSchedule + Recurrence enum
+  - `modules/workflow/services/inspection_scheduler.py`：daily check 到期項 → spawn WO
+  - `modules/workflow/routers/inspection_router.py`：CRUD 定檢計畫 + query「下次檢查時間」
+  - frontend `/admin/workflow/inspection` 計畫列表 + 編輯 + 「下次到期」dashboard
+- **Reference**:
+  - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
+  - etech 對應：`server/regularlistForm.js` + `server/regularSetting.js`
 
 ---
 

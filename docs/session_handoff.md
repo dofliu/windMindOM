@@ -1,147 +1,103 @@
 # Session Handoff — 給下次 session 用
 
-> 最後更新：2026-05-04（end of session）
+> 最後更新：2026-05-05（end of session — M3 設計階段全結束）
 > 本檔在 routine 收尾時更新；新 session 開工讀完 CLAUDE.md / ROADMAP / ISSUES 後可看這份知道「上次卡在哪、下次怎麼接」。
 
 ---
 
-## 1. 今天（2026-05-04）的 session 整體軸線
+## 1. 今天（2026-05-05）的 session 整體軸線
 
-進到 **M3 主線**（Workflow Part 1）。本日做了兩件事：
+進到 **M3 主線設計收官 + 實作前夕**。本日做了三件事：
 
-### 1.1 WMOM-20260504-10 — Cost ↔ Farm config 整合（**done**）
+### 1.1 WMOM-20260505-01 — Snapshots 表失控 hotfix（**done**）
 
-- M3 第一週插入工作 — 補 M2 demo 對 friendly customer 不夠 personalize 的缺口
-- Branch: `claude/issue-20260504-10-2026-05-04`
-- Commit: `f21fb1a`
-- Code review: 7 finding 全處理（3 must-fix + 3 should-fix + 1 nice-to-have）
-- Race condition follow-up: WMOM-20260504-13（low priority，M5/M6 再做）
-- Tests: 60 PASS + 1 XFAIL（pre-existing），frontend Vite build 0 TS error
-- 詳見：[`work-logs/2026-05/2026-05-04-cost-farm-integration.md`](../work-logs/2026-05/2026-05-04-cost-farm-integration.md)
+- 彰化 farm `wind_farm.db` 17.5 天累積 41.9 GB（1080 萬筆 turbine_snapshots，98.9% 是 retroactive write 重複）
+- 三個放大因子（cleanup 沒清 + broker 重 retroactive + simulator stop=7 flapping）全修
+- VACUUM 工具加 `--purge-snapshots` 救火 flag
+- PR #3 merged，劉老師執行 `--purge-snapshots` 釋放 41 GB ✓
+- DEC-20260505-01 寫進 decision_log
 
-### 1.2 WMOM-20260504-14 — z72_etech 取設計 + design notes（**in_progress**）
+### 1.2 WMOM-20260504-14 — z72_etech 取設計 + 3 份 DN（**done**）
 
-- M3 主線開工：依 CLAUDE.md §15「取材選 A — 讀程式產 design notes，不取程式」
-- Branch: `claude/issue-20260504-14-2026-05-04`（從 -10 branch 接續）
-- Commit: `1ff6626`
-- 已完成：
-  - z72_SCADA_etech repo inventory（盤點報告 + 重構路線圖 + 5 個關鍵 module 程式）
-  - ISSUES.md 開 M3 主線 7 個 sub-issue（WMOM-14..20）
-  - DN-01 Work Order Lifecycle design note 雛形 → [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](design-notes/m3/DN-01-work-order-lifecycle.md)
-  - DN 索引 + etech 對照表 → [`docs/design-notes/m3/README.md`](design-notes/m3/README.md)
-- **未完成（下次 session 主軸）**：
-  - DN-02 Approval Multi-level
-  - DN-03 Inventory ↔ Material Request
+- DN-01 Work Order Lifecycle（含 walkthrough Q&A 整合 + schema 微調）
+- DN-02 Approval Multi-level（4 階 signoff + chain 設計 + reject 行為）
+- DN-03 Inventory ↔ Material Request（3 欄位庫存 + 雙寫交易 + 退料分類）
+- 詳見：[`docs/design-notes/m3/`](design-notes/m3/)
+
+### 1.3 WMOM-20260504-15 — Walkthrough（**done — 與 -14 合併走完**）
+
+- 17 個 Q（DN-01 7 + DN-02 5 + DN-03 5）劉老師全 agree default
+- 唯一補充：DN-03 D3-Q2「歸還流程紙本由庫管員填單管理」（系統不做歸還流程，但提供 inventory adjustment endpoint）
+- 衍生兩個 issue：
+  - **WMOM-20260505-21** — `day_work_form` 員工日誌（DN-01 Q6 衍生）
+  - **WMOM-20260505-22** — `inspection_schedule` 定檢計畫 + auto-spawn PM 工單（DN-01 Q7 衍生）
 
 ---
 
-## 2. 兩個 branch 狀態
+## 2. Branch / PR 狀態
 
 ```
-main
- ↓
- └─ claude/issue-20260504-10-2026-05-04   (commit f21fb1a — WMOM-10 done)
-       ↓
-       └─ claude/issue-20260504-14-2026-05-04   (commit 1ff6626 — DN-01 done) ← HEAD
+main (HEAD = c5491fc — PR #2 + PR #3 merged)
+ │
+ └─ claude/issue-20260504-15-walkthrough-2026-05-05  ← 本 session 工作（待 push）
+       └ DN-01 修訂 + DN-02 + DN-03 + walkthrough notes + ISSUES/STATUS update
 ```
 
-兩個 branch 都尚未 push。劉老師確認後可：
-
-```bash
-# 都是 fast-forward push，先 -10 後 -14
-git checkout claude/issue-20260504-10-2026-05-04
-git push -u origin claude/issue-20260504-10-2026-05-04
-
-git checkout claude/issue-20260504-14-2026-05-04
-git push -u origin claude/issue-20260504-14-2026-05-04
-```
-
-或者直接 merge 進 main：
-
-```bash
-git checkout main
-git merge claude/issue-20260504-14-2026-05-04   # 會帶入 -10 的 commits（鏈式接續）
-git push origin main
-```
+下個動作：commit + push + 開 PR #4
 
 ---
 
-## 3. 下次 session 第一件事
+## 3. 下次 session 第一件事：M3 實作開工
 
-### 接續 WMOM-20260504-14：補 DN-02 + DN-03
+設計階段全結束，沒卡點。直接進 M3 主線實作：
 
-優先順序：
-1. **DN-02 Approval Multi-level** — etech 4 個 sign collection（`leadersign` / `supervisorsign` / `employeesign` / `affairsign`）統合為 `signoff` + `level`
-   - Source 已讀（`server/leadersign.js` + `server/supervisorsign.js`）— 主要重點：
-     - User group 500 / 666 / 300 / 100 對應四種簽核者
-     - 用 `name` 欄位「轉走」表示這個人已簽（非常 hacky）
-     - `materialformnumber` vs `totalformnumber` 兩種 business key 並存（前者是領料單）
-   - DN-02 要寫：
-     - signoff 表 schema（含 level enum）
-     - chain 設計（依 work order type 決定要幾階）
-     - "我的待簽" query 邏輯
-     - approve / reject 行為（reject 回退 work_order 到 IN_PROGRESS）
+### 優先順序
 
-2. **DN-03 Inventory ↔ Material Request** — M4 前置
-   - Source: `server/materialsForm.js` + `server/inventory.js` + `server/inventoryclassify*.js` + `server/inventoryreturn.js`
-   - DN-03 要寫：
-     - etech 4 欄位庫存（新品 / 良品 / 維修中 / 待檢驗）→ windMindOM 簡化方案
-     - materialsForm 兩通知 collection（總務用 / 組長用）→ 統合
-     - 雙寫交易模型（領料 = 工單批次 → 庫存扣帳 + ledger entry，DN-03 設計但 M4 才實作）
+| Issue | 預估 | 依賴 | 重點 |
+|-------|------|------|------|
+| **WMOM-20260504-16** Work Order domain + 狀態機 | 1 天 | 無（DN-01 已寫完） | 純 dataclass + Enum + state machine + tests，不接 SQLAlchemy/FastAPI |
+| WMOM-20260504-17 Work Order CRUD + REST API | 1 天 | -16 | SQLAlchemy ORM + FastAPI router + 完整 tests |
+| WMOM-20260504-18 Approval signoff API | 1 天 | -14 DN-02 + -17 | signoff_chain + signoff_step + reject 回退邏輯 |
+| WMOM-20260504-19 frontend orders | 1-1.5 天 | -17 | 建立精靈 + 列表 + 詳情 |
+| WMOM-20260504-20 frontend approval | 1 天 | -18 + -19 | 待簽列表 + 簽核 dialog |
 
-### 完成 WMOM-14 後的下一個 issue
+→ 預計 5-6 個工作日跑完 M3 主線實作。
 
-**WMOM-20260504-15 — 30 分鐘 walkthrough 跟劉老師確認 design notes**
+### 不做的事（避免反覆討論）
 
-DN-01 已列 7 個待確認問題（在 DN-01 §5），DN-02 / DN-03 補完後會再加問題。
-walkthrough 後把確認 / 修正寫進 DN 文件 `## walkthrough notes` 區塊。
+- 不在 M3 做 inventory 雙寫交易（DN-03 設計但 M4 才實作）
+- 不在 M3 做 day_work_form / inspection_schedule（衍生 WMOM-21/-22，M3 後續再開）
+- 不對 etech 8 萬行 Vue 程式做任何引用（取材選 A 原則）
 
 ---
 
-## 4. 需要劉老師回答的 walkthrough 問題（已知）
+## 4. 已不需要 walkthrough（17 個 Q 全 confirmed）
 
-從 DN-01 §5：
+| DN | Q 數 | 結果 |
+|----|------|------|
+| DN-01 | 7 | 全 confirmed（含 Q2 採我建議「縮二元 + Priority enum」） |
+| DN-02 | 5 | 全 agree default |
+| DN-03 | 5 | 全 agree default + 1 補充 |
 
-| # | 問題 | 為何要問 |
-|---|------|---------|
-| Q1 | etech `removeFrom` 真實 use case？ | 決定 windMindOM CANCELLED state 的 cancel_reason 欄位設計 |
-| Q2 | `chooseschange` 「追蹤觀察」vs「需改善」SLA / KPI 差別？ | FollowupKind enum 要 3 還是 2 值 |
-| Q3 | 一台風機可同時有多張 OPEN 工單？ | unique constraint 設計 |
-| Q4 | etech 沒有 PM / inspection 工單，windMindOM 是否一次預留 4 種 type？ | schema 一次設計到位 |
-| Q5 | 離岸 weather_window block 工單，`weather_window_id` hard FK 還是可空？ | 決定 onshore / offshore 共用同一表 vs 分表 |
-| Q6 | dayworkForm（每日工作日誌）合併 work_order.progress_notes 還是獨立？ | 影響表結構設計 |
-| Q7 | 工單與「定檢清單 regularlistForm」的關係？etech 並行兩系統 | 決定本次 M3 是否合併 |
-
-DN-02 / DN-03 補完會再多 5-8 個問題。預計 walkthrough 1 次共 12-15 個問題，30 分鐘可走完。
+詳見對應 DN 文件 §「Walkthrough Q&A」表格。
 
 ---
 
-## 5. 整體 M3 後續 issue 鏈
+## 5. M3 後續 backlog（不阻塞主線）
 
-| Issue | Status | 預估 | 依賴 |
-|-------|--------|------|------|
-| WMOM-14 | in_progress（DN-01 done） | 半天補完 DN-02 / DN-03 | — |
-| WMOM-15 | open | 0.5 天 walkthrough | -14 done |
-| WMOM-16 | open | 1 天 Work Order domain + 狀態機 | -14 + -15 done |
-| WMOM-17 | open | 1 天 Work Order CRUD + REST API | -16 done |
-| WMOM-18 | open | 1 天 Approval signoff API | -14 DN-02 + -17 |
-| WMOM-19 | open | 1-1.5 天 frontend orders | -17 done |
-| WMOM-20 | open | 1 天 frontend approval | -18 + -19 |
-
-→ M3 總時程約 6-7 個工作日（與 ROADMAP 預估一致）。
+| Issue | Status | 何時做 |
+|-------|--------|--------|
+| WMOM-20260505-21 day_work_form | open | M3 主線跑完後 / M4 之間 |
+| WMOM-20260505-22 inspection_schedule | open | 同上 |
+| WMOM-20260504-13 cost dataset race condition (low) | open | M5 / M6 |
+| WMOM-20260504-12 frontend memory leak 觀察 | open | M5 / M6 |
 
 ---
 
-## 6. 需要從外面拿的 input（不是 Claude 能解決的）
+## 6. 環境狀態提示
 
-- 劉老師走 30 分鐘 walkthrough 確認 3 份 DN（WMOM-15 — 必須 in person / chat）
-- WMOM-20260503-05 friendly 客戶 demo / contact（infrastructure 已就位，contact 動作是劉老師自己做）
-
----
-
-## 7. 環境狀態提示
-
-- Git: clean working tree on `claude/issue-20260504-14-2026-05-04`，HEAD = 1ff6626
-- Pytest: cost+monitoring 60 PASS + 1 XFAIL
-- Frontend: Vite build pass，CostPage 跑得起來，可 demo `dataset:k13 / farm:台中港曲風場 / farm:彰化離岸風場台電` 三選
-- 兩個 demo farm cost_inputs.json 已存於 `modules/cost/data/farms/`
+- Git: clean working tree on `claude/issue-20260504-15-walkthrough-2026-05-05`，待 commit + push
+- Pytest: 84 PASS + 1 XFAIL（cost 49 + monitoring 35 含 hotfix 19 個）
+- Frontend: Vite build pass
+- DB: 彰化 farm `wind_farm.db` ~50 MB（VACUUM 後正常運作中）
+- 三份 DN 全 done — 設計層面 source of truth 已 stable
