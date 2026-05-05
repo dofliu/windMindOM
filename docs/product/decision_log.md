@@ -207,6 +207,56 @@ PRODUCT_VISION_v0.5 / MVP_ARCHITECTURE_v0.5 之外，還有一批容器架構衍
 
 ---
 
+## DEC-20260505-01 — turbine_snapshots 預設 7 天 retention（取代既有 permanent）
+
+**Date**: 2026-05-05
+**Status**: accepted
+**Version**: v0.8.1
+**Decision maker**: Claude session（劉老師確認 hotfix 三件事一起做）
+**Issue**: WMOM-20260505-01
+
+### Context
+
+彰化 farm `wind_farm.db` 17.5 天累積 41.9 GB（1,081 萬筆 turbine_snapshots）。
+原 schema 註解寫 `turbine_snapshots: permanent`，但實作 `run_cleanup` 沒清此表 + broker 重複 retroactive 寫入 + simulator state machine flapping 三因子疊加，
+變成「永久保存所有 1Hz event capture」事實上不可持續（每月可達 1+ TB）。
+
+### Considered Options
+
+- **A. 保持 permanent，靠手動 archive** — 客戶需要自建排程。對運維廠商門檻太高
+- **B. 7 天 retention（預設）** — 平衡「事後幾天可調 snapshot 看細節」與磁碟控制
+- **C. 30 天 retention** — 對 demo 期間（30 分鐘 demo）太多，正常運行的 14 turbines × 30 天估約 40-80 GB（依 event 頻率）
+- **D. 完全不存 snapshots，全靠即時 trend** — 失去「事故後重看 1Hz 高頻」能力
+
+### Decision
+
+採 **B：7 天 retention 為預設**，可由 caller 覆寫（含 0 = 不清的 legacy 模式）。
+
+### Rationale
+
+1. M1 第一個目標客戶為 Z72 onshore 14 機，7 天足以涵蓋「事件當晚輪班 → 隔天主管查 → 一週內走檢修流程」的工作流
+2. 7 天 retention + dedupe 修補後，14 機正常運轉預估每月 < 5 GB
+3. 「想看 14 天前 1Hz 細節」的需求 rare 且可由業主臨時調 retention 處理（改 `data_broker.py` `SNAPSHOTS_RETENTION_DAYS = 30` 即可）
+4. **更大的設計問題（offshore / 30+ 機 / 多月場景）已超 M1 PoC scope** — 留給 M5/M6 評估換 DuckDB / TimescaleDB
+
+### Consequences
+
+- `Storage.run_cleanup` 加 `snapshots_retention_days: int = 7` 參數
+- `DataBroker.SNAPSHOTS_RETENTION_DAYS = 7` class const，可覆寫
+- API 呼叫 `query_snapshots` 時，回傳資料只涵蓋 7 天內事件（前端可加 hint「snapshot 已過保留期」）
+- **Trade-off accepted**：客戶若要查 2 週前事件 1Hz 細節要請 vendor 調 retention（可寫進客戶 SOP）
+- M5/M6 評估：若客戶量級 > 30 機 / 跨年資料，考慮 columnar store（DuckDB 嵌入 / TimescaleDB）— 寫進 ROADMAP backlog
+- **未來可能 supersede**：當客戶帶實際使用 retention 偏好（如某運維廠商堅持 30 天），改 default 後另開 DEC
+
+### Reference
+
+- WMOM-20260505-01 work-log: `work-logs/2026-05/2026-05-05-snapshots-hotfix.md`
+- 修補程式碼：`modules/monitoring/server/storage.py` (`run_cleanup`) +
+  `modules/monitoring/server/data_broker.py` (`_trigger_snapshot` dedupe)
+- VACUUM 工具：`tools/vacuum_db.py`
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

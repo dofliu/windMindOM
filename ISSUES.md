@@ -14,12 +14,12 @@
 | Status | Count |
 |--------|------|
 | open | 9 |
-| in_progress | 2 |
+| in_progress | 3 |
 | blocked | 0 |
 | done | 14 |
-| **total (active)** | **25** |
+| **total (active)** | **26** |
 
-最後更新：2026-05-04（M3 主線 7 個 sub-issue 開好；WMOM-14 z72_etech 取設計 in_progress — DN-01 雛形）
+最後更新：2026-05-05（WMOM-20260505-01 hotfix 開工 — snapshots 表失控 41.9 GB；WMOM-14 並行 in_progress 在 PR #2 內）
 
 ---
 
@@ -544,6 +544,44 @@
 
 ---
 
+### WMOM-20260505-01 — Snapshots 表失控（41.9 GB SQLite hotfix）
+
+- **Status**: in_progress（2026-05-05 開工）
+- **Milestone**: M1 follow-up（hotfix — production blocker，不在原規劃 issue 內）
+- **Priority**: critical（production data growth — 17.5 天累積 41.9 GB；不修一個月可達 1 TB+）
+- **Estimate**: 0.5-1 工作天
+- **Owner**: Claude (session 2026-05-05)
+- **Branch**: `claude/issue-20260505-01-2026-05-05`
+- **Trigger**: 劉老師 2026-05-05 截圖 — 彰化離岸風場台電 farm 的 `wind_farm.db` 累積到 41.9 GB
+- **Root cause analysis**:
+  - `turbine_snapshots` 表 1,081 萬 row 佔絕大部分容量
+  - 17.5 天範圍 / 19,594 個 distinct event_ref / 每 event 平均 606 row（10 分鐘 1Hz capture）
+  - **三個放大因子疊加**：
+    1. `storage.run_cleanup` **不清** snapshots（schema 註解寫 permanent，但實際是 bug — 沒有 retention）
+    2. `data_broker._trigger_snapshot` 每次重新 trigger 時 retroactively 寫入 ~10 分鐘 in-memory history → 同類 event 重 trigger 時放大
+    3. simulator state machine 在 stop=7 附近 flapping，每幾秒對同一台同一原因 emit 新 event_ref
+  - 觀察證據：top event_ref 全是 `stop:WT007:7:...` 在 80 秒內連 trigger 11 次新 event
+- **修法（3 件事一起做）**:
+  1. `storage.run_cleanup` 加 `snapshots_retention_days` 參數（預設 7 天），DELETE FROM turbine_snapshots WHERE timestamp < cutoff
+  2. `data_broker._trigger_snapshot` 加 dedupe + cooldown：
+     - event_class（去掉 timestamp 部分，e.g. `stop:WT007:7`）作 dedupe key
+     - 同類在 cooldown 期間（預設 5 分鐘）→ 僅延長現有 window，不重新 retroactive write
+  3. 提供 `tools/vacuum_db.py` — 用 `VACUUM INTO` 寫到 sibling 路徑再 swap，避開 SQLite 原 VACUUM 需 2× 空間需求（41.9 GB 場景吃 84 GB）
+- **Tests**:
+  - test_storage_cleanup_snapshots_with_retention
+  - test_data_broker_snapshot_dedupe_within_cooldown
+- **Deliverable**:
+  - 修改 `modules/monitoring/server/storage.py`（run_cleanup + 對應 maintenance_thread caller）
+  - 修改 `modules/monitoring/server/data_broker.py`（_trigger_snapshot dedupe）
+  - 新增 `modules/monitoring/tests/test_storage_cleanup.py` + `test_broker_snapshot_dedupe.py`
+  - 新增 `tools/vacuum_db.py`（CLI tool，VACUUM INTO + swap）
+- **Reference**:
+  - 觀察分析資料：`/tmp/db_check2.py` 取樣結果（17.5 天 / 19,594 events / 606 row/event / 2,441 bytes/row）
+  - 根因關鍵程式碼：[`data_broker.py:397`](modules/monitoring/server/data_broker.py) `_trigger_snapshot`
+  - 根因關鍵程式碼：[`storage.py:520`](modules/monitoring/server/storage.py) `run_cleanup`（沒清 snapshots）
+
+---
+
 ### WMOM-20260504-12 — Frontend 長時間執行記憶體成長（觀察）
 
 - **Status**: open
@@ -552,7 +590,7 @@
 - **Estimate**: 0.5-1 工作天
 - **Source**: 劉老師 2026-05-04 跑長時間測試 →「記憶體不足、refresh 後就好」
 - **觀察結果**:
-  - **Backend 儲存沒問題**：`storage.py` 4 層 tiered retention 正常運作（turbine_data 3-day raw + 1m 90-day + 10m 永久 + snapshots 永久）
+  - **Backend 儲存有 bug — 見 [WMOM-20260505-01](#wmom-20260505-01--snapshots-表失控419-gb-sqlite-hotfix)**：原本以為 `storage.py` 4 層 tiered retention 正常運作；2026-05-05 發現 turbine_snapshots 沒清 → 失控膨脹
   - **前端跑數小時記憶體成長** = 典型 React SPA 長時間運行 GC 跟不上問題，與資料儲存無關，refresh 即重置
 - **可能來源（依嫌疑度）**:
   1. **MiniTrendChart × 14 張卡** — 每張 turbine card 帶一個 Recharts SVG mini-chart，每次 WebSocket push（10s）都 re-render 14 個 SVG，DOM 節點累積

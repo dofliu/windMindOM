@@ -517,13 +517,22 @@ class Storage:
         """, (from_ts_10m, cutoff_10m))
         conn.commit()
 
-    def run_cleanup(self, raw_retention_days: int = 3, agg_1m_retention_days: int = 90):
-        """Delete old raw data and old 1-minute aggregates.
+    def run_cleanup(
+        self,
+        raw_retention_days: int = 3,
+        agg_1m_retention_days: int = 90,
+        snapshots_retention_days: int = 7,
+    ) -> dict:
+        """Delete old raw data, old 1-minute aggregates, and old event snapshots.
 
         - Raw (turbine_data): keep last `raw_retention_days` days (default 3)
         - 1-minute aggregates: keep last `agg_1m_retention_days` days (default 90)
         - 10-minute aggregates: keep forever
-        - Snapshots: keep forever
+        - Snapshots: keep last `snapshots_retention_days` days (default 7)
+          ★ WMOM-20260505-01: 修補 — 原 schema 註解寫 permanent 但實作 bug，
+          snapshots 不清會失控膨脹（彰化 farm 17.5 天累積 41.9 GB）。
+          設 7 天 retention 給「事件發生後幾天還可調 snapshot」的合理使用情境。
+          設 0 = 不清（保留 legacy 行為，不建議）。
         """
         conn = self._get_conn()
         now = datetime.now()
@@ -538,12 +547,26 @@ class Storage:
             "DELETE FROM turbine_data_1m WHERE timestamp < ?", (agg_cutoff,)
         ).rowcount
 
+        deleted_snapshots = 0
+        if snapshots_retention_days > 0:
+            snap_cutoff = (now - timedelta(days=snapshots_retention_days)).isoformat()
+            deleted_snapshots = conn.execute(
+                "DELETE FROM turbine_snapshots WHERE timestamp < ?", (snap_cutoff,)
+            ).rowcount
+
         conn.commit()
 
-        if deleted_raw > 0 or deleted_1m > 0:
-            print(f"[Storage] Cleanup: removed {deleted_raw} raw rows, {deleted_1m} 1m-agg rows")
+        if deleted_raw > 0 or deleted_1m > 0 or deleted_snapshots > 0:
+            print(
+                f"[Storage] Cleanup: removed {deleted_raw} raw rows, "
+                f"{deleted_1m} 1m-agg rows, {deleted_snapshots} snapshot rows"
+            )
 
-        return {"deleted_raw": deleted_raw, "deleted_1m": deleted_1m}
+        return {
+            "deleted_raw": deleted_raw,
+            "deleted_1m": deleted_1m,
+            "deleted_snapshots": deleted_snapshots,
+        }
 
     def get_db_stats(self) -> dict:
         """Return row counts and estimated sizes for each table."""
