@@ -27,6 +27,7 @@
 | 檔案 | 用途 | 何時讀 |
 |------|------|--------|
 | **本檔 `CLAUDE.md`** | 工作守則、repo 角色、commit 規範 | 任何新 session 第一個讀 |
+| [`docs/architecture/windMindOM-architecture.md`](docs/architecture/windMindOM-architecture.md) | **一張圖看全貌** + 7 張細節圖（系統 / 模組分層 / 工單狀態機 / 簽核 / repo 關係 / DB schema / Gantt） | **第一次接觸 / 對外 demo / partner 對接** |
 | [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md) | 產品願景、ICP（運維廠商）、5 大功能、商業模式、競品 | 對齊產品方向時 |
 | [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) | 5 modules 設計、外部介接、技術選型 | 設計與實作時 |
 | [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) | M1-M6 6 個月路線圖、每月主要交付 | 規劃 sprint 時 |
