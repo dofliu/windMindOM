@@ -50,8 +50,9 @@ def run_pytest_validators() -> Dict[str, Any]:
     用 subprocess 而非直接 pytest.main，避免 conftest re-import / state 污染。
     """
     started = time.time()
+    test_dir = str(REPO_ROOT / "tests" / "physics")
     cmd = [
-        sys.executable, "-m", "pytest", "tests/physics/", "--tb=short", "-q",
+        sys.executable, "-m", "pytest", test_dir, "--tb=short", "-q",
     ]
     proc = subprocess.run(  # noqa: S603 — 內部呼叫，受信任
         cmd, cwd=str(REPO_ROOT), capture_output=True, text=True,
@@ -174,7 +175,13 @@ def run_short_sim(duration_sec: float = 1800.0,
 # ════════════════════════════════════════════════════════════════════════
 
 def assess_health(sim: Dict[str, Any]) -> Dict[str, Any]:
-    """根據 short sim 結果評估健康分級。"""
+    """根據 short sim 結果評估健康分級。
+
+    Note：此函式 hardcode 假設 sim["fault_injected"] == "bearing_wear" 並用
+    vibration X 作為 signature 門檻。若 run_short_sim 改用其他 fault scenario
+    （e.g., converter_cooling_fault），需同步調整對應的 expected tag + 門檻，
+    否則 fault signature check 會失去鑑別力。
+    """
     farm = sim["farm_metrics"]
     fault_id = sim["fault_injected"]
     faulty = next(t for t in sim["per_turbine"] if t["fault_injected"] == fault_id)

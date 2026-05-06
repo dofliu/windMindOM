@@ -78,23 +78,36 @@ class TestKaimalTurbulence:
         assert max(abs(s) for s in samples) < 1e-6
 
     def test_stable_atm_lengthens_correlation(self):
-        """Stability=−1（穩定大氣）→ L_u 增大 → autocorrelation 變慢。"""
-        # 同 V/TI，比較 unstable (s=+1) 與 stable (s=-1) 的 lag-1 自相關
-        # 穩定大氣下 alpha 更接近 1（更慢的 turnover）
+        """Stability=−1（穩定大氣）→ L_u 增大 → autocorrelation 變慢。
+
+        驗證雙重不變量：
+        1. 方向性 invariant：stable lag-1 > unstable lag-1（嚴格鑑別）
+        2. 絕對量 invariant：stable lag-1 > 0.93（持久性下界）
+        """
         V, TI = 12.0, 0.10
-        for s, expect_persistent in [(-1.0, True), (+1.0, False)]:
-            gen = TurbulenceGenerator(seed=7)
-            samples = []
-            for _ in range(5000):
-                samples.append(gen.step(mean_speed=V, turbulence_intensity=TI,
-                                         dt=1.0, stability=s))
+
+        def lag1(stability: float, seed: int = 7) -> float:
+            gen = TurbulenceGenerator(seed=seed)
+            samples = [
+                gen.step(mean_speed=V, turbulence_intensity=TI,
+                         dt=1.0, stability=stability)
+                for _ in range(5000)
+            ]
             arr = np.array(samples)
-            # lag-1 自相關
-            lag1 = np.corrcoef(arr[:-1], arr[1:])[0, 1]
-            if expect_persistent:
-                assert lag1 > 0.93, f"stable ABL lag-1={lag1:.4f} 不夠大"
-            else:
-                assert lag1 < 0.96, f"unstable ABL lag-1={lag1:.4f} 不夠小"
+            return float(np.corrcoef(arr[:-1], arr[1:])[0, 1])
+
+        lag1_stable = lag1(-1.0)
+        lag1_unstable = lag1(+1.0)
+
+        # 1. 方向性
+        assert lag1_stable > lag1_unstable, (
+            f"stable lag-1={lag1_stable:.4f} 未大於 unstable={lag1_unstable:.4f} "
+            f"— L_u 應在 stable ABL 變大"
+        )
+        # 2. 絕對下界（涵蓋大氣 turnover 量級）
+        assert lag1_stable > 0.93, (
+            f"stable ABL lag-1={lag1_stable:.4f} 太小，τ_corr 偏離預期"
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════

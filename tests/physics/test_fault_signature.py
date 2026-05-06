@@ -54,9 +54,14 @@ def _run_paired(fault_id: str | None, severity: float,
         )
 
     def mean_dict(samples: List[Dict[str, float]]) -> Dict[str, float]:
-        keys = samples[0].keys()
+        # Union of all keys — 避免狀態切換造成第一筆 sample 缺 tag、後面的 tag
+        # 被全程忽略而拉低 fault delta 偽 pass。
+        all_keys = set()
+        for s in samples:
+            all_keys.update(s.keys())
         return {
-            k: float(np.mean([s.get(k, 0.0) for s in samples])) for k in keys
+            k: float(np.mean([s.get(k, 0.0) for s in samples]))
+            for k in all_keys
         }
 
     return mean_dict(b_samples), mean_dict(f_samples)
@@ -170,7 +175,13 @@ class TestHealthBaseline:
         )
 
     def test_no_fault_power_close_to_lookup(self):
-        """healthy production V=11：30 s 平均 power 偏離 lookup curve < 30%。"""
+        """healthy production V=11：30 s 平均 power 偏離 lookup curve < 30%。
+
+        Note：30% 是寬鬆容差，主要為了確認「健康基線確實在 lookup 附近」而非
+        catch fine-grained drift。WMOM-24（Region 3 CV calibration）lands 後
+        可收到 < 10%。Layer 5 fault delta（10-100 kW）小於此容差不衝突 —
+        Layer 5 用 paired-simulation（同 seed baseline vs faulty），不依賴此 lookup。
+        """
         m = TurbinePhysicsModel(seed=21)
         for _ in range(180):
             m.step(wind_speed=11.0, wind_direction=180.0,

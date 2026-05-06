@@ -96,7 +96,7 @@ class TestCutOutBehavior:
 
     def test_cut_out_triggers_emergency_stop(self):
         """從 production 狀態升風到 27 m/s（>cut_out=25）→ 30 s 內 rotor 歸零。"""
-        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=180)
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
         rotor_initial = m.rotor_speed
         assert rotor_initial > 5.0  # 確認 spin-up 成功
 
@@ -116,7 +116,7 @@ class TestCutOutBehavior:
 
     def test_power_zero_above_cut_out(self):
         """穩定後在 30 m/s（極端強風）下 30 s 平均 |P| < 1% rated。"""
-        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=120)
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
         powers = []
         for _ in range(60):
             tags = m.step(wind_speed=30.0, wind_direction=180.0,
@@ -137,7 +137,7 @@ class TestEmergencyStopDecay:
 
     def test_rotor_drops_50pct_within_5s(self):
         """trigger emergency stop → 5 s 內 rotor ≤ 50% 原值。"""
-        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=180)
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
         rotor_t0 = m.rotor_speed
         threshold = rotor_t0 * 0.50
 
@@ -157,7 +157,7 @@ class TestEmergencyStopDecay:
 
     def test_emergency_state_set_immediately(self):
         """request emergency → 下一次 step 後 state == 7。"""
-        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=180)
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
         m._request_stop("emergency", "test")  # noqa: SLF001
         m.step(wind_speed=10.0, wind_direction=180.0, ambient_temp=15.0, dt=1.0)
         assert m.tur_state == STATE_EMERGENCY_STOP
@@ -196,7 +196,7 @@ class TestPitchActuatorLimit:
 
     def test_region3_pitch_rate_under_gust(self):
         """Region 3 突發陣風 → pitch 反應 ≤ 10 °/s。"""
-        m = _spin_up_to_production(seed=2, V=12.0, settle_steps=180)
+        m = _spin_up_to_production(seed=2, V=12.0, settle_steps=200)
         prev_pitch = list(m._pitch_bl)  # noqa: SLF001
         max_rate = 0.0
 
@@ -299,7 +299,7 @@ class TestRotorOverspeedMargin:
 
     def test_overspeed_triggers_emergency(self):
         """rotor 被故意推超過 software 限 → 下一 step 進 emergency state 7。"""
-        m = _spin_up_to_production(seed=4, V=11.0, settle_steps=180)
+        m = _spin_up_to_production(seed=4, V=11.0, settle_steps=200)
         # 直接強制 rotor 超過 software limit
         m.rotor_speed = m.spec.overspeed_software_rpm + 0.5
         m.step(wind_speed=11.0, wind_direction=180.0, ambient_temp=15.0, dt=1.0)
