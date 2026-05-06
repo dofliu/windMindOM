@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
-| in_progress | 0 |
+| open | 12 |
+| in_progress | 1 |
 | blocked | 0 |
 | done | 20 |
 | **total (active)** | **33** |
 
-最後更新：2026-05-05（劉老師決議：暫緩 WMOM-19 frontend，回頭處理物理模型強化。新增 6 條 physics issue（-23 ~ -28）+ 3 條 parking lot；下一步擇一認領，建議從 -23 pytest 骨架或 -24 data quality 修正開始）
+最後更新：2026-05-06（WMOM-23 Layer 1 完成 — `tests/physics/test_invariants.py` 36 tests pass，含 6 大守恆 + 負向測試；Layer 2-7 排隊中，下一步從 Layer 2 文獻 benchmark 接力）
 
 ---
 
@@ -849,10 +849,12 @@
 
 ### WMOM-20260505-23 — Physics 自我驗證框架（self-validation framework）
 
-- **Status**: open
+- **Status**: in_progress（Layer 1 done 2026-05-06；Layer 2-7 排隊中）
 - **Milestone**: M3 並行（infrastructure，不卡 workflow）
 - **Priority**: critical（**P0 — 物理正確性的根基；劉老師 2026-05-05 review 強調「不能只是說有採用，要知道結果是否準確」**）
 - **Estimate**: 4-6 工作天（拆 6 layer，可逐層 commit）
+- **Progress log**:
+  - 2026-05-06：Layer 1（Conservation Laws）完成 — 36 tests pass（Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆 + sentinel）；負向測試確認可 catch（將 `TurbineSpec.cp_max` 0.45→0.70 觸發 fail，回報 V=4.0 m/s 時 Cp=0.6270 > 0.5926）；`tests/physics/` 骨架（conftest.py + reports/README）就位
 - **Source**:
   - 劉老師 2026-05-05 review：物理模型要有自我測試機制，要能驗證結果準確性
   - `docs/legacy/digiwt_TODO.md` Testing 段（issue #52 升級版）

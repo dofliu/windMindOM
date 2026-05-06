@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 80
 status: active
-last_updated: "2026-05-05"
-next_milestone: "暫緩 WMOM-19 frontend；劉老師決議回頭強化物理模型 + 要求『自我驗證 + 每次測試留紀錄』。WMOM-23 升級為『Physics 自我驗證框架』(7 層 validator，4-6 天)：Layer 1 守恆律 / Layer 2 文獻 benchmark / Layer 3 操作邊界 / Layer 4 跨模組一致性 / Layer 5 故障注入 sanity / Layer 6 health check CLI / Layer 7 測試紀錄保存（tests/physics/reports/ 結構 + YAML metadata + baseline diff + retention）。驗收含負向測試。下一步開工 WMOM-23 Layer 1。"
+last_updated: "2026-05-06"
+next_milestone: "WMOM-23 Layer 1（Conservation Laws）完成 — `tests/physics/test_invariants.py` 36 tests pass，覆蓋 Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆，含負向測試（cp_max 0.45→0.70 觸發 fail）。`tests/physics/` 骨架（conftest + reports/）就位為 Layer 7 鋪路。下一步 Layer 2 文獻 benchmark：IEC 61400-1 Kaimal、Bastankhah wake、Glauert NTF、BPFO/BPFI、ISO 10816、Walther viscosity、ISA air density。"
 technologies:
   - FastAPI
   - React
@@ -62,8 +62,8 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 13
-  in_progress: 0
+  open: 12
+  in_progress: 1
   blocked: 0
   done: 20
 
