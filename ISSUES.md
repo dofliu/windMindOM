@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
+| open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 20 |
+| done | 21 |
 | **total (active)** | **33** |
 
-最後更新：2026-05-05（劉老師決議：暫緩 WMOM-19 frontend，回頭處理物理模型強化。新增 6 條 physics issue（-23 ~ -28）+ 3 條 parking lot；下一步擇一認領，建議從 -23 pytest 骨架或 -24 data quality 修正開始）
+最後更新：2026-05-06（**WMOM-23 全 Layer 1-7 完成** — `tests/physics/` 121 tests pass in 25 s，含守恆律 / 文獻 benchmark / 操作邊界 / 跨模組一致性 / 故障注入 / health check CLI / 報告紀錄系統。code review 完成 3 blockers + 3 suggestions fix。下一個建議：WMOM-24 data quality 修正（會被 Layer 4 自動驗證），或 WMOM-19 frontend 接力）
 
 ---
 
@@ -849,10 +849,20 @@
 
 ### WMOM-20260505-23 — Physics 自我驗證框架（self-validation framework）
 
-- **Status**: open
+- **Status**: **done**（Layer 1-7 全 2026-05-06 完成）
 - **Milestone**: M3 並行（infrastructure，不卡 workflow）
 - **Priority**: critical（**P0 — 物理正確性的根基；劉老師 2026-05-05 review 強調「不能只是說有採用，要知道結果是否準確」**）
-- **Estimate**: 4-6 工作天（拆 6 layer，可逐層 commit）
+- **Estimate**: 4-6 工作天 → **實際 1 天連跑完 7 layer**
+- **Progress log**:
+  - 2026-05-06：Layer 1（Conservation Laws）完成 — 36 tests pass（Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆 + sentinel）；負向測試確認可 catch（將 `TurbineSpec.cp_max` 0.45→0.70 觸發 fail，回報 V=4.0 m/s 時 Cp=0.6270 > 0.5926）；`tests/physics/` 骨架（conftest.py + reports/README）就位
+  - 2026-05-06：Layer 2（Literature/Standard Benchmarks）完成 — 35 tests pass（IEC 61400-1 Kaimal / Bastankhah-Niayifar wake / Glauert NTF / Tedric Harris BPFO/BPFI / ISO 10816-3 Class III / Walther viscosity decay / ISA air density）；負向測試 `_brg_n_elements` 23→30 → BPFO test 4 cases FAIL（rel_err 30%）。Layer 1+2 合計 71 tests pass in 1.45 s
+  - 2026-05-06：Layer 3（Operating Envelope）完成 — 18 tests pass（cut-in/cut-out 行為、emergency stop 5s 衰減 50%、pitch rate ≤10°/s、yaw rate ≤0.5°/s、rotor overspeed software 保護、direct-drive + geared slip < 5%）。
+  - 2026-05-06：Layer 4（Cross-module Consistency）完成 — 9 tests pass（Region 2 cubic R²>0.95 實測 0.99、stator-power lag-correlation 峰值在 240-600 s、inter-turbine spread > 0 且 < 50%、Region 3 power CV 結構性 bound、stability coupling 方向正確）。設計避開 calibration value（spread/CV）由 WMOM-24 收緊。
+  - 2026-05-06：Layer 5（Fault Injection Signatures）完成 — 23 tests pass（11 個 fault scenarios 各驗 1-2 個 SCADA tag delta + healthy baseline ISO Zone A/B + power 偏離 lookup < 30%）。Layer 1-5 合計 121 tests pass。
+  - 2026-05-06：Layer 6（Health Check CLI）完成 — `tools/physics_health_check.py` 一鍵體檢 entry，subprocess 跑 Layer 1-5 + 短模擬 5 turbines × 30 min（含 1 fault）+ 4 大健康分級 + markdown/JSON/figures 產出。Exit code 0/1 適合 CI。
+  - 2026-05-06：code-reviewer subagent 對 Layer 1-6 做 review，找出 3 blockers + 6 suggestions；3 blockers + 3 suggestions 已修（B-1 Kaimal stable/unstable 重疊條件、B-2 settle_steps 不一致、B-3 mean_dict 缺 key 問題）。fix 後 121 tests 仍全 pass。
+  - 2026-05-06：Layer 7（Test Report Persistence）完成 — `tests/physics/conftest.py` 加 pytest_sessionfinish hook，自動寫入 `reports/{YYYY}/{MM}/{ts}-pytest.{md,json}` 含 YAML metadata + baseline_drift 比對。`_baseline/pytest_baseline.{md,json}` 已建立。
+  - **整體驗收**：121 pytest tests pass in ~25 s，health check CLI 4/4 PASS，Layer 1-7 全部 closed。
 - **Source**:
   - 劉老師 2026-05-05 review：物理模型要有自我測試機制，要能驗證結果準確性
   - `docs/legacy/digiwt_TODO.md` Testing 段（issue #52 升級版）
