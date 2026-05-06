@@ -1,9 +1,9 @@
-# 2026-05-06 — Physics 自我驗證框架 Layer 1+2（守恆律 + 文獻 benchmark）
+# 2026-05-06 — Physics 自我驗證框架 Layer 1-7 全完成
 
-> Session 類型：實作
-> Session 長度：長（兩層連做）
+> Session 類型：實作（全天，連 7 層 + review + fix + 報告系統）
+> Session 長度：長
 > 主導：劉老師 + Claude
-> 結果：Layer 1+2 共 71 tests pass（守恆 36 + benchmark 35），兩層各做負向驗證確認 framework 抓得到
+> 結果：**WMOM-23 close** — 121 pytest tests pass in 25 s + health check CLI + 報告紀錄系統就位
 
 ---
 
@@ -54,11 +54,17 @@ WMOM-20260505-23 Layer 1 — Conservation Laws / 物理上限。
 ### 新增檔案
 
 - `tests/physics/__init__.py`
-- `tests/physics/conftest.py`（sys.path + Layer 7 hook skeleton）
-- `tests/physics/test_invariants.py`（Layer 1 — 6 大守恆 36 test cases，含 sentinel）
-- `tests/physics/test_benchmarks.py`（Layer 2 — 7 大文獻 benchmark 35 test cases）
-- `tests/physics/reports/README.md`（資料夾用途 + retention 政策說明）
-- `tests/physics/reports/.gitkeep`（保證資料夾在 git 中）
+- `tests/physics/conftest.py`（sys.path + Layer 7 pytest_sessionfinish hook + baseline drift compute）
+- `tests/physics/test_invariants.py`（Layer 1 — 6 大守恆 36 cases，含 sentinel）
+- `tests/physics/test_benchmarks.py`（Layer 2 — 7 大文獻 benchmark 35 cases）
+- `tests/physics/test_envelope.py`（Layer 3 — 7 大操作邊界 18 cases）
+- `tests/physics/test_consistency.py`（Layer 4 — 5 大跨模組一致性 9 cases）
+- `tests/physics/test_fault_signature.py`（Layer 5 — 11 fault scenarios + 3 baseline 23 cases）
+- `tools/physics_health_check.py`（Layer 6 — 一鍵體檢 CLI）
+- `tests/physics/reports/README.md`（資料夾用途 + retention 說明）
+- `tests/physics/reports/.gitkeep`
+- `tests/physics/reports/_baseline/pytest_baseline.{md,json}`（Layer 7 — 初始 baseline）
+- `tests/physics/reports/2026/05/2026-05-06-1203-pytest.{md,json}`（Layer 7 — 第一份 sample 報告）
 
 ### 修改檔案
 
@@ -68,24 +74,18 @@ WMOM-20260505-23 Layer 1 — Conservation Laws / 物理上限。
 
 ### 動了狀態的 issue
 
-- WMOM-20260505-23: open → in_progress（Layer 1+2 完成，Layer 3-7 排隊中）
+- WMOM-20260505-23: open → **done**（Layer 1-7 全部完成，含 code review fixes）
 
 ---
 
 ## 4. 下次怎麼接手
 
-Layer 2（文獻 benchmark）也已在本 session 連做完成 — 35 tests pass：
+WMOM-23 已全部完成。下一個建議任務：
 
-- IEC 61400-1 Kaimal：σ_v / V_mean ≈ TI（3 速度/TI 組合 + 穩定大氣 lag-1 自相關）
-- Bastankhah wake：V=8/TI=0.08/x=5D → deficit ≈ 0.23（容差 [0.18, 0.40]，Niayifar k*=0.0344）
-- Glauert NTF：a=0.5(1-√(1-Ct))，Region 2 (Ct=0.82) → ntf=0.842 ∈ [0.80, 0.88]
-- BPFO/BPFI：Tedric Harris formula 4 個 RPM 點 + scaling invariant
-- ISO 10816-3：健康 baseline ≤ Zone B (4.5 mm/s) + 各 band threshold ≤ Zone B
-- Walther viscosity：cold_start_factor 5 個時間點對 1+0.5·exp(-t/600) 公式 + 1τ 殘餘 1/e
-- ISA air density：TurbineSpec.air_density default = 1.225 kg/m³（IEC 61400-12-1 norm）
+**選項 A**：WMOM-24（Data quality 3 項 fail 修正）— Layer 4 已埋了 spread/CV 結構性 bound（容差寬鬆），WMOM-24 完成後可把 Layer 4 容差收緊到 [10%, 25%] / [3%, 8%]，把整個 framework 變更鋒利。0.5-1 工作天。
 
-負向驗證：把 `_brg_n_elements` 23→30 → BPFO test 4 個 case FAIL（rel_err 30%）。
+**選項 B**：WMOM-19 frontend 接力 — 之前暫緩，現在 backend 與物理驗證都鎖好，回頭做 frontend 風險低。
 
-下一個 session 從 Layer 3（Operating Envelope）開始：cut-in/cut-out 行為、emergency stop 5 s 衰減、pitch/yaw rate 上限、generator slip < 5%。檔案：`tests/physics/test_envelope.py`
+跑體檢：`python tools/physics_health_check.py`（pytest 121 + short sim + 4 health checks，~50 s 全程）
 
-跑驗證：`python -m pytest tests/physics/ -v`（71 tests, ~1.5 s）
+每次改 physics 後跑一次體檢、commit 進 reports/，方便追溯漂移。

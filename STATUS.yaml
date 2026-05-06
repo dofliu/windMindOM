@@ -4,7 +4,7 @@ category: wind_energy
 progress: 80
 status: active
 last_updated: "2026-05-06"
-next_milestone: "WMOM-23 Layer 1+2 完成 — `tests/physics/` 71 tests pass in 1.45 s。Layer 1（守恆律 36 tests）含 Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆 + sentinel；Layer 2（文獻 benchmark 35 tests）含 IEC 61400-1 Kaimal、Bastankhah-Niayifar wake、Glauert NTF、Tedric Harris BPFO/BPFI、ISO 10816-3、Walther viscosity decay、ISA air density。兩層各做負向測試確認 framework 抓得到。下一步 Layer 3 操作邊界：cut-in/cut-out 行為、emergency stop 衰減、pitch/yaw rate 上限、generator slip < 5%。"
+next_milestone: "**WMOM-23 全 Layer 1-7 完成** — `tests/physics/` 121 tests pass in ~25 s + `tools/physics_health_check.py` CLI + `tests/physics/reports/` 報告紀錄系統。Layer 1 守恆律 36 / Layer 2 文獻 benchmark 35 / Layer 3 操作邊界 18 / Layer 4 跨模組一致性 9 / Layer 5 故障注入 23 / Layer 6 health check CLI / Layer 7 pytest_sessionfinish hook + baseline drift。code review 已過（3 blockers + 3 suggestions fix）。下一步建議：WMOM-24 data quality 修正（會被 Layer 4 spread/CV 自動驗證），或 WMOM-19 frontend 接力。"
 technologies:
   - FastAPI
   - React
@@ -63,9 +63,9 @@ milestones:
 
 issue_stats:
   open: 12
-  in_progress: 1
+  in_progress: 0
   blocked: 0
-  done: 20
+  done: 21
 
 inherited_baseline:
   source: digiWindTurbine
