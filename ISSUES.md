@@ -19,7 +19,7 @@
 | done | 20 |
 | **total (active)** | **33** |
 
-最後更新：2026-05-06（WMOM-23 Layer 1 完成 — `tests/physics/test_invariants.py` 36 tests pass，含 6 大守恆 + 負向測試；Layer 2-7 排隊中，下一步從 Layer 2 文獻 benchmark 接力）
+最後更新：2026-05-06（WMOM-23 Layer 1+2 完成 — `tests/physics/` 71 tests pass in 1.45 s，含 6 大守恆 + 7 大文獻 benchmark + 兩層各做負向測試；Layer 3-7 排隊中，下一步從 Layer 3 操作邊界接力）
 
 ---
 
@@ -849,12 +849,13 @@
 
 ### WMOM-20260505-23 — Physics 自我驗證框架（self-validation framework）
 
-- **Status**: in_progress（Layer 1 done 2026-05-06；Layer 2-7 排隊中）
+- **Status**: in_progress（Layer 1+2 done 2026-05-06；Layer 3-7 排隊中）
 - **Milestone**: M3 並行（infrastructure，不卡 workflow）
 - **Priority**: critical（**P0 — 物理正確性的根基；劉老師 2026-05-05 review 強調「不能只是說有採用，要知道結果是否準確」**）
 - **Estimate**: 4-6 工作天（拆 6 layer，可逐層 commit）
 - **Progress log**:
   - 2026-05-06：Layer 1（Conservation Laws）完成 — 36 tests pass（Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆 + sentinel）；負向測試確認可 catch（將 `TurbineSpec.cp_max` 0.45→0.70 觸發 fail，回報 V=4.0 m/s 時 Cp=0.6270 > 0.5926）；`tests/physics/` 骨架（conftest.py + reports/README）就位
+  - 2026-05-06：Layer 2（Literature/Standard Benchmarks）完成 — 35 tests pass（IEC 61400-1 Kaimal / Bastankhah-Niayifar wake / Glauert NTF / Tedric Harris BPFO/BPFI / ISO 10816-3 Class III / Walther viscosity decay / ISA air density）；負向測試 `_brg_n_elements` 23→30 → BPFO test 4 cases FAIL（rel_err 30%）。Layer 1+2 合計 71 tests pass in 1.45 s
 - **Source**:
   - 劉老師 2026-05-05 review：物理模型要有自我測試機制，要能驗證結果準確性
   - `docs/legacy/digiwt_TODO.md` Testing 段（issue #52 升級版）

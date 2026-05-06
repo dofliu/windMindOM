@@ -4,7 +4,7 @@ category: wind_energy
 progress: 80
 status: active
 last_updated: "2026-05-06"
-next_milestone: "WMOM-23 Layer 1（Conservation Laws）完成 — `tests/physics/test_invariants.py` 36 tests pass，覆蓋 Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆，含負向測試（cp_max 0.45→0.70 觸發 fail）。`tests/physics/` 骨架（conftest + reports/）就位為 Layer 7 鋪路。下一步 Layer 2 文獻 benchmark：IEC 61400-1 Kaimal、Bastankhah wake、Glauert NTF、BPFO/BPFI、ISO 10816、Walther viscosity、ISA air density。"
+next_milestone: "WMOM-23 Layer 1+2 完成 — `tests/physics/` 71 tests pass in 1.45 s。Layer 1（守恆律 36 tests）含 Betz / 能量 / 動量 / 角動量 / 熱平衡 / 質量守恆 + sentinel；Layer 2（文獻 benchmark 35 tests）含 IEC 61400-1 Kaimal、Bastankhah-Niayifar wake、Glauert NTF、Tedric Harris BPFO/BPFI、ISO 10816-3、Walther viscosity decay、ISA air density。兩層各做負向測試確認 framework 抓得到。下一步 Layer 3 操作邊界：cut-in/cut-out 行為、emergency stop 衰減、pitch/yaw rate 上限、generator slip < 5%。"
 technologies:
   - FastAPI
   - React

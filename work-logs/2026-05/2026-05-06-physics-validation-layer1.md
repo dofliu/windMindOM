@@ -1,9 +1,9 @@
-# 2026-05-06 — Physics 自我驗證框架 Layer 1（守恆律）
+# 2026-05-06 — Physics 自我驗證框架 Layer 1+2（守恆律 + 文獻 benchmark）
 
 > Session 類型：實作
-> Session 長度：中
+> Session 長度：長（兩層連做）
 > 主導：劉老師 + Claude
-> 結果：Layer 1 conservation laws 6 大守恆驗證 + tests/physics/ 骨架就位，pytest 全 pass
+> 結果：Layer 1+2 共 71 tests pass（守恆 36 + benchmark 35），兩層各做負向驗證確認 framework 抓得到
 
 ---
 
@@ -55,7 +55,8 @@ WMOM-20260505-23 Layer 1 — Conservation Laws / 物理上限。
 
 - `tests/physics/__init__.py`
 - `tests/physics/conftest.py`（sys.path + Layer 7 hook skeleton）
-- `tests/physics/test_invariants.py`（Layer 1 — 6 大守恆 ~25 test cases）
+- `tests/physics/test_invariants.py`（Layer 1 — 6 大守恆 36 test cases，含 sentinel）
+- `tests/physics/test_benchmarks.py`（Layer 2 — 7 大文獻 benchmark 35 test cases）
 - `tests/physics/reports/README.md`（資料夾用途 + retention 政策說明）
 - `tests/physics/reports/.gitkeep`（保證資料夾在 git 中）
 
@@ -67,22 +68,24 @@ WMOM-20260505-23 Layer 1 — Conservation Laws / 物理上限。
 
 ### 動了狀態的 issue
 
-- WMOM-20260505-23: open → in_progress（Layer 1/7 完成，Layer 2-6 排隊中）
+- WMOM-20260505-23: open → in_progress（Layer 1+2 完成，Layer 3-7 排隊中）
 
 ---
 
 ## 4. 下次怎麼接手
 
-下一個 session 從 Layer 2（Literature / Standard Benchmarks）開始：
+Layer 2（文獻 benchmark）也已在本 session 連做完成 — 35 tests pass：
 
-- IEC 61400-1 Kaimal：σ_v / V_mean ≈ TI（強風下）
-- Bastankhah wake：Ct=0.82, TI=8%, x=5D → deficit 25-35%
-- Glauert NTF：Region 2 a≈0.33 → V_raw/V_∞ ≈ 0.84
-- BPFO/BPFI：Tedric Harris formula
-- ISO 10816-3 Class III：vibration RMS zone boundaries
-- Walther viscosity decay
-- ISA air density 1.2250 kg/m³
+- IEC 61400-1 Kaimal：σ_v / V_mean ≈ TI（3 速度/TI 組合 + 穩定大氣 lag-1 自相關）
+- Bastankhah wake：V=8/TI=0.08/x=5D → deficit ≈ 0.23（容差 [0.18, 0.40]，Niayifar k*=0.0344）
+- Glauert NTF：a=0.5(1-√(1-Ct))，Region 2 (Ct=0.82) → ntf=0.842 ∈ [0.80, 0.88]
+- BPFO/BPFI：Tedric Harris formula 4 個 RPM 點 + scaling invariant
+- ISO 10816-3：健康 baseline ≤ Zone B (4.5 mm/s) + 各 band threshold ≤ Zone B
+- Walther viscosity：cold_start_factor 5 個時間點對 1+0.5·exp(-t/600) 公式 + 1τ 殘餘 1/e
+- ISA air density：TurbineSpec.air_density default = 1.225 kg/m³（IEC 61400-12-1 norm）
 
-檔案：`tests/physics/test_benchmarks.py`
+負向驗證：把 `_brg_n_elements` 23→30 → BPFO test 4 個 case FAIL（rel_err 30%）。
 
-跑驗證：`cd modules/monitoring && python -m pytest ../../tests/physics/ -v`
+下一個 session 從 Layer 3（Operating Envelope）開始：cut-in/cut-out 行為、emergency stop 5 s 衰減、pitch/yaw rate 上限、generator slip < 5%。檔案：`tests/physics/test_envelope.py`
+
+跑驗證：`python -m pytest tests/physics/ -v`（71 tests, ~1.5 s）
