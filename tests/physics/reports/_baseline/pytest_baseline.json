@@ -1,0 +1,626 @@
+{
+  "metadata": {
+    "timestamp": "2026-05-06T12:02:18+08:00",
+    "git_commit": "2cedf2e",
+    "git_branch": "claude/issue-20260505-23-2026-05-06",
+    "git_dirty": true,
+    "python_version": "3.12.5",
+    "test_type": "pytest",
+    "exit_status": 0,
+    "duration_sec": 27.38,
+    "total_pass": 121,
+    "total_fail": 0,
+    "total_skip": 0,
+    "total_count": 121,
+    "baseline_drift": {
+      "baseline_present": false
+    }
+  },
+  "results": [
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestKaimalTurbulence::test_sigma_over_v_equals_ti[8.0-0.08]",
+      "outcome": "passed",
+      "duration": 0.0148
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestKaimalTurbulence::test_sigma_over_v_equals_ti[12.0-0.1]",
+      "outcome": "passed",
+      "duration": 0.0141
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestKaimalTurbulence::test_sigma_over_v_equals_ti[15.0-0.14]",
+      "outcome": "passed",
+      "duration": 0.0133
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestKaimalTurbulence::test_zero_ti_gives_zero_fluctuation",
+      "outcome": "passed",
+      "duration": 0.001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestKaimalTurbulence::test_stable_atm_lengthens_correlation",
+      "outcome": "passed",
+      "duration": 0.0132
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBastankhahWake::test_single_wake_deficit_at_5D",
+      "outcome": "passed",
+      "duration": 0.0301
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBastankhahWake::test_wake_decays_with_distance",
+      "outcome": "passed",
+      "duration": 0.0049
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBastankhahWake::test_no_wake_when_perpendicular",
+      "outcome": "passed",
+      "duration": 0.0011
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_axial_induction_formula[0.5-0.146]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_axial_induction_formula[0.7-0.226]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_axial_induction_formula[0.82-0.288]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_axial_induction_formula[0.9-0.342]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_betz_optimal_induction_factor",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_ntf_factor_at_region2",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestGlauertNTF::test_yaw_misalignment_reduces_ntf_correction",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bpfo_bpfi_formula[12.0]",
+      "outcome": "passed",
+      "duration": 0.0004
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bpfo_bpfi_formula[15.0]",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bpfo_bpfi_formula[18.0]",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bpfo_bpfi_formula[22.0]",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bpfi_greater_than_bpfo",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestBearingFrequencies::test_bearing_freq_scales_with_shaft_speed",
+      "outcome": "passed",
+      "duration": 0.0005
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISO10816Zones::test_healthy_baseline_in_zone_A_or_B",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISO10816Zones::test_zone_boundaries_strictly_ordered",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISO10816Zones::test_per_band_thresholds_below_zone_b",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISO10816Zones::test_standstill_essentially_zero",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_cold_start_factor_at_known_times[0.0-1.5]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_cold_start_factor_at_known_times[300.0-1.303]",
+      "outcome": "passed",
+      "duration": 0.0004
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_cold_start_factor_at_known_times[600.0-1.184]",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_cold_start_factor_at_known_times[1800.0-1.025]",
+      "outcome": "passed",
+      "duration": 0.0008
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_cold_start_factor_at_known_times[3600.0-1.001]",
+      "outcome": "passed",
+      "duration": 0.0014
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_one_tau_gives_one_over_e_decay",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestWaltherViscosity::test_idle_state_does_not_warm_up",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISAAirDensity::test_turbine_spec_default_matches_isa",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISAAirDensity::test_thrust_uses_isa_default",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_benchmarks.py::TestISAAirDensity::test_density_scaling_linear_in_thrust",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestRegion2CubicLaw::test_cubic_fit_quality",
+      "outcome": "passed",
+      "duration": 0.6115
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestRegion2CubicLaw::test_doubling_wind_eightfolds_power",
+      "outcome": "passed",
+      "duration": 0.3704
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestStatorPowerLag::test_max_correlation_at_thermal_lag",
+      "outcome": "passed",
+      "duration": 1.4094
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestInterTurbineIndividuality::test_spread_within_reasonable_range",
+      "outcome": "passed",
+      "duration": 0.5976
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestInterTurbineIndividuality::test_each_turbine_has_distinct_signature",
+      "outcome": "passed",
+      "duration": 0.7217
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestRegion3PowerCV::test_cv_in_structural_range",
+      "outcome": "passed",
+      "duration": 0.195
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestRegion3PowerCV::test_region3_power_near_rated",
+      "outcome": "passed",
+      "duration": 0.1949
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestStabilityCoupling::test_stable_atm_increases_wake_deficit",
+      "outcome": "passed",
+      "duration": 0.0402
+    },
+    {
+      "nodeid": "tests/physics/test_consistency.py::TestStabilityCoupling::test_stable_atm_lengthens_turbulence_correlation",
+      "outcome": "passed",
+      "duration": 0.0054
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutInBehavior::test_no_power_below_cut_in[0.0]",
+      "outcome": "passed",
+      "duration": 0.0306
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutInBehavior::test_no_power_below_cut_in[1.0]",
+      "outcome": "passed",
+      "duration": 0.0306
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutInBehavior::test_no_power_below_cut_in[2.0]",
+      "outcome": "passed",
+      "duration": 0.0297
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutInBehavior::test_no_power_below_cut_in[2.5]",
+      "outcome": "passed",
+      "duration": 0.0316
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutInBehavior::test_just_above_cut_in_starts_eventually",
+      "outcome": "passed",
+      "duration": 0.2106
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutOutBehavior::test_cut_out_triggers_emergency_stop",
+      "outcome": "passed",
+      "duration": 0.1493
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestCutOutBehavior::test_power_zero_above_cut_out",
+      "outcome": "passed",
+      "duration": 0.1327
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestEmergencyStopDecay::test_rotor_drops_50pct_within_5s",
+      "outcome": "passed",
+      "duration": 0.1129
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestEmergencyStopDecay::test_emergency_state_set_immediately",
+      "outcome": "passed",
+      "duration": 0.1212
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestPitchActuatorLimit::test_production_pitch_rate_within_limit",
+      "outcome": "passed",
+      "duration": 0.1519
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestPitchActuatorLimit::test_region3_pitch_rate_under_gust",
+      "outcome": "passed",
+      "duration": 0.1328
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestYawRateLimit::test_yaw_rate_default_constant",
+      "outcome": "passed",
+      "duration": 0.0005
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestYawRateLimit::test_steady_yaw_rate_within_spec",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestYawRateLimit::test_no_yaw_when_in_deadband",
+      "outcome": "passed",
+      "duration": 0.0003
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestRotorOverspeedMargin::test_normal_operation_within_margin",
+      "outcome": "passed",
+      "duration": 0.33
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestRotorOverspeedMargin::test_overspeed_triggers_emergency",
+      "outcome": "passed",
+      "duration": 0.1149
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestGeneratorSlip::test_steady_state_slip_under_5pct",
+      "outcome": "passed",
+      "duration": 0.1352
+    },
+    {
+      "nodeid": "tests/physics/test_envelope.py::TestGeneratorSlip::test_geared_drivetrain_slip_under_5pct",
+      "outcome": "passed",
+      "duration": 0.0081
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[bearing_wear-0.85-WNAC_VibMsNacXDir-+-0.4]",
+      "outcome": "passed",
+      "duration": 1.0387
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[bearing_wear-0.85-WNAC_VibMsNacYDir-+-0.3]",
+      "outcome": "passed",
+      "duration": 0.9009
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[generator_overspeed-0.85-WROT_RotSpd-+-2.0]",
+      "outcome": "passed",
+      "duration": 0.9012
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[generator_overspeed-0.85-WGEN_GnSpd-+-2.0]",
+      "outcome": "passed",
+      "duration": 0.9463
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[generator_overspeed-0.85-WNAC_VibMsNacXDir-+-1.0]",
+      "outcome": "passed",
+      "duration": 0.8617
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[converter_cooling_fault-0.85-WTUR_TotPwrAt---50.0]",
+      "outcome": "passed",
+      "duration": 1.0033
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[converter_cooling_fault-0.85-WCOL_CoolantLvl---0.05]",
+      "outcome": "passed",
+      "duration": 1.1425
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[transformer_overheat-0.85-WGDC_TrfCoreTmp-+-2.0]",
+      "outcome": "passed",
+      "duration": 0.9995
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[pitch_imbalance-0.85-WROT_PtAngValBl1-abs-1.0]",
+      "outcome": "passed",
+      "duration": 0.8313
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[pitch_imbalance-0.85-WNAC_VibMsNacXDir-+-0.5]",
+      "outcome": "passed",
+      "duration": 0.8495
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[yaw_sensor_drift-0.85-WTUR_TotPwrAt---30.0]",
+      "outcome": "passed",
+      "duration": 1.1191
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[stator_winding_degradation-0.85-WGEN_GnStaTmp1-+-1.0]",
+      "outcome": "passed",
+      "duration": 0.9013
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[blade_icing-0.85-WTUR_TotPwrAt---100.0]",
+      "outcome": "passed",
+      "duration": 0.8586
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[blade_icing-0.85-WNAC_VibMsNacYDir-+-0.8]",
+      "outcome": "passed",
+      "duration": 0.9259
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[nacelle_cooling_failure-0.85-WNAC_NacTmp-+-0.4]",
+      "outcome": "passed",
+      "duration": 0.8673
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[nacelle_cooling_failure-0.85-WGEN_GnStaTmp1-+-1.0]",
+      "outcome": "passed",
+      "duration": 0.8748
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[grid_voltage_sag-0.85-WTUR_TotPwrAt---30.0]",
+      "outcome": "passed",
+      "duration": 1.3408
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[gearbox_overheat-0.85-WNAC_VibMsNacXDir-+-0.3]",
+      "outcome": "passed",
+      "duration": 1.4917
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[pitch_motor_fault-0.85-WTUR_TotPwrAt---50.0]",
+      "outcome": "passed",
+      "duration": 1.2808
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::test_fault_signature[yaw_misalignment-0.85-WTUR_TotPwrAt---50.0]",
+      "outcome": "passed",
+      "duration": 1.0637
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::TestHealthBaseline::test_no_fault_overall_vibration_below_zone_b",
+      "outcome": "passed",
+      "duration": 0.1504
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::TestHealthBaseline::test_no_fault_power_close_to_lookup",
+      "outcome": "passed",
+      "duration": 0.1845
+    },
+    {
+      "nodeid": "tests/physics/test_fault_signature.py::TestHealthBaseline::test_no_fault_no_active_faults_recorded",
+      "outcome": "passed",
+      "duration": 0.0357
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_betz_limit_across_lambda_beta_grid",
+      "outcome": "passed",
+      "duration": 0.0013
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_cp_max_ceiling_respected[0.4]",
+      "outcome": "passed",
+      "duration": 0.0007
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_cp_max_ceiling_respected[0.45]",
+      "outcome": "passed",
+      "duration": 0.0006
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_cp_max_ceiling_respected[0.48]",
+      "outcome": "passed",
+      "duration": 0.0007
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_cp_max_ceiling_respected[0.5]",
+      "outcome": "passed",
+      "duration": 0.0006
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_cp_max_ceiling_respected[0.55]",
+      "outcome": "passed",
+      "duration": 0.0006
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestBetzLimit::test_full_simulator_cp_under_betz",
+      "outcome": "passed",
+      "duration": 0.2693
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_aero_power_matches_formula[8.0-12.0-0.0]",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_aero_power_matches_formula[10.0-15.0-0.0]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_aero_power_matches_formula[11.0-16.0-1.0]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_electrical_output_never_exceeds_aero",
+      "outcome": "passed",
+      "duration": 0.1228
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_no_power_below_cut_in",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestEnergyConservation::test_no_power_above_cut_out",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_aero_thrust_formula[8.0-0.7-70.65-1.225]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_aero_thrust_formula[12.0-0.8-70.65-1.225]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_aero_thrust_formula[15.0-0.65-80.0-1.2]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_aero_thrust_formula[10.0-0.5-126.0-1.225]",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_thrust_scales_with_v_squared",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_thrust_scales_with_density",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMomentumBalance::test_thrust_zero_when_ct_zero",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestAngularMomentum::test_direct_drive_rotor_equals_generator",
+      "outcome": "passed",
+      "duration": 0.1122
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestAngularMomentum::test_geared_drivetrain_ratio_relation",
+      "outcome": "passed",
+      "duration": 0.0078
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestAngularMomentum::test_idle_no_rotation_means_no_generator",
+      "outcome": "passed",
+      "duration": 0.008
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_steady_state_temperature[0.65-600.0-100.0-20.0]",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_steady_state_temperature[0.35-900.0-33.0-25.0]",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_steady_state_temperature[0.22-300.0-50.0-15.0]",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_first_order_lag_at_one_tau",
+      "outcome": "passed",
+      "duration": 0.0001
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_no_heat_no_temperature_rise",
+      "outcome": "passed",
+      "duration": 0.0002
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestThermalBalance::test_higher_resistance_higher_steady_temp",
+      "outcome": "passed",
+      "duration": 0.0023
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_no_leak_no_level_change",
+      "outcome": "passed",
+      "duration": 0.0051
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_leak_drains_at_expected_rate[1.0-3600.0]",
+      "outcome": "passed",
+      "duration": 0.0055
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_leak_drains_at_expected_rate[5.0-1800.0]",
+      "outcome": "passed",
+      "duration": 0.0032
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_leak_drains_at_expected_rate[10.0-720.0]",
+      "outcome": "passed",
+      "duration": 0.0012
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_level_never_below_zero",
+      "outcome": "passed",
+      "duration": 0.0059
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestMassConservation::test_refill_restores_level",
+      "outcome": "passed",
+      "duration": 0.0123
+    },
+    {
+      "nodeid": "tests/physics/test_invariants.py::TestNegativeSentinel::test_betz_violation_is_detected",
+      "outcome": "passed",
+      "duration": 0.0016
+    }
+  ]
+}

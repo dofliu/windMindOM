@@ -6,7 +6,13 @@
 
 每次跑 `pytest tests/physics/` 或 `python tools/physics_health_check.py` 都會在這裡留下一份可追溯的紀錄，避免「跑過就忘了」、無從查歷史軌跡。
 
-> ⚠ Layer 1 commit 期：本資料夾骨架就位，但**自動報告產生尚未實作** — 等後續 Layer 7 完成 `conftest.py` 的 `pytest_sessionfinish` hook 與 `tools/physics_baseline_update.py`。
+✅ Layer 7 已實作：
+- `tests/physics/conftest.py` 的 `pytest_sessionfinish` hook 自動產出 `{ts}-pytest.md` + `.json`
+- `tools/physics_health_check.py` 產出 `health-{ts}/report.md` + `.json`（+ matplotlib figures）
+- 兩者都在 markdown 頂端寫入 YAML metadata（git commit / branch / dirty / python / pass-fail）
+- 與 `_baseline/pytest_baseline.json` 自動比對，產出 `baseline_drift` 段（new_failures / fixed_failures）
+
+> Note：`tools/physics_baseline_update.py`（手動 promote baseline 的 CLI）保留為 future enhancement。目前要 update baseline 直接 copy 最新的 `pytest_baseline.{md,json}` 到 `_baseline/` 即可。
 
 ## 規劃結構
 
