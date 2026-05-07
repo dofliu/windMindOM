@@ -4,18 +4,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wind Farm SCADA System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>windMindOM · Operations</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+      :root {
+        color-scheme: light;
+      }
+      html[data-theme="dark"] {
+        color-scheme: dark;
+      }
+      html, body, #root {
+        margin: 0;
+        height: 100%;
+      }
       body {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Manrope', system-ui, sans-serif;
+        background: var(--wmom-bg, #F5F2EA);
+        color: var(--wmom-text, #1F2D24);
       }
-      .font-orbitron {
-        font-family: 'Orbitron', sans-serif;
+      .font-serif-display {
+        font-family: 'DM Serif Display', serif;
       }
+      .font-mono {
+        font-family: 'JetBrains Mono', monospace;
+      }
+      /* Tailwind utility kept for layout only — colors go through theme palette */
     </style>
   <script type="importmap">
 {

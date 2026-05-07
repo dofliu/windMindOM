@@ -1,22 +1,14 @@
+/**
+ * EventComparisonView — A · Calm Operator 改版（功能不動）。
+ * 多風機事件比較：選風機 + 範圍 + 類型 → 顯示摘要、全場事件、合併時間線。
+ */
+
 import React, { useEffect, useMemo, useState } from 'react';
 import type { TurbineData } from '../types';
+import { Btn, Card, Field, Input, Select, StatusPill, type PillTone } from './ui';
+import { useTheme } from '../theme/ThemeProvider';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
-
-const EVENT_COLORS: Record<string, string> = {
-  grid: '#f59e0b',
-  fault: '#ef4444',
-  fault_lifecycle: '#fb923c',
-  operator: '#22c55e',
-  wind: '#38bdf8',
-  state: '#a78bfa',
-};
-
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-500/20 text-red-300 border-red-500/50',
-  warning: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50',
-  info: 'bg-gray-500/20 text-gray-300 border-gray-500/50',
-};
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 interface ComparisonEvent {
   id: number;
@@ -31,18 +23,34 @@ interface ComparisonEvent {
   _turbine_id?: string;
 }
 
-interface EventComparisonViewProps {
+interface Props {
   turbines: TurbineData[];
   lang?: 'en' | 'zh';
 }
 
-const toDateTimeLocal = (value: Date) => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+const eventTone = (et: string): PillTone => {
+  if (et === 'fault' || et === 'fault_lifecycle') return 'warn';
+  if (et === 'grid') return 'amber';
+  if (et === 'wind') return 'info';
+  if (et === 'operator') return 'ok';
+  if (et === 'state') return 'accent';
+  return 'muted';
 };
 
-const EventComparisonView: React.FC<EventComparisonViewProps> = ({ turbines, lang = 'zh' }) => {
-  const u = (en: string, zh: string) => lang === 'zh' ? zh : en;
+const sevTone = (s?: string): PillTone => {
+  if (s === 'critical') return 'warn';
+  if (s === 'warning') return 'amber';
+  return 'muted';
+};
+
+const toDateTimeLocal = (v: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}T${pad(v.getHours())}:${pad(v.getMinutes())}`;
+};
+
+const EventComparisonView: React.FC<Props> = ({ turbines, lang = 'zh' }) => {
+  const { C } = useTheme();
+  const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
   const allTurbineIds = useMemo(
     () => turbines.map(t => `WT${String(t.id).padStart(3, '0')}`),
@@ -50,54 +58,38 @@ const EventComparisonView: React.FC<EventComparisonViewProps> = ({ turbines, lan
   );
 
   const [selectedIds, setSelectedIds] = useState<string[]>(() => allTurbineIds.slice(0, 4));
-  const [rangeStart, setRangeStart] = useState(() => toDateTimeLocal(new Date(Date.now() - 2 * 60 * 60 * 1000)));
+  const [rangeStart, setRangeStart] = useState(() =>
+    toDateTimeLocal(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+  );
   const [rangeEnd, setRangeEnd] = useState(() => toDateTimeLocal(new Date()));
   const [eventTypeFilter, setEventTypeFilter] = useState('');
   const [loading, setLoading] = useState(false);
-  const [perTurbine, setPerTurbine] = useState<Record<string, ComparisonEvent[]>>({});
   const [timeline, setTimeline] = useState<ComparisonEvent[]>([]);
   const [summary, setSummary] = useState<Record<string, { total: number; by_type: Record<string, number> }>>({});
   const [farmEvents, setFarmEvents] = useState<ComparisonEvent[]>([]);
 
-  const fetchComparison = async () => {
+  useEffect(() => {
     if (selectedIds.length === 0) return;
     setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        turbine_ids: selectedIds.join(','),
-        limit: '500',
-      });
-      if (rangeStart) params.set('start', new Date(rangeStart).toISOString());
-      if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
-      if (eventTypeFilter) params.set('event_type', eventTypeFilter);
+    const params = new URLSearchParams({ turbine_ids: selectedIds.join(','), limit: '500' });
+    if (rangeStart) params.set('start', new Date(rangeStart).toISOString());
+    if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
+    if (eventTypeFilter) params.set('event_type', eventTypeFilter);
 
-      const res = await fetch(`${API_BASE}/api/maintenance/events/compare?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPerTurbine(data.per_turbine || {});
+    fetch(`${API_BASE}/api/maintenance/events/compare?${params.toString()}`)
+      .then(r => r.json())
+      .then(data => {
         setTimeline(data.timeline || []);
         setSummary(data.summary || {});
         setFarmEvents(data.farm_events || []);
-      }
-    } catch (e) {
-      console.warn('[EventComparison] fetch failed:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchComparison();
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [selectedIds, rangeStart, rangeEnd, eventTypeFilter]);
 
   const toggleTurbine = (tid: string) => {
-    setSelectedIds(prev =>
-      prev.includes(tid) ? prev.filter(id => id !== tid) : [...prev, tid]
-    );
+    setSelectedIds(prev => (prev.includes(tid) ? prev.filter(id => id !== tid) : [...prev, tid]));
   };
-
-  const selectAll = () => setSelectedIds([...allTurbineIds]);
-  const selectNone = () => setSelectedIds([]);
 
   const exportEvents = () => {
     const params = new URLSearchParams({ format: 'csv', limit: '5000' });
@@ -108,162 +100,231 @@ const EventComparisonView: React.FC<EventComparisonViewProps> = ({ turbines, lan
   };
 
   return (
-    <div className="space-y-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Turbine selector */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-300">{u('Select Turbines', '選擇風機')}</h3>
-          <div className="flex gap-2">
-            <button onClick={selectAll} className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-300">
+      <Card>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+            {u('Select turbines', '選擇風機')}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Btn size="sm" onClick={() => setSelectedIds([...allTurbineIds])}>
               {u('All', '全選')}
-            </button>
-            <button onClick={selectNone} className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-gray-300">
+            </Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
               {u('None', '清除')}
-            </button>
+            </Btn>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {allTurbineIds.map(tid => (
-            <button
-              key={tid}
-              onClick={() => toggleTurbine(tid)}
-              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
-                selectedIds.includes(tid)
-                  ? 'bg-cyan-600 text-white'
-                  : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-              }`}
-            >
-              {tid}
-            </button>
-          ))}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {allTurbineIds.map(tid => {
+            const active = selectedIds.includes(tid);
+            return (
+              <button
+                key={tid}
+                onClick={() => toggleTurbine(tid)}
+                aria-pressed={active}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: `1px solid ${active ? C.accent : C.border}`,
+                  background: active ? C.accentSoft : C.panelMuted,
+                  color: active ? C.accent : C.sub,
+                  cursor: 'pointer',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontWeight: active ? 600 : 500,
+                }}
+              >
+                {tid}
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </Card>
 
       {/* Filters */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <Card>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+            alignItems: 'flex-end',
+          }}
+        >
+          <Field label={u('Start', '開始時間')}>
+            <Input
+              type="datetime-local"
+              value={rangeStart}
+              onChange={setRangeStart}
+              fullWidth
+              monospace
+            />
+          </Field>
+          <Field label={u('End', '結束時間')}>
+            <Input type="datetime-local" value={rangeEnd} onChange={setRangeEnd} fullWidth monospace />
+          </Field>
+          <Field label={u('Event type', '事件類型')}>
+            <Select
+              value={eventTypeFilter}
+              onChange={setEventTypeFilter}
+              options={[
+                { value: '', label: u('All', '全部') },
+                { value: 'fault', label: u('Fault', '故障') },
+                { value: 'fault_lifecycle', label: u('Fault lifecycle', '故障生命週期') },
+                { value: 'grid', label: u('Grid', '電網') },
+                { value: 'state', label: u('State', '狀態') },
+                { value: 'operator', label: u('Operator', '操作') },
+                { value: 'wind', label: u('Wind', '風況') },
+              ]}
+              fullWidth
+            />
+          </Field>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">{u('Start', '開始時間')}</label>
-            <input type="datetime-local" value={rangeStart} onChange={e => setRangeStart(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">{u('End', '結束時間')}</label>
-            <input type="datetime-local" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">{u('Event Type', '事件類型')}</label>
-            <select value={eventTypeFilter} onChange={e => setEventTypeFilter(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white">
-              <option value="">{u('All Types', '全部類型')}</option>
-              <option value="fault">{u('Fault', '故障')}</option>
-              <option value="fault_lifecycle">{u('Fault Lifecycle', '故障生命週期')}</option>
-              <option value="grid">{u('Grid', '電網')}</option>
-              <option value="state">{u('State', '狀態')}</option>
-              <option value="operator">{u('Operator', '操作')}</option>
-              <option value="wind">{u('Wind', '風況')}</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">{u('Export', '匯出')}</label>
-            <button onClick={exportEvents} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white rounded px-3 py-2 text-sm transition-colors">
-              {u('Export Events CSV', '匯出事件 CSV')}
-            </button>
+            <Btn variant="primary" onClick={exportEvents} fullWidth>
+              {u('Export CSV', '匯出 CSV')}
+            </Btn>
           </div>
         </div>
-        <div className="mt-2 text-sm text-gray-400">
-          {loading ? u('Loading...', '載入中...') : `${timeline.length} ${u('events', '筆事件')} | ${selectedIds.length} ${u('turbines', '台風機')}`}
+        <div style={{ marginTop: 10, fontSize: 12, color: C.sub }}>
+          {loading
+            ? u('Loading…', '載入中…')
+            : `${timeline.length} ${u('events', '事件')} · ${selectedIds.length} ${u('turbines', '台')}`}
         </div>
-      </div>
+      </Card>
 
       {/* Summary grid */}
       {selectedIds.length > 0 && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">{u('Summary', '摘要')}</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 10 }}>
+            {u('Per-turbine summary', '單機摘要')}
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 10,
+            }}
+          >
             {selectedIds.map(tid => {
               const s = summary[tid] || { total: 0, by_type: {} };
               return (
-                <div key={tid} className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-                  <div className="font-mono text-sm text-cyan-400 mb-2">{tid}</div>
-                  <div className="text-2xl font-bold text-white">{s.total}</div>
-                  <div className="text-xs text-gray-400 mt-1">{u('events', '事件')}</div>
-                  <div className="flex flex-wrap gap-1 mt-2">
+                <Card key={tid} tone="muted" padding={12}>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: C.accent, fontWeight: 600 }}>
+                    {tid}
+                  </div>
+                  <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 24, color: C.text, marginTop: 4 }}>
+                    {s.total}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub }}>{u('events', '事件')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                     {Object.entries(s.by_type).map(([type, count]) => (
-                      <span key={type} className="text-xs px-1.5 py-0.5 rounded" style={{
-                        backgroundColor: (EVENT_COLORS[type] || '#64748b') + '20',
-                        color: EVENT_COLORS[type] || '#94a3b8',
-                      }}>
+                      <StatusPill key={type} tone={eventTone(type)} size="sm">
                         {type}: {count as number}
-                      </span>
+                      </StatusPill>
                     ))}
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Farm-wide events */}
       {farmEvents.length > 0 && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-yellow-400 mb-3">{u('Farm-Wide Events', '全場事件')}</h3>
-          <div className="space-y-1 max-h-40 overflow-y-auto">
-            {farmEvents.slice(0, 20).map((ev, i) => (
-              <div key={i} className="flex items-center gap-3 text-sm py-1 border-b border-gray-700/50">
-                <span className="text-xs text-gray-500 font-mono w-40 flex-shrink-0">
+        <Card>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.amber, marginBottom: 10 }}>
+            {u('Farm-wide events', '全場事件')}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 200, overflowY: 'auto' }}>
+            {farmEvents.slice(0, 30).map((ev, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 0',
+                  borderBottom: i < farmEvents.length - 1 ? `1px solid ${C.border}` : undefined,
+                  fontSize: 12,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: C.sub,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    width: 160,
+                    flexShrink: 0,
+                  }}
+                >
                   {new Date(ev.timestamp).toLocaleString()}
                 </span>
-                <span className="px-1.5 py-0.5 rounded text-xs" style={{
-                  backgroundColor: (EVENT_COLORS[ev.event_type] || '#64748b') + '20',
-                  color: EVENT_COLORS[ev.event_type] || '#94a3b8',
-                }}>
-                  {ev.event_type}
+                <StatusPill tone={eventTone(ev.event_type)}>{ev.event_type}</StatusPill>
+                <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.title}
                 </span>
-                <span className="text-gray-300 truncate">{ev.title}</span>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Per-turbine timeline */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3">{u('Event Timeline', '事件時間線')}</h3>
-        <div className="space-y-1 max-h-[500px] overflow-y-auto">
-          {timeline.length === 0 && !loading && (
-            <div className="text-gray-500 text-sm text-center py-8">{u('No events found', '未找到事件')}</div>
-          )}
-          {timeline.map((ev, i) => {
-            const sevClass = SEVERITY_COLORS[ev.severity || 'info'] || SEVERITY_COLORS.info;
-            return (
-              <div key={i} className="flex items-start gap-3 text-sm py-2 border-b border-gray-700/50">
-                <span className="text-xs text-gray-500 font-mono w-40 flex-shrink-0">
-                  {new Date(ev.timestamp).toLocaleString()}
-                </span>
-                <span className="font-mono text-cyan-400 text-xs w-14 flex-shrink-0">{ev._turbine_id || ev.turbine_id || '—'}</span>
-                <span className="px-1.5 py-0.5 rounded text-xs flex-shrink-0" style={{
-                  backgroundColor: (EVENT_COLORS[ev.event_type] || '#64748b') + '20',
-                  color: EVENT_COLORS[ev.event_type] || '#94a3b8',
-                }}>
-                  {ev.event_type}
-                </span>
-                {ev.severity && (
-                  <span className={`px-1.5 py-0.5 rounded text-xs border flex-shrink-0 ${sevClass}`}>
-                    {ev.severity}
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <span className="text-gray-200">{ev.title}</span>
-                  {ev.detail && <span className="text-gray-500 ml-2 text-xs">{ev.detail}</span>}
-                </div>
-              </div>
-            );
-          })}
+      {/* Timeline */}
+      <Card>
+        <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 10 }}>
+          {u('Event timeline', '事件時間線')}
         </div>
-      </div>
+        <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 500, overflowY: 'auto' }}>
+          {timeline.length === 0 && !loading && (
+            <div style={{ color: C.sub, fontSize: 12, padding: 24, textAlign: 'center' }}>
+              {u('No events found.', '未找到事件。')}
+            </div>
+          )}
+          {timeline.map((ev, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '160px 60px auto auto 1fr',
+                gap: 10,
+                padding: '8px 0',
+                borderBottom: i < timeline.length - 1 ? `1px solid ${C.border}` : undefined,
+                fontSize: 12,
+                alignItems: 'baseline',
+              }}
+            >
+              <span style={{ color: C.sub, fontFamily: 'JetBrains Mono, monospace' }}>
+                {new Date(ev.timestamp).toLocaleString()}
+              </span>
+              <span style={{ color: C.accent, fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
+                {ev._turbine_id || ev.turbine_id || '—'}
+              </span>
+              <StatusPill tone={eventTone(ev.event_type)}>{ev.event_type}</StatusPill>
+              {ev.severity ? (
+                <StatusPill tone={sevTone(ev.severity)}>{ev.severity}</StatusPill>
+              ) : (
+                <span />
+              )}
+              <span style={{ color: C.text, minWidth: 0 }}>
+                {ev.title}
+                {ev.detail && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: C.sub }}>{ev.detail}</span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 };

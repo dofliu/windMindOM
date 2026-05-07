@@ -1,0 +1,86 @@
+/**
+ * Logo / NavIcon — 改版後的 sidebar 圖示。
+ * 全部 stroke 走 currentColor，外部用 color prop 控制即可（保留 hex 例外只給 chart）。
+ */
+
+import React from 'react';
+
+export const Logo: React.FC<{ color?: string; size?: number }> = ({ color = 'currentColor', size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <circle cx="12" cy="12" r="2.5" fill={color} />
+    <ellipse cx="12" cy="6" rx="1.6" ry="5" fill={color} />
+    <ellipse cx="12" cy="6" rx="1.6" ry="5" fill={color} transform="rotate(120 12 12)" />
+    <ellipse cx="12" cy="6" rx="1.6" ry="5" fill={color} transform="rotate(240 12 12)" />
+  </svg>
+);
+
+export type NavIconId =
+  | 'overview'
+  | 'turbine'
+  | 'maintenance'
+  | 'cost'
+  | 'history'
+  | 'faults'
+  | 'settings';
+
+export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }> = ({
+  id,
+  color = 'currentColor',
+  size = 18,
+}) => {
+  const stroke = color;
+  const common = { stroke, strokeWidth: 1.6, fill: 'none' } as const;
+  const cap = { ...common, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const m: Record<NavIconId, React.ReactNode> = {
+    overview: (
+      <g {...common}>
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </g>
+    ),
+    turbine: (
+      <g {...common}>
+        <circle cx="12" cy="9" r="2" />
+        <path d="M12 11v10M12 9V3M12 9l5-3M12 9l-5-3" />
+      </g>
+    ),
+    maintenance: (
+      <g {...cap}>
+        <path d="M14 4l-3 3 5 5 3-3a3.5 3.5 0 1 0-5-5z" />
+        <path d="M11 7L4 14l3 3 7-7" />
+      </g>
+    ),
+    cost: (
+      <g {...cap}>
+        <path d="M12 4v16M8 8h6a2 2 0 1 1 0 4H10a2 2 0 1 0 0 4h7" />
+      </g>
+    ),
+    history: (
+      <g {...cap}>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 7v5l3 2" />
+      </g>
+    ),
+    faults: (
+      <g {...cap}>
+        <path d="M12 3l9 16H3z" />
+        <path d="M12 10v4M12 17h.01" />
+      </g>
+    ),
+    settings: (
+      <g {...cap}>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9A1.7 1.7 0 0 0 10 3.1V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+      </g>
+    ),
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      {m[id]}
+    </svg>
+  );
+};
+
+export default Logo;

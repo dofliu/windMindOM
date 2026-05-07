@@ -1,80 +1,194 @@
+/**
+ * DispatchModal — A · Calm Operator 改版（功能不動，套新樣式）。
+ */
+
 import React, { useState } from 'react';
 import { type TurbineData, type Technician, TechnicianStatus } from '../types';
-import { XMarkIcon, WrenchScrewdriverIcon } from './icons';
+import { Btn, Card, StatusPill } from './ui';
+import { useTheme } from '../theme/ThemeProvider';
 
 interface DispatchModalProps {
-    turbine: TurbineData;
-    technicians: Technician[];
-    faultAnalysis: string;
-    onClose: () => void;
-    onConfirm: (turbineId: number, technicianId: number, faultDescription: string) => void;
+  turbine: TurbineData;
+  technicians: Technician[];
+  faultAnalysis: string;
+  onClose: () => void;
+  onConfirm: (turbineId: number, technicianId: number, faultDescription: string) => void;
 }
 
-const DispatchModal: React.FC<DispatchModalProps> = ({ turbine, technicians, faultAnalysis, onClose, onConfirm }) => {
-    const [selectedTechnicianId, setSelectedTechnicianId] = useState<number | null>(null);
-    const availableTechnicians = technicians.filter(t => t.status === TechnicianStatus.ON_DUTY);
+const DispatchModal: React.FC<DispatchModalProps> = ({
+  turbine,
+  technicians,
+  faultAnalysis,
+  onClose,
+  onConfirm,
+}) => {
+  const { C } = useTheme();
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState<number | null>(null);
+  const available = technicians.filter(t => t.status === TechnicianStatus.ON_DUTY);
 
-    const handleConfirm = () => {
-        if (selectedTechnicianId) {
-            onConfirm(turbine.id, selectedTechnicianId, faultAnalysis);
-        }
-    };
+  const handleConfirm = () => {
+    if (selectedTechnicianId) {
+      onConfirm(turbine.id, selectedTechnicianId, faultAnalysis);
+    }
+  };
 
-    return (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl border border-gray-700">
-                <div className="flex justify-between items-center p-4 border-b border-gray-700">
-                    <h2 className="text-2xl font-bold font-orbitron text-white">Dispatch Technician</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
-                        <XMarkIcon className="w-6 h-6" />
-                    </button>
-                </div>
-                
-                <div className="p-6 space-y-6">
-                    <div>
-                        <h3 className="text-lg font-bold text-cyan-400">Target Turbine: {turbine.name}</h3>
-                        <p className="text-sm text-gray-400">Current Status: <span className="text-red-400 font-semibold">{turbine.status}</span></p>
-                    </div>
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 200,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 640 }}>
+        <Card padding={0}>
+          <div
+            style={{
+              padding: '16px 20px',
+              borderBottom: `1px solid ${C.border}`,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: '"DM Serif Display", serif',
+                fontSize: 24,
+                fontWeight: 400,
+                color: C.text,
+              }}
+            >
+              Dispatch Technician
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.sub,
+                fontSize: 20,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
 
-                    <div className="bg-gray-900/50 p-3 rounded-md">
-                        <h4 className="font-semibold text-gray-300">AI Fault Analysis Summary:</h4>
-                        <p className="text-sm text-gray-400 mt-2 font-mono whitespace-pre-wrap">{faultAnalysis}</p>
-                    </div>
-
-                    <div>
-                        <h4 className="font-semibold text-gray-300 mb-2">Select Available Technician:</h4>
-                        {availableTechnicians.length > 0 ? (
-                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {availableTechnicians.map(tech => (
-                                    <button
-                                        key={tech.id}
-                                        onClick={() => setSelectedTechnicianId(tech.id)}
-                                        className={`p-3 rounded-md text-left transition-colors border-2 ${selectedTechnicianId === tech.id ? 'bg-cyan-500/30 border-cyan-500' : 'bg-gray-700/50 border-transparent hover:bg-gray-700'}`}
-                                    >
-                                        <p className="font-bold text-white">{tech.name}</p>
-                                        <p className="text-xs text-green-400">{tech.status}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-yellow-400 bg-yellow-900/50 p-3 rounded-md">No technicians are currently available (On Duty).</p>
-                        )}
-                    </div>
-                </div>
-
-                <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex justify-end">
-                     <button
-                        onClick={handleConfirm}
-                        disabled={!selectedTechnicianId}
-                        className="flex items-center justify-center space-x-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg transition-all disabled:bg-gray-600 disabled:cursor-not-allowed"
-                    >
-                        <WrenchScrewdriverIcon />
-                        <span>Confirm Dispatch</span>
-                    </button>
-                </div>
+          <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <h3 style={{ margin: 0, color: C.accent, fontSize: 16, fontWeight: 600 }}>
+                Target turbine: {turbine.name}
+              </h3>
+              <div style={{ marginTop: 6, fontSize: 13, color: C.sub }}>
+                Current status:{' '}
+                <span style={{ color: C.warn, fontWeight: 600 }}>{turbine.status}</span>
+              </div>
             </div>
-        </div>
-    );
+
+            <Card tone="muted">
+              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text }}>
+                AI fault analysis
+              </h4>
+              <pre
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: C.sub,
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  margin: 0,
+                  paddingTop: 8,
+                }}
+              >
+                {faultAnalysis}
+              </pre>
+            </Card>
+
+            <div>
+              <h4 style={{ margin: 0, marginBottom: 10, fontSize: 13, fontWeight: 600, color: C.text }}>
+                Select available technician
+              </h4>
+              {available.length > 0 ? (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: 8,
+                  }}
+                >
+                  {available.map(tech => {
+                    const active = selectedTechnicianId === tech.id;
+                    return (
+                      <button
+                        key={tech.id}
+                        type="button"
+                        onClick={() => setSelectedTechnicianId(tech.id)}
+                        aria-pressed={active}
+                        style={{
+                          padding: 12,
+                          textAlign: 'left',
+                          borderRadius: 10,
+                          border: `2px solid ${active ? C.accent : C.border}`,
+                          background: active ? C.accentSoft : C.panel,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: C.text, fontSize: 14 }}>
+                          {tech.name}
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          <StatusPill tone="ok" size="sm">
+                            {tech.status}
+                          </StatusPill>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Card tone="warn">
+                  <div style={{ color: C.warn, fontSize: 13 }}>
+                    No technicians are currently on duty.
+                  </div>
+                </Card>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: '14px 20px',
+              borderTop: `1px solid ${C.border}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+            }}
+          >
+            <Btn onClick={onClose}>Cancel</Btn>
+            <Btn
+              variant="primary"
+              onClick={handleConfirm}
+              disabled={!selectedTechnicianId}
+              ariaLabel="Confirm dispatch"
+            >
+              Confirm dispatch
+            </Btn>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 };
 
 export default DispatchModal;

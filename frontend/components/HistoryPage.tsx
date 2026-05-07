@@ -1,35 +1,58 @@
+/**
+ * HistoryPage — A · Calm Operator 改版。
+ *
+ * 版面：
+ *   - PageHeader：歷史資料 + 「搜尋 SCADA 標籤・事件標記・CSV 匯出」+ Compare tab
+ *   - 查詢條件卡（4 欄）：風機 / 時間範圍 / 標籤 / 事件篩選
+ *   - 折線圖（含事件 ReferenceLine 與 ReferenceArea）
+ *   - 事件清單 + 事件詳情
+ *   - 最近 20 筆資料表
+ *
+ * **API 不動**：`/api/turbines/:id/history`、`/api/i18n/tags`、`/api/export/history`。
+ */
+
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
   Line,
   LineChart,
-  ReferenceArea,
-  ReferenceLine,
+  ReferenceArea as RawReferenceArea,
+  ReferenceLine as RawReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+
+// recharts 3.x type definitions do not surface the `key` React-builtin on
+// ReferenceArea / ReferenceLine; cast to a permissive component so we can
+// pass `key` while iterating without losing render correctness.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReferenceArea: React.FC<any> = RawReferenceArea as unknown as React.FC<any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReferenceLine: React.FC<any> = RawReferenceLine as unknown as React.FC<any>;
 import type { TurbineData } from '../types';
 import EventComparisonView from './EventComparisonView';
+import {
+  Btn,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  StatusPill,
+  type PillTone,
+} from './ui';
+import { useTheme } from '../theme/ThemeProvider';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
-const LINE_COLORS = ['#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 const TAG_PRESETS: Record<string, string[]> = {
   startup: ['WTUR_TurSt', 'WROT_RotSpd', 'WTUR_TotPwrAt', 'WGEN_GnVtgMs', 'WCNV_CnvGnFrq'],
   thermal: ['WGEN_GnStaTmp1', 'WGEN_GnBrgTmp1', 'WCNV_CnvCabinTmp', 'WGDC_TrfCoreTmp'],
   vibration: ['WNAC_VibMsNacXDir', 'WNAC_VibMsNacYDir', 'WYAW_YwBrkHyPrs', 'WROT_RotSpd'],
   pitch: ['WROT_PtAngValBl1', 'WROT_PtAngValBl2', 'WROT_PtAngValBl3', 'WTUR_TotPwrAt'],
-};
-
-const EVENT_COLORS: Record<string, string> = {
-  grid: '#f59e0b',
-  fault: '#ef4444',
-  operator: '#22c55e',
-  wind: '#38bdf8',
-  state: '#a78bfa',
 };
 
 const EVENT_TYPES = ['grid', 'fault', 'operator', 'wind', 'state'] as const;
@@ -65,8 +88,31 @@ const toDateTimeLocal = (value: Date) => {
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
 };
 
+const eventTone = (et: string): PillTone => {
+  if (et === 'fault') return 'warn';
+  if (et === 'grid') return 'amber';
+  if (et === 'wind') return 'info';
+  if (et === 'operator') return 'ok';
+  if (et === 'state') return 'accent';
+  return 'muted';
+};
+
+// Use raw hex for chart event lines (per handover §7 — chart event hex 例外允許)
+const EVENT_HEX: Record<string, { light: string; dark: string }> = {
+  fault: { light: '#C97B5A', dark: '#FF8E72' },
+  grid: { light: '#B8A053', dark: '#FFB347' },
+  wind: { light: '#5A7A98', dark: '#7AB8E8' },
+  operator: { light: '#5C8A5F', dark: '#3DDC97' },
+  state: { light: '#8B7AB8', dark: '#B49DE8' },
+};
+
 const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
-  const [historyTab, setHistoryTab] = useState<'single' | 'compare'>('single');
+  const { C } = useTheme();
+  const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+  const eventColor = (et: string) =>
+    (EVENT_HEX[et]?.[C.isDark ? 'dark' : 'light']) || C.faint;
+
+  const [tab, setTab] = useState<'single' | 'compare'>('single');
   const [selectedTurbineId, setSelectedTurbineId] = useState('WT001');
   const [activeTags, setActiveTags] = useState<string[]>(TAG_PRESETS.startup);
   const [limit, setLimit] = useState(300);
@@ -75,7 +121,9 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [focusWindowSec, setFocusWindowSec] = useState<number>(0);
   const [eventSearch, setEventSearch] = useState('');
-  const [rangeStart, setRangeStart] = useState(() => toDateTimeLocal(new Date(Date.now() - 2 * 60 * 60 * 1000)));
+  const [rangeStart, setRangeStart] = useState(() =>
+    toDateTimeLocal(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+  );
   const [rangeEnd, setRangeEnd] = useState(() => toDateTimeLocal(new Date()));
   const [enabledEventTypes, setEnabledEventTypes] = useState<Record<EventType, boolean>>({
     grid: true,
@@ -95,20 +143,22 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
 
   useEffect(() => {
     fetch(`${API_BASE}/api/i18n/tags?lang=${lang}`)
-      .then(res => res.json())
+      .then(r => r.json())
       .then(setTagLabels)
       .catch(() => {});
   }, [lang]);
 
   useEffect(() => {
-    const controller = new AbortController();
+    const ctrl = new AbortController();
     setLoading(true);
     const params = new URLSearchParams({ limit: String(limit) });
     if (rangeStart) params.set('start', new Date(rangeStart).toISOString());
     if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
 
-    fetch(`${API_BASE}/api/turbines/${selectedTurbineId}/history?${params.toString()}`, { signal: controller.signal })
-      .then(res => res.json())
+    fetch(`${API_BASE}/api/turbines/${selectedTurbineId}/history?${params.toString()}`, {
+      signal: ctrl.signal,
+    })
+      .then(r => r.json())
       .then(res => {
         const rows: HistoryRow[] = Array.isArray(res.data) ? [...res.data].reverse() : [];
         const eventRows: HistoryEvent[] = Array.isArray(res.events) ? [...res.events].reverse() : [];
@@ -130,66 +180,68 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
           }
           return point;
         });
-
         setChartData(mapped);
         setEvents(eventRows);
-        setSelectedEventId(prev => (eventRows.some(event => event.id === prev) ? prev : eventRows[0]?.id ?? null));
+        setSelectedEventId(prev =>
+          eventRows.some(e => e.id === prev) ? prev : eventRows[0]?.id ?? null,
+        );
       })
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    return () => controller.abort();
+    return () => ctrl.abort();
   }, [selectedTurbineId, activeTags, limit, rangeStart, rangeEnd]);
 
-  const allVisibleEvents = useMemo(
-    () => events
-      .filter(event => enabledEventTypes[(event.event_type as EventType)] ?? false)
-      .map(event => ({
-        ...event,
-        _time: event.timestamp ? new Date(event.timestamp).getTime() : 0,
-        _endTime: event.end_timestamp ? new Date(event.end_timestamp).getTime() : undefined,
-      }))
-      .filter(event => (event._time ?? 0) > 0)
-      .filter(event => {
-        const q = eventSearch.trim().toLowerCase();
-        if (!q) return true;
-        const blob = `${event.title} ${event.detail ?? ''} ${event.source} ${event.event_type} ${event.turbine_id ?? ''}`.toLowerCase();
-        return blob.includes(q);
-      }),
+  const visibleEvents = useMemo(
+    () =>
+      events
+        .filter(e => enabledEventTypes[(e.event_type as EventType)] ?? false)
+        .map(e => ({
+          ...e,
+          _time: e.timestamp ? new Date(e.timestamp).getTime() : 0,
+          _endTime: e.end_timestamp ? new Date(e.end_timestamp).getTime() : undefined,
+        }))
+        .filter(e => (e._time ?? 0) > 0)
+        .filter(e => {
+          const q = eventSearch.trim().toLowerCase();
+          if (!q) return true;
+          const blob = `${e.title} ${e.detail ?? ''} ${e.source} ${e.event_type} ${e.turbine_id ?? ''}`.toLowerCase();
+          return blob.includes(q);
+        }),
     [events, enabledEventTypes, eventSearch],
   );
 
   const selectedEvent = useMemo(
-    () => allVisibleEvents.find(event => event.id === selectedEventId) || allVisibleEvents[0] || null,
-    [allVisibleEvents, selectedEventId],
+    () => visibleEvents.find(e => e.id === selectedEventId) || visibleEvents[0] || null,
+    [visibleEvents, selectedEventId],
   );
 
   const focusedChartData = useMemo(() => {
     if (!selectedEvent || focusWindowSec <= 0) return chartData;
     const center = selectedEvent._time ?? 0;
-    const halfWindowMs = focusWindowSec * 1000;
-    return chartData.filter(point => {
-      const time = Number(point._time ?? 0);
-      return time >= center - halfWindowMs && time <= center + halfWindowMs;
+    const half = focusWindowSec * 1000;
+    return chartData.filter(p => {
+      const t = Number(p._time ?? 0);
+      return t >= center - half && t <= center + half;
     });
   }, [chartData, selectedEvent, focusWindowSec]);
 
   const focusedEvents = useMemo(() => {
-    if (!selectedEvent || focusWindowSec <= 0) return allVisibleEvents;
+    if (!selectedEvent || focusWindowSec <= 0) return visibleEvents;
     const center = selectedEvent._time ?? 0;
-    const halfWindowMs = focusWindowSec * 1000;
-    return allVisibleEvents.filter(event => {
-      const start = event._time ?? 0;
-      const end = event._endTime ?? start;
-      return end >= center - halfWindowMs && start <= center + halfWindowMs;
+    const half = focusWindowSec * 1000;
+    return visibleEvents.filter(e => {
+      const start = e._time ?? 0;
+      const end = e._endTime ?? start;
+      return end >= center - half && start <= center + half;
     });
-  }, [allVisibleEvents, selectedEvent, focusWindowSec]);
+  }, [visibleEvents, selectedEvent, focusWindowSec]);
 
   const previewRows = useMemo(() => focusedChartData.slice(-20).reverse(), [focusedChartData]);
 
-  const applyPreset = (presetId: keyof typeof TAG_PRESETS) => setActiveTags(TAG_PRESETS[presetId]);
+  const applyPreset = (id: keyof typeof TAG_PRESETS) => setActiveTags(TAG_PRESETS[id]);
   const applyCustomTags = () => {
-    const tags = customTags.split(',').map(tag => tag.trim()).filter(Boolean);
+    const tags = customTags.split(',').map(t => t.trim()).filter(Boolean);
     if (tags.length) setActiveTags(tags);
   };
 
@@ -199,10 +251,10 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
       limit: String(limit),
       format: 'csv',
     });
-    const focusCenter = selectedEvent?._time ?? 0;
+    const center = selectedEvent?._time ?? 0;
     if (focusedOnly && selectedEvent && focusWindowSec > 0) {
-      params.set('start', new Date(focusCenter - focusWindowSec * 1000).toISOString());
-      params.set('end', new Date(focusCenter + focusWindowSec * 1000).toISOString());
+      params.set('start', new Date(center - focusWindowSec * 1000).toISOString());
+      params.set('end', new Date(center + focusWindowSec * 1000).toISOString());
     } else {
       if (rangeStart) params.set('start', new Date(rangeStart).toISOString());
       if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
@@ -210,287 +262,546 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
     window.open(`${API_BASE}/api/export/history?${params.toString()}`, '_blank');
   };
 
-  const toggleEventType = (eventType: EventType) => {
-    setEnabledEventTypes(prev => ({ ...prev, [eventType]: !prev[eventType] }));
-  };
+  const toggleEvent = (et: EventType) => setEnabledEventTypes(prev => ({ ...prev, [et]: !prev[et] }));
 
   const getLabel = (tag: string) => tagLabels[tag] || tag;
-  const getEventColor = (eventType: string) => EVENT_COLORS[eventType] || '#94a3b8';
-  const getEventTypeLabel = (eventType: string) => {
+  const eventTypeLabel = (et: string) => {
     if (lang === 'zh') {
-      if (eventType === 'grid') return '電網';
-      if (eventType === 'fault') return '故障';
-      if (eventType === 'operator') return '操作';
-      if (eventType === 'wind') return '風況';
-      if (eventType === 'state') return '狀態';
+      if (et === 'grid') return '電網';
+      if (et === 'fault') return '故障';
+      if (et === 'operator') return '操作';
+      if (et === 'wind') return '風況';
+      if (et === 'state') return '狀態';
     }
-    return eventType;
+    return et;
   };
 
+  // Line colors derived from theme
+  const lineColors = [C.accent, C.amber, C.ok, C.warn, C.info, C.chartState, C.accent, C.amber];
+
   return (
-    <div className="space-y-6">
-      {/* Tab selector: Single Turbine vs Multi-Turbine Comparison */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setHistoryTab('single')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            historyTab === 'single' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-          }`}
-        >
-          {lang === 'zh' ? '單機歷史' : 'Single Turbine'}
-        </button>
-        <button
-          onClick={() => setHistoryTab('compare')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            historyTab === 'compare' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-          }`}
-        >
-          {lang === 'zh' ? '多機事件比較' : 'Multi-Turbine Comparison'}
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title={tr('History', '歷史資料')}
+        sub={tr(
+          'Search SCADA tags · marked events · CSV export',
+          '搜尋 SCADA 標籤・事件標記・CSV 匯出',
+        )}
+        actions={
+          <>
+            <Btn ariaLabel={tr('Download CSV (range)', '下載 CSV (區間)')} onClick={() => exportCsv(false)}>
+              {tr('CSV (range)', '匯出區間')}
+            </Btn>
+            <Btn ariaLabel={tr('Download CSV (focus)', '下載 CSV (聚焦)')} onClick={() => exportCsv(true)}>
+              {tr('CSV (focus)', '匯出聚焦')}
+            </Btn>
+          </>
+        }
+      />
 
-      {historyTab === 'compare' ? (
-        <EventComparisonView turbines={turbines} lang={lang} />
-      ) : (<>
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5">
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '風機' : 'Turbine'}</label>
-              <select value={selectedTurbineId} onChange={e => setSelectedTurbineId(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white">
-                {turbines.map(t => {
-                  const tid = `WT${String(t.id).padStart(3, '0')}`;
-                  return <option key={tid} value={tid}>{tid} / {t.name}</option>;
-                })}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '筆數' : 'Samples'}</label>
-              <select value={limit} onChange={e => setLimit(Number(e.target.value))} className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white">
-                {[120, 300, 600, 1200, 3600].map(value => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '開始時間' : 'Start'}</label>
-              <input type="datetime-local" value={rangeStart} onChange={e => setRangeStart(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '結束時間' : 'End'}</label>
-              <input type="datetime-local" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '匯出目前區間' : 'Export Range'}</label>
-              <button onClick={() => exportCsv(false)} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white rounded px-3 py-2 text-sm transition-colors">
-                {lang === 'zh' ? '下載目前區間' : 'Download Range'}
-              </button>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">{lang === 'zh' ? '匯出聚焦視窗' : 'Export Focus'}</label>
-              <button onClick={() => exportCsv(true)} className="w-full bg-gray-700 hover:bg-gray-600 text-white rounded px-3 py-2 text-sm transition-colors">
-                {lang === 'zh' ? '下載聚焦區段' : 'Download Focus'}
-              </button>
-            </div>
-          </div>
-          <div className="text-sm text-gray-400">
-            {loading ? (lang === 'zh' ? '載入中...' : 'Loading...') : `${focusedChartData.length} ${lang === 'zh' ? '筆資料' : 'rows'}`}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5">
-        <h2 className="text-xl font-bold text-white mb-4">{lang === 'zh' ? '歷史資料檢視' : 'Historical Data Viewer'}</h2>
-
-        <div className="flex flex-wrap gap-2 mb-4">
-          {Object.keys(TAG_PRESETS).map(key => (
-            <button key={key} onClick={() => applyPreset(key as keyof typeof TAG_PRESETS)} className="px-3 py-1.5 text-xs rounded border border-gray-600 bg-gray-900 text-gray-300 hover:border-cyan-400 hover:text-white transition-colors">
-              {key}
+      {/* Tab */}
+      <div
+        style={{
+          display: 'inline-flex',
+          background: C.panel,
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          marginBottom: 14,
+          overflow: 'hidden',
+        }}
+      >
+        {(['single', 'compare'] as const).map(t => {
+          const active = tab === t;
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              aria-pressed={active}
+              style={{
+                padding: '6px 14px',
+                fontSize: 13,
+                background: active ? C.accent : 'transparent',
+                color: active ? C.accentInk : C.sub,
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontWeight: active ? 600 : 500,
+              }}
+            >
+              {t === 'single' ? tr('Single turbine', '單機歷史') : tr('Multi compare', '多機比較')}
             </button>
-          ))}
-        </div>
+          );
+        })}
+      </div>
 
-        <div className="flex gap-2 mb-4">
-          <input type="text" value={customTags} onChange={e => setCustomTags(e.target.value)} placeholder={lang === 'zh' ? '自訂 Tag，以逗號分隔' : 'Custom tags, comma separated'} className="flex-1 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-          <button onClick={applyCustomTags} className="bg-gray-700 hover:bg-gray-600 text-white rounded px-3 py-2 text-sm transition-colors">
-            {lang === 'zh' ? '套用' : 'Apply'}
-          </button>
+      {tab === 'compare' ? (
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
+          <EventComparisonView turbines={turbines} lang={lang} />
         </div>
-
-        <div className="mb-4 grid grid-cols-1 xl:grid-cols-[1fr_auto_auto] gap-4 xl:items-end">
-          <div>
-            <div className="text-xs text-gray-400 mb-2">{lang === 'zh' ? '事件篩選' : 'Event Filters'}</div>
-            <div className="flex flex-wrap gap-2">
-              {EVENT_TYPES.map(eventType => (
-                <button
-                  key={eventType}
-                  onClick={() => toggleEventType(eventType)}
-                  className={`px-3 py-1.5 text-xs rounded border transition-colors ${enabledEventTypes[eventType] ? 'text-white' : 'border-gray-700 bg-gray-900 text-gray-500'}`}
-                  style={enabledEventTypes[eventType] ? { borderColor: getEventColor(eventType), backgroundColor: `${getEventColor(eventType)}22` } : undefined}
-                >
-                  {getEventTypeLabel(eventType)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-2">{lang === 'zh' ? '事件搜尋' : 'Event Search'}</div>
-            <input type="text" value={eventSearch} onChange={e => setEventSearch(e.target.value)} placeholder={lang === 'zh' ? '搜尋標題、內容、類型' : 'Search title, detail, type'} className="w-full xl:w-72 bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-2">{lang === 'zh' ? '聚焦視窗' : 'Focus Window'}</div>
-            <div className="flex flex-wrap gap-2">
-              {[0, 30, 120].map(value => (
-                <button key={value} onClick={() => setFocusWindowSec(value)} className={`px-3 py-1.5 text-xs rounded border transition-colors ${focusWindowSec === value ? 'border-cyan-500 bg-cyan-500/15 text-white' : 'border-gray-700 bg-gray-900 text-gray-400'}`}>
-                  {value === 0 ? (lang === 'zh' ? '全部' : 'All') : `${value}s`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gray-900/60 rounded-lg p-3">
-          <ResponsiveContainer width="100%" height={420}>
-            <LineChart data={focusedChartData}>
-              <CartesianGrid stroke="#1f2937" strokeDasharray="3 3" />
-              <XAxis dataKey="_time" tickFormatter={value => new Date(value).toLocaleTimeString()} stroke="#9ca3af" fontSize={11} />
-              <YAxis stroke="#9ca3af" fontSize={11} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '0.5rem' }}
-                labelFormatter={value => new Date(value).toLocaleString()}
-                formatter={(value: number, name: string) => [value != null ? Number(value).toFixed(2) : '--', getLabel(name)]}
-              />
-              <Legend formatter={value => getLabel(value)} />
-              {focusedEvents.filter(event => (event._endTime ?? 0) > (event._time ?? 0) && (event.event_type === 'grid' || event.event_type === 'wind')).map(event => (
-                <ReferenceArea
-                  key={`band-${event.id}`}
-                  x1={event._time}
-                  x2={event._endTime}
-                  fill={getEventColor(event.event_type)}
-                  fillOpacity={selectedEvent?.id === event.id ? 0.16 : 0.08}
-                  strokeOpacity={0}
+      ) : (
+        <>
+          {/* Filter row */}
+          <Card style={{ marginBottom: 14 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 12,
+              }}
+            >
+              <Field label={tr('Turbine', '風機')}>
+                <Select
+                  value={selectedTurbineId}
+                  onChange={setSelectedTurbineId}
+                  options={turbines.map(t => {
+                    const tid = `WT${String(t.id).padStart(3, '0')}`;
+                    return { value: tid, label: `${tid} · ${t.name}` };
+                  })}
+                  ariaLabel={tr('Turbine', '風機')}
+                  fullWidth
                 />
-              ))}
-              {focusedEvents.map((event, index) => (
-                <ReferenceLine
-                  key={`${event.id}-${event.timestamp}`}
-                  x={event._time}
-                  stroke={getEventColor(event.event_type)}
-                  strokeDasharray="4 4"
-                  strokeOpacity={selectedEvent?.id === event.id ? 1 : 0.75}
-                  strokeWidth={selectedEvent?.id === event.id ? 3 : 1.5}
-                  ifOverflow="extendDomain"
-                  label={{ value: index % 2 === 0 ? getEventTypeLabel(event.event_type).toUpperCase() : '', position: 'top', fill: '#d1d5db', fontSize: 10 }}
+              </Field>
+              <Field label={tr('Samples', '筆數')}>
+                <Select
+                  value={String(limit)}
+                  onChange={v => setLimit(Number(v))}
+                  options={[120, 300, 600, 1200, 3600].map(n => ({ value: String(n), label: String(n) }))}
+                  ariaLabel={tr('Samples', '筆數')}
+                  fullWidth
                 />
-              ))}
-              {activeTags.map((tag, index) => (
-                <Line key={tag} type="monotone" dataKey={tag} stroke={LINE_COLORS[index % LINE_COLORS.length]} strokeWidth={1.8} dot={false} isAnimationActive={false} connectNulls />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+              </Field>
+              <Field label={tr('Start', '開始時間')}>
+                <Input
+                  type="datetime-local"
+                  value={rangeStart}
+                  onChange={setRangeStart}
+                  fullWidth
+                  monospace
+                  ariaLabel={tr('Start', '開始時間')}
+                />
+              </Field>
+              <Field label={tr('End', '結束時間')}>
+                <Input
+                  type="datetime-local"
+                  value={rangeEnd}
+                  onChange={setRangeEnd}
+                  fullWidth
+                  monospace
+                  ariaLabel={tr('End', '結束時間')}
+                />
+              </Field>
+            </div>
 
-        <div className="mt-3 text-xs text-gray-500">
-          {(lang === 'zh' ? '目前顯示' : 'Showing')}: {activeTags.map(getLabel).join(' | ')}
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4 border-t border-gray-700 pt-4">
-          <div>
-            <h4 className="text-sm font-semibold text-white mb-2">{lang === 'zh' ? '事件標記' : 'Event Markers'}</h4>
-            {focusedEvents.length ? (
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {focusedEvents.slice().reverse().map(event => (
-                  <button
-                    key={`event-${event.id}`}
-                    type="button"
-                    onClick={() => setSelectedEventId(event.id)}
-                    className={`w-full text-left rounded border px-3 py-2 text-xs transition-colors ${selectedEvent?.id === event.id ? 'border-cyan-500 bg-gray-800 text-white' : 'border-gray-700 bg-gray-900/60 text-gray-200 hover:border-gray-500'}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{event.title}</span>
-                      <span className="text-gray-500">{new Date(event.timestamp).toLocaleString()}</span>
-                    </div>
-                    <div className="mt-1 text-gray-400">
-                      {[getEventTypeLabel(event.event_type), event.turbine_id || 'FARM', event.detail || ''].filter(Boolean).join(' | ')}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-gray-500">{lang === 'zh' ? '目前區間沒有事件' : 'No events in current range'}</div>
-            )}
-          </div>
-
-          <div>
-            <h4 className="text-sm font-semibold text-white mb-2">{lang === 'zh' ? '事件詳情' : 'Event Details'}</h4>
-            {selectedEvent ? (
-              <div className="rounded border border-gray-700 bg-gray-900/60 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-white font-medium">{selectedEvent.title}</div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      {[getEventTypeLabel(selectedEvent.event_type), selectedEvent.source, selectedEvent.turbine_id || 'FARM'].join(' | ')}
-                    </div>
-                  </div>
-                  <span className="inline-flex rounded px-2 py-1 text-[11px] font-medium" style={{ color: getEventColor(selectedEvent.event_type), backgroundColor: `${getEventColor(selectedEvent.event_type)}22` }}>
-                    {getEventTypeLabel(selectedEvent.event_type)}
-                  </span>
+            {/* Tag presets + custom + event toggles */}
+            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
+                  {tr('Tag presets', '標籤預設')}
                 </div>
-                <div className="text-xs text-gray-400">
-                  {new Date(selectedEvent.timestamp).toLocaleString()}
-                  {selectedEvent.end_timestamp ? ` -> ${new Date(selectedEvent.end_timestamp).toLocaleString()}` : ''}
-                </div>
-                <div className="text-sm text-gray-200">{selectedEvent.detail || (lang === 'zh' ? '沒有額外描述' : 'No additional detail')}</div>
-                <div className="flex flex-wrap gap-2">
-                  {[30, 120].map(value => (
-                    <button key={value} onClick={() => setFocusWindowSec(value)} className="rounded border border-gray-600 bg-gray-800 px-3 py-1.5 text-xs text-white hover:border-cyan-400">
-                      {lang === 'zh' ? `聚焦前後 ${value} 秒` : `Focus ±${value}s`}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Object.keys(TAG_PRESETS).map(k => (
+                    <button
+                      key={k}
+                      onClick={() => applyPreset(k as keyof typeof TAG_PRESETS)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: `1px solid ${C.border}`,
+                        background: C.panelMuted,
+                        color: C.sub,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {k}
                     </button>
                   ))}
-                  <button onClick={() => setFocusWindowSec(0)} className="rounded border border-gray-600 bg-gray-800 px-3 py-1.5 text-xs text-white hover:border-cyan-400">
-                    {lang === 'zh' ? '顯示全部' : 'Show All'}
-                  </button>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 mb-2">Payload</div>
-                  <pre className="overflow-auto rounded bg-black/30 p-3 text-xs text-gray-300 whitespace-pre-wrap break-all">
-                    {JSON.stringify(selectedEvent.payload ?? {}, null, 2)}
-                  </pre>
                 </div>
               </div>
-            ) : (
-              <div className="text-xs text-gray-500">{lang === 'zh' ? '請從左側選擇事件' : 'Select an event from the list'}</div>
-            )}
-          </div>
-        </div>
-      </div>
 
-      <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5">
-        <h3 className="text-lg font-semibold text-white mb-4">{lang === 'zh' ? '最近 20 筆' : 'Latest 20 Rows'}</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400">
-                <th className="text-left py-2 pr-4">{lang === 'zh' ? '時間' : 'Timestamp'}</th>
-                {activeTags.map(tag => (
-                  <th key={tag} className="text-left py-2 pr-4">{getLabel(tag)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {previewRows.map((row, index) => (
-                <tr key={`${row.timestamp}-${index}`} className="border-b border-gray-800 text-gray-200">
-                  <td className="py-2 pr-4 whitespace-nowrap">{String(row.timestamp)}</td>
-                  {activeTags.map(tag => (
-                    <td key={tag} className="py-2 pr-4 whitespace-nowrap">
-                      {row[tag] != null ? Number(row[tag]).toFixed(2) : '--'}
-                    </td>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 240px', minWidth: 240 }}>
+                  <Input
+                    value={customTags}
+                    onChange={setCustomTags}
+                    placeholder={tr(
+                      'Custom tags (comma separated)',
+                      '自訂標籤，以逗號分隔',
+                    )}
+                    fullWidth
+                    monospace
+                    ariaLabel={tr('Custom tags', '自訂標籤')}
+                  />
+                </div>
+                <Btn onClick={applyCustomTags}>{tr('Apply', '套用')}</Btn>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
+                  {tr('Event filters', '事件篩選')}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {EVENT_TYPES.map(et => {
+                    const enabled = enabledEventTypes[et];
+                    const col = eventColor(et);
+                    return (
+                      <button
+                        key={et}
+                        onClick={() => toggleEvent(et)}
+                        aria-pressed={enabled}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${enabled ? col : C.border}`,
+                          background: enabled ? `${col}22` : C.panelMuted,
+                          color: enabled ? col : C.sub,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          fontWeight: enabled ? 600 : 500,
+                        }}
+                      >
+                        {eventTypeLabel(et)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Field label={tr('Event search', '事件搜尋')}>
+                  <Input
+                    value={eventSearch}
+                    onChange={setEventSearch}
+                    placeholder={tr('Search title / detail / type', '標題 / 描述 / 類型')}
+                    width={260}
+                    ariaLabel={tr('Event search', '事件搜尋')}
+                  />
+                </Field>
+                <Field label={tr('Focus window', '聚焦視窗')}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[0, 30, 120].map(v => {
+                      const active = focusWindowSec === v;
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => setFocusWindowSec(v)}
+                          aria-pressed={active}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            borderRadius: 6,
+                            border: `1px solid ${active ? C.accent : C.border}`,
+                            background: active ? C.accentSoft : C.panel,
+                            color: active ? C.accent : C.sub,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            fontWeight: active ? 600 : 500,
+                          }}
+                        >
+                          {v === 0 ? tr('All', '全部') : `${v}s`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+                <div style={{ flex: 1, fontSize: 12, color: C.sub, textAlign: 'right' }}>
+                  {loading
+                    ? tr('Loading…', '載入中…')
+                    : `${focusedChartData.length} ${tr('rows', '筆資料')}`}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Chart */}
+          <Card style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: C.text }}>
+              {tr('Power output · with events', '功率輸出　含事件標記')}
+            </div>
+            <ResponsiveContainer width="100%" height={420}>
+              <LineChart data={focusedChartData}>
+                <CartesianGrid stroke={C.border} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="_time"
+                  tickFormatter={v => new Date(v as number).toLocaleTimeString()}
+                  stroke={C.sub}
+                  fontSize={11}
+                />
+                <YAxis stroke={C.sub} fontSize={11} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: C.panel,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    color: C.text,
+                  }}
+                  labelFormatter={v => new Date(v as number).toLocaleString()}
+                  formatter={(value: number, name: string) => [
+                    value != null ? Number(value).toFixed(2) : '—',
+                    getLabel(name),
+                  ]}
+                />
+                <Legend formatter={value => getLabel(value as string)} wrapperStyle={{ fontSize: 11 }} />
+                {focusedEvents
+                  .filter(e => (e._endTime ?? 0) > (e._time ?? 0) && (e.event_type === 'grid' || e.event_type === 'wind'))
+                  .map(e => (
+                    <ReferenceArea
+                      key={`band-${e.id}`}
+                      x1={e._time}
+                      x2={e._endTime}
+                      fill={eventColor(e.event_type)}
+                      fillOpacity={selectedEvent?.id === e.id ? 0.16 : 0.08}
+                      strokeOpacity={0}
+                    />
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      </>)}
+                {focusedEvents.map((e, i) => (
+                  <ReferenceLine
+                    key={`${e.id}-${e.timestamp}`}
+                    x={e._time}
+                    stroke={eventColor(e.event_type)}
+                    strokeDasharray="4 4"
+                    strokeOpacity={selectedEvent?.id === e.id ? 1 : 0.7}
+                    strokeWidth={selectedEvent?.id === e.id ? 3 : 1.5}
+                    ifOverflow="extendDomain"
+                    label={{
+                      value: i % 2 === 0 ? eventTypeLabel(e.event_type).toUpperCase() : '',
+                      position: 'top',
+                      fill: C.sub,
+                      fontSize: 10,
+                    }}
+                  />
+                ))}
+                {activeTags.map((tag, i) => (
+                  <Line
+                    key={tag}
+                    type="monotone"
+                    dataKey={tag}
+                    stroke={lineColors[i % lineColors.length]}
+                    strokeWidth={1.8}
+                    dot={false}
+                    isAnimationActive={false}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+            <div style={{ marginTop: 8, fontSize: 11, color: C.faint }}>
+              {tr('Showing', '目前顯示')}: {activeTags.map(getLabel).join(' · ')}
+            </div>
+          </Card>
+
+          {/* Event log + detail */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.8fr)',
+              gap: 16,
+              marginBottom: 14,
+            }}
+          >
+            <Card>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: C.text }}>
+                {tr('Event log', '事件紀錄')}
+              </div>
+              {focusedEvents.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.sub }}>
+                  {tr('No events in current range.', '目前區間沒有事件。')}
+                </div>
+              ) : (
+                <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {focusedEvents
+                    .slice()
+                    .reverse()
+                    .map(e => {
+                      const active = selectedEvent?.id === e.id;
+                      return (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => setSelectedEventId(e.id)}
+                          style={{
+                            textAlign: 'left',
+                            padding: '8px 12px',
+                            border: `1px solid ${active ? C.accent : C.border}`,
+                            background: active ? C.accentSoft : C.panel,
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            display: 'grid',
+                            gridTemplateColumns: '160px 1fr auto',
+                            gap: 10,
+                            alignItems: 'baseline',
+                            fontSize: 13,
+                          }}
+                        >
+                          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: C.sub }}>
+                            {new Date(e.timestamp).toLocaleString()}
+                          </span>
+                          <span style={{ color: active ? C.accent : C.text, fontWeight: active ? 600 : 500 }}>
+                            {e.title}
+                          </span>
+                          <StatusPill tone={eventTone(e.event_type)}>
+                            {eventTypeLabel(e.event_type)}
+                          </StatusPill>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: C.text }}>
+                {tr('Event details', '事件詳情')}
+              </div>
+              {selectedEvent ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: C.text, fontSize: 14 }}>
+                        {selectedEvent.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                        {[eventTypeLabel(selectedEvent.event_type), selectedEvent.source, selectedEvent.turbine_id || 'FARM'].join(' · ')}
+                      </div>
+                    </div>
+                    <StatusPill tone={eventTone(selectedEvent.event_type)}>
+                      {eventTypeLabel(selectedEvent.event_type)}
+                    </StatusPill>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, fontFamily: 'JetBrains Mono, monospace' }}>
+                    {new Date(selectedEvent.timestamp).toLocaleString()}
+                    {selectedEvent.end_timestamp
+                      ? ` → ${new Date(selectedEvent.end_timestamp).toLocaleString()}`
+                      : ''}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.text }}>
+                    {selectedEvent.detail || tr('No additional detail.', '沒有額外描述。')}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {[30, 120].map(v => (
+                      <Btn key={v} size="sm" onClick={() => setFocusWindowSec(v)}>
+                        {tr(`Focus ±${v}s`, `聚焦前後 ${v} 秒`)}
+                      </Btn>
+                    ))}
+                    <Btn size="sm" variant="ghost" onClick={() => setFocusWindowSec(0)}>
+                      {tr('Show all', '顯示全部')}
+                    </Btn>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>Payload</div>
+                    <pre
+                      style={{
+                        background: C.panelMuted,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                        padding: 10,
+                        fontSize: 11,
+                        color: C.text,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: 220,
+                        overflowY: 'auto',
+                        margin: 0,
+                        fontFamily: 'JetBrains Mono, monospace',
+                      }}
+                    >
+                      {JSON.stringify(selectedEvent.payload ?? {}, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: C.sub }}>
+                  {tr('Select an event from the list.', '請從左側選擇事件。')}
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Last 20 rows */}
+          <Card padding={0}>
+            <div
+              style={{
+                padding: '14px 18px',
+                borderBottom: `1px solid ${C.border}`,
+                fontSize: 14,
+                fontWeight: 600,
+                color: C.text,
+              }}
+            >
+              {tr('Latest 20 rows', '最近 20 筆')}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: C.panelMuted }}>
+                    <th
+                      style={{
+                        textAlign: 'left',
+                        padding: '10px 14px',
+                        fontSize: 11,
+                        color: C.sub,
+                        fontWeight: 500,
+                        letterSpacing: 0.5,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {tr('Timestamp', '時間')}
+                    </th>
+                    {activeTags.map(tag => (
+                      <th
+                        key={tag}
+                        style={{
+                          textAlign: 'left',
+                          padding: '10px 14px',
+                          fontSize: 11,
+                          color: C.sub,
+                          fontWeight: 500,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {getLabel(tag)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row, i) => (
+                    <tr key={`${row.timestamp}-${i}`} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <td
+                        style={{
+                          padding: '10px 14px',
+                          fontFamily: 'JetBrains Mono, monospace',
+                          color: C.sub,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {String(row.timestamp)}
+                      </td>
+                      {activeTags.map(tag => (
+                        <td
+                          key={tag}
+                          style={{
+                            padding: '10px 14px',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            color: C.text,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {row[tag] != null ? Number(row[tag]).toFixed(2) : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 };

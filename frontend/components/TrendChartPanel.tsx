@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { useTheme } from '../theme/ThemeProvider';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
-
-// Colors for up to 8 lines
-const LINE_COLORS = ['#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 // Commonly used tag groups
 const TAG_PRESETS: Record<string, { label_en: string; label_zh: string; tags: string[] }> = {
@@ -100,71 +98,125 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
   };
 
   const getLabel = (tag: string) => tagLabels[tag] || tag;
+  const { C } = useTheme();
+  const lineColors = [C.accent, C.amber, C.ok, C.warn, C.info, C.chartState, C.accent, C.amber];
 
   return (
-    <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-      <h3 className="text-lg font-bold text-white mb-3">
-        {lang === 'zh' ? '即時趨勢圖' : 'Real-time Trend'}
-      </h3>
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 10 }}>
+        {lang === 'zh' ? '即時趨勢圖' : 'Real-time trend'}
+      </div>
 
       {/* Preset buttons */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        {Object.entries(TAG_PRESETS).map(([id, preset]) => (
-          <button key={id} onClick={() => handlePreset(id)}
-            className={`text-xs px-3 py-1 rounded border transition-colors ${
-              activePreset === id
-                ? 'bg-cyan-600 border-cyan-500 text-white'
-                : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-cyan-400'
-            }`}>
-            {lang === 'zh' ? preset.label_zh : preset.label_en}
-          </button>
-        ))}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {Object.entries(TAG_PRESETS).map(([id, preset]) => {
+          const active = activePreset === id;
+          return (
+            <button
+              key={id}
+              onClick={() => handlePreset(id)}
+              aria-pressed={active}
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                borderRadius: 6,
+                border: `1px solid ${active ? C.accent : C.border}`,
+                background: active ? C.accentSoft : C.panelMuted,
+                color: active ? C.accent : C.sub,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontWeight: active ? 600 : 500,
+              }}
+            >
+              {lang === 'zh' ? preset.label_zh : preset.label_en}
+            </button>
+          );
+        })}
       </div>
 
       {/* Custom tag input */}
-      <div className="flex gap-2 mb-4">
-        <input type="text" value={customTags} onChange={e => setCustomTags(e.target.value)}
-          placeholder={lang === 'zh' ? '自訂標籤 (逗號分隔)' : 'Custom tags (comma-separated)'}
-          className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm text-white" />
-        <button onClick={handleCustomApply}
-          className="bg-gray-600 hover:bg-gray-500 text-white text-xs px-3 py-1 rounded transition-colors">
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <input
+          type="text"
+          value={customTags}
+          onChange={e => setCustomTags(e.target.value)}
+          placeholder={lang === 'zh' ? '自訂標籤（逗號分隔）' : 'Custom tags (comma-separated)'}
+          style={{
+            flex: 1,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            padding: '6px 10px',
+            fontSize: 12,
+            color: C.text,
+            fontFamily: 'JetBrains Mono, monospace',
+            outline: 'none',
+          }}
+        />
+        <button
+          onClick={handleCustomApply}
+          style={{
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            color: C.text,
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+        >
           {lang === 'zh' ? '套用' : 'Apply'}
         </button>
       </div>
 
       {/* Chart */}
-      <div className="bg-gray-900/50 rounded p-2">
+      <div style={{ background: C.panelMuted, borderRadius: 8, padding: 8 }}>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
             <XAxis
               dataKey="_time"
-              tickFormatter={(t) => t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
-              stroke="#6b7280"
+              tickFormatter={t =>
+                t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+              }
+              stroke={C.sub}
               fontSize={10}
               axisLine={false}
               tickLine={false}
             />
-            <YAxis stroke="#6b7280" fontSize={10} axisLine={false} tickLine={false} />
+            <YAxis stroke={C.sub} fontSize={10} axisLine={false} tickLine={false} />
             <Tooltip
-              contentStyle={{ backgroundColor: 'rgba(17,24,39,0.95)', border: '1px solid #374151', borderRadius: '0.5rem', color: '#e5e7eb' }}
-              labelFormatter={(t) => t ? new Date(t).toLocaleTimeString() : ''}
+              contentStyle={{
+                backgroundColor: C.panel,
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                color: C.text,
+              }}
+              labelFormatter={t => (t ? new Date(t).toLocaleTimeString() : '')}
               formatter={(value: number, name: string) => [
-                value != null ? value.toFixed(2) : '--',
+                value != null ? value.toFixed(2) : '—',
                 getLabel(name),
               ]}
             />
-            <Legend formatter={(value) => getLabel(value)} wrapperStyle={{ fontSize: '11px' }} />
+            <Legend formatter={value => getLabel(value as string)} wrapperStyle={{ fontSize: 11, color: C.sub }} />
             {activeTags.map((tag, i) => (
-              <Line key={tag} type="monotone" dataKey={tag} stroke={LINE_COLORS[i % LINE_COLORS.length]}
-                strokeWidth={1.5} dot={false} isAnimationActive={false} connectNulls />
+              <Line
+                key={tag}
+                type="monotone"
+                dataKey={tag}
+                stroke={lineColors[i % lineColors.length]}
+                strokeWidth={1.6}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
             ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Active tags reference */}
-      <div className="mt-2 text-xs text-gray-500">
-        {lang === 'zh' ? '顯示標籤' : 'Tags'}: {activeTags.map(t => getLabel(t)).join(' | ')}
+      <div style={{ marginTop: 6, fontSize: 11, color: C.faint }}>
+        {lang === 'zh' ? '顯示標籤' : 'Showing'}: {activeTags.map(t => getLabel(t)).join(' · ')}
       </div>
     </div>
   );
