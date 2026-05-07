@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 13 |
 | in_progress | 0 |
 | blocked | 0 |
 | done | 22 |
-| **total (active)** | **34** |
+| **total (active)** | **35** |
 
-最後更新：2026-05-07（**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題；220 px sidebar、5 大頁重畫、共用 ui 元件庫 + theme system 就位；保留全部 API / hooks 不動，dev server 5179 視覺 review 通過。下一個建議：M3 frontend issue WMOM-19/-20/-25 用新元件接續。）
+最後更新：2026-05-07（**WMOM-20260507-01 前端 UI 改版完成 + 工作規劃整理** — A · Calm Operator + 雙主題；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/` 10 元件 + `frontend/theme/` system 就位；保留全部 API / hooks 不動。本次同步整理：placeholder 按鈕清單獨立成 WMOM-20260507-02 follow-up（low priority、依 API 成熟度逐項補）；M3 frontend WMOM-19/-20/-21 加上「使用新 ui 元件庫」directive。下一個主軸建議：M3 frontend 接力（-19 工單前端）或 WMOM-24 data quality 修正。）
 
 ---
 
@@ -770,6 +770,8 @@
 - **Milestone**: M3
 - **Priority**: high
 - **Estimate**: 1-1.5 工作天
+- **UI directive（WMOM-20260507-01 後）**：
+  必須使用 `frontend/components/ui/`（Card / Btn / PageHeader / StatusPill / Field / Input / Select / Stat / BigChart / HealthBar）+ `frontend/theme/`（useTheme → C palette）。**不可** 寫 Tailwind utility class、不可硬寫 hex（chart event 標記色除外）。Modal 套既有 [WorkOrderDetailModal](frontend/components/WorkOrderDetailModal.tsx) 風格（Card padding=0 + DM Serif title + 底部 Btn）。
 - **Description**:
   - `frontend/services/workOrderService.ts` (TypeScript API client)
   - `frontend/hooks/useWorkOrders.ts`
@@ -786,6 +788,8 @@
 - **Milestone**: M3
 - **Priority**: high
 - **Estimate**: 1 工作天
+- **UI directive（WMOM-20260507-01 後）**：
+  與 -19 同 — 使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。Approval action dialog 套 [DispatchModal](frontend/components/DispatchModal.tsx) 模式（Card padding=0 + grid 內 Btn 卡片選人 + 底部 primary 確認）。
 - **Description**:
   - `frontend/components/workflow/PendingApprovalPanel.tsx` 待簽列表（badge 含工單摘要 + 簽核層級）
   - `frontend/components/workflow/ApprovalActionDialog.tsx` 簽核 / 駁回對話框（含意見輸入）
@@ -803,6 +807,7 @@
 - **Priority**: medium
 - **Estimate**: 1-1.5 工作天
 - **Source**: DN-01 walkthrough Q6（劉老師 2026-05-05 確認）
+- **UI directive（WMOM-20260507-01 後）**：frontend `/admin/workflow/daywork` 必須使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。
 - **Description**:
   工單對象 = 風機；員工日誌對象 = 員工 × 當天。兩個 entity 不同，但有引用關係。
   日誌可包含「完成 1 張工單 + 完成 2 個定檢項 + 巡視 + 訓練」等 4 種 activity kind。
@@ -1056,6 +1061,8 @@
 - **Priority**: medium（P1 — M5 RAG demo 視覺化 PMF 關鍵）
 - **Estimate**: 1.5-2 工作天
 - **Source**: `docs/legacy/digiwt_TODO.md` Priority E + Priority F（issue #57 + #58 frontend 部分）
+- **UI directive（WMOM-20260507-01 後）**：
+  在 [TurbineDetail](frontend/components/TurbineDetail.tsx) 既有 8-tab 架構內加新 tab（建議 `health` 或擴充現有 `fatigue` tab）；多 band alarm 用 `<HealthBar>`（[Charts.tsx](frontend/components/ui/Charts.tsx)）；RUL 顯示用 `<Stat>` 大數字 + threshold 顏色（接 C.warn / C.amber / C.ok）。**不可** Tailwind / 硬 hex。
 - **Description**:
   Backend 已完成：
   - #57：fatigue 4-level alarm + RUL（剩餘壽命）estimation + 自動寫進 history events
@@ -1194,10 +1201,43 @@
   - **Tailwind 全退**：原本規劃保留作 layout utility，但實作後發現所有 new code 都走 inline style + theme palette，Tailwind CDN 變成 dead weight，順手移除
   - **recharts 保留 in HistoryPage / CostPage / TrendChartPanel**：互動需求高（hover、zoom、reference line）走 recharts；overview / cost KPI 的趨勢圖改 SVG（跟 VA.jsx 一致）
   - **Faults / Settings 入 sidebar secondary group**：交接書 §6 only 列 5 主頁，但實際還是要保留入口；放在「工具」分組下方，與主題切換並列
+- **Intentional placeholders（不是 bug，刻意保留）**：
+  以下 7 個 PageHeader 按鈕**有 UI 但無 onClick**，作為設計稿視覺鷹架保留，等對應 API / 流程確定再逐步補上。劉老師 2026-05-07 確認「保留就好，之後一個一個補功能」。
+  追蹤清單見 → `WMOM-20260507-02`。
+  | 頁面 | 按鈕 | 設計稿來源 | 真實對應 |
+  |---|---|---|---|
+  | 維護中心 | `+ 新工單` | VA.jsx §4.3 | 風機細節 → AI 診斷 → 派遣技師（既有 dispatch flow） |
+  | 風場總覽 | `匯出` / `+ 新報告` | VA.jsx §4.1 | `匯出` 可接 `/api/export/snapshot`；`+ 新報告` 暫無 API |
+  | 風機細節 | `限載` / `停機` / `安排檢查` | VA.jsx §4.2 | 同頁右側「操作控制」卡片有完整 6 指令（重複入口） |
 - **Reference**:
   - `WMOM 介面改版交接書.md`（劉老師主 repo 根目錄，未進 worktree）
   - `app/VA.jsx`、`app/data.js`（design canvas，未進 worktree）
   - `work-logs/2026-05/2026-05-07-ui-revamp-calm-operator.md`
+
+---
+
+### WMOM-20260507-02 — PageHeader placeholder 按鈕逐步補功能
+
+- **Status**: open
+- **Milestone**: 不卡 M2-M5 主線，可隨時挑著補
+- **Priority**: low（UX polish；功能都可在 detail 頁完成）
+- **Estimate**: 每個 0.5-2h，依 API 是否存在
+- **Source**: WMOM-20260507-01 改版時依設計稿放上 UI 但無 handler
+- **Description**:
+  改版時依 VA.jsx 設計稿放了 7 個 PageHeader 裝飾按鈕，劉老師 2026-05-07 決定 placeholder 保留、之後逐項補功能。本 issue 作為清單追蹤；每個 sub-task 完成時直接打勾並 commit。
+- **Sub-tasks**（按好做順序排）：
+  - [ ] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（直接下載 JSON）。**估時 30 min**
+  - [ ] **b. 風機細節 `停機`** — 對應 `OperatorControlCard` 的 stop 指令；點擊跳到右側卡片或直接呼叫 `POST /api/control/command { command: 'stop' }`。**估時 30 min**
+  - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
+  - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
+  - [ ] **e. 維護中心 `+ 新工單`** — 開 modal：選風機 + 描述 + 選技師 → `POST /api/maintenance/work-orders`（API 已存在）。**估時 2h**
+  - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend）
+- **Deliverable**:
+  - 每完成一項，更新本 issue checkbox + commit 訊息帶 `feat(#WMOM-20260507-02): wire {sub-task name}`
+  - 全勾完後本 issue close
+- **Decision**:
+  - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
+  - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
 
 ---
 

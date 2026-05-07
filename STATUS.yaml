@@ -4,7 +4,7 @@ category: wind_energy
 progress: 82
 status: active
 last_updated: "2026-05-07"
-next_milestone: "**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題（鼠尾草綠／翡翠玻璃）；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/` 元件庫 + `frontend/theme/` system；保留全部 API / hooks 不動。dev server 5179 視覺 review 通過。下一步建議：M3 frontend 接力（WMOM-19/-20/-25）改用新元件庫，或 WMOM-24 data quality 修正。"
+next_milestone: "**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題（鼠尾草綠／翡翠玻璃）；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/`（10 元件） + `frontend/theme/` system 就位；保留全部 API / hooks 不動。dev server 5179 視覺 review 通過（劉老師 2026-05-07 確認）。同步整理：placeholder 按鈕清單獨立成 WMOM-20260507-02（low 優先逐項補）；M3+ 所有 frontend issue（-19/-20/-21/-25）加上「使用新 ui 元件庫」directive，避免 regress 回 Tailwind / cyan dark。下一步建議：M3 frontend 接力（WMOM-19 工單前端最直接），或 WMOM-24 data quality 修正。"
 technologies:
   - FastAPI
   - React
@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 12
+  open: 13
   in_progress: 0
   blocked: 0
   done: 22
