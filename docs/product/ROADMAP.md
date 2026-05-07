@@ -34,6 +34,7 @@ Month 6 (2026-10) — 第一個運維廠商 PoC + 第一筆合約
 | ISSUES.md / STATUS.yaml / TODO.md / CHANGELOG.md | 從零重新建立（v0.5 版本廢棄） |
 | 接觸 1-2 個 friendly 運維廠商 | 透過學界人脈、demo simulator 給他們看 |
 | Pitch deck v0.8.1 改版 | 主視覺改為「運維廠商工具」、套餐改為 Operator Basic / Pro / Enterprise |
+| **前端 UI 改版**（WMOM-20260507-01）— **新增** | A · Calm Operator 設計（鼠尾草綠 / 翡翠玻璃雙主題）；220 px sidebar、5 大頁重畫；建立 `frontend/components/ui/` + `frontend/theme/` 共用元件庫；M3+ 所有 frontend issue 走新元件 |
 
 ### 「無實場 demo」可成立的標準
 
