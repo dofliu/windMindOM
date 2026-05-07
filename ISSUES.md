@@ -16,10 +16,10 @@
 | open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 21 |
-| **total (active)** | **33** |
+| done | 22 |
+| **total (active)** | **34** |
 
-最後更新：2026-05-06（**WMOM-23 全 Layer 1-7 完成** — `tests/physics/` 121 tests pass in 25 s，含守恆律 / 文獻 benchmark / 操作邊界 / 跨模組一致性 / 故障注入 / health check CLI / 報告紀錄系統。code review 完成 3 blockers + 3 suggestions fix。下一個建議：WMOM-24 data quality 修正（會被 Layer 4 自動驗證），或 WMOM-19 frontend 接力）
+最後更新：2026-05-07（**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題；220 px sidebar、5 大頁重畫、共用 ui 元件庫 + theme system 就位；保留全部 API / hooks 不動，dev server 5179 視覺 review 通過。下一個建議：M3 frontend issue WMOM-19/-20/-25 用新元件接續。）
 
 ---
 
@@ -1155,6 +1155,49 @@
 - **Reference**:
   - Randall 2011 *Vibration-based Condition Monitoring* §6.4
   - 既有 #76 / #58 GMF sideband 為 baseline
+
+---
+
+## UX / Frontend revamp
+
+### WMOM-20260507-01 — 前端 UI 改版（A · Calm Operator + 雙主題）
+
+- **Status**: **done**（2026-05-07 完成）
+- **Milestone**: M1 並行（前端基礎設施，不卡 M3 frontend issue -19/-20/-25）
+- **Priority**: medium（劉老師對外 demo 與第一個客戶接觸需要更專業的視覺語言）
+- **Estimate**: 1 工作天 → **實際 1 個 session**
+- **Owner**: Claude (session 2026-05-07)
+- **Source**: 劉老師提供 `WMOM 介面改版交接書.md` + `app/VA.jsx` design canvas（A · Calm Operator 風格 — 鼠尾草綠＋暖米白／雜誌式排版）
+- **Description**:
+  既有 frontend 是 dark cyan + Tailwind + Orbitron 風（從 digiWindTurbine 繼承），對運維廠商管理層而言過於「實驗室感」、與 v0.8.1 商業化定位不符。改版按交接書規範替換成：
+  1. **220px 左 Sidebar**（5 主頁 nav + 工具區 secondary）取代頂部 header
+  2. **雙主題系統**：日（鼠尾草綠 #3F6B53 + 暖米白 #F5F2EA）/ 夜（翡翠玻璃 #3DDC97 + 深森林 #0E1815）— 全元件走 theme palette，不寫死 hex
+  3. **字型**：DM Serif Display（H1 38px）+ Manrope（內文）+ JetBrains Mono（數字 / SCADA tags）
+  4. **5 大頁面重畫骨架**：FarmOverview / TurbineDetail / MaintenanceHub / CostPage / HistoryPage（按交接書 §4 規格）
+  5. **保留全部 API / hooks 不動**：`useMockTurbineData` / `useRealtimeData` / `useMaintenanceData` / `useCostData` / `useI18n` / `useSettings` 全不動，OperatorControl 6 指令、AI fault diagnosis、Dispatch 流程、CSV 匯出、事件比較、4 個 cost endpoint 完全保留
+- **Deliverable**:
+  - `frontend/theme/` — `themes.ts`（兩套 palette）+ `ThemeProvider.tsx`（Context + localStorage + `data-theme` 同步）
+  - `frontend/components/ui/` — `Card / Btn / PageHeader / StatusPill / Stat / Logo / NavIcon / Sidebar / BigChart / MiniSparkline / HealthBar / Field / Input / Select / ReadOnlyBox`（10 個共用元件 + index）
+  - `frontend/App.tsx` — 重寫成 sidebar layout，包 ThemeProvider，保留所有 modal 與 view state
+  - `frontend/components/{FarmOverview, TurbineDetail, MaintenanceHub, CostPage, HistoryPage}.tsx` — 5 大頁面照交接書規格重寫
+  - `frontend/components/{FaultInjectionPanel, SettingsPage, DispatchModal, WorkOrderDetailModal, FarmSelector, TrendChartPanel, EventComparisonView}.tsx` — 沿用功能、套新樣式
+  - `frontend/index.html` — 加 DM Serif / Manrope / JetBrains Mono CDN；移除 Tailwind CDN（已無使用）；CSS variable 預設值
+  - 刪除 6 個孤兒：`DataCard / Gauge / StatusIndicator / MiniTrendChart / FarmTrendChart / icons.tsx`（被新 ui 元件取代）
+- **驗收**：
+  - ✅ `npx tsc --noEmit` 0 錯誤
+  - ✅ Vite dev server 跑在 `http://127.0.0.1:5179/` 全 page module 200，5 大頁 + faults / settings 全可開
+  - ✅ 劉老師於 5179 視覺 review 確認 OK（2026-05-07 截圖）
+  - ✅ 響應式 grid 1280+ 4 欄 / 1024–1279 3 欄 / 1023– 2 欄 / 768– sidebar 收漢堡
+  - ✅ 主題 ☀/☾ + EN/中切換寫 localStorage、reload 後狀態保留
+  - ✅ 所有按鈕 `aria-label`、主題切換 `aria-pressed`
+- **Decision**:
+  - **Tailwind 全退**：原本規劃保留作 layout utility，但實作後發現所有 new code 都走 inline style + theme palette，Tailwind CDN 變成 dead weight，順手移除
+  - **recharts 保留 in HistoryPage / CostPage / TrendChartPanel**：互動需求高（hover、zoom、reference line）走 recharts；overview / cost KPI 的趨勢圖改 SVG（跟 VA.jsx 一致）
+  - **Faults / Settings 入 sidebar secondary group**：交接書 §6 only 列 5 主頁，但實際還是要保留入口；放在「工具」分組下方，與主題切換並列
+- **Reference**:
+  - `WMOM 介面改版交接書.md`（劉老師主 repo 根目錄，未進 worktree）
+  - `app/VA.jsx`、`app/data.js`（design canvas，未進 worktree）
+  - `work-logs/2026-05/2026-05-07-ui-revamp-calm-operator.md`
 
 ---
 

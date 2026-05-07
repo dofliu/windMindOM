@@ -1,66 +1,136 @@
-import React, { useState, useCallback, useMemo } from 'react';
+/**
+ * windMindOM 前端入口（A · Calm Operator 改版後）。
+ *
+ * 變更：
+ *   - 頂部 header 拆掉，改為左側 220px Sidebar
+ *   - 主題改走 ThemeProvider（light = 鼠尾草綠 / dark = 翡翠玻璃）
+ *   - 5 主頁 nav：overview / turbine / maintenance / cost / history
+ *   - 2 工具 nav：faults（含未結 badge）/ settings
+ *
+ * **API / 資料流不動**：所有 hooks（useMockTurbineData / useRealtimeData /
+ * useMaintenanceData / useI18n / useSettings）以及 Modal 流程都保留原本連線。
+ */
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMockTurbineData } from './hooks/useMockTurbineData';
 import { useRealtimeData } from './hooks/useRealtimeData';
 import { useMaintenanceData } from './hooks/useMaintenanceData';
 import { useI18n } from './hooks/useI18n';
-import { type TurbineData, TurbineStatus, DataSourceType, type WorkOrder, type Technician, WorkOrderStatus } from './types';
+import { useSettings } from './hooks/useSettings';
+import {
+  type TurbineData,
+  TurbineStatus,
+  DataSourceType,
+  type WorkOrder,
+  WorkOrderStatus,
+} from './types';
 import FarmOverview from './components/FarmOverview';
 import TurbineDetail from './components/TurbineDetail';
 import MaintenanceHub from './components/MaintenanceHub';
 import FaultInjectionPanel from './components/FaultInjectionPanel';
-import { HeaderIcon, WrenchScrewdriverIcon, ChartBarIcon, CogIcon, ClockIcon } from './components/icons';
 import DispatchModal from './components/DispatchModal';
 import WorkOrderDetailModal from './components/WorkOrderDetailModal';
 import SettingsPage from './components/SettingsPage';
-import { useSettings } from './hooks/useSettings';
 import HistoryPage from './components/HistoryPage';
 import FarmSelector from './components/FarmSelector';
 import CostPage from './components/CostPage';
+import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import { Sidebar, type NavItem } from './components/ui';
 
-const NavButton = ({ isActive, onClick, children }: {isActive: boolean, onClick: ()=>void, children: React.ReactNode}) => (
-    <button
-        onClick={onClick}
-        className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-            isActive
-            ? 'bg-cyan-500/20 text-cyan-300'
-            : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-        }`}
-    >
-        {children}
-    </button>
-);
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-const App: React.FC = () => {
+type ViewId = 'overview' | 'turbine' | 'maintenance' | 'history' | 'cost' | 'faults' | 'settings';
+
+const PRIMARY_NAV: NavItem[] = [
+  { id: 'overview', iconId: 'overview', labelEn: 'Farm Overview', labelZh: '風場總覽' },
+  { id: 'turbine', iconId: 'turbine', labelEn: 'Turbine Detail', labelZh: '風機細節' },
+  { id: 'maintenance', iconId: 'maintenance', labelEn: 'Maintenance', labelZh: '維護中心' },
+  { id: 'cost', iconId: 'cost', labelEn: 'Cost Model', labelZh: '成本模型' },
+  { id: 'history', iconId: 'history', labelEn: 'History', labelZh: '歷史資料' },
+];
+
+const SECONDARY_NAV: NavItem[] = [
+  { id: 'faults', iconId: 'faults', labelEn: 'Faults', labelZh: '故障模擬' },
+  { id: 'settings', iconId: 'settings', labelEn: 'Settings', labelZh: '設定' },
+];
+
+const AppShell: React.FC = () => {
+  const { C } = useTheme();
   const { settings, saveSettings } = useSettings();
-  const { lang, setLang, ui } = useI18n();
+  const { lang, setLang } = useI18n();
 
-  // Use mock data for MOCK mode, real API data for SIMULATION / OPC_DA
+  // ── Data hooks（不動 API） ──
   const mockData = useMockTurbineData();
   const realtimeData = useRealtimeData();
-
   const useMock = settings.dataSource === DataSourceType.MOCK;
   const { turbines, updateTurbineStatus } = useMock ? mockData : realtimeData;
   const maintenance = useMaintenanceData();
   const { workOrders } = maintenance;
 
+  // ── View state ──
+  const [view, setView] = useState<ViewId>('overview');
   const [selectedTurbine, setSelectedTurbine] = useState<TurbineData | null>(null);
-  const [view, setView] = useState<'dashboard' | 'history' | 'maintenance' | 'faults' | 'cost' | 'settings'>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // ── Modals ──
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [turbineToDispatch, setTurbineToDispatch] = useState<TurbineData | null>(null);
   const [faultAnalysisForDispatch, setFaultAnalysisForDispatch] = useState('');
-
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null);
 
+  // ── Backend health (poll /api/farms 一次) ──
+  const [backendHealthy, setBackendHealthy] = useState<boolean>(true);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/farms`);
+        if (!cancelled) setBackendHealthy(res.ok);
+      } catch {
+        if (!cancelled) setBackendHealthy(false);
+      }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
+  // ── Nav handlers ──
   const handleSelectTurbine = useCallback((turbine: TurbineData) => {
     setSelectedTurbine(turbine);
+    setView('turbine');
   }, []);
 
   const handleBackToOverview = useCallback(() => {
     setSelectedTurbine(null);
+    setView('overview');
   }, []);
 
+  const handleNavSelect = useCallback(
+    (id: string) => {
+      const next = id as ViewId;
+      setView(next);
+      if (next === 'turbine') {
+        if (!selectedTurbine && turbines.length > 0) {
+          setSelectedTurbine(turbines[0]);
+        }
+      } else if (next === 'overview') {
+        setSelectedTurbine(null);
+      }
+    },
+    [selectedTurbine, turbines],
+  );
+
+  // 把 selectedTurbine 同步到 turbines 的最新版本
+  const liveTurbine = useMemo(() => {
+    if (!selectedTurbine) return null;
+    return turbines.find(t => t.id === selectedTurbine.id) || selectedTurbine;
+  }, [selectedTurbine, turbines]);
+
+  // ── Modal handlers (不動 API) ──
   const handleOpenDispatchModal = useCallback((turbine: TurbineData, faultAnalysis: string) => {
     setTurbineToDispatch(turbine);
     setFaultAnalysisForDispatch(faultAnalysis);
@@ -73,166 +143,185 @@ const App: React.FC = () => {
     setFaultAnalysisForDispatch('');
   }, []);
 
-  const handleConfirmDispatch = useCallback((turbineId: number, technicianId: number, faultDescription: string) => {
-    maintenance.createWorkOrder(turbineId, turbines.find(t=>t.id === turbineId)?.name || '', faultDescription, technicianId);
-    handleCloseDispatchModal();
-  }, [maintenance, turbines, handleCloseDispatchModal]);
+  const handleConfirmDispatch = useCallback(
+    (turbineId: number, technicianId: number, faultDescription: string) => {
+      maintenance.createWorkOrder(
+        turbineId,
+        turbines.find(t => t.id === turbineId)?.name || '',
+        faultDescription,
+        technicianId,
+      );
+      handleCloseDispatchModal();
+    },
+    [maintenance, turbines, handleCloseDispatchModal],
+  );
 
-  const handleCompleteWorkOrder = useCallback((workOrder: WorkOrder) => {
-    maintenance.updateWorkOrder(workOrder.id, {
-      status: WorkOrderStatus.COMPLETED,
-      notes: workOrder.notes,
-      photos: workOrder.photos,
-    });
-    updateTurbineStatus(workOrder.turbineId, TurbineStatus.IDLE);
-    setSelectedWorkOrder(null);
-  },[maintenance, updateTurbineStatus]);
+  const handleCompleteWorkOrder = useCallback(
+    (workOrder: WorkOrder) => {
+      maintenance.updateWorkOrder(workOrder.id, {
+        status: WorkOrderStatus.COMPLETED,
+        notes: workOrder.notes,
+        photos: workOrder.photos,
+      });
+      updateTurbineStatus(workOrder.turbineId, TurbineStatus.IDLE);
+      setSelectedWorkOrder(null);
+    },
+    [maintenance, updateTurbineStatus],
+  );
 
+  // ── Active nav id（faults 帶 badge） ──
+  const faultCount = useMemo(
+    () => turbines.filter(t => t.status === TurbineStatus.FAULT).length,
+    [turbines],
+  );
+  const activeNavId: string = view;
 
-  const activeWorkOrders = useMemo(() => workOrders.filter(wo => wo.status !== WorkOrderStatus.COMPLETED), [workOrders]);
+  const primaryNav: NavItem[] = PRIMARY_NAV;
+  const secondaryNav: NavItem[] = useMemo(
+    () =>
+      SECONDARY_NAV.map(n =>
+        n.id === 'faults' && faultCount > 0 ? { ...n, badge: faultCount } : n,
+      ),
+    [faultCount],
+  );
 
-  const faultCount = turbines.filter(t => t.status === TurbineStatus.FAULT).length;
-  const farmStatus = faultCount > 0
-    ? TurbineStatus.FAULT
-    : turbines.every(t => t.status === TurbineStatus.OPERATING)
-    ? TurbineStatus.OPERATING
-    : TurbineStatus.IDLE;
-
-  const totalPower = turbines.reduce((sum, turbine) => sum + turbine.powerOutput, 0);
-
-  const getStatusColorClass = (status: TurbineStatus) => {
-    switch (status) {
-      case TurbineStatus.OPERATING: return 'text-green-400';
-      case TurbineStatus.IDLE: return 'text-yellow-400';
-      case TurbineStatus.FAULT: return 'text-red-500';
-      case TurbineStatus.OFFLINE: return 'text-gray-500';
-    }
-  };
-
-  // Keep selected turbine in sync with live data
-  const liveTurbine = selectedTurbine
-    ? turbines.find(t => t.id === selectedTurbine.id) || selectedTurbine
-    : null;
-
+  // ── Render content ──
   const renderContent = () => {
     switch (view) {
-        case 'dashboard':
-            return liveTurbine ? (
-              <TurbineDetail
-                turbine={liveTurbine}
-                onBack={handleBackToOverview}
-                onDispatch={handleOpenDispatchModal}
-                activeWorkOrder={activeWorkOrders.find(wo => wo.turbineId === liveTurbine.id)}
-                lang={lang}
-              />
-            ) : (
-              <FarmOverview turbines={turbines} onSelectTurbine={handleSelectTurbine} settings={settings} lang={lang} />
-            );
-        case 'maintenance':
-            return <MaintenanceHub
-                maintenanceData={maintenance}
-                onSelectWorkOrder={(wo) => setSelectedWorkOrder(wo)}
-            />;
-        case 'history':
-            return <HistoryPage turbines={turbines} lang={lang} />;
-        case 'faults':
-            return <FaultInjectionPanel lang={lang} />;
-        case 'cost':
-            return <CostPage lang={lang} />;
-        case 'settings':
-            return <SettingsPage settings={settings} onSave={saveSettings} lang={lang} />;
-        default:
-            return null;
+      case 'overview':
+        return (
+          <FarmOverview
+            turbines={turbines}
+            onSelectTurbine={handleSelectTurbine}
+            settings={settings}
+            lang={lang}
+          />
+        );
+      case 'turbine':
+        if (!liveTurbine) {
+          return (
+            <div style={{ color: C.sub, padding: 40, textAlign: 'center' }}>
+              {lang === 'zh' ? '尚未選擇風機。' : 'No turbine selected.'}
+            </div>
+          );
+        }
+        return (
+          <TurbineDetail
+            turbine={liveTurbine}
+            onBack={handleBackToOverview}
+            onDispatch={handleOpenDispatchModal}
+            activeWorkOrder={workOrders.find(
+              wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
+            )}
+            lang={lang}
+          />
+        );
+      case 'maintenance':
+        return (
+          <MaintenanceHub
+            maintenanceData={maintenance}
+            onSelectWorkOrder={wo => setSelectedWorkOrder(wo)}
+          />
+        );
+      case 'history':
+        return <HistoryPage turbines={turbines} lang={lang} />;
+      case 'cost':
+        return <CostPage lang={lang} />;
+      case 'faults':
+        return <FaultInjectionPanel lang={lang} />;
+      case 'settings':
+        return <SettingsPage settings={settings} onSave={saveSettings} lang={lang} />;
+      default:
+        return null;
     }
   };
 
   return (
-    <div className="bg-gray-900 text-gray-200 min-h-screen">
-      <header className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 p-4 flex justify-between items-center sticky top-0 z-50">
-        <div className="flex items-center space-x-3">
-          <HeaderIcon />
-          <h1 className="text-xl md:text-2xl font-bold font-orbitron text-white">Wind Farm SCADA</h1>
-        </div>
-        <div className='flex items-center space-x-1'>
-            <NavButton isActive={view === 'dashboard'} onClick={() => { setView('dashboard'); setSelectedTurbine(null); }}>
-                <ChartBarIcon />
-                <span className="hidden sm:inline">{ui('Dashboard', '儀表板')}</span>
-            </NavButton>
-            <NavButton isActive={view === 'maintenance'} onClick={() => setView('maintenance')}>
-                <WrenchScrewdriverIcon />
-                <span className="hidden sm:inline">{ui('Maintenance', '維護中心')}</span>
-            </NavButton>
-            <NavButton isActive={view === 'history'} onClick={() => { setView('history'); setSelectedTurbine(null); }}>
-                <ClockIcon />
-                <span className="hidden sm:inline">{ui('History', '歷史資料')}</span>
-            </NavButton>
-            <NavButton isActive={view === 'faults'} onClick={() => setView('faults')}>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
-                <span className="hidden sm:inline">{ui('Faults', '故障模擬')}</span>
-                {faultCount > 0 && (
-                  <span className="ml-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{faultCount}</span>
-                )}
-            </NavButton>
-            <NavButton isActive={view === 'cost'} onClick={() => { setView('cost'); setSelectedTurbine(null); }}>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-2.21 0-4-1.343-4-3s1.79-3 4-3 4 1.343 4 3M12 6V3m0 18v-3" />
-                </svg>
-                <span className="hidden sm:inline">{ui('Cost', '成本')}</span>
-            </NavButton>
-        </div>
-        <div className="flex items-center space-x-3">
-            <div className="hidden md:flex items-center space-x-6 text-sm">
-              <div>
-                <span className="text-gray-400">{ui('Total Power', '總功率')}: </span>
-                <span className="font-bold font-orbitron text-white">{totalPower < 1.0 ? `${(totalPower * 1000).toFixed(0)} kW` : `${totalPower.toFixed(2)} MW`}</span>
-              </div>
-              <div>
-                <span className="text-gray-400">{ui('Status', '狀態')}: </span>
-                <span className={`font-bold ${getStatusColorClass(farmStatus)}`}>{farmStatus}</span>
-              </div>
-            </div>
-            <FarmSelector lang={lang} />
-            {/* Language toggle */}
-            <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-              className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors"
-              title="Toggle language">
-              {lang === 'zh' ? 'EN' : '中文'}
-            </button>
-             <button onClick={() => setView('settings')} title="Settings" className={`p-2 rounded-md transition-colors ${view === 'settings' ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}>
-                <CogIcon />
-            </button>
-        </div>
-      </header>
-      <main className="p-4 sm:p-6 lg:p-8">
+    <div
+      style={{
+        background: C.bg,
+        color: C.text,
+        minHeight: '100vh',
+        fontFamily: 'Manrope, system-ui, sans-serif',
+        display: 'flex',
+        alignItems: 'stretch',
+      }}
+    >
+      <Sidebar
+        primary={primaryNav}
+        secondary={secondaryNav}
+        activeId={activeNavId}
+        onSelect={handleNavSelect}
+        lang={lang}
+        onToggleLang={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+        backendHealthy={backendHealthy}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
+        footerExtra={<FarmSelector lang={lang} />}
+      />
+
+      <main
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '28px 36px',
+        }}
+      >
+        {/* Mobile menu toggle */}
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label={lang === 'zh' ? '開啟選單' : 'Open menu'}
+          style={{
+            display: 'none',
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            color: C.text,
+            borderRadius: 8,
+            padding: '6px 10px',
+            marginBottom: 16,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+          className="wmom-mobile-menu-btn"
+        >
+          ☰
+        </button>
+        <style>{`
+          @media (max-width: 767px) {
+            .wmom-mobile-menu-btn { display: inline-flex !important; }
+          }
+        `}</style>
+
         {renderContent()}
       </main>
-       <footer className="text-center p-4 text-xs text-gray-500 border-t border-gray-800">
-        Wind Farm SCADA System &copy; 2024. {ui('For demonstration purposes only.', '僅供展示使用。')}
-      </footer>
 
       {isDispatchModalOpen && turbineToDispatch && (
         <DispatchModal
-            turbine={turbineToDispatch}
-            technicians={maintenance.technicians}
-            faultAnalysis={faultAnalysisForDispatch}
-            onClose={handleCloseDispatchModal}
-            onConfirm={handleConfirmDispatch}
+          turbine={turbineToDispatch}
+          technicians={maintenance.technicians}
+          faultAnalysis={faultAnalysisForDispatch}
+          onClose={handleCloseDispatchModal}
+          onConfirm={handleConfirmDispatch}
         />
       )}
 
       {selectedWorkOrder && (
         <WorkOrderDetailModal
-            workOrder={selectedWorkOrder}
-            technicians={maintenance.technicians}
-            onClose={() => setSelectedWorkOrder(null)}
-            onUpdate={maintenance.updateWorkOrder}
-            onComplete={handleCompleteWorkOrder}
+          workOrder={selectedWorkOrder}
+          technicians={maintenance.technicians}
+          onClose={() => setSelectedWorkOrder(null)}
+          onUpdate={maintenance.updateWorkOrder}
+          onComplete={handleCompleteWorkOrder}
         />
       )}
     </div>
   );
 };
+
+const App: React.FC = () => (
+  <ThemeProvider>
+    <AppShell />
+  </ThemeProvider>
+);
 
 export default App;

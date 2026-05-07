@@ -1,16 +1,32 @@
-import React, { useState, useMemo } from 'react';
-import { type TurbineData, TurbineStatus, type AppSettings, DataSourceType } from '../types';
-import StatusIndicator from './StatusIndicator';
-import { WindTurbineIcon } from './icons';
-import FarmTrendChart from './FarmTrendChart';
+/**
+ * FarmOverview — A · Calm Operator 改版。
+ *
+ * 版面：
+ *   1. PageHeader：「早安，營運團隊。」+ Farm + 12 機 + 日期
+ *   2. Hero stat strip：4 等分卡片（Farm Power / Operating / Active Faults / Avg Wind）
+ *   3. 24h 趨勢圖（時段切換 1H/6H/24H/7D，SVG 漸層折線）
+ *   4. 風機卡片網格（4×3）
+ *
+ * 功能保留：原 SummaryView / TableView 改成 view-mode 切換按鈕（cards / summary / table），
+ * 仍走同一資料來源；任何點擊風機都呼叫 onSelectTurbine 進入 detail。
+ */
 
-/** Format power: show kW when < 1 MW, otherwise MW */
-const fmtPower = (mw: number): string => {
-  const kw = mw * 1000;
-  if (Math.abs(kw) < 1) return '0 kW';
-  if (Math.abs(mw) < 1.0) return `${kw.toFixed(0)} kW`;
-  return `${mw.toFixed(2)} MW`;
-};
+import React, { useEffect, useMemo, useState } from 'react';
+import { type TurbineData, TurbineStatus, type AppSettings, DataSourceType } from '../types';
+import {
+  Card,
+  Btn,
+  PageHeader,
+  StatusPill,
+  Stat,
+  BigChart,
+  MiniSparkline,
+  turbineStatusTone,
+  type BigChartSeries,
+} from './ui';
+import { useTheme } from '../theme/ThemeProvider';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 interface FarmOverviewProps {
   turbines: TurbineData[];
@@ -19,253 +35,655 @@ interface FarmOverviewProps {
   lang?: 'en' | 'zh';
 }
 
-type ViewMode = 'cards' | 'summary' | 'table';
+type TimeRange = '1H' | '6H' | '24H' | '7D';
 
-const TUR_STATE_SHORT: Record<number, string> = {
-  1: 'STOP', 2: 'STBY', 3: 'WAIT', 4: 'PREP',
-  5: 'START', 6: 'PROD', 7: 'SHTDN', 8: 'RSTR', 9: 'NSTP',
+const RANGE_TO_API: Record<TimeRange, string> = {
+  '1H': '1h',
+  '6H': '12h',
+  '24H': '1d',
+  '7D': '1d',
 };
 
-// ─── Card View (original) ─────────────────────────────────────────
+const RANGE_REFRESH_MS: Record<TimeRange, number> = {
+  '1H': 5_000,
+  '6H': 15_000,
+  '24H': 30_000,
+  '7D': 60_000,
+};
 
-const TurbineCard: React.FC<{ turbine: TurbineData; onSelect: (t: TurbineData) => void; lang: string }> = ({ turbine, onSelect, lang }) => {
-  const getStatusColorClasses = (status: TurbineStatus) => {
-    switch (status) {
-      case TurbineStatus.OPERATING: return 'border-green-500/50 hover:border-green-500 bg-green-500/10';
-      case TurbineStatus.IDLE: return 'border-yellow-500/50 hover:border-yellow-500 bg-yellow-500/10';
-      case TurbineStatus.FAULT: return 'border-red-500/50 hover:border-red-500 bg-red-500/10 animate-pulse';
-      case TurbineStatus.OFFLINE: return 'border-gray-600/50 hover:border-gray-500 bg-gray-600/10';
-    }
-  };
-  const hasFaults = turbine.activeFaults && turbine.activeFaults.length > 0;
+interface TrendPoint {
+  time: number;
+  totalPower: number;
+}
+
+// Module-level cache to survive view-mode toggles
+const _trendCache: Record<TimeRange, TrendPoint[]> = {
+  '1H': [],
+  '6H': [],
+  '24H': [],
+  '7D': [],
+};
+let _liveTrend: TrendPoint[] = [];
+let _lastLiveAt = 0;
+const MAX_LIVE_POINTS = 200;
+
+const fmtPower = (mw: number): string => {
+  if (Math.abs(mw) < 1) return `${(mw * 1000).toFixed(0)} kW`;
+  return `${mw.toFixed(2)} MW`;
+};
+
+// ─── Hero strip ────────────────────────────────────────────────
+
+const HeroStats: React.FC<{
+  turbines: TurbineData[];
+  tr: (en: string, zh: string) => string;
+}> = ({ turbines, tr }) => {
+  const { C } = useTheme();
+  const total = turbines.reduce((s, t) => s + t.powerOutput, 0);
+  const ops = turbines.filter(t => t.status === TurbineStatus.OPERATING).length;
+  const flt = turbines.filter(t => t.status === TurbineStatus.FAULT).length;
+  const rated = turbines.length * 2; // assume 2 MW per turbine for ratio display
+  const avgWind = turbines.length
+    ? turbines.reduce((s, t) => s + t.windSpeed, 0) / turbines.length
+    : 0;
 
   return (
-    <div className={`relative rounded-lg p-4 border transition-all duration-300 cursor-pointer group ${getStatusColorClasses(turbine.status)}`}
-      onClick={() => onSelect(turbine)}>
-      <div className="flex justify-between items-start">
-        <div>
-          <h3 className="font-bold text-lg text-white">{turbine.name}</h3>
-          {turbine.turState && <span className="text-xs text-gray-500 font-mono">{TUR_STATE_SHORT[turbine.turState] || turbine.turState}</span>}
-        </div>
-        <StatusIndicator status={turbine.status} />
-      </div>
-      <div className="mt-3 flex items-end justify-between">
-        <div>
-          <p className="text-xs text-gray-400">{lang === 'zh' ? '發電功率' : 'Power'}</p>
-          <p className="font-orbitron text-2xl font-bold text-white">{fmtPower(turbine.powerOutput)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">{lang === 'zh' ? '風速' : 'Wind'}</p>
-          <p className="text-white">{turbine.windSpeed.toFixed(1)} m/s</p>
-        </div>
-      </div>
-      <div className="mt-2 flex justify-between text-xs text-gray-500">
-        <span>{lang === 'zh' ? '轉速' : 'RPM'}: {turbine.rotorSpeed.toFixed(1)}</span>
-        <span>{lang === 'zh' ? '溫度' : 'Temp'}: {turbine.temperature.toFixed(0)}°C</span>
-        <span>{lang === 'zh' ? '振動' : 'Vib'}: {turbine.vibration.toFixed(1)}</span>
-      </div>
-      {hasFaults && (
-        <div className="mt-2 text-xs">
-          {turbine.activeFaults!.map((f, i) => (
-            <div key={i} className={`px-2 py-0.5 rounded ${
-              f.phase === 'critical' ? 'bg-red-500/30 text-red-300' : f.phase === 'advanced' ? 'bg-orange-500/20 text-orange-300' : 'bg-yellow-500/20 text-yellow-300'
-            }`}>{lang === 'zh' ? f.name_zh : f.name_en} ({(f.severity * 100).toFixed(0)}%)</div>
-          ))}
-        </div>
-      )}
-      <div className="absolute bottom-4 right-4 text-gray-600 group-hover:text-cyan-400 transition-colors">
-        <WindTurbineIcon className="w-10 h-10 opacity-20 group-hover:opacity-40" />
-      </div>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: 14,
+        marginBottom: 20,
+      }}
+    >
+      <Card>
+        <Stat
+          label={tr('Farm Power', '風場功率')}
+          value={total < 1 ? (total * 1000).toFixed(0) : total.toFixed(1)}
+          unit={total < 1 ? 'kW' : 'MW'}
+          hint={tr(`of ${rated.toFixed(1)} MW rated`, `額定 ${rated.toFixed(1)} MW`)}
+          highlight
+        />
+      </Card>
+      <Card>
+        <Stat
+          label={tr('Operating', '運轉中')}
+          value={
+            <>
+              {ops}
+              <span style={{ fontSize: 18, color: C.sub }}> / {turbines.length}</span>
+            </>
+          }
+          hint={
+            <span style={{ color: ops === turbines.length ? C.ok : C.sub }}>
+              {ops === turbines.length ? tr('All healthy', '全部健康') : tr('Mixed status', '狀態混合')}
+            </span>
+          }
+        />
+      </Card>
+      <Card tone={flt > 0 ? 'warn' : 'default'}>
+        <Stat
+          label={tr('Active Faults', '故障中')}
+          value={flt}
+          valueColor={flt > 0 ? C.warn : C.text}
+          hint={flt > 0 ? tr('Needs attention →', '請關注 →') : tr('All clear', '一切順利')}
+        />
+      </Card>
+      <Card>
+        <Stat
+          label={tr('Avg Wind', '平均風速')}
+          value={avgWind.toFixed(1)}
+          unit="m/s"
+          hint={tr('Live SCADA average', 'SCADA 即時平均')}
+        />
+      </Card>
     </div>
   );
 };
 
-// ─── Summary View (compact cards + stats panel) ───────────────────
+// ─── Trend card ────────────────────────────────────────────────
 
-const SummaryView: React.FC<{ turbines: TurbineData[]; onSelect: (t: TurbineData) => void; lang: string }> = ({ turbines, onSelect, lang }) => {
-  const stats = useMemo(() => {
-    const operating = turbines.filter(t => t.status === TurbineStatus.OPERATING);
-    const fault = turbines.filter(t => t.status === TurbineStatus.FAULT);
-    const idle = turbines.filter(t => t.status === TurbineStatus.IDLE);
-    const service = turbines.filter(t => t.turState === 9 || (t.scadaTags && t.scadaTags['WSRV_SrvOn'] === 1));
+const TrendCard: React.FC<{
+  turbines: TurbineData[];
+  tr: (en: string, zh: string) => string;
+}> = ({ turbines, tr }) => {
+  const { C } = useTheme();
+  const [range, setRange] = useState<TimeRange>('24H');
+  const [apiData, setApiData] = useState<TrendPoint[]>(_trendCache[range]);
+  const [liveData, setLiveData] = useState<TrendPoint[]>(_liveTrend);
+
+  // Live accumulator for 1H mode
+  useEffect(() => {
+    if (range !== '1H' || !turbines.length) return;
+    const now = Date.now();
+    if (now - _lastLiveAt < 1800) return;
+    _lastLiveAt = now;
     const totalPower = turbines.reduce((s, t) => s + t.powerOutput, 0);
-    const avgWind = turbines.length > 0 ? turbines.reduce((s, t) => s + t.windSpeed, 0) / turbines.length : 0;
-    const avgTemp = turbines.length > 0 ? turbines.reduce((s, t) => s + t.temperature, 0) / turbines.length : 0;
-    return { operating, fault, idle, service, totalPower, avgWind, avgTemp };
-  }, [turbines]);
+    const next = [..._liveTrend, { time: now, totalPower: +totalPower.toFixed(2) }];
+    _liveTrend = next.length > MAX_LIVE_POINTS ? next.slice(-MAX_LIVE_POINTS) : next;
+    setLiveData(_liveTrend);
+  }, [turbines, range]);
 
-  const u = (en: string, zh: string) => lang === 'zh' ? zh : en;
+  // API fetch for longer ranges
+  useEffect(() => {
+    if (range === '1H') return;
+    let cancelled = false;
+    const fetchData = () => {
+      fetch(`${API_BASE}/api/turbines/farm-trend?range=${RANGE_TO_API[range]}&points=150`)
+        .then(r => r.json())
+        .then(res => {
+          if (cancelled) return;
+          if (res.data) {
+            const mapped: TrendPoint[] = res.data.map((d: { timestamp: string; totalPower: number }) => ({
+              time: d.timestamp ? new Date(d.timestamp).getTime() : 0,
+              totalPower: d.totalPower,
+            }));
+            _trendCache[range] = mapped;
+            setApiData(mapped);
+          }
+        })
+        .catch(() => {
+          /* ignore */
+        });
+    };
+    fetchData();
+    const id = setInterval(fetchData, RANGE_REFRESH_MS[range]);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [range]);
+
+  const data = range === '1H' ? liveData : apiData;
+  const series: BigChartSeries[] = useMemo(
+    () => [
+      {
+        values: data.length > 0 ? data.map(d => d.totalPower) : [0],
+        color: C.accent,
+        fill: true,
+      },
+    ],
+    [data, C.accent],
+  );
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-      {/* Stats panel */}
-      <div className="lg:w-80 flex-shrink-0 space-y-3">
-        <div className="bg-gray-800/50 rounded-lg p-4 border border-cyan-500/30">
-          <h3 className="text-sm text-gray-400 mb-3 uppercase tracking-wider">{u('Farm Statistics', '風場統計')}</h3>
-          <div className="space-y-2">
-            <StatRow label={u('Total Power', '總發電量')} value={fmtPower(stats.totalPower)} color="text-cyan-300" />
-            <StatRow label={u('Avg Wind Speed', '平均風速')} value={`${stats.avgWind.toFixed(1)} m/s`} />
-            <StatRow label={u('Avg Temperature', '平均溫度')} value={`${stats.avgTemp.toFixed(1)} °C`} />
-            <div className="border-t border-gray-700 my-2" />
-            <StatRow label={u('Total Turbines', '風機數量')} value={`${turbines.length}`} />
-            <StatRow label={u('Operating', '運轉中')} value={`${stats.operating.length}`} color="text-green-400" />
-            <StatRow label={u('Idle / Standby', '待機/停機')} value={`${stats.idle.length}`} color="text-yellow-400" />
-            <StatRow label={u('Fault', '故障')} value={`${stats.fault.length}`} color={stats.fault.length > 0 ? 'text-red-400' : ''} />
-            <StatRow label={u('Service / Inspection', '定檢中')} value={`${stats.service.length}`} color={stats.service.length > 0 ? 'text-orange-400' : ''} />
-            <div className="border-t border-gray-700 my-2" />
-            <StatRow label={u('Capacity Factor', '容量因數')} value={`${turbines.length > 0 ? ((stats.totalPower / (turbines.length * 2)) * 100).toFixed(1) : 0}%`} />
+    <Card style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 14,
+          flexWrap: 'wrap',
+          gap: 10,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+            {tr('Farm power · last ' + range, `風場功率　近 ${range}`)}
+          </div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>
+            {tr('Hover the chart to inspect events', '滑入查看事件')}
           </div>
         </div>
-      </div>
-
-      {/* Right column: trend chart + compact grid */}
-      <div className="flex-1 space-y-4">
-        {/* Farm-wide trend chart */}
-        <FarmTrendChart turbines={turbines} lang={lang} />
-
-        {/* Compact turbine grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2">
-          {turbines.map(t => (
-            <div key={t.id} onClick={() => onSelect(t)}
-              className={`rounded-md p-2 border cursor-pointer transition-all hover:scale-105 ${
-                t.status === TurbineStatus.FAULT ? 'border-red-500/50 bg-red-500/10' :
-                t.status === TurbineStatus.OPERATING ? 'border-green-500/30 bg-gray-800/50' :
-                'border-gray-600/30 bg-gray-800/30'
-              }`}>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-bold text-white">{t.name}</span>
-                <span className={`w-2 h-2 rounded-full ${
-                  t.status === TurbineStatus.OPERATING ? 'bg-green-400' :
-                  t.status === TurbineStatus.FAULT ? 'bg-red-400 animate-pulse' :
-                  'bg-yellow-400'
-                }`} />
-              </div>
-              <div className="text-lg font-orbitron font-bold text-white">{fmtPower(t.powerOutput)}</div>
-              <div className="text-xs text-gray-500">{t.windSpeed.toFixed(1)} m/s</div>
-            </div>
-          ))}
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['1H', '6H', '24H', '7D'] as TimeRange[]).map(r => {
+            const active = range === r;
+            return (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                aria-pressed={active}
+                aria-label={tr(`Range ${r}`, `時段 ${r}`)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  background: active ? C.accent : 'transparent',
+                  color: active ? C.accentInk : C.sub,
+                  border: active ? 'none' : `1px solid ${C.border}`,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontWeight: active ? 600 : 500,
+                }}
+              >
+                {r}
+              </button>
+            );
+          })}
         </div>
       </div>
-    </div>
+      {data.length === 0 ? (
+        <div
+          style={{
+            height: 220,
+            display: 'grid',
+            placeItems: 'center',
+            color: C.sub,
+            fontSize: 13,
+          }}
+        >
+          {tr('Collecting data…', '資料收集中…')}
+        </div>
+      ) : (
+        <BigChart series={series} height={220} />
+      )}
+    </Card>
   );
 };
 
-const StatRow: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
-  <div className="flex justify-between items-center">
-    <span className="text-gray-400 text-sm">{label}</span>
-    <span className={`font-mono font-semibold text-sm ${color || 'text-white'}`}>{value}</span>
-  </div>
-);
+// ─── Turbine card ──────────────────────────────────────────────
 
-// ─── Table View (all turbines, 10 key columns) ───────────────────
+const TUR_STATE_SHORT: Record<number, string> = {
+  1: 'STOP',
+  2: 'STBY',
+  3: 'WAIT',
+  4: 'PREP',
+  5: 'START',
+  6: 'PROD',
+  7: 'SHTDN',
+  8: 'RSTR',
+  9: 'NSTP',
+};
 
-const TableView: React.FC<{ turbines: TurbineData[]; onSelect: (t: TurbineData) => void; lang: string }> = ({ turbines, onSelect, lang }) => {
-  const u = (en: string, zh: string) => lang === 'zh' ? zh : en;
+const TCard: React.FC<{
+  t: TurbineData;
+  onClick: () => void;
+  tr: (en: string, zh: string) => string;
+}> = ({ t, onClick, tr }) => {
+  const { C } = useTheme();
+  const tone = turbineStatusTone(t.status);
+  const strokeColor =
+    t.status === TurbineStatus.OPERATING
+      ? C.ok
+      : t.status === TurbineStatus.FAULT
+        ? C.warn
+        : t.status === TurbineStatus.IDLE
+          ? C.amber
+          : C.faint;
 
-  const columns = [
-    { key: 'name', label: u('Turbine', '風機'), w: 'w-20' },
-    { key: 'status', label: u('Status', '狀態'), w: 'w-24' },
-    { key: 'powerOutput', label: u('Power (MW)', '功率 MW'), w: 'w-20' },
-    { key: 'windSpeed', label: u('Wind (m/s)', '風速'), w: 'w-16' },
-    { key: 'rotorSpeed', label: u('RPM', '轉速'), w: 'w-16' },
-    { key: 'genStatorTemp1', label: u('Gen Temp °C', '發電機溫度'), w: 'w-20' },
-    { key: 'vibrationX', label: u('Vib X', '振動X'), w: 'w-16' },
-    { key: 'bladeAngle1', label: u('Blade°', '葉片角'), w: 'w-16' },
-    { key: 'cnvGenFreq', label: u('Freq Hz', '頻率'), w: 'w-16' },
-    { key: 'yawError', label: u('Yaw Err°', '偏航誤差'), w: 'w-16' },
-  ];
+  // Sparkline values: prefer real history; fall back to deterministic synth
+  const sparkValues =
+    t.history && t.history.length > 4
+      ? t.history.slice(-24).map(h => h.power)
+      : Array.from({ length: 24 }).map(
+          (_, i) => t.powerOutput * Math.max(0.4, 1 + Math.sin(i * 0.4 + t.id) * 0.18),
+        );
 
-  const getCellColor = (key: string, val: number | undefined) => {
-    if (val == null) return '';
-    if (key === 'genStatorTemp1' && val > 100) return 'text-red-400';
-    if (key === 'genStatorTemp1' && val > 80) return 'text-yellow-400';
-    if (key === 'vibrationX' && val > 4) return 'text-red-400';
-    if (key === 'vibrationX' && val > 2) return 'text-yellow-400';
-    if (key === 'yawError' && Math.abs(val) > 10) return 'text-yellow-400';
-    return '';
-  };
+  const statusLabel =
+    t.status === TurbineStatus.OPERATING
+      ? tr('OPERATING', '運轉中')
+      : t.status === TurbineStatus.FAULT
+        ? tr('FAULT', '故障')
+        : t.status === TurbineStatus.IDLE
+          ? tr('IDLE', '待機')
+          : tr('OFFLINE', '離線');
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-700">
-            {columns.map(c => (
-              <th key={c.key} className={`text-left py-2 px-2 text-xs text-gray-500 uppercase ${c.w}`}>{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {turbines.map(t => (
-            <tr key={t.id} onClick={() => onSelect(t)}
-              className={`border-b border-gray-800 cursor-pointer hover:bg-gray-800/60 transition-colors ${
-                t.status === TurbineStatus.FAULT ? 'bg-red-900/20' : ''
-              }`}>
-              <td className="py-1.5 px-2 text-white font-semibold">{t.name}</td>
-              <td className="py-1.5 px-2"><StatusIndicator status={t.status} /></td>
-              <td className="py-1.5 px-2 font-mono text-white font-bold">{t.powerOutput.toFixed(2)}</td>
-              <td className="py-1.5 px-2 font-mono text-gray-300">{t.windSpeed.toFixed(1)}</td>
-              <td className="py-1.5 px-2 font-mono text-gray-300">{t.rotorSpeed.toFixed(1)}</td>
-              <td className={`py-1.5 px-2 font-mono ${getCellColor('genStatorTemp1', t.genStatorTemp1)}`}>
-                {t.genStatorTemp1?.toFixed(1) ?? '--'}
-              </td>
-              <td className={`py-1.5 px-2 font-mono ${getCellColor('vibrationX', t.vibrationX)}`}>
-                {t.vibrationX?.toFixed(2) ?? '--'}
-              </td>
-              <td className="py-1.5 px-2 font-mono text-gray-300">{t.bladeAngle1?.toFixed(1) ?? '--'}</td>
-              <td className="py-1.5 px-2 font-mono text-gray-300">{t.cnvGenFreq?.toFixed(1) ?? '--'}</td>
-              <td className={`py-1.5 px-2 font-mono ${getCellColor('yawError', t.yawError)}`}>
-                {t.yawError?.toFixed(1) ?? '--'}
-              </td>
+    <Card padding={16} onClick={onClick}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{t.name}</span>
+          {t.turState && (
+            <span
+              style={{
+                fontSize: 10,
+                color: C.faint,
+                fontFamily: 'JetBrains Mono, monospace',
+              }}
+            >
+              {TUR_STATE_SHORT[t.turState] || `S${t.turState}`}
+            </span>
+          )}
+        </div>
+        <StatusPill tone={tone}>{statusLabel}</StatusPill>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+        <span
+          style={{
+            fontFamily: '"DM Serif Display", serif',
+            fontSize: 32,
+            color: C.accent,
+            fontWeight: 400,
+            lineHeight: 1,
+          }}
+        >
+          {t.powerOutput < 1 ? (t.powerOutput * 1000).toFixed(0) : t.powerOutput.toFixed(2)}
+        </span>
+        <span style={{ fontSize: 12, color: C.sub }}>{t.powerOutput < 1 ? 'kW' : 'MW'}</span>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <MiniSparkline values={sparkValues} color={strokeColor} height={32} />
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: 11,
+          color: C.sub,
+          marginTop: 6,
+          fontFamily: 'JetBrains Mono, monospace',
+        }}
+      >
+        <span>{t.windSpeed.toFixed(1)} m/s</span>
+        <span>{t.rotorSpeed.toFixed(1)} rpm</span>
+        <span>{t.temperature.toFixed(0)}°C</span>
+      </div>
+    </Card>
+  );
+};
+
+// ─── Compact tile (summary view) ───────────────────────────────
+
+const CompactTile: React.FC<{
+  t: TurbineData;
+  onClick: () => void;
+  tr: (en: string, zh: string) => string;
+}> = ({ t, onClick, tr }) => {
+  const { C } = useTheme();
+  const tone = turbineStatusTone(t.status);
+  const strokeColor =
+    t.status === TurbineStatus.OPERATING ? C.ok : t.status === TurbineStatus.FAULT ? C.warn : C.amber;
+  return (
+    <Card
+      padding={10}
+      onClick={onClick}
+      tone={t.status === TurbineStatus.FAULT ? 'warn' : 'default'}
+      style={{ minHeight: 86 }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 4,
+        }}
+      >
+        <span style={{ fontWeight: 700, fontSize: 12, color: C.text }}>{t.name}</span>
+        <span
+          aria-hidden
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: strokeColor,
+          }}
+        />
+      </div>
+      <div style={{ fontFamily: '"DM Serif Display", serif', fontSize: 18, color: C.text }}>
+        {fmtPower(t.powerOutput)}
+      </div>
+      <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+        {t.windSpeed.toFixed(1)} m/s
+      </div>
+      {t.status === TurbineStatus.FAULT && (
+        <div style={{ marginTop: 4 }}>
+          <StatusPill tone={tone} size="sm">
+            {tr('FAULT', '故障')}
+          </StatusPill>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+// ─── Table view ────────────────────────────────────────────────
+
+const TableView: React.FC<{
+  turbines: TurbineData[];
+  onSelect: (t: TurbineData) => void;
+  tr: (en: string, zh: string) => string;
+}> = ({ turbines, onSelect, tr }) => {
+  const { C } = useTheme();
+  const cols: { key: keyof TurbineData | 'name' | 'status'; label: string; align?: 'right' }[] = [
+    { key: 'name', label: tr('Turbine', '風機') },
+    { key: 'status', label: tr('Status', '狀態') },
+    { key: 'powerOutput', label: tr('Power MW', '功率 MW'), align: 'right' },
+    { key: 'windSpeed', label: tr('Wind m/s', '風速'), align: 'right' },
+    { key: 'rotorSpeed', label: 'RPM', align: 'right' },
+    { key: 'genStatorTemp1', label: tr('Gen °C', '發電機 °C'), align: 'right' },
+    { key: 'vibrationX', label: tr('Vib X', '振動 X'), align: 'right' },
+    { key: 'bladeAngle1', label: tr('Blade°', '葉片角'), align: 'right' },
+    { key: 'cnvGenFreq', label: 'Hz', align: 'right' },
+    { key: 'yawError', label: tr('Yaw°', '偏航°'), align: 'right' },
+  ];
+  return (
+    <Card padding={0}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: C.panelMuted }}>
+              {cols.map(c => (
+                <th
+                  key={c.key}
+                  style={{
+                    textAlign: c.align ?? 'left',
+                    padding: '12px 14px',
+                    fontSize: 11,
+                    color: C.sub,
+                    fontWeight: 500,
+                    letterSpacing: 0.5,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {c.label}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {turbines.map(t => (
+              <tr
+                key={t.id}
+                onClick={() => onSelect(t)}
+                style={{
+                  borderTop: `1px solid ${C.border}`,
+                  cursor: 'pointer',
+                  background: t.status === TurbineStatus.FAULT ? C.warnSoft : 'transparent',
+                }}
+              >
+                <td style={{ padding: '12px 14px', fontWeight: 600 }}>{t.name}</td>
+                <td style={{ padding: '12px 14px' }}>
+                  <StatusPill tone={turbineStatusTone(t.status)}>
+                    {t.status === TurbineStatus.OPERATING
+                      ? tr('OPERATING', '運轉中')
+                      : t.status === TurbineStatus.FAULT
+                        ? tr('FAULT', '故障')
+                        : t.status === TurbineStatus.IDLE
+                          ? tr('IDLE', '待機')
+                          : tr('OFFLINE', '離線')}
+                  </StatusPill>
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.powerOutput.toFixed(2)}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.windSpeed.toFixed(1)}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.rotorSpeed.toFixed(1)}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.genStatorTemp1?.toFixed(1) ?? '—'}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.vibrationX?.toFixed(2) ?? '—'}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.bladeAngle1?.toFixed(1) ?? '—'}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.cnvGenFreq?.toFixed(1) ?? '—'}
+                </td>
+                <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {t.yawError?.toFixed(1) ?? '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+};
+
+// ─── View toggle ───────────────────────────────────────────────
+
+type ViewMode = 'cards' | 'summary' | 'table';
+
+const ViewToggle: React.FC<{
+  mode: ViewMode;
+  onChange: (m: ViewMode) => void;
+  tr: (en: string, zh: string) => string;
+}> = ({ mode, onChange, tr }) => {
+  const { C } = useTheme();
+  const items: { id: ViewMode; label: string }[] = [
+    { id: 'cards', label: tr('Cards', '卡片') },
+    { id: 'summary', label: tr('Summary', '摘要') },
+    { id: 'table', label: tr('Table', '列表') },
+  ];
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        background: C.panel,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}
+    >
+      {items.map(it => {
+        const active = mode === it.id;
+        return (
+          <button
+            key={it.id}
+            onClick={() => onChange(it.id)}
+            aria-pressed={active}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              border: 'none',
+              background: active ? C.accent : 'transparent',
+              color: active ? C.accentInk : C.sub,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontWeight: active ? 600 : 500,
+            }}
+          >
+            {it.label}
+          </button>
+        );
+      })}
     </div>
   );
 };
 
-// ─── Main FarmOverview ────────────────────────────────────────────
+// ─── Main ──────────────────────────────────────────────────────
 
-const FarmOverview: React.FC<FarmOverviewProps> = ({ turbines, onSelectTurbine, settings, lang = 'zh' }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('summary');
-  const u = (en: string, zh: string) => lang === 'zh' ? zh : en;
+const FarmOverview: React.FC<FarmOverviewProps> = ({
+  turbines,
+  onSelectTurbine,
+  settings,
+  lang = 'zh',
+}) => {
+  const { C } = useTheme();
+  const [mode, setMode] = useState<ViewMode>('cards');
+  const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
-  const viewButtons: { mode: ViewMode; label_en: string; label_zh: string }[] = [
-    { mode: 'cards', label_en: 'Cards', label_zh: '卡片' },
-    { mode: 'summary', label_en: 'Summary', label_zh: '摘要' },
-    { mode: 'table', label_en: 'Table', label_zh: '列表' },
-  ];
+  const dateLabel = lang === 'zh'
+    ? new Date().toLocaleDateString('zh-TW')
+    : new Date().toLocaleDateString();
+
+  const isMock = settings.dataSource === DataSourceType.MOCK;
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-        <h2 className="text-3xl font-bold font-orbitron text-white">{u('Farm Overview', '風場總覽')}</h2>
-        <div className="flex items-center gap-2 mt-2 md:mt-0">
-          {/* View mode toggle */}
-          <div className="flex bg-gray-800 rounded-md border border-gray-700 overflow-hidden">
-            {viewButtons.map(b => (
-              <button key={b.mode} onClick={() => setViewMode(b.mode)}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  viewMode === b.mode ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}>
-                {lang === 'zh' ? b.label_zh : b.label_en}
-              </button>
-            ))}
-          </div>
-          {settings.dataSource === DataSourceType.MOCK && (
-            <div className="text-xs text-yellow-300 bg-yellow-900/50 border border-yellow-700 px-2 py-1 rounded-md">MOCK</div>
-          )}
+      <PageHeader
+        title={tr('Good morning, Operator.', '早安，營運團隊。')}
+        sub={
+          <span>
+            {tr('Changhua Coastal · ', '彰化沿海　')}
+            {turbines.length} {tr('turbines · ', '機・')}
+            {dateLabel}
+            {isMock && (
+              <span style={{ marginLeft: 10 }}>
+                <StatusPill tone="amber" size="sm">
+                  MOCK
+                </StatusPill>
+              </span>
+            )}
+          </span>
+        }
+        actions={
+          <>
+            <ViewToggle mode={mode} onChange={setMode} tr={tr} />
+            <Btn ariaLabel={tr('Export report', '匯出報告')}>{tr('Export', '匯出')}</Btn>
+            <Btn variant="primary" ariaLabel={tr('New report', '新報告')}>
+              + {tr('New Report', '新報告')}
+            </Btn>
+          </>
+        }
+      />
+
+      {/* Hero */}
+      <HeroStats turbines={turbines} tr={tr} />
+
+      {/* Trend */}
+      <TrendCard turbines={turbines} tr={tr} />
+
+      {/* Turbine list */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+          {tr('Turbines', '風機列表')}
+        </div>
+        <div style={{ fontSize: 12, color: C.sub }}>
+          {tr('Click a turbine to drill in', '點選風機進入詳情')}
         </div>
       </div>
 
-      {viewMode === 'cards' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {turbines.map(t => <TurbineCard key={t.id} turbine={t} onSelect={onSelectTurbine} lang={lang} />)}
+      {mode === 'cards' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 12,
+          }}
+        >
+          {turbines.map(t => (
+            <TCard key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} />
+          ))}
         </div>
       )}
-      {viewMode === 'summary' && <SummaryView turbines={turbines} onSelect={onSelectTurbine} lang={lang} />}
-      {viewMode === 'table' && <TableView turbines={turbines} onSelect={onSelectTurbine} lang={lang} />}
+
+      {mode === 'summary' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {turbines.map(t => (
+            <CompactTile key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} />
+          ))}
+        </div>
+      )}
+
+      {mode === 'table' && <TableView turbines={turbines} onSelect={onSelectTurbine} tr={tr} />}
     </div>
   );
 };

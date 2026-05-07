@@ -1,6 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+/**
+ * FarmSelector — sidebar 底部風場切換器（改版後）。
+ *
+ * UI 走 theme palette；行為與舊版一致：
+ *   - 點擊展開列表
+ *   - 切換 farm 會 reload 整個 app（後端切 active farm）
+ *   - 「+ 新增風場」開 modal
+ */
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
+import React, { useEffect, useRef, useState } from 'react';
+import { useTheme } from '../theme/ThemeProvider';
+import { Btn, Card, Field, Input } from './ui';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 interface Farm {
   farm_id: string;
@@ -26,10 +37,11 @@ const PRESETS: Preset[] = [
 ];
 
 interface Props {
-  lang: string;
+  lang: 'en' | 'zh';
 }
 
 const FarmSelector: React.FC<Props> = ({ lang }) => {
+  const { C } = useTheme();
   const [farms, setFarms] = useState<Farm[]>([]);
   const [activeFarmId, setActiveFarmId] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -37,9 +49,11 @@ const FarmSelector: React.FC<Props> = ({ lang }) => {
   const [showCreate, setShowCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const ui = (en: string, zh: string) => lang === 'zh' ? zh : en;
+  const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
-  useEffect(() => { fetchFarms(); }, []);
+  useEffect(() => {
+    fetchFarms();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -58,7 +72,9 @@ const FarmSelector: React.FC<Props> = ({ lang }) => {
       const data = await res.json();
       setFarms(data.farms || []);
       setActiveFarmId(data.active_farm_id);
-    } catch { /* Farm API not available yet */ }
+    } catch {
+      /* Farm API not available */
+    }
   };
 
   const switchFarm = async (farmId: string) => {
@@ -71,104 +87,185 @@ const FarmSelector: React.FC<Props> = ({ lang }) => {
         setIsOpen(false);
         window.location.reload();
       }
-    } catch { /* ignore */ }
-    finally { setSwitching(false); }
+    } catch {
+      /* ignore */
+    } finally {
+      setSwitching(false);
+    }
   };
 
   const activeFarm = farms.find(f => f.farm_id === activeFarmId);
   const ratedPower = activeFarm?.turbine_spec?.rated_power_kw as number | undefined;
   const label = activeFarm
-    ? `${activeFarm.name}${ratedPower ? ` (${(ratedPower / 1000).toFixed(1)}MW)` : ''}`
-    : ui('Select Farm', '選擇風場');
+    ? `${activeFarm.name}${ratedPower ? ` · ${(ratedPower / 1000).toFixed(1)} MW` : ''}`
+    : ui('Select farm', '選擇風場');
 
   return (
-    <>
-      <div className="relative" ref={dropdownRef}>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-gray-600 text-gray-300 hover:text-white hover:border-gray-400 transition-colors bg-gray-800/60"
-          title={ui('Switch Wind Farm', '切換風場')}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 0h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
-          </svg>
-          <span className="hidden lg:inline max-w-[140px] truncate">{label}</span>
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
+    <div ref={dropdownRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setIsOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ui('Switch wind farm', '切換風場')}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 6,
+          padding: '8px 10px',
+          background: C.panelMuted,
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          fontSize: 12,
+          color: C.text,
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+        <span aria-hidden style={{ color: C.sub, fontSize: 10 }}>▾</span>
+      </button>
 
-        {isOpen && (
-          <div className="absolute top-full right-0 mt-1 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-[100] overflow-hidden">
-            <div className="px-3 py-2 border-b border-gray-700 flex items-center justify-between">
-              <span className="text-xs text-gray-400 font-medium">{ui('Wind Farms', '風場專案')}</span>
-              <button
-                onClick={() => { setIsOpen(false); setShowCreate(true); }}
-                className="flex items-center space-x-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                <span>{ui('New Farm', '新增風場')}</span>
-              </button>
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-              {farms.map(farm => {
+      {isOpen && (
+        <div
+          role="listbox"
+          style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 12,
+            boxShadow: C.isDark
+              ? '0 12px 40px rgba(0,0,0,0.6)'
+              : '0 12px 40px rgba(31, 45, 36, 0.16)',
+            zIndex: 100,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '10px 12px',
+              borderBottom: `1px solid ${C.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 11,
+              color: C.sub,
+            }}
+          >
+            <span>{ui('Wind farms', '風場專案')}</span>
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                setShowCreate(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.accent,
+                fontSize: 11,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontWeight: 600,
+              }}
+            >
+              + {ui('New', '新增')}
+            </button>
+          </div>
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {farms.length === 0 ? (
+              <div style={{ padding: 12, fontSize: 12, color: C.faint }}>
+                {ui('No farms', '尚未建立風場')}
+              </div>
+            ) : (
+              farms.map(farm => {
+                const isActive = farm.farm_id === activeFarmId;
                 const power = farm.turbine_spec?.rated_power_kw as number | undefined;
                 return (
                   <button
                     key={farm.farm_id}
+                    role="option"
+                    aria-selected={isActive}
                     onClick={() => switchFarm(farm.farm_id)}
                     disabled={switching}
-                    className={`w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-gray-700/50 transition-colors ${
-                      farm.farm_id === activeFarmId ? 'bg-cyan-500/10 border-l-2 border-cyan-400' : 'border-l-2 border-transparent'
-                    }`}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      background: isActive ? C.accentSoft : 'transparent',
+                      borderLeft: `3px solid ${isActive ? C.accent : 'transparent'}`,
+                      border: 'none',
+                      cursor: switching ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      fontFamily: 'inherit',
+                    }}
                   >
-                    <div>
-                      <div className="text-sm text-white font-medium">{farm.name}</div>
-                      <div className="text-xs text-gray-400">
-                        {farm.turbine_count} {ui('turbines', '台風機')}
-                        {power ? ` | ${(power / 1000).toFixed(1)} MW` : ''}
-                        {farm.location ? ` | ${farm.location}` : ''}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isActive ? C.accent : C.text,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {farm.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                        {farm.turbine_count} {ui('turbines', '台')}
+                        {power ? ` · ${(power / 1000).toFixed(1)} MW` : ''}
+                        {farm.location ? ` · ${farm.location}` : ''}
                       </div>
                     </div>
-                    {farm.farm_id === activeFarmId && (
-                      <span className="text-cyan-400 text-xs font-medium">{ui('Active', '使用中')}</span>
+                    {isActive && (
+                      <span style={{ fontSize: 10, color: C.accent, fontWeight: 600 }}>
+                        {ui('Active', '使用中')}
+                      </span>
                     )}
                   </button>
                 );
-              })}
-            </div>
+              })
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {showCreate && (
         <CreateFarmModal
           lang={lang}
           onClose={() => setShowCreate(false)}
-          onCreated={(farmId) => {
+          onCreated={farmId => {
             setShowCreate(false);
             fetchFarms();
             switchFarm(farmId);
           }}
         />
       )}
-    </>
+    </div>
   );
 };
 
-
-// ── Create Farm Modal ──────────────────────────────────────────────────
+// ─── Create farm modal ────────────────────────────────────────
 
 interface CreateModalProps {
-  lang: string;
+  lang: 'en' | 'zh';
   onClose: () => void;
   onCreated: (farmId: string) => void;
 }
 
 const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated }) => {
-  const ui = (en: string, zh: string) => lang === 'zh' ? zh : en;
+  const { C } = useTheme();
+  const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
   const [name, setName] = useState('');
   const [preset, setPreset] = useState('z72_2mw');
   const [turbineCount, setTurbineCount] = useState(14);
@@ -211,111 +308,188 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-gray-800 border border-gray-600 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-gray-700 flex items-center justify-between sticky top-0 bg-gray-800 z-10">
-          <h2 className="text-lg font-bold text-white">{ui('Create Wind Farm', '建立新風場')}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="px-5 py-4 space-y-4">
-          {/* Farm Name */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">{ui('Farm Name', '風場名稱')} *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder={ui('e.g. Changhua Offshore 8MW', '例：彰化離岸 8MW 風場')}
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
-              autoFocus
-            />
-          </div>
-
-          {/* Turbine Preset */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">{ui('Turbine Model', '風機機型')}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {PRESETS.map(p => (
-                <button
-                  key={p.key}
-                  onClick={() => setPreset(p.key)}
-                  className={`px-3 py-2 rounded-md text-xs font-medium transition-colors border ${
-                    preset === p.key
-                      ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300'
-                      : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Turbine Count */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">{ui('Number of Turbines', '風機數量')}</label>
-            <input
-              type="number"
-              value={turbineCount}
-              onChange={e => setTurbineCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
-              min={1}
-              max={50}
-              className="w-24 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
-            />
-          </div>
-
-          {/* Location */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">{ui('Location', '地點')} <span className="text-gray-500">({ui('optional', '選填')})</span></label>
-            <input
-              type="text"
-              value={location}
-              onChange={e => setLocation(e.target.value)}
-              placeholder={ui('e.g. Taiwan Strait', '例：台灣海峽')}
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">{ui('Description', '說明')} <span className="text-gray-500">({ui('optional', '選填')})</span></label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              rows={2}
-              placeholder={ui('Notes about this farm project...', '關於此風場專案的備註...')}
-              className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 resize-none"
-            />
-          </div>
-
-          {error && (
-            <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-gray-700 flex justify-end space-x-3 sticky bottom-0 bg-gray-800">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors"
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 200,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
+    >
+      <Card
+        padding={0}
+        onClick={undefined}
+        style={{ width: '100%', maxWidth: 460, overflow: 'hidden' }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+        >
+          <div
+            style={{
+              padding: '14px 18px',
+              borderBottom: `1px solid ${C.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
           >
-            {ui('Cancel', '取消')}
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={creating || !name.trim()}
-            className="px-4 py-2 text-sm font-medium bg-cyan-600 hover:bg-cyan-500 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: '"DM Serif Display", serif',
+                fontSize: 22,
+                fontWeight: 400,
+                color: C.text,
+              }}
+            >
+              {ui('Create wind farm', '建立新風場')}
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label={ui('Close', '關閉')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.sub,
+                fontSize: 18,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label={`${ui('Farm name', '風場名稱')} *`}>
+              <Input
+                value={name}
+                onChange={setName}
+                placeholder={ui('e.g. Changhua Offshore 8MW', '例：彰化離岸 8MW 風場')}
+                fullWidth
+                ariaLabel={ui('Farm name', '風場名稱')}
+              />
+            </Field>
+
+            <div>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
+                {ui('Turbine model', '風機機型')}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                {PRESETS.map(p => {
+                  const active = preset === p.key;
+                  return (
+                    <button
+                      key={p.key}
+                      onClick={() => setPreset(p.key)}
+                      aria-pressed={active}
+                      style={{
+                        padding: '8px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: `1px solid ${active ? C.accent : C.border}`,
+                        background: active ? C.accentSoft : C.panel,
+                        color: active ? C.accent : C.text,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: active ? 600 : 500,
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Field label={ui('Number of turbines', '風機數量')}>
+              <Input
+                type="number"
+                value={turbineCount}
+                onChange={v => setTurbineCount(Math.max(1, Math.min(50, parseInt(v) || 1)))}
+                min={1}
+                max={50}
+                width={100}
+                ariaLabel={ui('Number of turbines', '風機數量')}
+              />
+            </Field>
+
+            <Field label={`${ui('Location', '地點')} (${ui('optional', '選填')})`}>
+              <Input
+                value={location}
+                onChange={setLocation}
+                placeholder={ui('e.g. Taiwan Strait', '例：台灣海峽')}
+                fullWidth
+                ariaLabel={ui('Location', '地點')}
+              />
+            </Field>
+
+            <Field label={`${ui('Description', '說明')} (${ui('optional', '選填')})`}>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={2}
+                placeholder={ui('Notes about this farm...', '備註...')}
+                style={{
+                  background: C.panel,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  color: C.text,
+                  fontFamily: 'inherit',
+                  width: '100%',
+                  resize: 'none',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </Field>
+
+            {error && (
+              <div
+                style={{
+                  background: C.warnSoft,
+                  color: C.warn,
+                  border: `1px solid ${C.warn}`,
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              padding: '12px 18px',
+              borderTop: `1px solid ${C.border}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+            }}
           >
-            {creating ? ui('Creating...', '建立中...') : ui('Create & Activate', '建立並啟用')}
-          </button>
+            <Btn onClick={onClose} ariaLabel={ui('Cancel', '取消')}>
+              {ui('Cancel', '取消')}
+            </Btn>
+            <Btn
+              variant="primary"
+              onClick={handleCreate}
+              disabled={creating || !name.trim()}
+              ariaLabel={ui('Create farm', '建立風場')}
+            >
+              {creating ? ui('Creating…', '建立中…') : ui('Create & activate', '建立並啟用')}
+            </Btn>
+          </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

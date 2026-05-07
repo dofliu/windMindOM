@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 80
+progress: 82
 status: active
-last_updated: "2026-05-06"
-next_milestone: "**WMOM-23 全 Layer 1-7 完成** — `tests/physics/` 121 tests pass in ~25 s + `tools/physics_health_check.py` CLI + `tests/physics/reports/` 報告紀錄系統。Layer 1 守恆律 36 / Layer 2 文獻 benchmark 35 / Layer 3 操作邊界 18 / Layer 4 跨模組一致性 9 / Layer 5 故障注入 23 / Layer 6 health check CLI / Layer 7 pytest_sessionfinish hook + baseline drift。code review 已過（3 blockers + 3 suggestions fix）。下一步建議：WMOM-24 data quality 修正（會被 Layer 4 spread/CV 自動驗證），或 WMOM-19 frontend 接力。"
+last_updated: "2026-05-07"
+next_milestone: "**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題（鼠尾草綠／翡翠玻璃）；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/` 元件庫 + `frontend/theme/` system；保留全部 API / hooks 不動。dev server 5179 視覺 review 通過。下一步建議：M3 frontend 接力（WMOM-19/-20/-25）改用新元件庫，或 WMOM-24 data quality 修正。"
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 12
   in_progress: 0
   blocked: 0
-  done: 21
+  done: 22
 
 inherited_baseline:
   source: digiWindTurbine

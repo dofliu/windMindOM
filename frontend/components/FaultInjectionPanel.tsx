@@ -1,7 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import type { FaultScenario } from '../types';
+/**
+ * FaultInjectionPanel — A · Calm Operator 改版（套新元件，功能不動）。
+ *
+ * - 上半：注入控制（場景 / 風機 / 速率 / 注入 / 清除全部 + 活躍故障表）
+ * - 下半：診斷測試計畫卡片 + 結果摘要
+ */
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
+import React, { useEffect, useState } from 'react';
+import type { FaultScenario } from '../types';
+import {
+  Btn,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  StatusPill,
+  Stat,
+  type PillTone,
+} from './ui';
+import { useTheme } from '../theme/ThemeProvider';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 interface TestPlan {
   id: string;
@@ -15,48 +34,79 @@ interface TestPlan {
   scenarios_used: string[];
 }
 
+interface ActiveFault {
+  turbine_id: string;
+  scenario_id?: string;
+  name_en: string;
+  name_zh: string;
+  severity: number;
+  phase: string;
+  tripped: boolean;
+  active_alarms?: { type: string; code: number; desc: string }[];
+}
+
 interface TestPlanResult {
   status: string;
   plan_id: string;
   duration_hours: number;
   total_readings: number;
   faults_injected: number;
-  final_fault_status: any[];
-  storage_stats: any;
+  final_fault_status: ActiveFault[];
+  storage_stats: { db_size_mb?: number };
 }
 
-interface FaultInjectionPanelProps {
+interface Props {
   lang?: 'en' | 'zh';
 }
 
-const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({ lang = 'zh' }) => {
+const phaseTone = (phase: string): PillTone => {
+  if (phase === 'critical') return 'warn';
+  if (phase === 'advanced') return 'warn';
+  if (phase === 'developing') return 'amber';
+  return 'amber';
+};
+
+const planTone = (id: string): PillTone => {
+  if (id === 'basic_validation') return 'ok';
+  if (id === 'subtle_challenge') return 'amber';
+  if (id === 'mixed_difficulty') return 'amber';
+  return 'warn';
+};
+
+const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
+  const { C } = useTheme();
+  const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+
   const [scenarios, setScenarios] = useState<FaultScenario[]>([]);
   const [selectedScenario, setSelectedScenario] = useState('');
   const [selectedTurbine, setSelectedTurbine] = useState('WT001');
   const [severityRate, setSeverityRate] = useState('0.005');
-  const [activeFaults, setActiveFaults] = useState<any[]>([]);
+  const [activeFaults, setActiveFaults] = useState<ActiveFault[]>([]);
   const [message, setMessage] = useState('');
 
-  // Test plans state
   const [testPlans, setTestPlans] = useState<TestPlan[]>([]);
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
   const [planResult, setPlanResult] = useState<TestPlanResult | null>(null);
 
-  const u = (en: string, zh: string) => lang === 'zh' ? zh : en;
-
   useEffect(() => {
     fetch(`${API_BASE}/api/faults/scenarios`)
-      .then(r => r.json()).then(setScenarios).catch(() => {});
+      .then(r => r.json())
+      .then(setScenarios)
+      .catch(() => {});
     fetch(`${API_BASE}/api/faults/test-plans`)
-      .then(r => r.json()).then(setTestPlans).catch(() => {});
+      .then(r => r.json())
+      .then(setTestPlans)
+      .catch(() => {});
     refreshActive();
-    const iv = setInterval(refreshActive, 3000);
-    return () => clearInterval(iv);
+    const id = setInterval(refreshActive, 3000);
+    return () => clearInterval(id);
   }, []);
 
   const refreshActive = () => {
     fetch(`${API_BASE}/api/faults/active`)
-      .then(r => r.json()).then(setActiveFaults).catch(() => {});
+      .then(r => r.json())
+      .then(setActiveFaults)
+      .catch(() => {});
   };
 
   const handleInject = async () => {
@@ -71,7 +121,7 @@ const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({ lang = 'zh' }
       }),
     });
     if (res.ok) {
-      setMessage(lang === 'zh' ? `已注入故障到 ${selectedTurbine}` : `Fault injected into ${selectedTurbine}`);
+      setMessage(u(`Fault injected to ${selectedTurbine}`, `已注入故障到 ${selectedTurbine}`));
       refreshActive();
     }
     setTimeout(() => setMessage(''), 3000);
@@ -83,25 +133,17 @@ const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({ lang = 'zh' }
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
-    setMessage(lang === 'zh' ? '已清除所有故障' : 'All faults cleared');
+    setMessage(u('All faults cleared', '已清除所有故障'));
     refreshActive();
     setTimeout(() => setMessage(''), 3000);
   };
 
-  const phaseColors: Record<string, string> = {
-    incipient: 'text-yellow-400',
-    developing: 'text-orange-400',
-    advanced: 'text-red-400',
-    critical: 'text-red-300 font-bold',
-  };
-
-  const turbineOptions = Array.from({length: 14}, (_, i) => `WT${String(i+1).padStart(3, '0')}`);
-
   const handleRunPlan = async (planId: string) => {
     setRunningPlan(planId);
     setPlanResult(null);
-    setMessage(u(`Running test plan "${planId}"... This may take a moment.`,
-                 `正在執行測試計畫「${planId}」... 請稍候。`));
+    setMessage(
+      u(`Running plan "${planId}"…`, `正在執行測試計畫「${planId}」…`),
+    );
     try {
       const res = await fetch(`${API_BASE}/api/faults/test-plans/${planId}/run`, {
         method: 'POST',
@@ -110,248 +152,402 @@ const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({ lang = 'zh' }
       });
       const data = await res.json();
       setPlanResult(data);
-      setMessage(u(`Test plan "${planId}" completed!`, `測試計畫「${planId}」執行完成！`));
+      setMessage(u(`Plan "${planId}" completed`, `測試計畫「${planId}」執行完成`));
       refreshActive();
     } catch {
-      setMessage(u('Test plan execution failed', '測試計畫執行失敗'));
+      setMessage(u('Test plan failed', '測試計畫執行失敗'));
     } finally {
       setRunningPlan(null);
       setTimeout(() => setMessage(''), 8000);
     }
   };
 
-  return (
-    <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
-      <h3 className="text-xl font-bold text-white mb-4">
-        {lang === 'zh' ? '故障模擬控制台' : 'Fault Injection Console'}
-      </h3>
+  const turbineOptions = Array.from({ length: 14 }, (_, i) => `WT${String(i + 1).padStart(3, '0')}`);
 
-      {/* Inject form */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-        <select value={selectedScenario} onChange={e => setSelectedScenario(e.target.value)}
-          className="bg-gray-700 text-white rounded px-3 py-2 text-sm">
-          <option value="">{lang === 'zh' ? '-- 選擇故障場景 --' : '-- Select Scenario --'}</option>
-          {scenarios.map(s => (
-            <option key={s.id} value={s.id}>{lang === 'zh' ? s.name_zh : s.name_en}</option>
-          ))}
-        </select>
-        <select value={selectedTurbine} onChange={e => setSelectedTurbine(e.target.value)}
-          className="bg-gray-700 text-white rounded px-3 py-2 text-sm">
-          {turbineOptions.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <div className="flex items-center space-x-2">
-          <label className="text-gray-400 text-xs whitespace-nowrap">{lang === 'zh' ? '速率' : 'Rate'}:</label>
-          <input type="number" step="0.001" min="0.0001" max="0.1" value={severityRate}
-            onChange={e => setSeverityRate(e.target.value)}
-            className="bg-gray-700 text-white rounded px-3 py-2 text-sm w-full" />
-        </div>
-        <button onClick={handleInject} disabled={!selectedScenario}
-          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded text-sm transition-colors">
-          {lang === 'zh' ? '注入故障' : 'Inject Fault'}
-        </button>
-        <button onClick={handleClearAll}
-          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors">
-          {lang === 'zh' ? '清除全部' : 'Clear All'}
-        </button>
-      </div>
+  return (
+    <div>
+      <PageHeader
+        title={u('Fault Injection', '故障模擬')}
+        sub={u(
+          'Manual injection · diagnostic test plans · simulated fault behavior',
+          '手動注入故障・診斷測試計畫・模擬故障行為',
+        )}
+        actions={
+          <>
+            <Btn
+              variant="warn"
+              onClick={handleInject}
+              disabled={!selectedScenario}
+              ariaLabel={u('Inject fault', '注入故障')}
+            >
+              {u('Inject fault', '注入故障')}
+            </Btn>
+            <Btn variant="primary" onClick={handleClearAll} ariaLabel={u('Clear all', '清除全部')}>
+              {u('Clear all', '清除全部')}
+            </Btn>
+          </>
+        }
+      />
 
       {message && (
-        <div className="mb-3 text-sm text-cyan-300 bg-cyan-900/30 px-3 py-1 rounded">{message}</div>
+        <div style={{ marginBottom: 14 }}>
+          <StatusPill tone="accent" size="md">
+            {message}
+          </StatusPill>
+        </div>
       )}
 
-      {/* Active faults table */}
+      {/* Inject form */}
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: C.text }}>
+          {u('Inject parameters', '注入參數')}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <Field label={u('Scenario', '故障場景')}>
+            <Select
+              value={selectedScenario}
+              onChange={setSelectedScenario}
+              options={[
+                { value: '', label: u('-- Select scenario --', '-- 選擇故障場景 --') },
+                ...scenarios.map(s => ({
+                  value: s.id,
+                  label: lang === 'zh' ? s.name_zh : s.name_en,
+                })),
+              ]}
+              ariaLabel={u('Scenario', '故障場景')}
+              fullWidth
+            />
+          </Field>
+          <Field label={u('Turbine', '風機')}>
+            <Select
+              value={selectedTurbine}
+              onChange={setSelectedTurbine}
+              options={turbineOptions.map(t => ({ value: t, label: t }))}
+              ariaLabel={u('Turbine', '風機')}
+              fullWidth
+            />
+          </Field>
+          <Field label={u('Severity rate', '速率')}>
+            <Input
+              type="number"
+              step="0.001"
+              min={0.0001}
+              max={0.1}
+              value={severityRate}
+              onChange={setSeverityRate}
+              fullWidth
+              monospace
+              ariaLabel={u('Severity rate', '速率')}
+            />
+          </Field>
+        </div>
+      </Card>
+
+      {/* Active faults */}
       {activeFaults.length > 0 && (
-        <div className="mt-4">
-          <h4 className="text-sm text-gray-400 mb-2">{u('Active Faults', '活躍故障')} ({activeFaults.length})</h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+        <Card padding={0} style={{ marginBottom: 14 }}>
+          <div
+            style={{
+              padding: '14px 18px',
+              borderBottom: `1px solid ${C.border}`,
+              fontSize: 14,
+              fontWeight: 600,
+              color: C.text,
+            }}
+          >
+            {u('Active faults', '活躍故障')} ({activeFaults.length})
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr className="text-gray-500 text-xs border-b border-gray-700">
-                  <th className="text-left py-1 px-2">{u('Turbine', '風機')}</th>
-                  <th className="text-left py-1 px-2">{u('Fault', '故障')}</th>
-                  <th className="text-left py-1 px-2">{u('Severity', '嚴重度')}</th>
-                  <th className="text-left py-1 px-2">{u('Phase', '階段')}</th>
-                  <th className="text-left py-1 px-2">{u('Alarms', '告警')}</th>
+                <tr style={{ background: C.panelMuted }}>
+                  {[u('Turbine', '風機'), u('Fault', '故障'), u('Severity', '嚴重度'), u('Phase', '階段'), u('Alarms', '告警')].map(h => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: 'left',
+                        padding: '10px 14px',
+                        fontSize: 11,
+                        color: C.sub,
+                        fontWeight: 500,
+                        letterSpacing: 0.5,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {activeFaults.map((f, i) => (
-                  <tr key={i} className="border-b border-gray-800">
-                    <td className="py-1.5 px-2 text-white font-mono">{f.turbine_id}</td>
-                    <td className="py-1.5 px-2 text-gray-300">{lang === 'zh' ? f.name_zh : f.name_en}</td>
-                    <td className="py-1.5 px-2">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-20 h-2 bg-gray-700 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${f.severity > 0.7 ? 'bg-red-500' : f.severity > 0.4 ? 'bg-orange-500' : 'bg-yellow-500'}`}
-                            style={{width: `${f.severity * 100}%`}} />
+                  <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td
+                      style={{
+                        padding: '10px 14px',
+                        fontFamily: 'JetBrains Mono, monospace',
+                        color: C.text,
+                      }}
+                    >
+                      {f.turbine_id}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: C.text }}>
+                      {lang === 'zh' ? f.name_zh : f.name_en}
+                    </td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div
+                          style={{
+                            width: 80,
+                            height: 6,
+                            background: C.bg,
+                            borderRadius: 3,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${f.severity * 100}%`,
+                              background: f.severity > 0.7 ? C.warn : f.severity > 0.4 ? C.amber : C.ok,
+                              borderRadius: 3,
+                            }}
+                          />
                         </div>
-                        <span className="text-gray-400 text-xs">{(f.severity * 100).toFixed(0)}%</span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: C.sub,
+                            fontFamily: 'JetBrains Mono, monospace',
+                          }}
+                        >
+                          {(f.severity * 100).toFixed(0)}%
+                        </span>
                       </div>
                     </td>
-                    <td className={`py-1.5 px-2 text-xs capitalize ${phaseColors[f.phase] || ''}`}>
-                      {f.phase} {f.tripped && '(TRIP)'}
+                    <td style={{ padding: '10px 14px' }}>
+                      <StatusPill tone={phaseTone(f.phase)}>
+                        {f.phase}
+                        {f.tripped && ' · TRIP'}
+                      </StatusPill>
                     </td>
-                    <td className="py-1.5 px-2 text-xs text-gray-500">
-                      {f.active_alarms?.map((a: any) => `[${a.type}]`).join(' ') || '-'}
+                    <td
+                      style={{
+                        padding: '10px 14px',
+                        fontSize: 11,
+                        color: C.sub,
+                      }}
+                    >
+                      {f.active_alarms?.map(a => `[${a.type}]`).join(' ') || '—'}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════ */}
-      {/* Test Plans Section */}
-      {/* ════════════════════════════════════════════════════════════════ */}
-      <div className="mt-8 border-t border-gray-600 pt-6">
-        <h3 className="text-xl font-bold text-white mb-2">
-          {u('Diagnostic Test Plans', '故障診斷測試計畫')}
-        </h3>
-        <p className="text-sm text-gray-400 mb-4">
-          {u('Generate simulated historical data with pre-scheduled fault injections for testing external diagnosis systems.',
-             '產生含預排程故障注入的模擬歷史資料，用於測試外部故障診斷系統。')}
+      {/* Test plans */}
+      <div style={{ marginBottom: 8, marginTop: 24 }}>
+        <h2
+          style={{
+            margin: 0,
+            fontFamily: '"DM Serif Display", serif',
+            fontSize: 24,
+            fontWeight: 400,
+            color: C.text,
+          }}
+        >
+          {u('Diagnostic Test Plans', '診斷測試計畫')}
+        </h2>
+        <p style={{ margin: '6px 0 16px', fontSize: 13, color: C.sub }}>
+          {u(
+            'Generate simulated historical data with pre-scheduled fault injections.',
+            '產生含預排程故障注入的模擬歷史資料，用於外部診斷系統測試。',
+          )}
         </p>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {testPlans.map(plan => {
-            const isRunning = runningPlan === plan.id;
-            const difficultyColor =
-              plan.id === 'basic_validation' ? 'border-green-500/30' :
-              plan.id === 'subtle_challenge' ? 'border-yellow-500/30' :
-              plan.id === 'mixed_difficulty' ? 'border-orange-500/30' :
-              'border-red-500/30';
-            const difficultyLabel =
-              plan.id === 'basic_validation' ? u('Easy', '簡單') :
-              plan.id === 'subtle_challenge' ? u('Hard', '困難') :
-              plan.id === 'mixed_difficulty' ? u('Mixed', '混合') :
-              u('Extreme', '極限');
-            const difficultyBadgeColor =
-              plan.id === 'basic_validation' ? 'bg-green-500/20 text-green-300' :
-              plan.id === 'subtle_challenge' ? 'bg-yellow-500/20 text-yellow-300' :
-              plan.id === 'mixed_difficulty' ? 'bg-orange-500/20 text-orange-300' :
-              'bg-red-500/20 text-red-300';
-
-            return (
-              <div key={plan.id} className={`bg-gray-800/60 rounded-lg p-4 border ${difficultyColor}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="text-white font-semibold">{lang === 'zh' ? plan.name_zh : plan.name_en}</h4>
-                    <span className={`text-xs px-2 py-0.5 rounded ${difficultyBadgeColor}`}>
-                      {difficultyLabel}
-                    </span>
-                  </div>
-                  <div className="text-right text-xs text-gray-500">
-                    <div>{plan.duration_hours}h</div>
-                    <div>{plan.fault_count} {u('faults', '故障')}</div>
-                  </div>
-                </div>
-
-                <p className="text-xs text-gray-400 mb-3">
-                  {lang === 'zh' ? plan.description_zh : plan.description_en}
-                </p>
-
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {plan.turbines_affected.sort().map(t => (
-                    <span key={t} className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded">{t}</span>
-                  ))}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-wrap gap-1">
-                    {plan.scenarios_used.map(s => (
-                      <span key={s} className="text-xs text-gray-500">{s}</span>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => handleRunPlan(plan.id)}
-                    disabled={isRunning || runningPlan !== null}
-                    className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${
-                      isRunning
-                        ? 'bg-yellow-600 text-white animate-pulse cursor-wait'
-                        : runningPlan !== null
-                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white'
-                    }`}>
-                    {isRunning
-                      ? u('Running...', '執行中...')
-                      : u('Run', '執行')}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Test Plan Result */}
-        {planResult && (
-          <div className="mt-4 bg-gray-800/60 rounded-lg p-4 border border-purple-500/30">
-            <h4 className="text-sm font-semibold text-purple-400 mb-3">
-              {u('Test Plan Result', '測試計畫結果')} — {planResult.plan_id}
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              <div className="text-center">
-                <div className="text-2xl font-orbitron font-bold text-white">{planResult.duration_hours}h</div>
-                <div className="text-xs text-gray-400">{u('Duration', '時長')}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-orbitron font-bold text-cyan-300">{planResult.total_readings.toLocaleString()}</div>
-                <div className="text-xs text-gray-400">{u('Readings', '數據筆數')}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-orbitron font-bold text-orange-300">{planResult.faults_injected}</div>
-                <div className="text-xs text-gray-400">{u('Faults Injected', '注入故障數')}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-orbitron font-bold text-gray-300">{planResult.storage_stats?.db_size_mb} MB</div>
-                <div className="text-xs text-gray-400">{u('DB Size', '資料庫大小')}</div>
-              </div>
-            </div>
-
-            {planResult.final_fault_status && planResult.final_fault_status.length > 0 && (
-              <>
-                <h5 className="text-xs text-gray-400 mb-2">{u('Final Fault Status', '最終故障狀態')}</h5>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-500 border-b border-gray-700">
-                        <th className="text-left py-1 px-2">{u('Turbine', '風機')}</th>
-                        <th className="text-left py-1 px-2">{u('Scenario', '場景')}</th>
-                        <th className="text-left py-1 px-2">{u('Severity', '嚴重度')}</th>
-                        <th className="text-left py-1 px-2">{u('Phase', '階段')}</th>
-                        <th className="text-left py-1 px-2">{u('Tripped', '跳脫')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {planResult.final_fault_status.map((f: any, i: number) => (
-                        <tr key={i} className="border-b border-gray-800">
-                          <td className="py-1 px-2 text-white font-mono">{f.turbine_id}</td>
-                          <td className="py-1 px-2 text-gray-300">{f.scenario_id}</td>
-                          <td className="py-1 px-2">
-                            <div className="flex items-center space-x-1">
-                              <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${f.severity > 0.7 ? 'bg-red-500' : f.severity > 0.4 ? 'bg-orange-500' : 'bg-yellow-500'}`}
-                                  style={{width: `${f.severity * 100}%`}} />
-                              </div>
-                              <span className="text-gray-400">{(f.severity * 100).toFixed(0)}%</span>
-                            </div>
-                          </td>
-                          <td className={`py-1 px-2 capitalize ${phaseColors[f.phase] || ''}`}>{f.phase}</td>
-                          <td className="py-1 px-2">{f.tripped
-                            ? <span className="text-red-400 font-bold">TRIP</span>
-                            : <span className="text-green-400">-</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gap: 14,
+        }}
+      >
+        {testPlans.map(plan => {
+          const isRunning = runningPlan === plan.id;
+          const tone = planTone(plan.id);
+          const labelMap: Record<string, string> = {
+            basic_validation: u('Easy', '簡單'),
+            subtle_challenge: u('Hard', '困難'),
+            mixed_difficulty: u('Mixed', '混合'),
+          };
+          return (
+            <Card key={plan.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+                    {lang === 'zh' ? plan.name_zh : plan.name_en}
+                  </div>
+                  <StatusPill tone={tone}>{labelMap[plan.id] || u('Extreme', '極限')}</StatusPill>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: 11, color: C.sub }}>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace' }}>{plan.duration_hours}h</div>
+                  <div>
+                    {plan.fault_count} {u('faults', '故障')}
+                  </div>
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: C.sub, margin: '10px 0' }}>
+                {lang === 'zh' ? plan.description_zh : plan.description_en}
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+                {plan.turbines_affected.sort().map(t => (
+                  <span
+                    key={t}
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: C.panelMuted,
+                      color: C.sub,
+                      fontFamily: 'JetBrains Mono, monospace',
+                    }}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 4,
+                    fontSize: 10,
+                    color: C.faint,
+                  }}
+                >
+                  {plan.scenarios_used.slice(0, 4).map(s => (
+                    <span key={s}>{s}</span>
+                  ))}
+                  {plan.scenarios_used.length > 4 && <span>+{plan.scenarios_used.length - 4}</span>}
+                </div>
+                <Btn
+                  variant="primary"
+                  onClick={() => handleRunPlan(plan.id)}
+                  disabled={isRunning || runningPlan !== null}
+                  ariaLabel={u('Run plan', '執行計畫')}
+                >
+                  {isRunning ? u('Running…', '執行中…') : u('Run', '執行')}
+                </Btn>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Plan result */}
+      {planResult && (
+        <Card style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: C.accent }}>
+            {u('Test plan result', '測試計畫結果')} — {planResult.plan_id}
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 14,
+              marginBottom: 16,
+            }}
+          >
+            <Stat label={u('Duration', '時長')} value={`${planResult.duration_hours}h`} size={24} />
+            <Stat
+              label={u('Readings', '數據筆數')}
+              value={planResult.total_readings.toLocaleString()}
+              highlight
+              size={24}
+            />
+            <Stat label={u('Faults injected', '注入故障數')} value={planResult.faults_injected} size={24} />
+            <Stat
+              label={u('DB size', '資料庫大小')}
+              value={`${planResult.storage_stats?.db_size_mb ?? '—'}`}
+              unit="MB"
+              size={24}
+            />
+          </div>
+          {planResult.final_fault_status?.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>
+                {u('Final fault status', '最終故障狀態')}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: C.sub }}>
+                      {[u('Turbine', '風機'), u('Scenario', '場景'), u('Severity', '嚴重度'), u('Phase', '階段'), u('Tripped', '跳脫')].map(h => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: 'left',
+                            padding: '6px 10px',
+                            fontSize: 10,
+                            color: C.faint,
+                            fontWeight: 500,
+                            letterSpacing: 0.5,
+                            textTransform: 'uppercase',
+                            borderBottom: `1px solid ${C.border}`,
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planResult.final_fault_status.map((f, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '6px 10px', fontFamily: 'JetBrains Mono, monospace', color: C.text }}>
+                          {f.turbine_id}
+                        </td>
+                        <td style={{ padding: '6px 10px', color: C.text }}>{f.scenario_id ?? f.name_en}</td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <span
+                            style={{
+                              fontFamily: 'JetBrains Mono, monospace',
+                              color: f.severity > 0.7 ? C.warn : f.severity > 0.4 ? C.amber : C.ok,
+                            }}
+                          >
+                            {(f.severity * 100).toFixed(0)}%
+                          </span>
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <StatusPill tone={phaseTone(f.phase)}>{f.phase}</StatusPill>
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          {f.tripped ? (
+                            <StatusPill tone="warn">TRIP</StatusPill>
+                          ) : (
+                            <span style={{ color: C.sub }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
     </div>
   );
 };
