@@ -34,17 +34,27 @@ import SettingsPage from './components/SettingsPage';
 import HistoryPage from './components/HistoryPage';
 import FarmSelector from './components/FarmSelector';
 import CostPage from './components/CostPage';
+import WorkflowPage from './components/workflow/WorkflowPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { Sidebar, type NavItem } from './components/ui';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-type ViewId = 'overview' | 'turbine' | 'maintenance' | 'history' | 'cost' | 'faults' | 'settings';
+type ViewId =
+  | 'overview'
+  | 'turbine'
+  | 'maintenance'
+  | 'workflow'
+  | 'history'
+  | 'cost'
+  | 'faults'
+  | 'settings';
 
 const PRIMARY_NAV: NavItem[] = [
   { id: 'overview', iconId: 'overview', labelEn: 'Farm Overview', labelZh: '風場總覽' },
   { id: 'turbine', iconId: 'turbine', labelEn: 'Turbine Detail', labelZh: '風機細節' },
   { id: 'maintenance', iconId: 'maintenance', labelEn: 'Maintenance', labelZh: '維護中心' },
+  { id: 'workflow', iconId: 'workflow', labelEn: 'Workflow', labelZh: '工單管理' },
   { id: 'cost', iconId: 'cost', labelEn: 'Cost Model', labelZh: '成本模型' },
   { id: 'history', iconId: 'history', labelEn: 'History', labelZh: '歷史資料' },
 ];
@@ -223,6 +233,8 @@ const AppShell: React.FC = () => {
             onSelectWorkOrder={wo => setSelectedWorkOrder(wo)}
           />
         );
+      case 'workflow':
+        return <WorkflowPage lang={lang} turbines={turbines} />;
       case 'history':
         return <HistoryPage turbines={turbines} lang={lang} />;
       case 'cost':

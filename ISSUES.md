@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
+| open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 22 |
+| done | 23 |
 | **total (active)** | **35** |
 
-最後更新：2026-05-07（**WMOM-20260507-01 前端 UI 改版完成 + 工作規劃整理** — A · Calm Operator + 雙主題；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/` 10 元件 + `frontend/theme/` system 就位；保留全部 API / hooks 不動。本次同步整理：placeholder 按鈕清單獨立成 WMOM-20260507-02 follow-up（low priority、依 API 成熟度逐項補）；M3 frontend WMOM-19/-20/-21 加上「使用新 ui 元件庫」directive。下一個主軸建議：M3 frontend 接力（-19 工單前端）或 WMOM-24 data quality 修正。）
+最後更新：2026-05-09（**WMOM-20260504-19 工單前端完成** — `/admin/workflow/orders` 上線：workOrderService.ts（11 endpoints）+ useWorkOrders hook + 4 components（WorkflowPage / List / Wizard / DetailModal）+ statusUtils helper；接 nav `workflow` 主項 + 新 NavIcon。全程走 ui 元件庫 + theme palette、無 Tailwind / 無 hex。actor_id 採 DEV 占位等 auth；approve 按鈕暫 disable 等 WMOM-20。Smoke test：tsc clean / vite build 成功 / dev 5179 回 200。M3 frontend 剩 -20 approval（依賴本 issue baseline 已就緒）。下一步建議：WMOM-20260504-20 approval frontend，或 WMOM-24 data quality。）
 
 ---
 
@@ -766,10 +766,41 @@
 
 ### WMOM-20260504-19 — `/admin/workflow/orders` frontend（建立精靈 + 列表 + 詳情）
 
-- **Status**: open（依賴 -17 API）
+- **Status**: done（2026-05-09 完成）
 - **Milestone**: M3
 - **Priority**: high
-- **Estimate**: 1-1.5 工作天
+- **Estimate**: 1-1.5 工作天 → **實際 ~半天**（API client + hook + 4 components + nav 接線）
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ `frontend/services/workOrderService.ts`：11 個 endpoint TypeScript wrapper（CRUD + 8 transitions + farm list helper）+ enum / type 與後端 schema 對齊
+  - ✅ `frontend/hooks/useWorkOrders.ts`：stateful hook（list / loading / error + 9 mutations，patch local state on success，AbortController race guard）
+  - ✅ `frontend/components/workflow/` 4 個檔案：
+    - `WorkflowPage.tsx`：主入口（farm 自動偵測 + tab 預留 approval -20 + create modal/detail modal 對接）
+    - `WorkOrderListPanel.tsx`：列表（status filter / search / refresh / empty state / error display）
+    - `CreateWorkOrderWizard.tsx`：3-step 精靈（風機卡片選 → type+priority+title+description → assignee+crew+hours + review）
+    - `WorkOrderDetailModal.tsx`：詳情 + 7 inline transition forms（dispatch / start-work / progress / finish / reject / cancel / reopen；approve 走 -20）
+    - `statusUtils.ts`：status / priority / type / followup enum 對 PillTone + zh/en label + datetime fmt 共用 helper
+  - ✅ `frontend/App.tsx`：加 `workflow` ViewId + nav；傳 turbines 到 WorkflowPage
+  - ✅ `frontend/components/ui/Logo.tsx`：加 `workflow` NavIcon（briefcase）
+  - ✅ Smoke test：`tsc --noEmit` clean、`vite build` 成功（725 modules / 1.05 MB）、dev server localhost:5179 回 HTTP 200
+  - ✅ UI directive 遵守：全程走 `frontend/components/ui/` + `useTheme().C`，無 Tailwind utility、無 hex（chart event 例外）
+- **Decisions made during impl**:
+  - 詳情 modal 寫在 `components/workflow/WorkOrderDetailModal.tsx`（與 legacy mock 版 `components/WorkOrderDetailModal.tsx` 區分）— 後者對應的 WorkOrder type 跟 backend schema 完全不同 shape，沿用會強行轉型不健康
+  - `actor_id` 採 `DEV_ACTOR_ID = '00000000-...01'` 占位（auth 系統 M5+ 才接），constant 在 service.ts，TODO 註解明確
+  - approve 按鈕在 detail modal **disable**，顯示提示「走 -20 approval 流程」；list 顯示 `awaiting_signoff` 狀態讓 user 知道需要去 approval tab（-20 上線後）
+  - turbine_id 用 `turbine.name` 字串（與 backend simulator 的 string id convention 對齊）
+  - 列表 search 設計：server-side 走 status filter，client-side 過濾 business_key / title / turbine_id 子字串（避免 backend 加 search index 的工程量）
+- **Follow-up**：
+  - ⬜ approve 按鈕真正啟用 → WMOM-20260504-20 上線時補
+  - ⬜ Pagination UI（目前 limit=200 單頁）→ 工單量 > 200 時再加（M4 後）
+  - ⬜ `/api/workflow/work-orders/{id}/event-log` 讀取顯示 → 等 backend 加 endpoint
+  - ⬜ assignee_id 由文字輸入改成 user picker → 等 auth/user system 上線
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-08-work-order-frontend.md`](work-logs/2026-05/2026-05-08-work-order-frontend.md)
+  - Backend: WMOM-20260504-17（CRUD/state API）+ WMOM-20260504-18（signoff chain）
+
+<details><summary>📜 原始 issue description</summary>
+
 - **UI directive（WMOM-20260507-01 後）**：
   必須使用 `frontend/components/ui/`（Card / Btn / PageHeader / StatusPill / Field / Input / Select / Stat / BigChart / HealthBar）+ `frontend/theme/`（useTheme → C palette）。**不可** 寫 Tailwind utility class、不可硬寫 hex（chart event 標記色除外）。Modal 套既有 [WorkOrderDetailModal](frontend/components/WorkOrderDetailModal.tsx) 風格（Card padding=0 + DM Serif title + 底部 Btn）。
 - **Description**:
@@ -779,6 +810,8 @@
   - `frontend/components/workflow/WorkOrderListPanel.tsx` 列表（含 status filter + Hnumber search）
   - `frontend/components/workflow/CreateWorkOrderWizard.tsx` 建立精靈（多步：選風機 / 選故障代碼 / 派工人員 / 預估工時）
   - `frontend/components/workflow/WorkOrderDetailModal.tsx` 詳情 + 狀態 transition 按鈕
+
+</details>
 
 ---
 
