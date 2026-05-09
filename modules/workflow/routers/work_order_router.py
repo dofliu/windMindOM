@@ -58,9 +58,11 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
 _repository_factory: Callable[[str], WorkOrderRepository] | None = None
 
-# WMOM-20260509-05：finish hook 用的 db_path override。Test 注入 tmp DB 走這條，
-# 避開 FarmRegistry 依賴。生產直接 None → 走 FarmRegistry。
-_finish_hook_db_path_override: str | None = None
+# WMOM-20260509-05 + review fix #2：finish hook 用的 db_path override map
+# (farm_id → path)。Multi-farm 部署 safe — 不同 farm 各自路徑分開。
+# 特殊 key "*" 為 fallback (給 single-farm test 偷懶用)。
+# 生產：dict 為空 → 走 FarmRegistry。
+_finish_hook_db_path_overrides: dict[str, str] = {}
 
 
 def set_repository_factory(
@@ -77,13 +79,29 @@ def set_repository_factory(
         _FARM_REGISTRY = None
 
 
-def set_finish_hook_db_path(path: str | None) -> None:
-    """Test inject — finish hook 走 ``path`` 而不查 FarmRegistry（給 test_lifecycle 用）。
+def set_finish_hook_db_path(
+    path: str | None, *, farm_id: str = "*"
+) -> None:
+    """Test inject — finish hook 走 ``path`` 而不查 FarmRegistry。
 
-    Call ``set_finish_hook_db_path(None)`` 解除 override。
+    Multi-farm safe (review fix #2)：傳特定 ``farm_id`` 只覆寫該 farm；不傳走
+    fallback ``"*"`` 對所有 farm 生效（single-farm test 用）。
+
+    Examples:
+        set_finish_hook_db_path("/tmp/changhua.db", farm_id="changhua")
+        set_finish_hook_db_path("/tmp/test.db")  # 等同 farm_id="*"
+        set_finish_hook_db_path(None)  # 清掉 "*"
+        set_finish_hook_db_path(None, farm_id="changhua")  # 清掉特定 farm
     """
-    global _finish_hook_db_path_override
-    _finish_hook_db_path_override = path
+    if path is None:
+        _finish_hook_db_path_overrides.pop(farm_id, None)
+    else:
+        _finish_hook_db_path_overrides[farm_id] = path
+
+
+def clear_finish_hook_db_paths() -> None:
+    """Test cleanup — 清掉所有 override（fixture teardown 用）。"""
+    _finish_hook_db_path_overrides.clear()
 
 
 # fix #3：FarmRegistry singleton（避免每個 API call 重 init + 開新 sqlite connection）
@@ -130,11 +148,18 @@ def _get_repo(farm_id: str) -> WorkOrderRepository:
 def _resolve_db_path_for_finish_hook(farm_id: str) -> str | None:
     """For A5 finish hook: resolve farm DB path with test override support.
 
-    Returns ``None`` when DB path can't be resolved (test mode without override or
-    FarmRegistry unavailable) — caller skip the hook quietly.
+    Lookup order (review fix #2 multi-farm safe)：
+    1. Per-farm override `_finish_hook_db_path_overrides[farm_id]`
+    2. Fallback override `_finish_hook_db_path_overrides["*"]`（test 用）
+    3. FarmRegistry（生產）
+    4. None — caller 安靜跳過 hook
+
+    Returns ``None`` when DB path can't be resolved.
     """
-    if _finish_hook_db_path_override is not None:
-        return _finish_hook_db_path_override
+    if farm_id in _finish_hook_db_path_overrides:
+        return _finish_hook_db_path_overrides[farm_id]
+    if "*" in _finish_hook_db_path_overrides:
+        return _finish_hook_db_path_overrides["*"]
     try:
         reg = _get_default_farm_registry()
     except (ImportError, HTTPException):
@@ -145,16 +170,20 @@ def _resolve_db_path_for_finish_hook(farm_id: str) -> str | None:
 
 def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
     """A5 hook：工單完工後，對所有關聯 MR 的 line item ledger entry，
-    用 ``actual_qty × current unit_cost`` 翻 estimated → confirmed。
+    用 ``actual_qty × locked_unit_cost`` 翻 estimated → confirmed。
+
+    Review fix #1（會計正確性）：用 ledger entry 的 ``locked_unit_cost``（在
+    dispatch 那一刻寫入），不重新查 inventory 當前 unit_cost。如此 estimated
+    與 confirmed 用同基礎計算，月報差異分析才有意義。
 
     - 跳過 actual_qty 還是 None 的 item（MR 還沒 receive）— ledger 留 estimated
     - 找不到 entry → log warning（罕見，可能 dispatch 失敗但 status 進 DISPATCHED）
+    - locked_unit_cost 為 None → fallback 查 inventory（向後相容老 entries）
     - 已 confirmed → confirm_entry 內部 idempotent
     """
     db_path = _resolve_db_path_for_finish_hook(farm_id)
     if db_path is None:
         # test 環境無 override + 無 FarmRegistry — 安靜跳過
-        # （讓既有 test_work_order_api / test_approval_api 不破）
         return
 
     # runtime imports（避循環 import）
@@ -173,13 +202,6 @@ def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
         for item in mr.items:
             if item.actual_qty is None:
                 continue
-            inv = inv_repo.get_item(item.item_id)
-            if inv is None:
-                _logger.warning(
-                    "ledger hook: inventory item %s not found for MR %s",
-                    item.item_id, mr.id,
-                )
-                continue
             entry = ledger_repo.find_for_mr_item(mr.id, item.id)
             if entry is None:
                 _logger.warning(
@@ -187,7 +209,19 @@ def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
                     mr.id, item.id,
                 )
                 continue
-            new_amount = Decimal(item.actual_qty) * inv.unit_cost
+            # review fix #1：用 entry.locked_unit_cost（dispatch 當下的快照）算 amount
+            unit_cost = entry.locked_unit_cost
+            if unit_cost is None:
+                # 老 entries 沒 locked_unit_cost — fallback 查 inventory（向後相容）
+                inv = inv_repo.get_item(item.item_id)
+                if inv is None:
+                    _logger.warning(
+                        "ledger hook: inventory item %s not found AND entry %s has no locked_unit_cost",
+                        item.item_id, entry.id,
+                    )
+                    continue
+                unit_cost = inv.unit_cost
+            new_amount = Decimal(item.actual_qty) * unit_cost
             ledger_repo.confirm_entry(entry.id, new_amount=new_amount)
 
 
@@ -199,11 +233,19 @@ def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
 def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
     """Domain state machine 拒絕 → 422 (validation) 或 409 (conflict)。
 
-    state mismatch (cannot transition) → 409 Conflict（適合 client 看「現在不能做」）
-    guard fail（缺欄位）→ 422 Unprocessable Entity
+    Review fix #3：用 ``exc.reason`` 屬性精確判斷（不再 fragile 字串匹配）：
+    - ``state_mismatch`` → 409 Conflict（caller 改 state 即可恢復）
+    - ``guard_failed`` / ``unknown_action`` → 422 Unprocessable Entity
+    - reason 為 None（舊 caller，向後相容）→ fallback 字串匹配
     """
     msg = str(exc)
-    status = 409 if "cannot transition" in msg else 422
+    if exc.reason == "state_mismatch":
+        status = 409
+    elif exc.reason in ("guard_failed", "unknown_action"):
+        status = 422
+    else:
+        # 向後相容：舊 caller 沒設 reason → 用字串匹配（fallback）
+        status = 409 if "cannot transition" in msg else 422
     return HTTPException(status_code=status, detail=f"{action}: {msg}")
 
 

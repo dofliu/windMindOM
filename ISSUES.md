@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 16 |
+| open | 22 |
 | in_progress | 0 |
 | blocked | 0 |
 | done | 29 |
-| **total (active)** | **45** |
+| **total (active)** | **51** |
 
-最後更新：2026-05-09（**🎉 M4 backend 全 5 issue 收官 — A5 (WMOM-20260509-05) 同日完工，cost ledger estimated → confirmed flow 就位**）。schema 加 source_item_id + confirmed_at + 新 index；CostLedgerRepository (query + summary_by_category + confirm_entry idempotent)；2 read-only endpoints（GET /api/cost/ledger + /summary，給月報用 status=confirmed）；**WO finish hook 對 linked MR line items 用 actual_qty × unit_cost flip estimated → confirmed**；circular import 修（material_request_repository 對 cost_ledger lazy import）。32 new tests pass（17 repo + 10 api + **5 lifecycle acceptance**）— 完整鏈路 acceptance test 過：建料件 → 建工單 → MR linked → submit + 3 階 approve（auto dispatch）→ ledger estimated → receive → finish WO → ledger confirmed。Workflow + cost 全 435 pass + 1 xfailed (existing) — **0 regression**。設計決策：source_item_id schema migration 給 confirm flow 精確 lookup / confirm_entry idempotent 防 WO reject re-finish 改回 / hook 寫 router 而非 repo 避免 cross-module 耦合 / hook test injection 用 set_finish_hook_db_path / 不暴露 ledger POST/PATCH（事實帳本必須走業務 atomic transaction） / lazy import 解循環。**M4 backend 累計：5 issue / 205 new tests / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed）**。M4 milestone 45% → 60%。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend（月報生成）。）
+最後更新：2026-05-09（**🎉 M4 backend 5 issue 全收 + 2026-05-09 code review fixes — backend 收官完整版**）。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
 
 ---
 
@@ -1269,6 +1269,106 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Reference**:
   - ROADMAP M4 demo flow
   - 前 issue 提的 [WMOM-20260507-02](#wmom-20260507-02) placeholder 按鈕清單（demo orchestrator 上線後可清掉「+ 新報告」入口）
+
+---
+
+## M4 backend 後續 follow-up（2026-05-09 code review 留下的 should-fix / nice-to-have）
+
+> A1-A5 backend 5 issue 全 done 後，code-reviewer subagent 找出 3 must-fix（已在
+> WMOM-20260509-review-fixes-2026-05-09 修完）+ 4 should-fix + 2 nice-to-have。
+> Must-fix 已修；以下 6 項列為下次 session 接力處理的 follow-up issues。
+> 優先級：A6 frontend 主線優先；以下若有空再插。
+
+### WMOM-20260509-F1 — `add_return` 寫 ledger 沖銷
+
+- **Status**: open
+- **Milestone**: M4 後續（不阻塞 frontend）
+- **Priority**: medium（demo 給客戶看月報時會被發現偏高）
+- **Estimate**: 0.5 工作天
+- **Source**: 2026-05-09 code review Should-fix #2
+- **Description**:
+  目前 `MaterialRequestRepository.add_return` 只動 stock + 寫 MaterialReturn 紀錄，**不寫 ledger 沖銷 entry**。退料後 `summary_by_category(status=CONFIRMED)` 拿到的月報材料成本會偏高（沒扣回退料金額）。
+  - 加新 ledger entry：`category=material, source_type=material_request, source_event_id=mr.id, source_item_id=item.id, amount=-(qty × locked_unit_cost), note="退料 reason=..."`
+  - 或改 update 既有 confirmed entry 的 amount（會喪失退料 audit trail，較不推薦）
+  - 建議走「新 entry with negative amount」更乾淨
+- **Reference**: code review subagent 報告 Should-fix #2
+
+---
+
+### WMOM-20260509-F2 — `list_items` / `list` 用 `func.count` 而非 Python `len`
+
+- **Status**: open
+- **Milestone**: M4 後續
+- **Priority**: low（資料量 < 1000 不影響）
+- **Estimate**: 0.5 小時
+- **Source**: 2026-05-09 code review Should-fix #1
+- **Description**:
+  `inventory_repository.list_items` 與 `material_request_repository.list` 用
+  `total = len(sess.execute(count_stmt).scalars().all())` 把所有 id 撈回 Python 才算 `len`。應改為 SQL-side count：
+  ```python
+  from sqlalchemy import func, select
+  count_stmt = select(func.count()).select_from(base.subquery())
+  total = sess.execute(count_stmt).scalar_one()
+  ```
+- **Files**：
+  - `modules/workflow/repository/inventory_repository.py:273`
+  - `modules/workflow/repository/material_request_repository.py:218`
+
+---
+
+### WMOM-20260509-F3 — `list_warehouses` 加 repo method（移出 router raw SQL）
+
+- **Status**: open
+- **Milestone**: M4 後續
+- **Priority**: low（cosmetic）
+- **Estimate**: 0.5 小時
+- **Source**: 2026-05-09 code review Should-fix #4
+- **Description**:
+  `inventory_router.list_warehouses` 直接用 `repo._sessionmaker()` query ORM，違反 repository 封裝。應在 `InventoryRepository` 加 `list_warehouses(farm_id) -> list[Warehouse]`，router 改用該 method。
+
+---
+
+### WMOM-20260509-F4 — `_FARM_REGISTRY` lazy singleton 抽 shared
+
+- **Status**: open
+- **Milestone**: M4 後續
+- **Priority**: low（cosmetic refactor）
+- **Estimate**: 1 小時
+- **Source**: 2026-05-09 code review Should-fix #5
+- **Description**:
+  4 個 routers 各自重複 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path`：
+  - `inventory_router.py:75`
+  - `material_request_router.py:77`
+  - `approval_router.py:125`
+  - `cost_ledger_router.py:57`
+  抽成 `shared/farm_registry_provider.py` 一個共用 singleton。
+
+---
+
+### WMOM-20260509-F5 — `InventoryAdjustmentLog.actor_id` 改 Optional
+
+- **Status**: open
+- **Milestone**: M4 後續
+- **Priority**: low
+- **Estimate**: 15 分鐘
+- **Source**: 2026-05-09 code review Nice-to-have #1
+- **Description**:
+  目前 `actor_id: UUID` 必填。如果未來有系統自動 adjust（如 dispatch hook 直接呼叫 adjust）會被迫塞 fake UUID。改 Optional + 文件化。
+
+---
+
+### WMOM-20260509-F6 — PostgreSQL row-lock integration test
+
+- **Status**: open
+- **Milestone**: M6（生產部署前）
+- **Priority**: medium
+- **Estimate**: 0.5 工作天
+- **Source**: 2026-05-09 code review Nice-to-have #2
+- **Description**:
+  目前並發 dispatch SQLite test 只能驗 SQLite WAL 序列化行為，**無法驗 PostgreSQL `SELECT FOR UPDATE` 真實 row-lock 語意**。M6 客戶部署前如選 PostgreSQL backend，需補：
+  - 起 docker postgres 跑 integration test
+  - 兩 client 同時 dispatch 同 item，驗第二個被 block 直到第一個 commit/rollback
+  - test 在 CI（GitHub Actions）上跑
 
 ---
 

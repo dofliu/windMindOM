@@ -353,7 +353,8 @@ class MaterialRequestRepository:
                 if mr_orm.status != MaterialRequestStatus.APPROVED.value:
                     raise InvalidTransition(
                         f"dispatch_request: cannot transition from {mr_orm.status!r} "
-                        f"(must be APPROVED)"
+                        f"(must be APPROVED)",
+                        reason="state_mismatch",
                     )
 
                 # ── Step 2 + 3: per-item stock decrement + ledger ──────
@@ -375,8 +376,12 @@ class MaterialRequestRepository:
                         kind=StockKind(it.stock_kind),
                         delta=-it.estimated_qty,
                     )
-                    # 寫 cost ledger entry（estimated；A5 加 source_item_id 給 confirm 用）
-                    amount = Decimal(it.estimated_qty) * Decimal(str(inv_orm.unit_cost))
+                    # 寫 cost ledger entry（estimated）
+                    # review fix #1：locked_unit_cost 鎖定 dispatch 當下的 unit_cost；
+                    # confirm 時用此快照算 amount，避免 unit_cost 改動造成
+                    # estimated/confirmed 不同基礎（會計做帳要求一致）
+                    locked_cost = Decimal(str(inv_orm.unit_cost))
+                    amount = Decimal(it.estimated_qty) * locked_cost
                     insert_in_session(
                         sess,
                         CostLedgerEntry(
@@ -384,7 +389,8 @@ class MaterialRequestRepository:
                             category=CostLedgerCategory.MATERIAL,
                             amount=amount,
                             source_event_id=UUID(mr_orm.id),
-                            source_item_id=UUID(it.id),  # A5: MR item id 給 confirm flow
+                            source_item_id=UUID(it.id),  # A5
+                            locked_unit_cost=locked_cost,  # review fix #1
                             source_type=CostLedgerSourceType.MATERIAL_REQUEST,
                             status=CostLedgerStatus.ESTIMATED,
                             actor_id=actor_id,

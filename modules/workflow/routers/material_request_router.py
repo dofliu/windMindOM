@@ -112,9 +112,18 @@ def _get_signoff_repo(farm_id: str) -> SignoffRepository:
 
 
 def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
-    """Domain state machine 拒絕 → 422 (validation) 或 409 (conflict)。"""
+    """Domain state machine 拒絕 → 422 (validation) 或 409 (conflict)。
+
+    Review fix #3：優先用 ``exc.reason`` 屬性精確判斷（取代 fragile 字串匹配）。
+    """
     msg = str(exc)
-    status = 409 if "cannot transition" in msg else 422
+    if exc.reason == "state_mismatch":
+        status = 409
+    elif exc.reason in ("guard_failed", "unknown_action"):
+        status = 422
+    else:
+        # 向後相容：未設 reason 時 fallback 字串匹配
+        status = 409 if "cannot transition" in msg else 422
     return HTTPException(status_code=status, detail=f"{action}: {msg}")
 
 

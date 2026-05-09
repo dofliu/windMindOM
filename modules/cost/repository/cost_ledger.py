@@ -77,9 +77,15 @@ class CostLedgerSourceType(str, Enum):
 class CostLedgerEntry:
     """Pure domain entry（給 caller 建立 + ORM round-trip）。
 
-    ``source_item_id`` (WMOM-20260509-05): 細粒度 line item id，給 confirm flow 用。
-    當 source_type=MATERIAL_REQUEST 時，這欄位是 ``MaterialRequestItem.id``，
-    讓 wo.finish hook 能精確找到對應 ledger entry 翻 estimated → confirmed。
+    Snapshot 不變式（review fix #1，會計正確性）：
+    - ``source_item_id`` (A5): 細粒度 line item id，給 confirm flow 找對應 entry
+    - ``locked_unit_cost`` (review fix): dispatch / 事件當下的 unit_cost 快照；
+      confirm 時用此快照 × actual_qty 算 amount，**不重新查 inventory** 避免
+      dispatch 後 unit_cost 改動造成 estimated/confirmed 基礎不一致（會計做帳
+      錯誤、月報差異分析失效）
+
+    當 source_type=MATERIAL_REQUEST 時，``source_item_id=MaterialRequestItem.id``，
+    ``locked_unit_cost=inventory_item.unit_cost`` (在 dispatch 那一刻)。
     """
 
     farm_id: str
@@ -89,6 +95,7 @@ class CostLedgerEntry:
     source_type: CostLedgerSourceType
     id: UUID = field(default_factory=uuid4)
     source_item_id: Optional[UUID] = None
+    locked_unit_cost: Optional[Decimal] = None  # review fix: dispatch 時鎖定
     status: CostLedgerStatus = CostLedgerStatus.ESTIMATED
     actor_id: Optional[UUID] = None
     note: Optional[str] = None
@@ -112,6 +119,9 @@ class CostLedgerEntryORM(Base):
     # WMOM-20260509-05：細粒度 line item id（MaterialRequestItem.id），給 confirm
     # flow 精確查找 ledger entry；nullable 因 work_order / fault 等 source 沒 line item
     source_item_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    # review fix #1：dispatch 當下的 unit_cost 快照；confirm 時用此快照 × actual_qty
+    # 算 amount，不重新查 inventory（會計做帳要求 estimated/confirmed 同基礎）
+    locked_unit_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     source_type: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(16), index=True, default="estimated")
     actor_id: Mapped[Optional[str]] = mapped_column(String(36))
@@ -156,6 +166,7 @@ def insert_in_session(sess: Session, entry: CostLedgerEntry) -> CostLedgerEntryO
         source_item_id=(
             str(entry.source_item_id) if entry.source_item_id is not None else None
         ),
+        locked_unit_cost=entry.locked_unit_cost,
         source_type=entry.source_type.value,
         status=entry.status.value,
         actor_id=str(entry.actor_id) if entry.actor_id is not None else None,
