@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 23 |
+| done | 24 |
 | **total (active)** | **35** |
 
-最後更新：2026-05-09（**WMOM-20260504-19 工單前端完成** — `/admin/workflow/orders` 上線：workOrderService.ts（11 endpoints）+ useWorkOrders hook + 4 components（WorkflowPage / List / Wizard / DetailModal）+ statusUtils helper；接 nav `workflow` 主項 + 新 NavIcon。全程走 ui 元件庫 + theme palette、無 Tailwind / 無 hex。actor_id 採 DEV 占位等 auth；approve 按鈕暫 disable 等 WMOM-20。Smoke test：tsc clean / vite build 成功 / dev 5179 回 200。M3 frontend 剩 -20 approval（依賴本 issue baseline 已就緒）。下一步建議：WMOM-20260504-20 approval frontend，或 WMOM-24 data quality。）
+最後更新：2026-05-09（**M3 frontend 全收：-19 + -20 同日 push** — WMOM-20260504-19 工單前端 + WMOM-20260504-20 簽核前端都 done。signoffApi 3 endpoints + usePendingApprovals hook（含 work-order subject 並行 cache）+ PendingApprovalPanel（level selector default leader）+ ApprovalActionDialog（approve comment 選填 / reject reason 必填 + subject_transition_error warning 處理）+ WorkflowPage tab 切換 orders/approval + pending count badge。Smoke test 全綠（tsc clean / vite build 1067 kB / dev 200）。**M3 milestone 100% 完工**：backend 5 + frontend 2 全 done；衍生 -21 day_work_form / -22 inspection_schedule 不阻塞。下一步建議：M4（inventory + reporting）開工，或 WMOM-24 data quality 修正。）
 
 ---
 
@@ -817,10 +817,31 @@
 
 ### WMOM-20260504-20 — `/admin/workflow/approval` frontend（待簽列表 + 簽核操作）
 
-- **Status**: open（依賴 -18 API + -19 frontend baseline）
+- **Status**: done（2026-05-09 完成；與 -19 同日 push）
 - **Milestone**: M3
 - **Priority**: high
-- **Estimate**: 1 工作天
+- **Estimate**: 1 工作天 → **實際 ~半天**（service+hook+2 component+wire panel/tab）
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ 擴充 `frontend/services/workOrderService.ts`：加 SignoffLevel/Status/SubjectType + 6 個 response/request interface + `signoffApi.{listPending, approve, reject}`
+  - ✅ `frontend/hooks/usePendingApprovals.ts`：list state + approve/reject mutations + workOrderCache（`Promise.allSettled` 並行 fetch 對應工單 detail，給 UI 顯示 title/priority 用）+ AbortController race guard
+  - ✅ `frontend/components/workflow/PendingApprovalPanel.tsx`：level selector（4 enum，default leader）+ subject_type filter + 列表（subject summary + step/chain progress + approve/reject 按鈕）
+  - ✅ `frontend/components/workflow/ApprovalActionDialog.tsx`：兩模式 approve（comment 選填）/ reject（reason 必填）+ subject 摘要避免簽錯 + `subject_transition_error` warning 處理（chain 落地但工單 transition 失敗的 race case）
+  - ✅ `frontend/components/workflow/statusUtils.ts`：加 `signoffLevelLabel` / `signoffStatusLabel` / `signoffStatusTone` / `subjectTypeLabel` zh/en helper
+  - ✅ `frontend/components/workflow/WorkflowPage.tsx`：tab 從 dummy disabled 變真切換、render `<PendingApprovalPanel>` + `<ApprovalActionDialog>`；tab 顯示 pending count badge；approve/reject 後 `subject_status_changed === true` 自動 `wo.refresh()` 同步 orders list
+  - ✅ Smoke test：tsc clean / vite build 成功（1067 kB / gzip 286 kB）/ dev 5179 回 200
+  - ✅ UI directive 完整遵守：ui 元件庫 + theme palette / 無 Tailwind / 無 hex / dialog 套既有 modal 風格
+- **Decisions made during impl**:
+  - work order detail cache 走「list 拉到後並行 fetch 所有 unique subject_id」(`Promise.allSettled` 容忍個別 404)，避免每個 row 顯示 title 都要 hover-fetch；M4 領料單來時同邏輯擴充
+  - default level = leader（工單 chain `[EMPLOYEE, LEADER]` 中 reviewer 最常出現的角色）
+  - 工單 detail modal 的 approve 按鈕仍 disable — DN-02 設計上 approve 走 `/approvals/{step_id}/approve` 而非工單層 `/work-orders/{id}/approve`（後者是 server-side guard 副作用 endpoint，不是 user-facing action）
+  - `subject_transition_error` 用 warning Card 顯示而非錯誤 — chain 已落地不能 retry，需要 ops 人工 backfill 工單 status
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-approval-frontend.md`](work-logs/2026-05/2026-05-09-approval-frontend.md)
+  - Backend: WMOM-20260504-18（signoff chain + 3 endpoints）
+
+<details><summary>📜 原始 issue description</summary>
+
 - **UI directive（WMOM-20260507-01 後）**：
   與 -19 同 — 使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。Approval action dialog 套 [DispatchModal](frontend/components/DispatchModal.tsx) 模式（Card padding=0 + grid 內 Btn 卡片選人 + 底部 primary 確認）。
 - **Description**:
@@ -828,6 +849,8 @@
   - `frontend/components/workflow/ApprovalActionDialog.tsx` 簽核 / 駁回對話框（含意見輸入）
   - 整合進 `WorkflowPage.tsx`（tab 切換 orders / approval）
   - 全 zh / en i18n
+
+</details>
 
 ---
 

@@ -1,12 +1,11 @@
 /**
- * WorkflowPage — `/admin/workflow/orders` 主入口（WMOM-20260504-19）。
+ * WorkflowPage — `/admin/workflow/*` 主入口（WMOM-20260504-19 + -20）。
  *
  * 結構：
  *   - PageHeader：標題 + Create work order primary 按鈕
- *   - Tab 預留（orders / approval）— approval 留給 WMOM-20260504-20，本檔先放
- *     disabled 提示按鈕
- *   - 主內容：WorkOrderListPanel（status filter / search / 列表）
- *   - Modal 兩個：CreateWorkOrderWizard / WorkOrderDetailModal
+ *   - Tab 切換：orders（-19）/ approval（-20）
+ *   - 主內容：依 tab 切到 WorkOrderListPanel 或 PendingApprovalPanel
+ *   - Modal：CreateWorkOrderWizard / WorkOrderDetailModal / ApprovalActionDialog
  *
  * 不接 farm_id 參數 — 內部跑 /api/farms 拿 active_farm_id（與 FarmSelector 同來源）。
  */
@@ -19,16 +18,23 @@ import {
   farmApi,
   type CreateWorkOrderRequest,
   type FollowupKind,
+  type PendingSignoffItem,
+  type SignoffLevel,
+  type SignoffSubjectType,
   type WorkOrderResponse,
   type WorkOrderStatus,
 } from '../../services/workOrderService';
 import { useWorkOrders } from '../../hooks/useWorkOrders';
+import { usePendingApprovals } from '../../hooks/usePendingApprovals';
 import WorkOrderListPanel from './WorkOrderListPanel';
 import CreateWorkOrderWizard from './CreateWorkOrderWizard';
 import WorkOrderDetailModal from './WorkOrderDetailModal';
+import PendingApprovalPanel from './PendingApprovalPanel';
+import ApprovalActionDialog, { type ApprovalMode } from './ApprovalActionDialog';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
+type Tab = 'orders' | 'approval';
 
 interface Props {
   lang: Lang;
@@ -64,7 +70,10 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     };
   }, []);
 
-  // ── List state ──
+  // ── Tab state ──
+  const [tab, setTab] = useState<Tab>('orders');
+
+  // ── Orders tab state ──
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatus | 'all'>('all');
   const [search, setSearch] = useState('');
 
@@ -74,12 +83,23 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     search,
   });
 
+  // ── Approval tab state ──
+  const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
+  const [subjectTypeFilter, setSubjectTypeFilter] = useState<SignoffSubjectType | 'all'>('all');
+
+  const approvals = usePendingApprovals({
+    farmId,
+    level: signoffLevel,
+    subjectType: subjectTypeFilter === 'all' ? undefined : subjectTypeFilter,
+  });
+
   // ── Modals ──
   const [showWizard, setShowWizard] = useState(false);
   const [selectedWO, setSelectedWO] = useState<WorkOrderResponse | null>(null);
-
-  // ── Tabs (預留 approval) ──
-  const [tab] = useState<'orders' | 'approval'>('orders');
+  const [approvalAction, setApprovalAction] = useState<{
+    mode: ApprovalMode;
+    pending: PendingSignoffItem;
+  } | null>(null);
 
   const handleCreate = useCallback(
     async (req: CreateWorkOrderRequest) => {
@@ -134,6 +154,8 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     );
   }
 
+  const pendingCount = approvals.total;
+
   return (
     <>
       <PageHeader
@@ -149,13 +171,15 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           </span>
         }
         actions={
-          <Btn
-            variant="primary"
-            onClick={() => setShowWizard(true)}
-            ariaLabel={ui('Create work order', '建立工單')}
-          >
-            + {ui('Create work order', '建立工單')}
-          </Btn>
+          tab === 'orders' ? (
+            <Btn
+              variant="primary"
+              onClick={() => setShowWizard(true)}
+              ariaLabel={ui('Create work order', '建立工單')}
+            >
+              + {ui('Create work order', '建立工單')}
+            </Btn>
+          ) : null
         }
       />
 
@@ -163,40 +187,60 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
         <Btn
           variant={tab === 'orders' ? 'primary' : 'ghost'}
-          onClick={() => {
-            /* already on orders */
-          }}
+          onClick={() => setTab('orders')}
           ariaLabel={ui('Work orders tab', '工單頁籤')}
           ariaPressed={tab === 'orders'}
         >
           {ui('Work orders', '工單')}
         </Btn>
         <Btn
-          variant="ghost"
-          disabled
-          title={ui('Coming with WMOM-20', 'WMOM-20 上線後啟用')}
-          ariaLabel={ui('Approval tab (disabled)', '簽核頁籤（未啟用）')}
+          variant={tab === 'approval' ? 'primary' : 'ghost'}
+          onClick={() => setTab('approval')}
+          ariaLabel={ui('Approval tab', '簽核頁籤')}
+          ariaPressed={tab === 'approval'}
         >
-          {ui('Approval', '簽核')}{' '}
-          <StatusPill tone="muted" size="sm" style={{ marginLeft: 6 }}>
-            WMOM-20
-          </StatusPill>
+          {ui('Approval', '簽核')}
+          {pendingCount > 0 && (
+            <StatusPill tone="amber" size="sm" style={{ marginLeft: 6 }}>
+              {pendingCount}
+            </StatusPill>
+          )}
         </Btn>
       </div>
 
-      <WorkOrderListPanel
-        items={wo.items}
-        total={wo.total}
-        loading={wo.loading}
-        error={wo.error}
-        status={statusFilter}
-        onStatusChange={setStatusFilter}
-        search={search}
-        onSearchChange={setSearch}
-        onSelect={setSelectedWO}
-        onRefresh={wo.refresh}
-        lang={lang}
-      />
+      {tab === 'orders' && (
+        <WorkOrderListPanel
+          items={wo.items}
+          total={wo.total}
+          loading={wo.loading}
+          error={wo.error}
+          status={statusFilter}
+          onStatusChange={setStatusFilter}
+          search={search}
+          onSearchChange={setSearch}
+          onSelect={setSelectedWO}
+          onRefresh={wo.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'approval' && (
+        <PendingApprovalPanel
+          items={approvals.items}
+          total={approvals.total}
+          loading={approvals.loading}
+          error={approvals.error}
+          level={signoffLevel}
+          onLevelChange={setSignoffLevel}
+          subjectType={subjectTypeFilter}
+          onSubjectTypeChange={setSubjectTypeFilter}
+          workOrderCache={approvals.workOrderCache}
+          onApproveClick={pending => setApprovalAction({ mode: 'approve', pending })}
+          onRejectClick={pending => setApprovalAction({ mode: 'reject', pending })}
+          onRefresh={approvals.refresh}
+          lang={lang}
+        />
+      )}
 
       {showWizard && (
         <CreateWorkOrderWizard
@@ -231,6 +275,42 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onReject={(id, reject_reason) => wo.reject(id, { reject_reason })}
           onCancel={(id, cancel_reason) => wo.cancel(id, { cancel_reason })}
           onReopen={(id, reopen_reason) => wo.reopen(id, { reopen_reason })}
+          lang={lang}
+        />
+      )}
+
+      {approvalAction && (
+        <ApprovalActionDialog
+          mode={approvalAction.mode}
+          pending={approvalAction.pending}
+          workOrder={
+            approvalAction.pending.chain.subject_type === 'work_order'
+              ? approvals.workOrderCache.get(approvalAction.pending.chain.subject_id) ?? null
+              : null
+          }
+          onClose={() => setApprovalAction(null)}
+          onApprove={async (stepId, comment) => {
+            const result = await approvals.approve(stepId, {
+              actor_id: DEV_ACTOR_ID,
+              comment,
+            });
+            // approve 完成可能讓 chain 結案 → 若是工單 subject 且 closed，list 也要重 fetch
+            if (result.subject_status_changed) {
+              wo.refresh();
+            }
+            return result;
+          }}
+          onReject={async (stepId, reason) => {
+            const result = await approvals.reject(stepId, {
+              actor_id: DEV_ACTOR_ID,
+              reason,
+            });
+            // reject 會把工單 IN_PROGRESS 回退 → 同步 orders list
+            if (result.subject_status_changed) {
+              wo.refresh();
+            }
+            return result;
+          }}
           lang={lang}
         />
       )}

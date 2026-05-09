@@ -9,6 +9,9 @@ import type {
   WorkOrderStatus,
   WorkOrderType,
   FollowupKind,
+  SignoffLevel,
+  SignoffStatus,
+  SignoffSubjectType,
 } from '../../services/workOrderService';
 
 type Lang = 'en' | 'zh';
@@ -100,6 +103,52 @@ export function fmtDateTime(iso: string | null): string {
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
     `${pad(d.getHours())}:${pad(d.getMinutes())}`
   );
+}
+
+// ─── Signoff label / tone（WMOM-20） ─────────────────────────────────────
+
+export function signoffLevelLabel(l: SignoffLevel, lang: Lang): string {
+  const map: Record<SignoffLevel, [string, string]> = {
+    employee: ['Employee', '員工'],
+    leader: ['Leader', '組長'],
+    supervisor: ['Supervisor', '主管'],
+    treasury: ['Treasury', '總務'],
+  };
+  const [en, zh] = map[l];
+  return lang === 'zh' ? zh : en;
+}
+
+export function signoffStatusLabel(s: SignoffStatus, lang: Lang): string {
+  const map: Record<SignoffStatus, [string, string]> = {
+    pending: ['Pending', '待簽'],
+    approved: ['Approved', '已通過'],
+    rejected: ['Rejected', '已駁回'],
+    skipped: ['Skipped', '已跳過'],
+  };
+  const [en, zh] = map[s];
+  return lang === 'zh' ? zh : en;
+}
+
+export function signoffStatusTone(s: SignoffStatus): PillTone {
+  switch (s) {
+    case 'pending':
+      return 'amber';
+    case 'approved':
+      return 'ok';
+    case 'rejected':
+      return 'warn';
+    case 'skipped':
+      return 'muted';
+  }
+}
+
+export function subjectTypeLabel(t: SignoffSubjectType, lang: Lang): string {
+  const map: Record<SignoffSubjectType, [string, string]> = {
+    work_order: ['Work order', '工單'],
+    material_request: ['Material request', '領料單'],
+  };
+  const [en, zh] = map[t];
+  return lang === 'zh' ? zh : en;
 }
 
 /** 短日期：YYYY-MM-DD */

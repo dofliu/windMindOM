@@ -291,6 +291,121 @@ export const workOrderApi = {
     ),
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// Signoff / Approval（WMOM-20260504-18 backend / -20 frontend）
+// ─────────────────────────────────────────────────────────────────────────
+
+export const SignoffLevelValues = [
+  'employee',
+  'leader',
+  'supervisor',
+  'treasury',
+] as const;
+export type SignoffLevel = (typeof SignoffLevelValues)[number];
+
+export const SignoffStatusValues = [
+  'pending',
+  'approved',
+  'rejected',
+  'skipped',
+] as const;
+export type SignoffStatus = (typeof SignoffStatusValues)[number];
+
+export const SignoffSubjectTypeValues = [
+  'work_order',
+  'material_request',
+] as const;
+export type SignoffSubjectType = (typeof SignoffSubjectTypeValues)[number];
+
+export interface SignoffStepResponse {
+  id: string;
+  chain_id: string;
+  level: SignoffLevel;
+  sequence: number;
+  parallel_group_id: string | null;
+  assignee_id: string | null;
+  status: SignoffStatus;
+  decided_at: string | null;
+  decided_by: string | null;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface SignoffChainResponse {
+  id: string;
+  subject_type: SignoffSubjectType;
+  subject_id: string;
+  farm_id: string;
+  levels: SignoffLevel[];
+  current_level_index: number;
+  overall_status: SignoffStatus;
+  started_at: string;
+  completed_at: string | null;
+  rejected_at_level: SignoffLevel | null;
+  rejected_reason: string | null;
+}
+
+export interface PendingSignoffItem {
+  step: SignoffStepResponse;
+  chain: SignoffChainResponse;
+}
+
+export interface PendingSignoffListResponse {
+  total: number;
+  items: PendingSignoffItem[];
+}
+
+export interface ApproveStepRequest {
+  actor_id: string;
+  comment?: string | null;
+}
+
+export interface RejectStepRequest {
+  actor_id: string;
+  reason: string;
+}
+
+export interface ApprovalResultResponse {
+  chain: SignoffChainResponse;
+  chain_completed: boolean;
+  subject_status_changed: boolean;
+  /** chain 已落地但 subject (work_order) transition 失敗時非 null — caller UI 要警示 */
+  subject_transition_error: string | null;
+}
+
+export interface PendingApprovalsQuery {
+  farm_id: string;
+  level: SignoffLevel;
+  subject_type?: SignoffSubjectType;
+  limit?: number;
+  offset?: number;
+}
+
+export const signoffApi = {
+  listPending: (q: PendingApprovalsQuery) =>
+    getJSON<PendingSignoffListResponse>(
+      `/api/workflow/approvals/pending${buildQuery({
+        farm_id: q.farm_id,
+        level: q.level,
+        subject_type: q.subject_type,
+        limit: q.limit,
+        offset: q.offset,
+      })}`,
+    ),
+
+  approve: (stepId: string, farmId: string, req: ApproveStepRequest) =>
+    postJSON<ApproveStepRequest, ApprovalResultResponse>(
+      `/api/workflow/approvals/${stepId}/approve${buildQuery({ farm_id: farmId })}`,
+      req,
+    ),
+
+  reject: (stepId: string, farmId: string, req: RejectStepRequest) =>
+    postJSON<RejectStepRequest, ApprovalResultResponse>(
+      `/api/workflow/approvals/${stepId}/reject${buildQuery({ farm_id: farmId })}`,
+      req,
+    ),
+};
+
 // ─── Helper：取得目前 active farm_id（同 FarmSelector 用法） ────────────────
 
 export interface FarmInfo {
