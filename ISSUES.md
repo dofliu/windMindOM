@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 18 |
+| open | 17 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 27 |
+| done | 28 |
 | **total (active)** | **45** |
 
-最後更新：2026-05-09（**A3 (WMOM-20260509-03) 同日完工 — MaterialRequest API + signoff 整合就位**）。9 endpoints + 8 request + 3 response schema + signoff_repository 加 create_chain_for_material_request + approval_router MATERIAL_REQUEST branch（approve last step 自動 transition('approve_all') + dispatch_request atomic 雙寫；reject → REJECTED 終態）+ mount 進 monitoring/server/app.py。27 new tests pass（CRUD / state transitions / 完整 approval auto-dispatch lifecycle / 簽核期間 stock 被抽走的 edge case / 422-409-404 error mapping）。workflow 318 pass / cost+workflow 375 pass + 1 xfailed (existing) — **0 regression**。設計決策：submit-for-approval 先建 chain 再 transition（避免 inconsistent state）/ Approval auto-dispatch 失敗時回 200 + subject_transition_error 訊息（chain 已落地，MR 卡 APPROVED，operator 手動補 dispatch 或 cancel）/ MATERIAL_REQUEST reject 進 REJECTED 終態（vs work_order「reject 回 IN_PROGRESS」）/ dispatch error 改用 "cannot transition" 字眼讓 router 正確 map 409 / set_signoff_factories 加第三個 mr 參數預設 None 向後相容。下一步：A4（Inventory query + adjustment API，6 endpoints，0.5 工作天）— 純 read + manual adjust，不複雜。）
+最後更新：2026-05-09（**🎉 M4 backend 4 issue 全 done — A4 (WMOM-20260509-04) 同日完工**）。8 endpoints (6 inventory + 2 warehouse extra) + 5 request + 6 response schema (含 `@computed_field` below_safety / total_available) + mount 進 monitoring/server/app.py。28 new tests pass（CRUD / safety filter / metadata partial update / adjust + audit log / 409 insufficient_stock / 404 unknown / 422 validation / pagination / decimal precision）。Workflow 346 pass / cost+workflow 403 pass + 1 xfailed (existing) — **0 regression**。設計決策：InventoryItemResponse `@computed_field` below_safety/total_available 給 backend 算讓前端不重複邏輯 / PATCH `exclude_unset=True` partial update / Adjust error mapping 404/422/409 語意正確 / list_warehouses 走 raw SQL 避免 over-engineering / SQLAlchemy Numeric(12,4) 4 位小數 test 用 Decimal 比值不比字串。**M4 backend 累計**：4 個 issue / 173 new tests / ~31 endpoints（A1 60 + A2 58 + A3 27 + A4 28），完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → cost ledger）。下一步：A5（cost ledger 整合，0.5 工作天）— 加 read API + finish hook 把 estimated → confirmed。或先 A6 frontend（與 backend 平行）。）
 
 ---
 
@@ -1049,25 +1049,44 @@ Depends on: WMOM-20260509-02；Blocks: WMOM-20260509-06
 
 ### WMOM-20260509-04 — Inventory query + adjustment API
 
-- **Status**: open
+- **Status**: done（2026-05-09 完成；A1+A2+A3 同日連續第四輪）
 - **Milestone**: M4
 - **Priority**: high
-- **Estimate**: 0.5 工作天
-- **Description**:
-  - `modules/workflow/schemas/inventory_schemas.py`：InventoryItemResponse / AdjustmentRequest / SafetyStockAlertResponse
-  - `modules/workflow/routers/inventory_router.py`：~6 endpoints：
-    - `GET /api/workflow/inventory`（list + safety_stock 警示 flag）
-    - `GET /api/workflow/inventory/{item_id}`
-    - `POST /api/workflow/inventory`（建料件主檔）
-    - `PATCH /api/workflow/inventory/{item_id}`（改 sku / safety_stock 等 metadata，不動 stock 數量）
-    - `POST /api/workflow/inventory/{item_id}/adjust`（手動 +/- 調整，必填 `delta_kind` / `delta` / `reason` / `actor_id`；走 repo 寫 InventoryAdjustmentLog）
-    - `GET /api/workflow/inventory/{item_id}/adjustments`（查 audit log）
-  - safety_stock 警示：`stock_new + stock_used < safety_stock` 即 flag warn
-- **Acceptance**:
-  - 25+ pytest pass
-  - adjustment endpoint 連同 audit log 落地（每筆 +/- 都有 actor / reason / timestamp）
-- **Depends on**: WMOM-20260509-02
-- **Blocks**: WMOM-20260509-07
+- **Estimate**: 0.5 工作天 → **實際 ~半天**
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ `modules/workflow/schemas/inventory_schemas.py`：5 request body + 6 response model（含 `InventoryItemResponse` 的 `@computed_field` `below_safety` / `total_available`）
+  - ✅ `modules/workflow/routers/inventory_router.py`：**8 endpoints**（6 inventory + 2 warehouse extra）+ repo factory injection
+  - ✅ Mount 進 `monitoring/server/app.py`
+  - ✅ `routers/__init__.py` + `schemas/__init__.py` export 補齊
+  - ✅ **28 tests pass** in 1.76s（CRUD / safety filter / metadata partial update / adjust + audit log / 409 insufficient_stock / 404 unknown / 422 validation / pagination / decimal precision）
+  - ✅ 全 workflow 346 pass / cost+workflow 403 pass + 1 xfailed (existing) — **0 regression**
+- **8 endpoints**:
+  - **Inventory (6)**: POST/GET/GET/{id}/PATCH/{id}/POST/{id}/adjust/GET/{id}/adjustments
+  - **Warehouse (2 extra)**: POST/GET（給 frontend 建料件前先建倉用，repo 已有 helper 但 ISSUES spec 沒明列；trade-off：避免 ops 手動動 DB）
+- **Decisions made during impl**:
+  - `InventoryItemResponse` 用 `@computed_field` 計算 `below_safety` / `total_available` — 前端不重複邏輯，避免「frontend 計算 vs backend list 已 filter」不一致
+  - PATCH 用 `model_dump(exclude_unset=True)` 配合 repo `update_metadata(**payload)` 乾淨支援 partial update
+  - Adjust error mapping：`StockAdjustmentError("not found")` → 404 / 其他 StockAdjustmentError → 422 / `InsufficientStock` → 409（語意：404=不存在 / 422=請求格式錯 / 409=狀態衝突）
+  - `list_warehouses` router 走 raw SQL（不另開 repo method） — 用量低，避免 over-engineering
+  - SQLAlchemy `Numeric(12, 4)` 保留 4 位小數 → test 用 `Decimal(str) == Decimal("450.00")` 比值不比字串
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-inventory-api.md`](work-logs/2026-05/2026-05-09-inventory-api.md)
+  - DN-03 §2.1 + §2.4「歸還與報廢」（adjustment endpoint 支撐紙本流程數位化）
+
+<details><summary>📜 原始 issue description</summary>
+
+- modules/workflow/schemas/inventory_schemas.py：InventoryItemResponse / AdjustmentRequest / SafetyStockAlertResponse
+- modules/workflow/routers/inventory_router.py：~6 endpoints
+- safety_stock 警示：stock_new + stock_used < safety_stock
+
+Acceptance：
+- 25+ pytest pass
+- adjustment endpoint 連同 audit log 落地
+
+Depends on: WMOM-20260509-02；Blocks: WMOM-20260509-07
+
+</details>
 
 ---
 
