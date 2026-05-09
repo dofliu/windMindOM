@@ -28,13 +28,11 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from modules.cost.repository.cost_ledger import (
-    CostLedgerCategory,
-    CostLedgerEntry,
-    CostLedgerSourceType,
-    CostLedgerStatus,
-    insert_in_session,
-)
+# Cost ledger imports are lazy (inside dispatch_request) to break the circular
+# import chain: cost_ledger.py needs workflow.orm_models.Base, but
+# workflow.repository.__init__ loads this material_request_repository which would
+# need cost_ledger before it's done loading. Lazy import is the cleanest fix.
+
 from modules.workflow.domain import InvalidTransition
 from modules.workflow.domain.inventory import (
     MaterialRequest,
@@ -332,6 +330,15 @@ class MaterialRequestRepository:
             InvalidTransition: 不在 APPROVED state
             InsufficientStock: 某 item 庫存不足扣
         """
+        # Lazy import to break circular dependency
+        from modules.cost.repository.cost_ledger import (
+            CostLedgerCategory,
+            CostLedgerEntry,
+            CostLedgerSourceType,
+            CostLedgerStatus,
+            insert_in_session,
+        )
+
         with self._sessionmaker() as sess:
             try:
                 # ── Step 1: lock + load MR ─────────────────────────────
@@ -368,7 +375,7 @@ class MaterialRequestRepository:
                         kind=StockKind(it.stock_kind),
                         delta=-it.estimated_qty,
                     )
-                    # 寫 cost ledger entry（estimated）
+                    # 寫 cost ledger entry（estimated；A5 加 source_item_id 給 confirm 用）
                     amount = Decimal(it.estimated_qty) * Decimal(str(inv_orm.unit_cost))
                     insert_in_session(
                         sess,
@@ -377,6 +384,7 @@ class MaterialRequestRepository:
                             category=CostLedgerCategory.MATERIAL,
                             amount=amount,
                             source_event_id=UUID(mr_orm.id),
+                            source_item_id=UUID(it.id),  # A5: MR item id 給 confirm flow
                             source_type=CostLedgerSourceType.MATERIAL_REQUEST,
                             status=CostLedgerStatus.ESTIMATED,
                             actor_id=actor_id,
