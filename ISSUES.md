@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
+| open | 21 |
 | in_progress | 0 |
 | blocked | 0 |
 | done | 24 |
-| **total (active)** | **35** |
+| **total (active)** | **45** |
 
-最後更新：2026-05-09（**M3 frontend 全收：-19 + -20 同日 push** — WMOM-20260504-19 工單前端 + WMOM-20260504-20 簽核前端都 done。signoffApi 3 endpoints + usePendingApprovals hook（含 work-order subject 並行 cache）+ PendingApprovalPanel（level selector default leader）+ ApprovalActionDialog（approve comment 選填 / reject reason 必填 + subject_transition_error warning 處理）+ WorkflowPage tab 切換 orders/approval + pending count badge。Smoke test 全綠（tsc clean / vite build 1067 kB / dev 200）。**M3 milestone 100% 完工**：backend 5 + frontend 2 全 done；衍生 -21 day_work_form / -22 inspection_schedule 不阻塞。下一步建議：M4（inventory + reporting）開工，或 WMOM-24 data quality 修正。）
+最後更新：2026-05-09（**M4 開工：10 個 sub-issue 規劃進場** — WMOM-20260509-01..-10 寫入主線。10 個 sub-issue 分四線：1) backend 主菜（-01 domain / -02 雙寫 repo / -03 material API / -04 inventory API），2) cost 整合（-05 ledger material entry），3) frontend（-06 material / -07 inventory / -09 reports），4) reporting（-08 monthly_report PDF backend），5) E2E（-10 pytest lifecycle + demo orchestrator placeholder）。Estimate 合計 8-10 工作天。開工順序建議：A1 → A2 → A3 → A6 → A4 → A7 → A5 → A8 → A9 → A10。Backend signoff `MATERIAL_REQUEST` enum + frontend approval tab `subject_type` filter 都已 M3 同步預留。下一步：等劉老師確認 plan，從 -01 domain 開工。）
 
 ---
 
@@ -900,6 +900,263 @@
 
 ---
 
+## M4 主線（2026-08）— Workflow Part 2: Inventory + Reporting
+
+> ROADMAP 對應：[`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) Month 4 段。
+> 設計依據：[DN-03 Inventory ↔ Material Request](docs/design-notes/m3/DN-03-inventory-material-request.md)。
+> Demo flow（M4 結束時）：「告警 → 工單 → 簽核 → 派工 → **領料簽核** → **庫存扣帳** → 完工 → **cost actual 寫入** → **月報 PDF 自動產出**」— 完整工作鏈閉環。
+>
+> 開工順序建議：**A1 (domain) → A2 (repo 雙寫) → A3 (material API) → A6 (material frontend) → A4 (inventory API) → A7 (inventory frontend) → A5 (cost ledger 整合) → A8 (reporting backend) → A9 (reporting frontend) → A10 (e2e test)**。
+> Backend signoff `MATERIAL_REQUEST` enum + `build_chain_levels(MATERIAL_REQUEST) → 3 階 (employee/leader/treasury)` + frontend approval tab 的 `subject_type` filter 都已預留（M3 同步完成），M4 只要 wire 起來就行。
+
+---
+
+### WMOM-20260509-01 — Inventory + MaterialRequest domain（pure dataclass + state machine）
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: critical（M4 主菜的根基）
+- **Estimate**: 0.5 工作天
+- **Description**:
+  把 DN-03 §2.1-2.2 的 schema 寫成純 dataclass + Enum，與 SQLAlchemy 解耦。
+  - `modules/workflow/domain/inventory.py`：
+    - Enum：`StockKind ∈ {NEW, USED, REPAIRING}`、`MaterialRequestStatus ∈ {DRAFT/AWAITING_APPROVAL/APPROVED/DISPATCHED/RECEIVED/USED/CLOSED/CANCELLED/REJECTED}`、`ReturnReason ∈ {SURPLUS/WRONG_PART/FAILED_INSTALL/OTHER}`
+    - Dataclass：`InventoryItem`、`Warehouse`、`MaterialRequest`、`MaterialRequestItem`、`MaterialReturn`、`MaterialRequestNotification`
+  - `modules/workflow/domain/inventory_state_machine.py`：MaterialRequest state transitions（draft → awaiting → approved → dispatched → received → used → closed；cancel / reject 旁路）
+  - tests/`test_inventory_domain.py` + `test_material_request_state_machine.py`（pure unit，不接 DB）
+- **Acceptance**:
+  - 所有 dataclass 走 type hint + frozen 不變式
+  - state machine 拒絕非法 transition（raise `InvalidTransition`）
+  - 30+ unit test pass、無 SQLAlchemy import 漏進 domain 層
+- **Depends on**: -
+- **Blocks**: WMOM-20260509-02
+- **Reference**: [`docs/design-notes/m3/DN-03-inventory-material-request.md`](docs/design-notes/m3/DN-03-inventory-material-request.md) §2
+
+---
+
+### WMOM-20260509-02 — Inventory + MaterialRequest Repository（**雙寫交易模型** — M4 核心）
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: critical（DN-03 §2.3 整個 issue 的關鍵不變式）
+- **Estimate**: 1 工作天
+- **Description**:
+  - `modules/workflow/repository/inventory_orm.py`：SQLAlchemy 2.0 mapped class（InventoryItemORM / WarehouseORM / MaterialRequestORM / MaterialRequestItemORM / MaterialReturnORM / InventoryAdjustmentLogORM / MaterialRequestNotificationORM）
+  - `modules/workflow/repository/inventory_repository.py`：CRUD + safety_stock 計算 + adjust（手動 +/-）
+  - `modules/workflow/repository/material_request_repository.py`：CRUD + state transition + **`dispatch_request()` 雙寫**（SELECT FOR UPDATE → 扣 stock → 寫 cost ledger entry → commit；半路 raise → rollback 不污染）
+  - 工單 `material_request_ids` 欄位回填邏輯
+- **Acceptance**:
+  - `dispatch_request` 在故障注入（mid-transaction raise）下 **庫存 + ledger 同時 rollback**（test 用 `unittest.mock.patch` 偽造 mid-failure 驗）
+  - SELECT FOR UPDATE 在 SQLite WAL 下行為（同寫鎖序）+ 並行 dispatch 兩張單同一料件 → 第二張等第一張 commit 後再讀（test 用 thread）
+  - 50+ test pass（含 dispatch race / insufficient_stock / state mismatch / safety_stock 計算）
+- **Depends on**: WMOM-20260509-01
+- **Blocks**: WMOM-20260509-03、-04、-05
+- **Reference**: DN-03 §2.3「雙寫交易」段
+
+---
+
+### WMOM-20260509-03 — MaterialRequest CRUD + state transitions API
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: high
+- **Estimate**: 0.5 工作天
+- **Description**:
+  - `modules/workflow/schemas/material_request_schemas.py`：CreateMaterialRequest / DispatchRequest / ReceiveRequest / ReturnRequest / response 模型
+  - `modules/workflow/routers/material_request_router.py`：~9 endpoints：
+    - `POST /api/workflow/material-requests`（create DRAFT）
+    - `GET /api/workflow/material-requests`（filter by farm_id / work_order_id / status）
+    - `GET /api/workflow/material-requests/{id}`
+    - `POST /api/workflow/material-requests/{id}/submit-for-approval`（→ AWAITING_APPROVAL + 自動建 signoff chain，沿用 DN-02 build_chain_levels(MATERIAL_REQUEST)）
+    - `POST /api/workflow/material-requests/{id}/dispatch`（簽核完成後出庫；走 repo 雙寫）
+    - `POST /api/workflow/material-requests/{id}/receive`（簽收，填 actual_qty）
+    - `POST /api/workflow/material-requests/{id}/close`（工單完工或 cancel 時關）
+    - `POST /api/workflow/material-requests/{id}/cancel`
+    - `POST /api/workflow/material-requests/{id}/returns`（建退料記錄）
+  - Mount 進 `modules/monitoring/server/app.py`
+- **Acceptance**:
+  - 30+ pytest（API + repo 整合，含 422/409/404 error mapping）
+  - approve last step（DN-02 chain 走完）→ 自動觸發 dispatch 邏輯（在 approval_router 的 `subject_type=MATERIAL_REQUEST` branch 加 hook）
+- **Depends on**: WMOM-20260509-02
+- **Blocks**: WMOM-20260509-06
+
+---
+
+### WMOM-20260509-04 — Inventory query + adjustment API
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: high
+- **Estimate**: 0.5 工作天
+- **Description**:
+  - `modules/workflow/schemas/inventory_schemas.py`：InventoryItemResponse / AdjustmentRequest / SafetyStockAlertResponse
+  - `modules/workflow/routers/inventory_router.py`：~6 endpoints：
+    - `GET /api/workflow/inventory`（list + safety_stock 警示 flag）
+    - `GET /api/workflow/inventory/{item_id}`
+    - `POST /api/workflow/inventory`（建料件主檔）
+    - `PATCH /api/workflow/inventory/{item_id}`（改 sku / safety_stock 等 metadata，不動 stock 數量）
+    - `POST /api/workflow/inventory/{item_id}/adjust`（手動 +/- 調整，必填 `delta_kind` / `delta` / `reason` / `actor_id`；走 repo 寫 InventoryAdjustmentLog）
+    - `GET /api/workflow/inventory/{item_id}/adjustments`（查 audit log）
+  - safety_stock 警示：`stock_new + stock_used < safety_stock` 即 flag warn
+- **Acceptance**:
+  - 25+ pytest pass
+  - adjustment endpoint 連同 audit log 落地（每筆 +/- 都有 actor / reason / timestamp）
+- **Depends on**: WMOM-20260509-02
+- **Blocks**: WMOM-20260509-07
+
+---
+
+### WMOM-20260509-05 — Cost ledger material entry 整合（estimated → confirmed flow）
+
+- **Status**: open
+- **Milestone**: M4（部分覆蓋 [WMOM-20260504-11](#wmom-20260504-11--event-driven-cost-ledger-m4-增強) Phase A）
+- **Priority**: high（M4 demo flow 的「cost actual 寫入」步驟）
+- **Estimate**: 0.5 工作天
+- **Description**:
+  - 新表 `cost_ledger_entry`（`modules/cost/repository/cost_ledger.py`）：UUID id / farm_id / category('material'|'labour'|'equipment'|'revenue_loss') / amount EUR / source_event_id / source_type / status('estimated'|'confirmed') / recorded_at / actor
+  - `dispatch_request()` 在 -02 雙寫 transaction 內呼叫 `cost_ledger.insert(category=material, status=estimated, amount=estimated_qty × unit_cost)`
+  - work_order `finish` hook：enumerate `material_request_ids` → 對每筆找對應 ledger entry → 用 `actual_qty × unit_cost` 改 amount + status=confirmed
+  - `GET /api/cost/ledger?farm_id=...&from=...&to=...&category=...`（read-only查詢，給月報用）
+- **Acceptance**:
+  - 15+ pytest pass（含 estimated → confirmed transition + actual 與 estimated 差異率記錄）
+  - 完整鏈路：material_request dispatch → ledger entry created (estimated) → wo finish → ledger entry updated (confirmed) — 一次測過
+- **Depends on**: WMOM-20260509-03
+- **Blocks**: WMOM-20260509-08（reporting 要算月度 material cost 從 ledger 讀）
+
+---
+
+### WMOM-20260509-06 — `/admin/workflow/material` 領料單 frontend
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: high
+- **Estimate**: 1 工作天
+- **UI directive（WMOM-20260507-01 後）**：使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。Modal 套既有 [`WorkOrderDetailModal`](frontend/components/workflow/WorkOrderDetailModal.tsx) 風格（Card padding=0 + DM Serif title + 底部 Btn）。
+- **Description**:
+  - `frontend/services/materialService.ts`（API client，模式同 workOrderService）
+  - `frontend/hooks/useMaterialRequests.ts`
+  - `frontend/components/workflow/MaterialRequestListPanel.tsx`：列表 + status filter + 工單關聯 search
+  - `frontend/components/workflow/CreateMaterialRequestWizard.tsx`：建單精靈（選工單 → 加料件明細 → 估計工時 → submit-for-approval）
+  - `frontend/components/workflow/MaterialRequestDetailModal.tsx`：詳情 + state transition buttons（dispatch / receive / close / cancel / 建退料）
+  - 改 [`WorkflowPage.tsx`](frontend/components/workflow/WorkflowPage.tsx)：加 `material` tab（與 orders / approval 並列；approval tab 已預留 subject_type filter 直接吃 material_request）
+- **Acceptance**:
+  - tsc clean / vite build pass
+  - 走完 demo flow：建工單 → 開領料單 → submit → 在 approval tab 用 LEADER 簽 → 在 approval tab 用 TREASURY 簽 → 領料單自動 DISPATCHED → 點 receive 填 actual_qty
+- **Depends on**: WMOM-20260509-03
+- **Blocks**: -
+
+---
+
+### WMOM-20260509-07 — `/admin/workflow/inventory` 庫存 frontend
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: high
+- **Estimate**: 0.5-1 工作天
+- **UI directive**：同 -06。
+- **Description**:
+  - `frontend/services/inventoryService.ts`
+  - `frontend/hooks/useInventory.ts`
+  - `frontend/components/workflow/InventoryListPanel.tsx`：料件列表（new / used / repairing 三欄 stock + safety_stock 警示 pill + last_used_at）
+  - `frontend/components/workflow/InventoryAdjustmentDialog.tsx`：手動 +/- 調整對話框（delta_kind / delta / reason 必填）
+  - `frontend/components/workflow/InventoryDetailDrawer.tsx`：點 row 開 drawer 顯示 adjustment_log audit
+  - 改 `WorkflowPage.tsx`：加 `inventory` tab
+- **Acceptance**:
+  - tsc clean / vite build pass
+  - safety_stock 警示視覺正確（low stock row 醒目）
+- **Depends on**: WMOM-20260509-04
+- **Blocks**: -
+
+---
+
+### WMOM-20260509-08 — Reporting backend（monthly_report.py PDF + annual_budget.py）
+
+- **Status**: open
+- **Milestone**: M4（後半 — 不依賴 inventory，可平行）
+- **Priority**: high（M6 客戶第一份月報沒被退是 done criteria）
+- **Estimate**: 1.5 工作天
+- **Description**:
+  - `modules/reporting/services/monthly_report.py`：
+    - 取資料：cost ledger（material/labour/equipment/revenue_loss 4 類加總）+ work order 完工統計（CORRECTIVE / PREVENTIVE / INSPECTION 計數）+ 物理模擬 availability（time / energy）
+    - 渲染：HTML template（Jinja2）→ PDF（WeasyPrint 或 reportlab）
+    - 內容：封面 + 摘要 KPI + 4 類成本明細 + 工單統計 + availability + 重大事件 timeline
+  - `modules/reporting/services/annual_budget.py`：12 個月 forecast（依 cost forecast endpoint + 歷史平均）
+  - `modules/reporting/routers/reporting_router.py`：
+    - `POST /api/reporting/monthly?farm_id=...&year=...&month=...` → returns PDF binary 或 download URL
+    - `POST /api/reporting/annual-budget?farm_id=...&year=...` → returns PDF / Excel
+    - `GET /api/reporting/templates` → 可用 template 列表
+  - `modules/reporting/templates/monthly_report.html`（Jinja2）+ `static/reporting.css`
+- **Acceptance**:
+  - 跑得出真實 PDF（Z72 demo farm 一個月跑 5 次驗）
+  - 月報內容 4 大區塊都正確（KPI / cost / work orders / availability）
+  - 25+ pytest（含 template render / PDF 不空 / KPI 計算正確 / fixture month 資料）
+- **Depends on**: WMOM-20260509-05（要從 cost ledger 讀 confirmed material cost）
+- **Blocks**: WMOM-20260509-09
+
+---
+
+### WMOM-20260509-09 — `/admin/reports` frontend（月報生成 + 年度預算）
+
+- **Status**: open
+- **Milestone**: M4
+- **Priority**: high
+- **Estimate**: 1 工作天
+- **UI directive**：同 -06。
+- **Description**:
+  - `frontend/services/reportingService.ts`
+  - `frontend/hooks/useReports.ts`
+  - 新主頁 `/admin/reports`（在 nav 加 `reports` 主項 + NavIcon），對應 `frontend/components/ReportsPage.tsx`
+  - 子元件：
+    - `frontend/components/reporting/MonthlyReportPanel.tsx`：選 farm / year / month → 點 generate → 顯示 preview + download PDF
+    - `frontend/components/reporting/AnnualBudgetPanel.tsx`：選 year → 12 個月 forecast 表格 + chart
+- **Acceptance**:
+  - 點按鈕後 30 秒內拿到 PDF binary，瀏覽器自動下載
+  - 走 ui 元件庫；NavIcon 加 `reports`（document-with-chart icon）
+- **Depends on**: WMOM-20260509-08
+- **Blocks**: -
+
+---
+
+### WMOM-20260509-10 — E2E lifecycle test（pytest 兩層 + demo orchestrator placeholder）
+
+- **Status**: open
+- **Milestone**: M4 收官（A6/A7/A9 done 後）
+- **Priority**: high（**ROADMAP M4 demo flow 的 acceptance**）
+- **Estimate**: 1-1.5 工作天
+- **Description**:
+  把「運轉資料 → 故障觸發 → 派工 → 開單 → 領料 → 排除 → 紀錄 → 簽核」全鏈路串起來測。
+
+  **Layer A — Pytest integration test**（每個 PR 自動跑）
+  - `tests/e2e/test_fault_to_signoff_lifecycle.py`：
+    - Step 1：啟動 simulator + 載 demo farm（fixture）
+    - Step 2：注入 fault scenario（gearbox_temp_high）
+    - Step 3：assert SCADA tag delta + alarm code 觸發
+    - Step 4：建 corrective 工單（priority=high，from alarm code）
+    - Step 5：dispatch → start_work
+    - Step 6：建 material_request（gearbox bearing × 1）→ submit_for_approval
+    - Step 7：approve 3 階 chain（employee → leader → treasury）→ 自動 dispatch
+    - Step 8：assert inventory.stock_new -1 + ledger entry status=estimated
+    - Step 9：work order update_progress + finish（actual_qty=1）
+    - Step 10：assert ledger entry status=confirmed
+    - Step 11：approve 工單 chain（employee → leader）
+    - Step 12：assert wo=CLOSED + signoff chain=APPROVED
+    - 跑 PREVENTIVE / INSPECTION 兩個變體 happy path
+
+  **Layer B — Demo orchestrator placeholder**（M5/M6 時做完整 UI）
+  - `frontend/components/demo/DemoOrchestratorPage.tsx`（**只放 skeleton + step list**，實作留 M5）
+  - 標記 follow-up issue 給 M5 接力
+- **Acceptance**:
+  - Layer A：25+ pytest pass，覆蓋 corrective + preventive + inspection 三條 happy path + 2 條 unhappy path（簽核 reject 後重試 / dispatch 在 stock 不足下 fail）
+  - Layer A 跑完 < 60 秒（in-memory SQLite + simulator 不寫 DB）
+  - Layer B：skeleton 通 tsc，留下明確的 follow-up issue WMOM-2026XX-XX
+- **Depends on**: WMOM-20260509-06、-07、-09
+- **Blocks**: -
+- **Reference**:
+  - ROADMAP M4 demo flow
+  - 前 issue 提的 [WMOM-20260507-02](#wmom-20260507-02) placeholder 按鈕清單（demo orchestrator 上線後可清掉「+ 新報告」入口）
+
+---
+
 ## 物理模型強化（M3 並行 / 從 digiWT 階段延續未完工）
 
 > 來源：`docs/physics_model_status.md` 「Still missing」段 + `examples/data_quality_report.txt` 3 項 fail + `docs/legacy/digiwt_TODO.md` 仍 open 項。
@@ -1312,12 +1569,12 @@
 
 ---
 
-## M2 後續 / M4-M6 預留區
+## M5-M6 預留區
 
 > ROADMAP 詳見 `docs/product/ROADMAP.md`。
+> M4 已展開為 [WMOM-20260509-01..-10](#m4-主線2026-08-workflow-part-2-inventory--reporting)。
 
-- M4 (2026-08)：Inventory 雙寫交易模型 + Cost ↔ Workflow 雙向（依 DN-03）
-- M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）
+- M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）+ Demo Orchestrator UI 完整版（接 -10 placeholder）
 - M6 (2026-10)：Friendly 廠商現場部署 + 第一份月報送業主沒被退件 + 簽 LOI/合約
 
 ---
