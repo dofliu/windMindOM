@@ -241,6 +241,11 @@ class CostLedgerRepository:
             amount=Decimal(str(orm.amount)) if orm.amount is not None else Decimal("0"),
             source_event_id=UUID(orm.source_event_id),
             source_item_id=str_to_uuid(orm.source_item_id),
+            locked_unit_cost=(
+                Decimal(str(orm.locked_unit_cost))
+                if orm.locked_unit_cost is not None
+                else None
+            ),
             source_type=CostLedgerSourceType(orm.source_type),
             status=CostLedgerStatus(orm.status),
             actor_id=str_to_uuid(orm.actor_id),

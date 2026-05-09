@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 96
+progress: 97
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**🎉 M4 backend 全 5 issue 收官 — A5 (WMOM-20260509-05) cost ledger 整合就位**：source_item_id schema 擴充 + CostLedgerRepository (query + summary_by_category + confirm_entry idempotent) + 2 read-only endpoints（GET /api/cost/ledger + /summary）+ WO finish hook 自動 flip estimated → confirmed (用 actual_qty × current unit_cost) + circular import 修（lazy import）。32 new tests pass — 5 acceptance lifecycle test 驗完整鏈路（建料件 → 建工單 → MR linked → submit + 3 階 approve → atomic dispatch → ledger estimated → receive actual_qty → finish WO → **ledger confirmed**）。Workflow + cost 全 435 pass + 1 xfailed (existing) — 0 regression。**M4 backend 5 issue 累計：205 new tests / 33 endpoints / 完整 lifecycle 鏈路就位**（A1 60 + A2 58 + A3 27 + A4 28 + A5 32）。設計決策：confirm_entry idempotent 防 WO reject 改回 / hook 寫 router 而非 repo / hook test 用 set_finish_hook_db_path 注入 / 不暴露 ledger POST/PATCH（事實帳本必須走業務 atomic transaction） / lazy import 解 cost_ledger ↔ workflow.repository 循環。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend（月報生成）。"
+next_milestone: "**🎉 M4 backend 全收（A1-A5） + 2026-05-09 code review fixes — backend 收官完整版**：今日一日推完 backend 5 issue（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**，會計做帳一致性）。Workflow + cost 全 446 pass + 1 xfailed (existing) — 0 regression。Review-fix 重點：(1) `locked_unit_cost` 欄位 schema migration 讓 confirmed amount 用 dispatch 當下的價，dispatch 後 unit_cost 變動不影響 confirmed 金額；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 status code mapping，不依賴字串匹配 fragile；(4) approval_router MR auto-dispatch 加 bare except 兜底（chain 已落地的 unexpected error 不 raise 500）。同時加入 6 follow-up issues（F1-F6）下次 session 接力處理。下次 session 從 main 開始：handoff 在 work-logs/2026-05/2026-05-09-session-wrapup-handoff.md。下一步候選：A6 material frontend / A8 reporting backend / F1-F6 follow-up。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 60  # backend 5 issue 全收（A1+A2+A3+A4+A5 — domain → repo → MR API → inv API → ledger 整合）；A6..A10 pending
+    progress: 65  # backend 5 issue + review-fixes 全收（production-ready quality）；A6..A10 + F1-F6 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 16
+  open: 22
   in_progress: 0
   blocked: 0
   done: 29

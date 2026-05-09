@@ -258,6 +258,18 @@ async def approve_step(
                 f"chain approved but dispatch failed: {e}; "
                 "operator must adjust stock or cancel MR"
             )
+        except Exception as e:  # noqa: BLE001  (review fix: bare except 兜底)
+            # 未預期錯誤（DB lock、IntegrityError 等）— 不能 raise 500，否則
+            # client 看不到 chain 已 APPROVED 落地，會誤以為要重 approve。
+            # 回 200 + transition_error 訊息，operator 走 manual dispatch 補。
+            _logger.exception(
+                "signoff %s approved but dispatch_request raised unexpectedly: %s",
+                chain.id, e,
+            )
+            transition_error = (
+                f"chain approved but dispatch unexpectedly failed: {type(e).__name__}: {e}; "
+                "ops must investigate"
+            )
 
     return ApprovalResultResponse(
         chain=SignoffChainResponse.model_validate(chain),

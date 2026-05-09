@@ -39,8 +39,19 @@ from .work_order import (
 class InvalidTransition(Exception):
     """Transition rejected — 不合法的 source state 或 guard 失敗。
 
-    Caller 通常 catch 之後轉 422 / 400；不要讓這個 bubble 到外層 traceback。
+    Caller 通常 catch 之後轉 422 / 409；不要讓這個 bubble 到外層 traceback。
+
+    Review fix #3：``reason`` 屬性精確標示原因（取代 fragile 的字串匹配）：
+    - ``"state_mismatch"`` — source state 不對 → HTTP 409 Conflict
+    - ``"guard_failed"`` — guard 條件 fail (缺欄位、值不合法) → HTTP 422 Unprocessable Entity
+    - ``"unknown_action"`` — action 名稱不存在 → HTTP 422
+
+    舊 caller 不傳 reason 仍可（為 None）— router 端 fallback 用字串匹配做向後相容。
     """
+
+    def __init__(self, message: str, *, reason: str | None = None):
+        super().__init__(message)
+        self.reason = reason
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -350,17 +361,26 @@ class WorkOrderStateMachine:
         """
         rule = WORK_ORDER_TRANSITIONS.get(action)
         if rule is None:
-            raise InvalidTransition(f"unknown action: {action!r}")
+            raise InvalidTransition(
+                f"unknown action: {action!r}", reason="unknown_action"
+            )
 
         if wo.status not in rule.from_states:
             allowed = ", ".join(sorted(s.value for s in rule.from_states))
             raise InvalidTransition(
                 f"{action!r}: cannot transition from {wo.status.value!r} "
-                f"(allowed: {allowed})"
+                f"(allowed: {allowed})",
+                reason="state_mismatch",
             )
 
         if rule.guard is not None:
-            rule.guard(wo, actor_id, kwargs)
+            try:
+                rule.guard(wo, actor_id, kwargs)
+            except InvalidTransition as e:
+                # guard 拋出時補 reason="guard_failed"（如果它沒設的話）
+                if e.reason is None:
+                    raise InvalidTransition(str(e), reason="guard_failed") from e
+                raise
 
         # 過 guard 後才 mutate（避免半路失敗留 partial state）
         _apply_side_effects(wo, action, actor_id=actor_id, kwargs=kwargs)

@@ -323,17 +323,26 @@ class MaterialRequestStateMachine:
         """
         rule = MATERIAL_REQUEST_TRANSITIONS.get(action)
         if rule is None:
-            raise InvalidTransition(f"unknown action: {action!r}")
+            raise InvalidTransition(
+                f"unknown action: {action!r}", reason="unknown_action"
+            )
 
         if mr.status not in rule.from_states:
             allowed = ", ".join(sorted(s.value for s in rule.from_states))
             raise InvalidTransition(
                 f"{action!r}: cannot transition from {mr.status.value!r} "
-                f"(allowed: {allowed})"
+                f"(allowed: {allowed})",
+                reason="state_mismatch",
             )
 
         if rule.guard is not None:
-            rule.guard(mr, actor_id, kwargs)
+            try:
+                rule.guard(mr, actor_id, kwargs)
+            except InvalidTransition as e:
+                # 補 reason="guard_failed"（如 guard 沒自帶 reason）
+                if e.reason is None:
+                    raise InvalidTransition(str(e), reason="guard_failed") from e
+                raise
 
         # 過 guard 後才 mutate（避免半路失敗留 partial state）
         _apply_side_effects(mr, action, actor_id=actor_id, kwargs=kwargs)
