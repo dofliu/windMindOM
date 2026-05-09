@@ -1,15 +1,20 @@
-"""FastAPI router for Approval / Signoff（WMOM-20260504-18）。
+"""FastAPI router for Approval / Signoff（WMOM-20260504-18 + -20260509-03 MR hook）。
 
 3 endpoints:
 - ``GET  /api/workflow/approvals/pending`` — 我的待簽（filter by farm_id + level）
 - ``POST /api/workflow/approvals/{step_id}/approve`` — 通過一階；最後一階通過時自動觸發
-                                                        work_order.approve_all() 進 CLOSED
+                                                        work_order.approve_all() / material_request.dispatch
 - ``POST /api/workflow/approvals/{step_id}/reject`` — 駁回；自動觸發 work_order.reject() 回 IN_PROGRESS
+                                                       (MATERIAL_REQUEST chain reject 在 domain 層終態化)
 
-Integration（DN-02）：
-- approve last step → 觸發 work_order_repo.transition(approve_all)
-- reject any step → 觸發 work_order_repo.transition(reject, reject_reason=...)
-- 兩個 transition 失敗（不太可能，但 caller 端要看到）會 raise HTTPException 500
+Integration（DN-02 + DN-03）：
+- WORK_ORDER chain：approve last step → ``wo_repo.transition(approve_all)`` → CLOSED
+                    reject → ``wo_repo.transition(reject, reject_reason)`` → IN_PROGRESS
+- MATERIAL_REQUEST chain（WMOM-20260509-03）：
+                    approve last step → ``mr_repo.transition(approve_all)`` → APPROVED
+                                       → ``mr_repo.dispatch_request()`` → DISPATCHED + atomic 雙寫
+                    reject → MR domain state machine REJECTED 終態（不另觸發 transition；UI
+                            提示 operator 建新 MR）
 """
 
 from __future__ import annotations
@@ -30,9 +35,12 @@ from modules.workflow.domain import (
     SignoffSubjectType,
 )
 from modules.workflow.repository import (
+    InsufficientStock,
+    MaterialRequestRepository,
     SignoffActionError,
     SignoffRepository,
     WorkOrderRepository,
+    get_material_request_repository,
     get_repository as get_work_order_repo,
     get_signoff_repository,
 )
@@ -57,21 +65,30 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow-approval"])
 
 _signoff_factory: Callable[[str], SignoffRepository] | None = None
 _work_order_factory_for_approval: Callable[[str], WorkOrderRepository] | None = None
+_material_request_factory_for_approval: (
+    Callable[[str], MaterialRequestRepository] | None
+) = None
 
 
 def set_signoff_factories(
     signoff: Callable[[str], SignoffRepository] | None,
     work_order: Callable[[str], WorkOrderRepository] | None,
+    material_request: Callable[[str], MaterialRequestRepository] | None = None,
 ) -> None:
-    """注入兩個 factory：``signoff(farm_id)`` + ``work_order(farm_id)``。
+    """注入 factory：``signoff(farm_id)`` + ``work_order(farm_id)`` + ``material_request(farm_id)``。
 
     None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
     singleton 避免 test 間殘留（review fix #1）。
+
+    ``material_request`` 為新加（WMOM-20260509-03），給 MATERIAL_REQUEST chain 簽核
+    最後一階完成時自動觸發 dispatch_request 用。預設 None → 走預設 factory。
     """
-    global _signoff_factory, _work_order_factory_for_approval, _FARM_REGISTRY
+    global _signoff_factory, _work_order_factory_for_approval
+    global _material_request_factory_for_approval, _FARM_REGISTRY
     _signoff_factory = signoff
     _work_order_factory_for_approval = work_order
-    if signoff is None and work_order is None:
+    _material_request_factory_for_approval = material_request
+    if signoff is None and work_order is None and material_request is None:
         _FARM_REGISTRY = None
 
 
@@ -96,6 +113,13 @@ def _get_work_order_repo(farm_id: str) -> WorkOrderRepository:
         return _work_order_factory_for_approval(farm_id)
     db_path = _resolve_farm_db_path(farm_id)
     return get_work_order_repo(db_path)
+
+
+def _get_material_request_repo(farm_id: str) -> MaterialRequestRepository:
+    if _material_request_factory_for_approval is not None:
+        return _material_request_factory_for_approval(farm_id)
+    db_path = _resolve_farm_db_path(farm_id)
+    return get_material_request_repository(db_path)
 
 
 _FARM_REGISTRY = None
@@ -198,6 +222,43 @@ async def approve_step(
                 f"chain approved but work_order transition failed: {e}"
             )
 
+    elif is_last and chain.subject_type == SignoffSubjectType.MATERIAL_REQUEST:
+        # WMOM-20260509-03：簽核完成 → 自動 approve_all 進 APPROVED → atomic
+        # dispatch_request 進 DISPATCHED + 扣 stock + 寫 ledger。
+        # 任一步失敗都把 transition_error 帶回給 caller（chain 已落地不能 retry，
+        # 操作員需手動補：去 /material-requests/{id}/dispatch endpoint 重試）。
+        mr_repo = _get_material_request_repo(farm_id)
+        try:
+            mr_repo.transition(chain.subject_id, "approve_all")
+            mr_repo.dispatch_request(chain.subject_id, actor_id=req.actor_id)
+            subject_changed = True
+        except LookupError as e:
+            _logger.error(
+                "signoff %s approved but material_request %s lookup failed: %s",
+                chain.id, chain.subject_id, e,
+            )
+            transition_error = (
+                f"chain approved but material_request lookup failed: {e}"
+            )
+        except InvalidTransition as e:
+            _logger.error(
+                "signoff %s approved but material_request %s transition failed: %s",
+                chain.id, chain.subject_id, e,
+            )
+            transition_error = (
+                f"chain approved but material_request transition failed: {e}"
+            )
+        except InsufficientStock as e:
+            # 簽核完才發現 stock 不夠（可能批准期間別張單被先 dispatch 走）
+            _logger.error(
+                "signoff %s approved but dispatch_request failed (insufficient stock): %s",
+                chain.id, e,
+            )
+            transition_error = (
+                f"chain approved but dispatch failed: {e}; "
+                "operator must adjust stock or cancel MR"
+            )
+
     return ApprovalResultResponse(
         chain=SignoffChainResponse.model_validate(chain),
         chain_completed=is_last,
@@ -244,6 +305,25 @@ async def reject_step(
             )
             transition_error = (
                 f"chain rejected but work_order transition failed: {e}"
+            )
+
+    elif chain.subject_type == SignoffSubjectType.MATERIAL_REQUEST:
+        # WMOM-20260509-03：MR domain state machine reject 進 REJECTED 終態
+        # （與 work_order「reject 回 IN_PROGRESS」不同；DN-03 設計上 MR 駁回後
+        #  操作員需建新 MR，不就地 resubmit）
+        mr_repo = _get_material_request_repo(farm_id)
+        try:
+            mr_repo.transition(
+                chain.subject_id, "reject", reject_reason=req.reason
+            )
+            subject_changed = True
+        except (LookupError, InvalidTransition) as e:
+            _logger.error(
+                "signoff %s rejected but material_request %s transition failed: %s",
+                chain.id, chain.subject_id, e,
+            )
+            transition_error = (
+                f"chain rejected but material_request transition failed: {e}"
             )
 
     return ApprovalResultResponse(
