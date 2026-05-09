@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 17 |
+| open | 16 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 28 |
+| done | 29 |
 | **total (active)** | **45** |
 
-最後更新：2026-05-09（**🎉 M4 backend 4 issue 全 done — A4 (WMOM-20260509-04) 同日完工**）。8 endpoints (6 inventory + 2 warehouse extra) + 5 request + 6 response schema (含 `@computed_field` below_safety / total_available) + mount 進 monitoring/server/app.py。28 new tests pass（CRUD / safety filter / metadata partial update / adjust + audit log / 409 insufficient_stock / 404 unknown / 422 validation / pagination / decimal precision）。Workflow 346 pass / cost+workflow 403 pass + 1 xfailed (existing) — **0 regression**。設計決策：InventoryItemResponse `@computed_field` below_safety/total_available 給 backend 算讓前端不重複邏輯 / PATCH `exclude_unset=True` partial update / Adjust error mapping 404/422/409 語意正確 / list_warehouses 走 raw SQL 避免 over-engineering / SQLAlchemy Numeric(12,4) 4 位小數 test 用 Decimal 比值不比字串。**M4 backend 累計**：4 個 issue / 173 new tests / ~31 endpoints（A1 60 + A2 58 + A3 27 + A4 28），完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → cost ledger）。下一步：A5（cost ledger 整合，0.5 工作天）— 加 read API + finish hook 把 estimated → confirmed。或先 A6 frontend（與 backend 平行）。）
+最後更新：2026-05-09（**🎉 M4 backend 全 5 issue 收官 — A5 (WMOM-20260509-05) 同日完工，cost ledger estimated → confirmed flow 就位**）。schema 加 source_item_id + confirmed_at + 新 index；CostLedgerRepository (query + summary_by_category + confirm_entry idempotent)；2 read-only endpoints（GET /api/cost/ledger + /summary，給月報用 status=confirmed）；**WO finish hook 對 linked MR line items 用 actual_qty × unit_cost flip estimated → confirmed**；circular import 修（material_request_repository 對 cost_ledger lazy import）。32 new tests pass（17 repo + 10 api + **5 lifecycle acceptance**）— 完整鏈路 acceptance test 過：建料件 → 建工單 → MR linked → submit + 3 階 approve（auto dispatch）→ ledger estimated → receive → finish WO → ledger confirmed。Workflow + cost 全 435 pass + 1 xfailed (existing) — **0 regression**。設計決策：source_item_id schema migration 給 confirm flow 精確 lookup / confirm_entry idempotent 防 WO reject re-finish 改回 / hook 寫 router 而非 repo 避免 cross-module 耦合 / hook test injection 用 set_finish_hook_db_path / 不暴露 ledger POST/PATCH（事實帳本必須走業務 atomic transaction） / lazy import 解循環。**M4 backend 累計：5 issue / 205 new tests / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed）**。M4 milestone 45% → 60%。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend（月報生成）。）
 
 ---
 
@@ -1092,20 +1092,51 @@ Depends on: WMOM-20260509-02；Blocks: WMOM-20260509-07
 
 ### WMOM-20260509-05 — Cost ledger material entry 整合（estimated → confirmed flow）
 
-- **Status**: open
+- **Status**: done（2026-05-09 完成；A1+A2+A3+A4 同日連續第五輪 — **M4 backend 收官**）
 - **Milestone**: M4（部分覆蓋 [WMOM-20260504-11](#wmom-20260504-11--event-driven-cost-ledger-m4-增強) Phase A）
 - **Priority**: high（M4 demo flow 的「cost actual 寫入」步驟）
-- **Estimate**: 0.5 工作天
-- **Description**:
-  - 新表 `cost_ledger_entry`（`modules/cost/repository/cost_ledger.py`）：UUID id / farm_id / category('material'|'labour'|'equipment'|'revenue_loss') / amount EUR / source_event_id / source_type / status('estimated'|'confirmed') / recorded_at / actor
-  - `dispatch_request()` 在 -02 雙寫 transaction 內呼叫 `cost_ledger.insert(category=material, status=estimated, amount=estimated_qty × unit_cost)`
-  - work_order `finish` hook：enumerate `material_request_ids` → 對每筆找對應 ledger entry → 用 `actual_qty × unit_cost` 改 amount + status=confirmed
-  - `GET /api/cost/ledger?farm_id=...&from=...&to=...&category=...`（read-only查詢，給月報用）
-- **Acceptance**:
-  - 15+ pytest pass（含 estimated → confirmed transition + actual 與 estimated 差異率記錄）
-  - 完整鏈路：material_request dispatch → ledger entry created (estimated) → wo finish → ledger entry updated (confirmed) — 一次測過
-- **Depends on**: WMOM-20260509-03
-- **Blocks**: WMOM-20260509-08（reporting 要算月度 material cost 從 ledger 讀）
+- **Estimate**: 0.5 工作天 → **實際 ~半天**
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ schema 擴充：`cost_ledger.py` 加 `source_item_id` (nullable) + `confirmed_at` 欄位 + 新 index `ix_cost_ledger_source_item`，給 confirm flow 精確 lookup
+  - ✅ A2 dispatch_request 寫 ledger 時帶 `source_item_id=UUID(it.id)` 給 confirm flow 用
+  - ✅ `cost_ledger_repository.py`：CostLedgerRepository（180 行）— get / list (filters + pagination) / find_for_mr_item / list_for_subject / **summary_by_category** (給 A8 月報) / **confirm_entry idempotent**
+  - ✅ `cost_ledger_router.py`：2 read-only endpoints + factory injection
+    - `GET /api/cost/ledger` — list + filters (farm/from/to/category/status/source_type) + pagination
+    - `GET /api/cost/ledger/summary` — group by 4 大類（status=confirmed → actual cost for monthly_report）
+  - ✅ Mount 進 `monitoring/server/app.py`
+  - ✅ **WO finish hook**：`work_order_router.finish` 結束後呼叫 `_confirm_material_ledger_for_finished_wo` — loop linked MRs，對每個 actual_qty 已填的 line item 用 `actual_qty × current unit_cost` flip estimated → confirmed；hook 失敗不阻擋 finish；test override `set_finish_hook_db_path` 給 lifecycle test 用
+  - ✅ Circular import 修：`material_request_repository` 對 cost_ledger imports 改成 lazy（搬進 `dispatch_request` 函式內）；test patch path 跟著改成 `cost_ledger.insert_in_session`
+  - ✅ **32 new tests pass** in 3.12s（17 repo + 10 api + **5 lifecycle acceptance**）
+  - ✅ 全 workflow + cost combined 435 pass + 1 xfailed (existing) — **0 regression**
+  - ✅ **完整鏈路 acceptance test 過**：建料件 → 建工單 → MR linked to WO → submit + 3 階 approve（auto dispatch）→ ledger entry estimated（amount=900 = 2×450）→ receive actual_qty → finish WO → ledger entry confirmed
+  - ✅ Edge cases 全測：actual ≠ estimated（amount 翻成 actual×unit_cost）/ MR 未 receive 時 finish（ledger 留 estimated）/ 沒 linked MR 的 finish 正常 / `summary_by_category(status=CONFIRMED)` 拿到 actual cost 給月報用
+- **Decisions made during impl**:
+  - 加 `source_item_id` 是 schema migration（nullable 安全）— 因為 dispatch 對 N items 寫 N entries，confirm 要 unique lookup
+  - `confirm_entry` idempotent：已 confirmed → no-op return；防止 WO reject 後 re-finish 改回 amount
+  - finish hook 寫在 router 而非 repository — cross-module concern（讀 MR + inv + ledger）寫 router 比較乾淨，避免 repository 層直接跨 module 耦合
+  - finish hook test injection 用 `set_finish_hook_db_path(path)` 而非 factory 三聯（少 boilerplate）；既有 test 不破（override 未設 + FarmRegistry 沒 mock → hook 安靜跳過）
+  - **不暴露 ledger POST/PATCH** — ledger 是「事實帳本」所有 mutation 必須走業務 atomic transaction
+  - lazy import 解循環：`material_request_repository`→`cost_ledger`→`workflow.orm_models`→workflow.repository.__init__→material_request_repository 的循環
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-cost-ledger-integration.md`](work-logs/2026-05/2026-05-09-cost-ledger-integration.md)
+  - DN-03 §2.3「雙寫交易」+ §3.2「與 cost ledger 的綁定」
+  - WMOM-20260504-11 (event-driven cost ledger) Phase A 部分覆蓋
+
+<details><summary>📜 原始 issue description</summary>
+
+- 新表 cost_ledger_entry：UUID id / farm_id / category / amount EUR / source_event_id / source_type / status / recorded_at / actor
+- dispatch_request 在雙寫 transaction 內 insert(category=material, status=estimated, amount=estimated_qty × unit_cost)
+- work_order finish hook：enumerate material_request_ids → 對每筆找對應 ledger entry → 用 actual_qty × unit_cost 改 amount + status=confirmed
+- GET /api/cost/ledger?farm_id=...&from=...&to=...&category=...
+
+Acceptance：
+- 15+ pytest pass（含 estimated → confirmed transition + actual 與 estimated 差異率記錄）
+- 完整鏈路：MR dispatch → estimated → wo finish → confirmed — 一次測過
+
+Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
+
+</details>
 
 ---
 

@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 95
+progress: 96
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**🎉 M4 backend 全收 — A4 (WMOM-20260509-04) 同日完工**：8 endpoints (6 inventory + 2 warehouse extra) + 5 request + 6 response schema（含 InventoryItemResponse @computed_field below_safety / total_available）+ mount 進 monitoring/server/app.py。28 new tests pass。Workflow 346 pass / cost+workflow 403 pass + 1 xfailed (existing) — 0 regression。M4 backend 4 個 issue（A1 domain 60 + A2 repo+atomic dispatch 58 + A3 MR API 27 + A4 inventory API 28）共 173 new tests / ~31 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → cost ledger）。設計決策：@computed_field 給 backend 算讓 frontend 不重複邏輯 / PATCH exclude_unset partial update / Adjust 404/422/409 error mapping 語意正確 / SQLAlchemy Numeric(12,4) test 用 Decimal 比值。下一步候選：A5（cost ledger 整合，0.5 工作天 — read API + finish hook 把 estimated → confirmed），或 A6 frontend（與後端平行）。"
+next_milestone: "**🎉 M4 backend 全 5 issue 收官 — A5 (WMOM-20260509-05) cost ledger 整合就位**：source_item_id schema 擴充 + CostLedgerRepository (query + summary_by_category + confirm_entry idempotent) + 2 read-only endpoints（GET /api/cost/ledger + /summary）+ WO finish hook 自動 flip estimated → confirmed (用 actual_qty × current unit_cost) + circular import 修（lazy import）。32 new tests pass — 5 acceptance lifecycle test 驗完整鏈路（建料件 → 建工單 → MR linked → submit + 3 階 approve → atomic dispatch → ledger estimated → receive actual_qty → finish WO → **ledger confirmed**）。Workflow + cost 全 435 pass + 1 xfailed (existing) — 0 regression。**M4 backend 5 issue 累計：205 new tests / 33 endpoints / 完整 lifecycle 鏈路就位**（A1 60 + A2 58 + A3 27 + A4 28 + A5 32）。設計決策：confirm_entry idempotent 防 WO reject 改回 / hook 寫 router 而非 repo / hook test 用 set_finish_hook_db_path 注入 / 不暴露 ledger POST/PATCH（事實帳本必須走業務 atomic transaction） / lazy import 解 cost_ledger ↔ workflow.repository 循環。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend（月報生成）。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 45  # backend 全收（A1 domain + A2 repo+atomic dispatch + A3 MR API + A4 inventory API）；A5..A10 pending
+    progress: 60  # backend 5 issue 全收（A1+A2+A3+A4+A5 — domain → repo → MR API → inv API → ledger 整合）；A6..A10 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 17
+  open: 16
   in_progress: 0
   blocked: 0
-  done: 28
+  done: 29
 
 inherited_baseline:
   source: digiWindTurbine

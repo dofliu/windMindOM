@@ -75,7 +75,12 @@ class CostLedgerSourceType(str, Enum):
 
 @dataclass
 class CostLedgerEntry:
-    """Pure domain entry（給 caller 建立 + ORM round-trip）。"""
+    """Pure domain entry（給 caller 建立 + ORM round-trip）。
+
+    ``source_item_id`` (WMOM-20260509-05): 細粒度 line item id，給 confirm flow 用。
+    當 source_type=MATERIAL_REQUEST 時，這欄位是 ``MaterialRequestItem.id``，
+    讓 wo.finish hook 能精確找到對應 ledger entry 翻 estimated → confirmed。
+    """
 
     farm_id: str
     category: CostLedgerCategory
@@ -83,10 +88,12 @@ class CostLedgerEntry:
     source_event_id: UUID
     source_type: CostLedgerSourceType
     id: UUID = field(default_factory=uuid4)
+    source_item_id: Optional[UUID] = None
     status: CostLedgerStatus = CostLedgerStatus.ESTIMATED
     actor_id: Optional[UUID] = None
     note: Optional[str] = None
     recorded_at: datetime = field(default_factory=_utc_now)
+    confirmed_at: Optional[datetime] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -102,11 +109,16 @@ class CostLedgerEntryORM(Base):
     category: Mapped[str] = mapped_column(String(32), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2))
     source_event_id: Mapped[str] = mapped_column(String(36), index=True)
+    # WMOM-20260509-05：細粒度 line item id（MaterialRequestItem.id），給 confirm
+    # flow 精確查找 ledger entry；nullable 因 work_order / fault 等 source 沒 line item
+    source_item_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
     source_type: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(16), index=True, default="estimated")
     actor_id: Mapped[Optional[str]] = mapped_column(String(36))
     note: Mapped[Optional[str]] = mapped_column(Text)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # WMOM-20260509-05：confirmed_at 紀錄 estimated → confirmed flip 時刻（給 KPI / audit）
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         Index(
@@ -116,6 +128,10 @@ class CostLedgerEntryORM(Base):
         Index(
             "ix_cost_ledger_source_event",
             "source_type", "source_event_id",
+        ),
+        Index(
+            "ix_cost_ledger_source_item",
+            "source_event_id", "source_item_id",
         ),
     )
 
@@ -137,11 +153,15 @@ def insert_in_session(sess: Session, entry: CostLedgerEntry) -> CostLedgerEntryO
         category=entry.category.value,
         amount=entry.amount,
         source_event_id=str(entry.source_event_id),
+        source_item_id=(
+            str(entry.source_item_id) if entry.source_item_id is not None else None
+        ),
         source_type=entry.source_type.value,
         status=entry.status.value,
         actor_id=str(entry.actor_id) if entry.actor_id is not None else None,
         note=entry.note,
         recorded_at=entry.recorded_at,
+        confirmed_at=entry.confirmed_at,
     )
     sess.add(orm)
     return orm

@@ -1,15 +1,21 @@
-"""FastAPI router for Work Order CRUD + state transitions（WMOM-20260504-17）。
+"""FastAPI router for Work Order CRUD + state transitions（WMOM-20260504-17 + -20260509-05）。
 
 11 endpoints. State transitions 都走 ``WorkOrderRepository.transition`` 統一入口
 （domain state machine + persist + event log + multi-WO constraint）。
 
+A5（WMOM-20260509-05）擴充：``finish`` endpoint 加 cost ledger 確認 hook —
+工單完工後找所有關聯 MR，把 actual_qty 寫過的 line item ledger entry 從 estimated
+翻到 confirmed（amount = actual_qty × unit_cost）。
+
 依賴：``modules.monitoring.server.farm_registry`` 的 ``FarmRegistry`` 拿 farm DB path。
-為了讓 router 可被 unit test，提供 ``set_repository_factory()`` 注入 mock。
+為了讓 router 可被 unit test，提供 ``set_repository_factory()`` + ``set_finish_hook_db_path()``
+注入 mock。
 """
 
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Callable
 from uuid import UUID
 
@@ -52,6 +58,10 @@ router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
 _repository_factory: Callable[[str], WorkOrderRepository] | None = None
 
+# WMOM-20260509-05：finish hook 用的 db_path override。Test 注入 tmp DB 走這條，
+# 避開 FarmRegistry 依賴。生產直接 None → 走 FarmRegistry。
+_finish_hook_db_path_override: str | None = None
+
 
 def set_repository_factory(
     factory: Callable[[str], WorkOrderRepository] | None,
@@ -65,6 +75,15 @@ def set_repository_factory(
     _repository_factory = factory
     if factory is None:
         _FARM_REGISTRY = None
+
+
+def set_finish_hook_db_path(path: str | None) -> None:
+    """Test inject — finish hook 走 ``path`` 而不查 FarmRegistry（給 test_lifecycle 用）。
+
+    Call ``set_finish_hook_db_path(None)`` 解除 override。
+    """
+    global _finish_hook_db_path_override
+    _finish_hook_db_path_override = path
 
 
 # fix #3：FarmRegistry singleton（避免每個 API call 重 init + 開新 sqlite connection）
@@ -101,6 +120,75 @@ def _default_repository_factory(farm_id: str) -> WorkOrderRepository:
 def _get_repo(farm_id: str) -> WorkOrderRepository:
     factory = _repository_factory or _default_repository_factory
     return factory(farm_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# A5 finish hook helpers — cost ledger confirmation
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _resolve_db_path_for_finish_hook(farm_id: str) -> str | None:
+    """For A5 finish hook: resolve farm DB path with test override support.
+
+    Returns ``None`` when DB path can't be resolved (test mode without override or
+    FarmRegistry unavailable) — caller skip the hook quietly.
+    """
+    if _finish_hook_db_path_override is not None:
+        return _finish_hook_db_path_override
+    try:
+        reg = _get_default_farm_registry()
+    except (ImportError, HTTPException):
+        return None
+    db_path = reg.get_farm_db_path(farm_id)
+    return str(db_path) if db_path is not None else None
+
+
+def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
+    """A5 hook：工單完工後，對所有關聯 MR 的 line item ledger entry，
+    用 ``actual_qty × current unit_cost`` 翻 estimated → confirmed。
+
+    - 跳過 actual_qty 還是 None 的 item（MR 還沒 receive）— ledger 留 estimated
+    - 找不到 entry → log warning（罕見，可能 dispatch 失敗但 status 進 DISPATCHED）
+    - 已 confirmed → confirm_entry 內部 idempotent
+    """
+    db_path = _resolve_db_path_for_finish_hook(farm_id)
+    if db_path is None:
+        # test 環境無 override + 無 FarmRegistry — 安靜跳過
+        # （讓既有 test_work_order_api / test_approval_api 不破）
+        return
+
+    # runtime imports（避循環 import）
+    from modules.cost.repository import get_cost_ledger_repository
+    from modules.workflow.repository import (
+        get_inventory_repository,
+        get_material_request_repository,
+    )
+
+    mr_repo = get_material_request_repository(db_path)
+    inv_repo = get_inventory_repository(db_path)
+    ledger_repo = get_cost_ledger_repository(db_path)
+
+    linked_mrs = mr_repo.list_for_work_order(wo_id)
+    for mr in linked_mrs:
+        for item in mr.items:
+            if item.actual_qty is None:
+                continue
+            inv = inv_repo.get_item(item.item_id)
+            if inv is None:
+                _logger.warning(
+                    "ledger hook: inventory item %s not found for MR %s",
+                    item.item_id, mr.id,
+                )
+                continue
+            entry = ledger_repo.find_for_mr_item(mr.id, item.id)
+            if entry is None:
+                _logger.warning(
+                    "ledger hook: no ledger entry for MR %s item %s",
+                    mr.id, item.id,
+                )
+                continue
+            new_amount = Decimal(item.actual_qty) * inv.unit_cost
+            ledger_repo.confirm_entry(entry.id, new_amount=new_amount)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -288,24 +376,31 @@ async def finish(
             actor_id=None,
         )
         repo.set_signoff_chain_id(response.id, chain.id)
-        wo = repo.get(response.id)
-        if wo is not None:
-            return WorkOrderResponse.model_validate(wo)
     except (ValueError, LookupError) as e:
-        # review fix #8：細分 expected failure（config 錯誤 / wo 不見）vs 未知 error
-        # ValueError → build_chain_levels 全 disabled 拒絕 / overlay 型別錯誤
-        # LookupError → 工單建好後馬上消失（罕見）
         _logger.warning(
             "Work order %s finished but signoff chain creation failed (config/lookup): %s",
             work_order_id, e,
         )
     except Exception as e:
-        # 未預期錯誤（IntegrityError / DB connection 等） — log error 但不 raise，
-        # 工單已 AWAITING_SIGNOFF，caller 可走 manual backfill endpoint（M3+ 再加）
         _logger.error(
             "Unexpected error creating signoff chain for work_order %s: %s",
             work_order_id, e, exc_info=True,
         )
+
+    # WMOM-20260509-05: cost ledger confirmation hook
+    # 對所有 actual_qty 已填的 MR line item，把 ledger entry 從 estimated → confirmed
+    # 失敗不阻擋 finish（工單已 AWAITING_SIGNOFF；caller 可手動 backfill）
+    try:
+        _confirm_material_ledger_for_finished_wo(response.id, farm_id)
+    except Exception as e:  # noqa: BLE001
+        _logger.warning(
+            "Work order %s finished but cost ledger confirmation hook failed: %s",
+            work_order_id, e,
+        )
+
+    wo = repo.get(response.id)
+    if wo is not None:
+        return WorkOrderResponse.model_validate(wo)
     return response
 
 

@@ -273,7 +273,8 @@ def test_dispatch_ledger_insert_fails_full_rollback(repos):
     )
 
     # patch insert_in_session 讓它在 dispatch transaction 中段 raise
-    target = "modules.workflow.repository.material_request_repository.insert_in_session"
+    # Note: A5 改成 lazy import 後要 patch 在原 module（cost_ledger），不在 mr_repo
+    target = "modules.cost.repository.cost_ledger.insert_in_session"
     with patch(target, side_effect=RuntimeError("synthetic ledger failure")):
         with pytest.raises(RuntimeError, match="synthetic ledger failure"):
             mr_repo.dispatch_request(mr_id)
