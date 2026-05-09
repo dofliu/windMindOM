@@ -1,4 +1,4 @@
-"""windMindOM workflow routers — FastAPI routers（WMOM-20260504-17 / -18）。
+"""windMindOM workflow routers — FastAPI routers（WMOM-20260504-17 / -18 / -20260509-03）。
 
 Endpoints:
 
@@ -10,11 +10,18 @@ Endpoints:
 
 **approval (WMOM-18)** — exported as ``approval_router``:
 - GET   /api/workflow/approvals/pending
-- POST  /api/workflow/approvals/{step_id}/approve
+- POST  /api/workflow/approvals/{step_id}/approve  (含 MATERIAL_REQUEST auto-dispatch hook)
 - POST  /api/workflow/approvals/{step_id}/reject
+
+**material-request (WMOM-20260509-03)** — exported as ``material_request_router``:
+- POST  /api/workflow/material-requests
+- GET   /api/workflow/material-requests
+- GET   /api/workflow/material-requests/{id}
+- POST  /api/workflow/material-requests/{id}/{submit-for-approval|dispatch|receive|close|cancel|returns}
 """
 
 from .approval_router import router as approval_router
+from .material_request_router import router as material_request_router
 from .work_order_router import router
 
-__all__ = ["router", "approval_router"]
+__all__ = ["router", "approval_router", "material_request_router"]

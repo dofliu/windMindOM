@@ -345,7 +345,8 @@ class MaterialRequestRepository:
                     raise LookupError(f"material_request {mr_id} not found")
                 if mr_orm.status != MaterialRequestStatus.APPROVED.value:
                     raise InvalidTransition(
-                        f"dispatch_request: MR must be APPROVED (current={mr_orm.status})"
+                        f"dispatch_request: cannot transition from {mr_orm.status!r} "
+                        f"(must be APPROVED)"
                     )
 
                 # ── Step 2 + 3: per-item stock decrement + ledger ──────

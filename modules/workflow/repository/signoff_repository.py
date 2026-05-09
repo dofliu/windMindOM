@@ -132,6 +132,34 @@ class SignoffRepository:
             actor_id=actor_id,
         )
 
+    def create_chain_for_material_request(
+        self,
+        *,
+        material_request_id: UUID,
+        farm_id: str,
+        farm_config: dict[str, Any] | None = None,
+        escalate_to_supervisor: bool = False,
+        actor_id: UUID | None = None,
+    ) -> SignoffChain:
+        """領料單 submit-for-approval 後呼叫；建 chain（DN-02 D2-Q2 預設 3 階：
+        EMPLOYEE → LEADER → TREASURY）。
+
+        ``escalate_to_supervisor`` 預留給 critical priority MR — 加 SUPERVISOR
+        層在 LEADER 與 TREASURY 之間（M5+ 細項）。
+        """
+        levels = build_chain_levels(
+            SignoffSubjectType.MATERIAL_REQUEST,
+            farm_config=farm_config,
+            escalate_to_supervisor=escalate_to_supervisor,
+        )
+        return self._create_chain(
+            subject_type=SignoffSubjectType.MATERIAL_REQUEST,
+            subject_id=material_request_id,
+            farm_id=farm_id,
+            levels=levels,
+            actor_id=actor_id,
+        )
+
     def _create_chain(
         self,
         *,
