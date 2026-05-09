@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 20 |
+| open | 19 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 25 |
+| done | 26 |
 | **total (active)** | **45** |
 
-最後更新：2026-05-09（**M4 規劃進場 + WMOM-20260509-01 同日 done** — 10 個 sub-issue 寫入 ISSUES.md（A1..A10）+ A1 (Inventory + MaterialRequest domain) 同日完工。A1 交付：3 enum + 7 dataclass + 8 transition state machine + 60 unit test pass / 全 workflow 233 pass / 0 regression / AST 確認無 SQLAlchemy 滲入 domain 層。設計決策：REJECTED 為終態（與 DN-02 D2-Q3 略有差異，walkthrough 可 confirm）/ cancel 在 DISPATCHED 之後不允許 / close 兩條 source state（USED 或 RECEIVED）/ receive 用 dict 帶 actual_qty / dispatch 在 domain 層只動 status，stock 扣帳 + ledger 寫入由 A2 雙寫 transaction 處理。下一步：A2（Repository + 雙寫 transaction，M4 核心）。）
+最後更新：2026-05-09（**A2 (WMOM-20260509-02) 同日完工 — M4 核心雙寫交易就位**）。Backend 主菜：7 ORM mapped class + cost_ledger 共用 Base + InventoryRepository (CRUD + safety_stock + adjust + audit log) + MaterialRequestRepository (CRUD + state transition + atomic dispatch_request + add_return)。58 new tests pass（test_inventory_repository 21 + test_material_request_repository 19 + **test_dispatch_atomic_transaction 18**）；workflow 全 291 pass / cost+workflow 348 pass 0 regression。Atomic dispatch 驗收 5 條：happy + multi-item / state mismatch / insufficient_stock 全 rollback / mock mid-failure 全 rollback / 並發 2 thread 自動序列化（5 stock × 2 dispatchers 各 4 個 → 1 成功 1 InsufficientStock，無 double-spend）。設計決策：cost_ledger 共用 workflow Base（atomic 必要）/ SQLite SELECT FOR UPDATE no-op 但 WAL+busy_timeout 序列化寫入正確 / dispatch_request 不走 transition('dispatch') 避免 caller 漏掉雙寫 / 工單 material_request_ids 用 reverse-lookup 不寫進 work_orders schema / add_return 暫不寫 ledger 沖銷（A5 用 finish hook 一次到位）。下一步：A3（MaterialRequest CRUD + state transitions API，9 endpoints，0.5 工作天）。）
 
 ---
 
@@ -958,22 +958,47 @@ Depends on: -；Blocks: WMOM-20260509-02
 
 ### WMOM-20260509-02 — Inventory + MaterialRequest Repository（**雙寫交易模型** — M4 核心）
 
-- **Status**: open
+- **Status**: done（2026-05-09 完成；A1 同日接力）
 - **Milestone**: M4
 - **Priority**: critical（DN-03 §2.3 整個 issue 的關鍵不變式）
-- **Estimate**: 1 工作天
-- **Description**:
-  - `modules/workflow/repository/inventory_orm.py`：SQLAlchemy 2.0 mapped class（InventoryItemORM / WarehouseORM / MaterialRequestORM / MaterialRequestItemORM / MaterialReturnORM / InventoryAdjustmentLogORM / MaterialRequestNotificationORM）
-  - `modules/workflow/repository/inventory_repository.py`：CRUD + safety_stock 計算 + adjust（手動 +/-）
-  - `modules/workflow/repository/material_request_repository.py`：CRUD + state transition + **`dispatch_request()` 雙寫**（SELECT FOR UPDATE → 扣 stock → 寫 cost ledger entry → commit；半路 raise → rollback 不污染）
-  - 工單 `material_request_ids` 欄位回填邏輯
-- **Acceptance**:
-  - `dispatch_request` 在故障注入（mid-transaction raise）下 **庫存 + ledger 同時 rollback**（test 用 `unittest.mock.patch` 偽造 mid-failure 驗）
-  - SELECT FOR UPDATE 在 SQLite WAL 下行為（同寫鎖序）+ 並行 dispatch 兩張單同一料件 → 第二張等第一張 commit 後再讀（test 用 thread）
-  - 50+ test pass（含 dispatch race / insufficient_stock / state mismatch / safety_stock 計算）
-- **Depends on**: WMOM-20260509-01
-- **Blocks**: WMOM-20260509-03、-04、-05
-- **Reference**: DN-03 §2.3「雙寫交易」段
+- **Estimate**: 1 工作天 → **實際 ~半天**（同 A1 session 內推完）
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ `modules/workflow/repository/inventory_orm.py`：7 SQLAlchemy mapped class（WarehouseORM / InventoryItemORM / InventoryAdjustmentLogORM / MaterialRequestORM / MaterialRequestItemORM / MaterialReturnORM / MaterialRequestNotificationORM），與既有 work_order ORM 共用 `Base` + 共用 `_get_engine` cache
+  - ✅ `modules/cost/repository/__init__.py` + `cost_ledger.py`：CostLedgerEntryORM 共用 workflow Base（atomic transaction 必要）+ 3 enum + pure dataclass + `insert_in_session()` helper
+  - ✅ `modules/workflow/repository/inventory_repository.py`：InventoryRepository（CRUD / safety_stock filter / 手動 adjust + audit log）+ `apply_stock_delta_in_session()` helper（lock + 異動 stock，給 dispatch 用）
+  - ✅ `modules/workflow/repository/material_request_repository.py`：MaterialRequestRepository — CRUD + state transition + **atomic `dispatch_request()`** + atomic `add_return()` + `list_for_work_order()` reverse-lookup（取代 work_order schema 內 list[UUID]）
+  - ✅ `modules/workflow/repository/__init__.py`：13 個新 export
+  - ✅ 3 test files / 58 new tests pass：
+    - `test_inventory_repository.py`（21）：CRUD / safety stock filter / adjust + audit log / Decimal round-trip
+    - `test_material_request_repository.py`（19）：CRUD / state transitions / business_key / signoff chain wiring / returns
+    - `test_dispatch_atomic_transaction.py`（**18 — M4 核心**）：happy + multi-item / state mismatch / insufficient_stock 全 rollback / mid-transaction mock failure 全 rollback / round-trip / **2 個並發 dispatch 在 SQLite WAL 下序列化正確**
+  - ✅ **全 workflow suite 291 pass**（M3 173 + A1 60 + A2 58）/ **cost+workflow combined 348 pass + 1 xfailed (existing) — 0 regression**
+- **Decisions made during impl**:
+  - **Cost ledger 共用 workflow Base**：atomic 雙寫必須跨 module 共用 Base metadata；替代方案（2PC / message queue / retry）違反 DN-03 §2.3 不變式
+  - **SQLite SELECT FOR UPDATE no-op**：`with_for_update()` 在 SQLite 不真做 row-lock，但 BEGIN IMMEDIATE + WAL + busy_timeout 序列化寫入；test `test_concurrent_dispatch_*` 兩 thread 同 dispatch 同 item 驗證（5 stock × 2 個各要 4 → 1 成功 + 1 InsufficientStock，最終 stock=1，0 double-spend）。PostgreSQL 部署時 `with_for_update()` 才真做 row-lock
+  - **`dispatch_request` 不走 `transition('dispatch')`**：domain state machine 的 `dispatch` action 只動 status；repository `transition('dispatch')` 明確 raise 提示 caller 改用 `dispatch_request()` 才會做 atomic 雙寫
+  - **工單 material_request_ids 用 reverse-lookup**：`MaterialRequestRepository.list_for_work_order(wo_id)` 直接 query（不持久化 list[UUID] 欄位到 work_orders 表，避免 schema migration + FK 不同步風險）
+  - **`add_return` 暫不寫 ledger 沖銷**：A5 cost ledger 整合會用 wo finish hook 一次到位（actual_qty vs estimated_qty 算差，把 estimated entry 翻 confirmed + 修正 amount），較精確
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-inventory-repository.md`](work-logs/2026-05/2026-05-09-inventory-repository.md)
+  - [`docs/design-notes/m3/DN-03-inventory-material-request.md`](docs/design-notes/m3/DN-03-inventory-material-request.md) §2.3
+
+<details><summary>📜 原始 issue description</summary>
+
+- `modules/workflow/repository/inventory_orm.py`：SQLAlchemy 2.0 mapped class
+- `modules/workflow/repository/inventory_repository.py`：CRUD + safety_stock 計算 + adjust
+- `modules/workflow/repository/material_request_repository.py`：CRUD + state transition + dispatch_request 雙寫
+- 工單 material_request_ids 欄位回填邏輯
+
+Acceptance：
+- dispatch_request mid-transaction raise → 庫存 + ledger 同時 rollback
+- SELECT FOR UPDATE 並行 dispatch 第二張等第一張 commit 後再讀
+- 50+ tests
+
+Depends on: WMOM-20260509-01；Blocks: -03/-04/-05
+
+</details>
 
 ---
 

@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 91
+progress: 93
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**M4 規劃進場 + A1 (WMOM-20260509-01) 同日完工**：A1 交付（Inventory + MaterialRequest domain）— 3 enum（StockKind 3 / MaterialRequestStatus 9 / ReturnReason 4）+ 7 dataclass（Warehouse / InventoryItem 含 helper / MaterialRequest / MaterialRequestItem qty>0 invariant / MaterialReturn / Notification / InventoryAdjustmentLog）+ 8 transition state machine（同 work_order 模式，共用 InvalidTransition）+ 60 unit test pass / 全 workflow 233 pass 0 regression / AST 確認 domain 無 SQLAlchemy 滲入。設計決策：REJECTED 為終態（與 DN-02 D2-Q3「reject → DRAFT」略差異，walkthrough 可 confirm）/ cancel 在 DISPATCHED 之後不允許 / close 兩條 source state / receive 用 dict 帶 actual_qty / dispatch 在 domain 層只動 status（stock + ledger 雙寫 atomic 留 A2）。下一步：A2 (WMOM-20260509-02) Repository + 雙寫 transaction（M4 核心；SELECT FOR UPDATE + atomic stock + ledger，1 工作天）。"
+next_milestone: "**A2 (WMOM-20260509-02) 同日完工 — M4 核心雙寫交易就位**：7 SQLAlchemy ORM + cost_ledger 共用 Base + InventoryRepository (CRUD + safety_stock + adjust + audit log) + MaterialRequestRepository (CRUD + state transition + **atomic dispatch_request** + add_return)。58 new tests pass（inventory 21 + MR 19 + **atomic dispatch 18**），workflow 全 291 pass / cost+workflow 348 pass 0 regression。Atomic dispatch 5 條驗收：happy + multi-item / state mismatch / insufficient_stock 全 rollback / mock mid-failure 全 rollback / 並發 2 thread 自動序列化（5 stock × 2 dispatchers 各 4 個 → 1 成功 1 InsufficientStock，無 double-spend）。設計決策：cost_ledger 共用 workflow Base（atomic 必要 — 跨 module 耦合 trade-off）/ SQLite SELECT FOR UPDATE 是 no-op 但 BEGIN IMMEDIATE+WAL+busy_timeout 序列化寫入足以 atomic / dispatch_request 不走 transition('dispatch') 避免 caller 漏掉雙寫 / 工單 material_request_ids 用 reverse-lookup（list_for_work_order）不持久化 list[UUID] / add_return 暫不寫 ledger 沖銷（A5 finish hook 用 actual vs estimated 一次到位）。下一步：A3 (WMOM-20260509-03) MaterialRequest CRUD + state transitions API（9 endpoints + schemas + integration with approval_router 的 MATERIAL_REQUEST 分支，0.5 工作天）。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 12  # A1 done（domain + state machine）；A2..A10 pending
+    progress: 25  # A1 done（domain）+ A2 done（repository + atomic dispatch — M4 core）；A3..A10 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 20
+  open: 19
   in_progress: 0
   blocked: 0
-  done: 25
+  done: 26
 
 inherited_baseline:
   source: digiWindTurbine
