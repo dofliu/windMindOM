@@ -4,7 +4,7 @@ category: wind_energy
 progress: 90
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**M3 milestone 100% 完工** — WMOM-20260504-19 + -20 同日 push，工單管理 + 簽核流程全 frontend 上線。-20 收尾：signoffApi 3 endpoints + usePendingApprovals hook（含 work-order subject 並行 cache）+ PendingApprovalPanel（level selector default leader）+ ApprovalActionDialog（approve comment 選填 / reject reason 必填 + subject_transition_error warning 處理）+ WorkflowPage tab 真切換 + pending count badge。Smoke test 全綠（tsc clean / vite build 1067 kB / dev 5179 回 200）。M3 backend 5（-14/-15/-16/-17/-18） + frontend 2（-19/-20）共 7 issue 全 done。衍生 -21 day_work_form / -22 inspection_schedule 不阻塞主線、留 M3+/M4 之間。下一步主軸候選：M4（inventory + reporting）開工，或 WMOM-24 data quality 修正。"
+next_milestone: "**M4 開工規劃完成 — 10 個 sub-issue 進場（WMOM-20260509-01..-10）**：1) backend 主菜（-01 domain pure dataclass / -02 雙寫交易 repo / -03 material API 9 endpoints / -04 inventory API 6 endpoints），2) cost 整合（-05 ledger material entry estimated→confirmed），3) frontend（-06 material 領料單 / -07 inventory 庫存 / -09 reports 月報年度預算），4) reporting（-08 monthly_report PDF backend Jinja2+WeasyPrint），5) E2E test（-10 pytest lifecycle + demo orchestrator placeholder 給 M5 接力）。Estimate 合計 8-10 工作天，roadmap M4 (2026-08) 1 個月內完成寬鬆。開工順序：A1→A2→A3→A6→A4→A7→A5→A8→A9→A10。Backend signoff MATERIAL_REQUEST enum + frontend approval tab subject_type filter 都已 M3 同步預留，M4 只要 wire 起來。等劉老師確認 plan，從 WMOM-20260509-01 domain 正式開工。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: planned
-    progress: 0
+    progress: 5  # 規劃完成（WMOM-20260509-01..-10 進 ISSUES.md）；尚未開始實作
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 11
+  open: 21
   in_progress: 0
   blocked: 0
   done: 24
