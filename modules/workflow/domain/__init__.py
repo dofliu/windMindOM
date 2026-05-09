@@ -2,7 +2,8 @@
 
 不接 SQLAlchemy / FastAPI；給 repository / router 層 import 用。
 對應 [DN-01](../../../docs/design-notes/m3/DN-01-work-order-lifecycle.md) +
-[DN-02](../../../docs/design-notes/m3/DN-02-approval-multilevel.md)。
+[DN-02](../../../docs/design-notes/m3/DN-02-approval-multilevel.md) +
+[DN-03](../../../docs/design-notes/m3/DN-03-inventory-material-request.md)。
 """
 
 from .work_order import (
@@ -35,8 +36,28 @@ from .signoff import (
     build_chain_levels,
     user_group_to_level,
 )
+from .inventory import (
+    InventoryAdjustmentLog,
+    InventoryItem,
+    MaterialRequest,
+    MaterialRequestItem,
+    MaterialRequestNotification,
+    MaterialRequestStatus,
+    MaterialReturn,
+    ReturnReason,
+    StockKind,
+    Warehouse,
+)
+from .inventory_state_machine import (
+    MATERIAL_REQUEST_TRANSITIONS,
+    MaterialRequestStateMachine,
+    MaterialRequestTransitionRule,
+    open_states_mr,
+    terminal_states_mr,
+)
 
 __all__ = [
+    # Work order + signoff (M3)
     "DEFAULT_MATERIAL_REQUEST_CHAIN",
     "DEFAULT_WORK_ORDER_CHAIN",
     "FollowupKind",
@@ -61,4 +82,20 @@ __all__ = [
     "reopenable_states",
     "terminal_states",
     "user_group_to_level",
+    # Inventory + material request (M4 / WMOM-20260509-01)
+    "InventoryAdjustmentLog",
+    "InventoryItem",
+    "MATERIAL_REQUEST_TRANSITIONS",
+    "MaterialRequest",
+    "MaterialRequestItem",
+    "MaterialRequestNotification",
+    "MaterialRequestStateMachine",
+    "MaterialRequestStatus",
+    "MaterialRequestTransitionRule",
+    "MaterialReturn",
+    "ReturnReason",
+    "StockKind",
+    "Warehouse",
+    "open_states_mr",
+    "terminal_states_mr",
 ]

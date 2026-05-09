@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 90
+progress: 91
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**M4 開工規劃完成 — 10 個 sub-issue 進場（WMOM-20260509-01..-10）**：1) backend 主菜（-01 domain pure dataclass / -02 雙寫交易 repo / -03 material API 9 endpoints / -04 inventory API 6 endpoints），2) cost 整合（-05 ledger material entry estimated→confirmed），3) frontend（-06 material 領料單 / -07 inventory 庫存 / -09 reports 月報年度預算），4) reporting（-08 monthly_report PDF backend Jinja2+WeasyPrint），5) E2E test（-10 pytest lifecycle + demo orchestrator placeholder 給 M5 接力）。Estimate 合計 8-10 工作天，roadmap M4 (2026-08) 1 個月內完成寬鬆。開工順序：A1→A2→A3→A6→A4→A7→A5→A8→A9→A10。Backend signoff MATERIAL_REQUEST enum + frontend approval tab subject_type filter 都已 M3 同步預留，M4 只要 wire 起來。等劉老師確認 plan，從 WMOM-20260509-01 domain 正式開工。"
+next_milestone: "**M4 規劃進場 + A1 (WMOM-20260509-01) 同日完工**：A1 交付（Inventory + MaterialRequest domain）— 3 enum（StockKind 3 / MaterialRequestStatus 9 / ReturnReason 4）+ 7 dataclass（Warehouse / InventoryItem 含 helper / MaterialRequest / MaterialRequestItem qty>0 invariant / MaterialReturn / Notification / InventoryAdjustmentLog）+ 8 transition state machine（同 work_order 模式，共用 InvalidTransition）+ 60 unit test pass / 全 workflow 233 pass 0 regression / AST 確認 domain 無 SQLAlchemy 滲入。設計決策：REJECTED 為終態（與 DN-02 D2-Q3「reject → DRAFT」略差異，walkthrough 可 confirm）/ cancel 在 DISPATCHED 之後不允許 / close 兩條 source state / receive 用 dict 帶 actual_qty / dispatch 在 domain 層只動 status（stock + ledger 雙寫 atomic 留 A2）。下一步：A2 (WMOM-20260509-02) Repository + 雙寫 transaction（M4 核心；SELECT FOR UPDATE + atomic stock + ledger，1 工作天）。"
 technologies:
   - FastAPI
   - React
@@ -48,8 +48,8 @@ milestones:
   M4:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
-    status: planned
-    progress: 5  # 規劃完成（WMOM-20260509-01..-10 進 ISSUES.md）；尚未開始實作
+    status: in_progress
+    progress: 12  # A1 done（domain + state machine）；A2..A10 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 21
+  open: 20
   in_progress: 0
   blocked: 0
-  done: 24
+  done: 25
 
 inherited_baseline:
   source: digiWindTurbine

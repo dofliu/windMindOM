@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 21 |
+| open | 20 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 24 |
+| done | 25 |
 | **total (active)** | **45** |
 
-最後更新：2026-05-09（**M4 開工：10 個 sub-issue 規劃進場** — WMOM-20260509-01..-10 寫入主線。10 個 sub-issue 分四線：1) backend 主菜（-01 domain / -02 雙寫 repo / -03 material API / -04 inventory API），2) cost 整合（-05 ledger material entry），3) frontend（-06 material / -07 inventory / -09 reports），4) reporting（-08 monthly_report PDF backend），5) E2E（-10 pytest lifecycle + demo orchestrator placeholder）。Estimate 合計 8-10 工作天。開工順序建議：A1 → A2 → A3 → A6 → A4 → A7 → A5 → A8 → A9 → A10。Backend signoff `MATERIAL_REQUEST` enum + frontend approval tab `subject_type` filter 都已 M3 同步預留。下一步：等劉老師確認 plan，從 -01 domain 開工。）
+最後更新：2026-05-09（**M4 規劃進場 + WMOM-20260509-01 同日 done** — 10 個 sub-issue 寫入 ISSUES.md（A1..A10）+ A1 (Inventory + MaterialRequest domain) 同日完工。A1 交付：3 enum + 7 dataclass + 8 transition state machine + 60 unit test pass / 全 workflow 233 pass / 0 regression / AST 確認無 SQLAlchemy 滲入 domain 層。設計決策：REJECTED 為終態（與 DN-02 D2-Q3 略有差異，walkthrough 可 confirm）/ cancel 在 DISPATCHED 之後不允許 / close 兩條 source state（USED 或 RECEIVED）/ receive 用 dict 帶 actual_qty / dispatch 在 domain 層只動 status，stock 扣帳 + ledger 寫入由 A2 雙寫 transaction 處理。下一步：A2（Repository + 雙寫 transaction，M4 核心）。）
 
 ---
 
@@ -913,24 +913,46 @@
 
 ### WMOM-20260509-01 — Inventory + MaterialRequest domain（pure dataclass + state machine）
 
-- **Status**: open
+- **Status**: done（2026-05-09 完成；同日進場規劃 + 實作）
 - **Milestone**: M4
 - **Priority**: critical（M4 主菜的根基）
-- **Estimate**: 0.5 工作天
-- **Description**:
-  把 DN-03 §2.1-2.2 的 schema 寫成純 dataclass + Enum，與 SQLAlchemy 解耦。
+- **Estimate**: 0.5 工作天 → **實際 ~半天**（與規劃同日 push）
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ `modules/workflow/domain/inventory.py`：3 enum（StockKind / MaterialRequestStatus 9 狀態 / ReturnReason 4 類）+ 7 dataclass（Warehouse / InventoryItem / MaterialRequest / MaterialRequestItem / MaterialReturn / MaterialRequestNotification / InventoryAdjustmentLog）+ helper（total_available / is_below_safety / get_stock）+ `Decimal` unit_cost + `__post_init__` qty>0 invariant
+  - ✅ `modules/workflow/domain/inventory_state_machine.py`：8 transitions（submit_for_approval / approve_all / reject / dispatch / receive / mark_used / close / cancel）+ 5 guard funcs + side-effect dispatcher，與 work_order state_machine 同模式；共用 `InvalidTransition` exception；helper `open_states_mr()` / `terminal_states_mr()`
+  - ✅ `modules/workflow/domain/__init__.py`：13 個新 export（10 inventory entity + 3 state machine helper）
+  - ✅ `modules/workflow/tests/test_inventory_domain.py`（22 tests）+ `test_material_request_state_machine.py`（38 tests）
+  - ✅ **60 inventory tests pass** in 0.10s；全 workflow suite **233 pass**（60 新 + 173 既有，0 regression）in 4.21s
+  - ✅ AST-based import guard：domain 層 `import` 樹確認無 SQLAlchemy / FastAPI / pydantic 滲入
+- **Decisions made during impl**:
+  - **REJECTED 為終態**（vs DN-02 D2-Q3「reject → DRAFT」）：選乾淨 audit trail + 避免 ping-pong + 強制重整意圖；改回 DN-02 行為僅 1 行 + 2 test 影響，walkthrough 可再 confirm
+  - **cancel 在 DISPATCHED 之後不允許**：物料已離庫，要退庫須走 `MaterialReturn` entity
+  - **close 兩條 source state**：`USED → CLOSED`（正常）+ `RECEIVED → CLOSED`（沒實際用，跳過 USED）
+  - **receive 用 dict 帶 actual_qty**：guard 強制 dict 涵蓋所有 items；允許單個 item actual=0（全退場景）
+  - **dispatch 在 domain 層只動 status**：真正庫存扣帳 + ledger 寫入是 A2（repository 雙寫 transaction）的範圍
+  - **AST import 防護**：第一版用 string contain 檢查誤判 docstring「SQLAlchemy mapping」字眼，改用 `ast.parse` 解析 import 樹
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-inventory-domain.md`](work-logs/2026-05/2026-05-09-inventory-domain.md)
+  - [`docs/design-notes/m3/DN-03-inventory-material-request.md`](docs/design-notes/m3/DN-03-inventory-material-request.md) §2
+
+<details><summary>📜 原始 issue description</summary>
+
+把 DN-03 §2.1-2.2 的 schema 寫成純 dataclass + Enum，與 SQLAlchemy 解耦。
   - `modules/workflow/domain/inventory.py`：
     - Enum：`StockKind ∈ {NEW, USED, REPAIRING}`、`MaterialRequestStatus ∈ {DRAFT/AWAITING_APPROVAL/APPROVED/DISPATCHED/RECEIVED/USED/CLOSED/CANCELLED/REJECTED}`、`ReturnReason ∈ {SURPLUS/WRONG_PART/FAILED_INSTALL/OTHER}`
     - Dataclass：`InventoryItem`、`Warehouse`、`MaterialRequest`、`MaterialRequestItem`、`MaterialReturn`、`MaterialRequestNotification`
   - `modules/workflow/domain/inventory_state_machine.py`：MaterialRequest state transitions（draft → awaiting → approved → dispatched → received → used → closed；cancel / reject 旁路）
   - tests/`test_inventory_domain.py` + `test_material_request_state_machine.py`（pure unit，不接 DB）
-- **Acceptance**:
+
+Acceptance：
   - 所有 dataclass 走 type hint + frozen 不變式
   - state machine 拒絕非法 transition（raise `InvalidTransition`）
   - 30+ unit test pass、無 SQLAlchemy import 漏進 domain 層
-- **Depends on**: -
-- **Blocks**: WMOM-20260509-02
-- **Reference**: [`docs/design-notes/m3/DN-03-inventory-material-request.md`](docs/design-notes/m3/DN-03-inventory-material-request.md) §2
+
+Depends on: -；Blocks: WMOM-20260509-02
+
+</details>
 
 ---
 
