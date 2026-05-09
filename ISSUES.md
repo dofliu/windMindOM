@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 19 |
+| open | 18 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 26 |
+| done | 27 |
 | **total (active)** | **45** |
 
-最後更新：2026-05-09（**A2 (WMOM-20260509-02) 同日完工 — M4 核心雙寫交易就位**）。Backend 主菜：7 ORM mapped class + cost_ledger 共用 Base + InventoryRepository (CRUD + safety_stock + adjust + audit log) + MaterialRequestRepository (CRUD + state transition + atomic dispatch_request + add_return)。58 new tests pass（test_inventory_repository 21 + test_material_request_repository 19 + **test_dispatch_atomic_transaction 18**）；workflow 全 291 pass / cost+workflow 348 pass 0 regression。Atomic dispatch 驗收 5 條：happy + multi-item / state mismatch / insufficient_stock 全 rollback / mock mid-failure 全 rollback / 並發 2 thread 自動序列化（5 stock × 2 dispatchers 各 4 個 → 1 成功 1 InsufficientStock，無 double-spend）。設計決策：cost_ledger 共用 workflow Base（atomic 必要）/ SQLite SELECT FOR UPDATE no-op 但 WAL+busy_timeout 序列化寫入正確 / dispatch_request 不走 transition('dispatch') 避免 caller 漏掉雙寫 / 工單 material_request_ids 用 reverse-lookup 不寫進 work_orders schema / add_return 暫不寫 ledger 沖銷（A5 用 finish hook 一次到位）。下一步：A3（MaterialRequest CRUD + state transitions API，9 endpoints，0.5 工作天）。）
+最後更新：2026-05-09（**A3 (WMOM-20260509-03) 同日完工 — MaterialRequest API + signoff 整合就位**）。9 endpoints + 8 request + 3 response schema + signoff_repository 加 create_chain_for_material_request + approval_router MATERIAL_REQUEST branch（approve last step 自動 transition('approve_all') + dispatch_request atomic 雙寫；reject → REJECTED 終態）+ mount 進 monitoring/server/app.py。27 new tests pass（CRUD / state transitions / 完整 approval auto-dispatch lifecycle / 簽核期間 stock 被抽走的 edge case / 422-409-404 error mapping）。workflow 318 pass / cost+workflow 375 pass + 1 xfailed (existing) — **0 regression**。設計決策：submit-for-approval 先建 chain 再 transition（避免 inconsistent state）/ Approval auto-dispatch 失敗時回 200 + subject_transition_error 訊息（chain 已落地，MR 卡 APPROVED，operator 手動補 dispatch 或 cancel）/ MATERIAL_REQUEST reject 進 REJECTED 終態（vs work_order「reject 回 IN_PROGRESS」）/ dispatch error 改用 "cannot transition" 字眼讓 router 正確 map 409 / set_signoff_factories 加第三個 mr 參數預設 None 向後相容。下一步：A4（Inventory query + adjustment API，6 endpoints，0.5 工作天）— 純 read + manual adjust，不複雜。）
 
 ---
 
@@ -1004,28 +1004,46 @@ Depends on: WMOM-20260509-01；Blocks: -03/-04/-05
 
 ### WMOM-20260509-03 — MaterialRequest CRUD + state transitions API
 
-- **Status**: open
+- **Status**: done（2026-05-09 完成；A1+A2 同日接力第三輪）
 - **Milestone**: M4
 - **Priority**: high
-- **Estimate**: 0.5 工作天
-- **Description**:
-  - `modules/workflow/schemas/material_request_schemas.py`：CreateMaterialRequest / DispatchRequest / ReceiveRequest / ReturnRequest / response 模型
-  - `modules/workflow/routers/material_request_router.py`：~9 endpoints：
-    - `POST /api/workflow/material-requests`（create DRAFT）
-    - `GET /api/workflow/material-requests`（filter by farm_id / work_order_id / status）
-    - `GET /api/workflow/material-requests/{id}`
-    - `POST /api/workflow/material-requests/{id}/submit-for-approval`（→ AWAITING_APPROVAL + 自動建 signoff chain，沿用 DN-02 build_chain_levels(MATERIAL_REQUEST)）
-    - `POST /api/workflow/material-requests/{id}/dispatch`（簽核完成後出庫；走 repo 雙寫）
-    - `POST /api/workflow/material-requests/{id}/receive`（簽收，填 actual_qty）
-    - `POST /api/workflow/material-requests/{id}/close`（工單完工或 cancel 時關）
-    - `POST /api/workflow/material-requests/{id}/cancel`
-    - `POST /api/workflow/material-requests/{id}/returns`（建退料記錄）
-  - Mount 進 `modules/monitoring/server/app.py`
-- **Acceptance**:
-  - 30+ pytest（API + repo 整合，含 422/409/404 error mapping）
-  - approve last step（DN-02 chain 走完）→ 自動觸發 dispatch 邏輯（在 approval_router 的 `subject_type=MATERIAL_REQUEST` branch 加 hook）
-- **Depends on**: WMOM-20260509-02
-- **Blocks**: WMOM-20260509-06
+- **Estimate**: 0.5 工作天 → **實際 ~半天**（同 A1/A2 session 連續）
+- **Owner**: Claude (session 2026-05-09)
+- **Completion summary**:
+  - ✅ `modules/workflow/schemas/material_request_schemas.py`：8 request body + 3 response model + sub-models
+  - ✅ `modules/workflow/routers/material_request_router.py`：9 endpoints + repo factory injection + error mapping helper
+  - ✅ `modules/workflow/repository/signoff_repository.py`：加 `create_chain_for_material_request`（mirror work_order 版本）
+  - ✅ `modules/workflow/routers/approval_router.py` 擴充：
+    - `set_signoff_factories(...)` 加 `material_request` 第三 factory（向後相容預設 None）
+    - `approve_step` MATERIAL_REQUEST branch：last step approve → `mr_repo.transition('approve_all')` → `dispatch_request()` atomic 雙寫
+    - `reject_step` MATERIAL_REQUEST branch：→ `mr_repo.transition('reject', reject_reason)` 進 REJECTED 終態
+  - ✅ `modules/monitoring/server/app.py`：mount `material_request_router`
+  - ✅ `dispatch_request` error message 從「must be APPROVED」改為「cannot transition from {status} (must be APPROVED)」讓 router error mapping 正確 map 成 409 Conflict（vs 422）
+  - ✅ **27 new tests pass** in 5.35s（含完整 approval auto-dispatch lifecycle / 簽核時 stock 抽走的 edge case / cancel 在 DISPATCHED 不允許 / receive 缺 actual_qty 422 / pagination / unknown 404）
+  - ✅ 全 workflow suite 318 pass / cost+workflow 375 pass + 1 xfailed (existing) — **0 regression**
+- **Decisions made during impl**:
+  - **submit-for-approval 順序**：先建 chain（失敗 raise 422、MR 仍 DRAFT），再 transition MR，最後 backlink chain.id — 避免 inconsistent state
+  - **Approval auto-dispatch 兩步**：`approve_all` 進 APPROVED → `dispatch_request()` atomic 雙寫；如 dispatch 失敗（最常見：簽核期間 stock 被別張單抽走），chain 已落地，MR 卡在 APPROVED，回 200 + `subject_transition_error` 訊息給 caller，operator 手動補（去 `/dispatch` endpoint 或 cancel）
+  - **MATERIAL_REQUEST chain reject → REJECTED 終態**（vs work_order「reject 回 IN_PROGRESS」）：DN-03 設計 operator 須建新 MR，不就地 resubmit
+  - **Error code 區分**：state 不對 → 409 Conflict（caller 改 state 即可恢復）vs request body 缺欄位 → 422 Unprocessable Entity；本 issue 統一用 `"cannot transition"` 字眼
+  - **`set_signoff_factories` 加第三個 mr 參數預設 None**：向後相容既有 caller (test_work_order_api.py 兩參數) 不破
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-09-material-request-api.md`](work-logs/2026-05/2026-05-09-material-request-api.md)
+  - DN-03 §2.2 lifecycle + DN-02 D2-Q3 reject 行為差異點
+
+<details><summary>📜 原始 issue description</summary>
+
+- modules/workflow/schemas/material_request_schemas.py：CreateMaterialRequest / DispatchRequest / ReceiveRequest / ReturnRequest / response
+- modules/workflow/routers/material_request_router.py：~9 endpoints
+- Mount 進 modules/monitoring/server/app.py
+
+Acceptance：
+- 30+ pytest（API + repo 整合，含 422/409/404）
+- approve last step → 自動觸發 dispatch（approval_router MATERIAL_REQUEST branch）
+
+Depends on: WMOM-20260509-02；Blocks: WMOM-20260509-06
+
+</details>
 
 ---
 

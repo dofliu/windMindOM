@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 93
+progress: 94
 status: active
 last_updated: "2026-05-09"
-next_milestone: "**A2 (WMOM-20260509-02) 同日完工 — M4 核心雙寫交易就位**：7 SQLAlchemy ORM + cost_ledger 共用 Base + InventoryRepository (CRUD + safety_stock + adjust + audit log) + MaterialRequestRepository (CRUD + state transition + **atomic dispatch_request** + add_return)。58 new tests pass（inventory 21 + MR 19 + **atomic dispatch 18**），workflow 全 291 pass / cost+workflow 348 pass 0 regression。Atomic dispatch 5 條驗收：happy + multi-item / state mismatch / insufficient_stock 全 rollback / mock mid-failure 全 rollback / 並發 2 thread 自動序列化（5 stock × 2 dispatchers 各 4 個 → 1 成功 1 InsufficientStock，無 double-spend）。設計決策：cost_ledger 共用 workflow Base（atomic 必要 — 跨 module 耦合 trade-off）/ SQLite SELECT FOR UPDATE 是 no-op 但 BEGIN IMMEDIATE+WAL+busy_timeout 序列化寫入足以 atomic / dispatch_request 不走 transition('dispatch') 避免 caller 漏掉雙寫 / 工單 material_request_ids 用 reverse-lookup（list_for_work_order）不持久化 list[UUID] / add_return 暫不寫 ledger 沖銷（A5 finish hook 用 actual vs estimated 一次到位）。下一步：A3 (WMOM-20260509-03) MaterialRequest CRUD + state transitions API（9 endpoints + schemas + integration with approval_router 的 MATERIAL_REQUEST 分支，0.5 工作天）。"
+next_milestone: "**A3 (WMOM-20260509-03) 同日完工 — MaterialRequest API + signoff 整合就位**：9 endpoints (create / list / get / submit-for-approval / dispatch / receive / close / cancel / returns) + 8 request + 3 response schema + signoff_repository 加 create_chain_for_material_request + approval_router MATERIAL_REQUEST branch (approve last step 自動 transition('approve_all') + dispatch_request atomic 雙寫；reject → REJECTED 終態) + mount 進 monitoring/server/app.py。27 new tests pass（CRUD / state transitions / 完整 approval auto-dispatch lifecycle / 簽核期間 stock 抽走的 edge case / 422-409-404 error mapping）。Workflow 318 pass / cost+workflow 375 pass + 1 xfailed (existing) — 0 regression。設計決策：submit-for-approval 先建 chain 再 transition（避免 inconsistent state）/ Approval auto-dispatch 失敗時回 200 + subject_transition_error（chain 已落地，MR 卡 APPROVED，operator 手動補 dispatch 或 cancel）/ MATERIAL_REQUEST reject 進 REJECTED 終態（vs work_order「reject 回 IN_PROGRESS」）/ dispatch error 改 'cannot transition' 字眼讓 router 正確 map 409。下一步：A4 (WMOM-20260509-04) Inventory query + adjustment API（6 endpoints，純 read + manual adjust，0.5 工作天）。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 25  # A1 done（domain）+ A2 done（repository + atomic dispatch — M4 core）；A3..A10 pending
+    progress: 35  # A1+A2+A3 done（domain + repo + MR API）；A4..A10 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 19
+  open: 18
   in_progress: 0
   blocked: 0
-  done: 26
+  done: 27
 
 inherited_baseline:
   source: digiWindTurbine
