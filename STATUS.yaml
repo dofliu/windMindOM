@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 82
+progress: 90
 status: active
-last_updated: "2026-05-07"
-next_milestone: "**WMOM-20260507-01 前端 UI 改版完成** — A · Calm Operator + 雙主題（鼠尾草綠／翡翠玻璃）；220 px sidebar、5 大頁重畫、共用 `frontend/components/ui/`（10 元件） + `frontend/theme/` system 就位；保留全部 API / hooks 不動。dev server 5179 視覺 review 通過（劉老師 2026-05-07 確認）。同步整理：placeholder 按鈕清單獨立成 WMOM-20260507-02（low 優先逐項補）；M3+ 所有 frontend issue（-19/-20/-21/-25）加上「使用新 ui 元件庫」directive，避免 regress 回 Tailwind / cyan dark。下一步建議：M3 frontend 接力（WMOM-19 工單前端最直接），或 WMOM-24 data quality 修正。"
+last_updated: "2026-05-09"
+next_milestone: "**M3 milestone 100% 完工** — WMOM-20260504-19 + -20 同日 push，工單管理 + 簽核流程全 frontend 上線。-20 收尾：signoffApi 3 endpoints + usePendingApprovals hook（含 work-order subject 並行 cache）+ PendingApprovalPanel（level selector default leader）+ ApprovalActionDialog（approve comment 選填 / reject reason 必填 + subject_transition_error warning 處理）+ WorkflowPage tab 真切換 + pending count badge。Smoke test 全綠（tsc clean / vite build 1067 kB / dev 5179 回 200）。M3 backend 5（-14/-15/-16/-17/-18） + frontend 2（-19/-20）共 7 issue 全 done。衍生 -21 day_work_form / -22 inspection_schedule 不阻塞主線、留 M3+/M4 之間。下一步主軸候選：M4（inventory + reporting）開工，或 WMOM-24 data quality 修正。"
 technologies:
   - FastAPI
   - React
@@ -43,8 +43,8 @@ milestones:
   M3:
     name: "Workflow Part 1（Work Order + Approval）"
     target_month: "2026-07"
-    status: in_progress
-    progress: 80  # WMOM-18 done；M3 backend 100% done（-14/-15/-16/-17/-18），剩 frontend 2 個（-19/-20）
+    status: completed
+    progress: 100  # backend 5（-14/-15/-16/-17/-18） + frontend 2（-19/-20）全 done；衍生 -21/-22 不阻塞 M3 主線
   M4:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 13
+  open: 11
   in_progress: 0
   blocked: 0
-  done: 22
+  done: 24
 
 inherited_baseline:
   source: digiWindTurbine

@@ -18,6 +18,7 @@ export type NavIconId =
   | 'overview'
   | 'turbine'
   | 'maintenance'
+  | 'workflow'
   | 'cost'
   | 'history'
   | 'faults'
@@ -50,6 +51,14 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
       <g {...cap}>
         <path d="M14 4l-3 3 5 5 3-3a3.5 3.5 0 1 0-5-5z" />
         <path d="M11 7L4 14l3 3 7-7" />
+      </g>
+    ),
+    workflow: (
+      <g {...cap}>
+        <rect x="3" y="6" width="18" height="14" rx="2" />
+        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+        <path d="M3 12h18" />
+        <path d="M12 12v2" />
       </g>
     ),
     cost: (
