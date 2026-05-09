@@ -1,4 +1,4 @@
-"""windMindOM workflow routers — FastAPI routers（WMOM-20260504-17 / -18 / -20260509-03）。
+"""windMindOM workflow routers — FastAPI routers（WMOM-20260504-17 / -18 / -20260509-03 / -04）。
 
 Endpoints:
 
@@ -18,10 +18,26 @@ Endpoints:
 - GET   /api/workflow/material-requests
 - GET   /api/workflow/material-requests/{id}
 - POST  /api/workflow/material-requests/{id}/{submit-for-approval|dispatch|receive|close|cancel|returns}
+
+**inventory (WMOM-20260509-04)** — exported as ``inventory_router``:
+- POST  /api/workflow/warehouses
+- GET   /api/workflow/warehouses
+- POST  /api/workflow/inventory                       (create item)
+- GET   /api/workflow/inventory                       (list + safety filter)
+- GET   /api/workflow/inventory/{item_id}
+- PATCH /api/workflow/inventory/{item_id}             (metadata 不動 stock)
+- POST  /api/workflow/inventory/{item_id}/adjust      (手動 +/- + audit log)
+- GET   /api/workflow/inventory/{item_id}/adjustments
 """
 
 from .approval_router import router as approval_router
+from .inventory_router import router as inventory_router
 from .material_request_router import router as material_request_router
 from .work_order_router import router
 
-__all__ = ["router", "approval_router", "material_request_router"]
+__all__ = [
+    "router",
+    "approval_router",
+    "material_request_router",
+    "inventory_router",
+]

@@ -1,4 +1,4 @@
-"""windMindOM workflow schemas — pydantic request / response（WMOM-20260504-17 / -18 / -20260509-03）。"""
+"""windMindOM workflow schemas — pydantic request / response（WMOM-20260504-17 / -18 / -20260509-03 / -04）。"""
 
 from .signoff_schemas import (
     ApprovalResultResponse,
@@ -36,6 +36,19 @@ from .material_request_schemas import (
     ReceiveMaterialRequest,
     SubmitForApprovalRequest,
 )
+from .inventory_schemas import (
+    AdjustInventoryRequest,
+    AdjustInventoryResult,
+    AdjustmentLogListResponse,
+    AdjustmentLogResponse,
+    CreateInventoryItemRequest,
+    CreateWarehouseRequest,
+    InventoryItemListResponse,
+    InventoryItemResponse,
+    UpdateInventoryMetadataRequest,
+    WarehouseListResponse,
+    WarehouseResponse,
+)
 
 __all__ = [
     # signoff
@@ -71,4 +84,16 @@ __all__ = [
     "MaterialReturnResponse",
     "ReceiveMaterialRequest",
     "SubmitForApprovalRequest",
+    # inventory (WMOM-20260509-04)
+    "AdjustInventoryRequest",
+    "AdjustInventoryResult",
+    "AdjustmentLogListResponse",
+    "AdjustmentLogResponse",
+    "CreateInventoryItemRequest",
+    "CreateWarehouseRequest",
+    "InventoryItemListResponse",
+    "InventoryItemResponse",
+    "UpdateInventoryMetadataRequest",
+    "WarehouseListResponse",
+    "WarehouseResponse",
 ]
