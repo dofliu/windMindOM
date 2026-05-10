@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>月運維報表 — {{ data.farm_name or data.farm_id }} {{ data.year }}/{{ "%02d"|format(data.month) }}</title>
+  {# review fix #4: CSS inline 進 <style>，避免 API HTML response 載不到外部檔 #}
+  <style>{{ inline_css | safe }}</style>
+</head>
+<body>
+
+<header class="cover">
+  <h1 class="title">月運維報表</h1>
+  <h2 class="subtitle">{{ data.farm_name or data.farm_id }} ／ {{ data.year }} 年 {{ data.month }} 月</h2>
+  <div class="meta">
+    <p>區間：{{ data.period_start.strftime("%Y-%m-%d") }} → {{ data.period_end.strftime("%Y-%m-%d") }}</p>
+    <p>產出時間：{{ data.generated_at.strftime("%Y-%m-%d %H:%M:%S UTC") }}</p>
+  </div>
+</header>
+
+<section class="kpi">
+  <h2>1. 摘要 KPI</h2>
+  <table class="kpi-table">
+    <tr><th>當月總成本</th><td>{{ "{:,.2f}".format(data.kpi.grand_total_cost) }} EUR</td></tr>
+    <tr><th>實際確認比例</th><td>{{ "{:.1%}".format(data.kpi.confirmed_cost_ratio) }}</td></tr>
+    <tr><th>當月完工工單</th><td>{{ data.kpi.work_orders_finished }} 張</td></tr>
+    <tr><th>平均維修工時</th><td>{{ "{:.2f}".format(data.kpi.average_repair_hours) }} 小時/張</td></tr>
+    <tr><th>時間可用率</th><td>{{ "{:.2%}".format(data.kpi.time_availability) }}</td></tr>
+  </table>
+</section>
+
+<section class="cost">
+  <h2>2. 成本明細（4 大類）</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>類別</th>
+        <th>估計（estimated）</th>
+        <th>確認（confirmed）</th>
+        <th>合計</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in data.cost.by_category %}
+      <tr>
+        <td>{{ item.category }}</td>
+        <td class="num">{{ "{:,.2f}".format(item.estimated) }}</td>
+        <td class="num">{{ "{:,.2f}".format(item.confirmed) }}</td>
+        <td class="num">{{ "{:,.2f}".format(item.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td><strong>合計</strong></td>
+        <td class="num"><strong>{{ "{:,.2f}".format(data.cost.estimated_total) }}</strong></td>
+        <td class="num"><strong>{{ "{:,.2f}".format(data.cost.confirmed_total) }}</strong></td>
+        <td class="num"><strong>{{ "{:,.2f}".format(data.cost.grand_total) }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="work-orders">
+  <h2>3. 工單統計</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>類型</th>
+        <th>當月完工</th>
+        <th>當月關閉</th>
+        <th>進行中</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for stat in data.work_orders.by_type %}
+      <tr>
+        <td>{{ stat.type }}</td>
+        <td class="num">{{ stat.finished }}</td>
+        <td class="num">{{ stat.closed }}</td>
+        <td class="num">{{ stat.in_progress }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td><strong>合計</strong></td>
+        <td class="num"><strong>{{ data.work_orders.total_finished }}</strong></td>
+        <td class="num"><strong>{{ data.work_orders.total_closed }}</strong></td>
+        <td class="num"><strong>{{ data.work_orders.total_in_progress }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">當月實際維修工時加總：{{ "{:.2f}".format(data.work_orders.total_actual_hours) }} 小時</p>
+</section>
+
+<section class="availability">
+  <h2>4. 可用率指標</h2>
+  <table class="kpi-table">
+    <tr><th>時間可用率（time）</th><td>{{ "{:.2%}".format(data.availability.time_availability) }}</td></tr>
+    <tr><th>能量可用率（energy）</th><td>{{ "{:.2%}".format(data.availability.energy_availability) }}</td></tr>
+    <tr><th>區間總時數</th><td>{{ "{:.1f}".format(data.availability.total_hours_in_period) }} 小時</td></tr>
+    <tr><th>停機工時</th><td>{{ "{:.2f}".format(data.availability.downtime_hours) }} 小時</td></tr>
+    <tr><th>資料來源</th><td>{{ data.availability.source }}</td></tr>
+  </table>
+</section>
+
+{% if data.notable_events %}
+<section class="events">
+  <h2>5. 重大事件 timeline</h2>
+  <ul class="event-list">
+    {% for ev in data.notable_events %}
+    <li>
+      <span class="event-time">{{ ev.occurred_at.strftime("%Y-%m-%d %H:%M") }}</span>
+      <span class="event-title">{{ ev.title }}</span>
+      {% if ev.detail %}<span class="event-detail">— {{ ev.detail }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<footer>
+  <p>windMindOM 月報 — {{ data.farm_id }} — generated {{ data.generated_at.strftime("%Y-%m-%d") }}</p>
+</footer>
+
+</body>
+</html>

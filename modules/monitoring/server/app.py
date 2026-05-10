@@ -115,6 +115,9 @@ from modules.workflow.routers import (  # noqa: E402
     router as workflow_router,
 )
 
+# WMOM-20260509-08: reporting router (monthly PDF + annual budget)
+from modules.reporting.routers import router as reporting_router  # noqa: E402
+
 app.include_router(turbines_router)
 app.include_router(config_router)
 app.include_router(export_router)
@@ -130,6 +133,7 @@ app.include_router(workflow_router)
 app.include_router(approval_router)
 app.include_router(material_request_router)
 app.include_router(inventory_router)
+app.include_router(reporting_router)
 
 
 @app.get("/api/health")
