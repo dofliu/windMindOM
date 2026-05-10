@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 20
+  open: 21  # +1: WMOM-20260510-01 dev mode + mock login + farm is_offshore
   in_progress: 0
   blocked: 0
   done: 31

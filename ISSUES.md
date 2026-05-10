@@ -1824,6 +1824,76 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
+### WMOM-20260510-01 — Identity / dev mode / mock login + farm `is_offshore` field
+
+- **Status**: open
+- **Milestone**: M5（2026-09）
+- **Priority**: high（demo-blocker — 沒有身份切換無法給客戶看完整 lifecycle）
+- **Estimate**: 2-3 工作天
+- **Source**: 劉老師 2026-05-10 操作 lifecycle UI 時提出的 3 個關連缺口
+
+#### 背景
+
+2026-05-10 dev session 中發現 3 個彼此相關的設計缺口：
+
+1. **沒有 auth/login 系統** — 所有 actor / assignee / approver 都用 frontend hardcoded `DEV_ACTOR_ID = '00000000-...0001'`
+2. **簽核流程需要多角色** — employee → leader → treasury 3 階，但目前同一 placeholder 無法扮多角（且 chain 設計上「同 actor 不能連簽 ≥ 1 階」會擋）
+3. **離岸/陸上判斷 hardcoded 在 UI** — `start_work` 對話框讓 user 手動勾「需檢查氣象窗（離岸風場）」，反向 UX。Farm config 沒有 `is_offshore` 欄位
+
+#### 目標
+
+實作 **dev/owner mode + mock login** 讓劉老師（或任何 demo 操作者）可以一個人扮所有角色完整跑 lifecycle，並把 farm 屬性放回 farm config 自動驅動 UI。
+
+#### Description
+
+**Part A — Backend dev mode（0.5d）**
+- 加環境變數 `WMOM_DEV_MODE=true` 進 backend
+- 啟用時跳過：
+  - signoff chain「同 actor 不能連簽 ≥ 1 階」guard
+  - 任何「dispatcher 不可同時是 assignee」之類的職責分離 check
+- 啟動時 log warning：`⚠ WMOM_DEV_MODE active — auth checks bypassed`
+- Production 部署時必須 unset
+
+**Part B — Mock login（1d）**
+- 簡易 user table（無密碼）：`name / email / role(s) / is_active`
+- 預載 4 fixture：`Alice (employee)` / `Bob (leader)` / `Carol (treasury)` / `Owner (all roles, dev mode only)`
+- Frontend 加左下角 user switcher（取代 sidebar lang toggle 旁那個位置 OR 獨立 widget）
+- 切換 user 後：`localStorage.actor_id` 換新值，所有後續 API call 帶新 actor_id
+- **不做**：登入畫面 / 密碼驗證 / JWT — 那些留給 M5+ 真 auth (WMOM-20260510-02 placeholder)
+
+**Part C — Farm `is_offshore` field（0.5d）**
+- `FarmConfig` 加 `is_offshore: bool = False`
+- `farms_router` POST/PATCH 接受此欄位
+- Frontend：
+  - 重新加回 `start_work` dialog 的 weather_window 邏輯 — **依 farm.is_offshore 自動決定**，不再讓 user 勾
+  - Onshore：`require_weather_window=false` 直接送
+  - Offshore：要求 user 先綁 weather_window_id（M3 設計但 frontend 沒接 — 此 issue 一併補上）
+
+**Part D — Farm 設定頁加 is_offshore checkbox（0.5d）**
+- `FarmManagementPage` 或 farm setting modal 加 toggle
+- Migration：既有 3 個 farm 預設 false（劉老師 demo 用陸上）+ 「彰化離岸風場台電」手動切 true 驗證 offshore code path
+
+#### Acceptance
+
+- [ ] `WMOM_DEV_MODE=true python run.py`：劉老師一個 placeholder 跑完 corrective lifecycle（建單 → 派工 → 開始 → 領料 3 階簽核 → 完工 → 工單 2 階簽核 → 月報）成功
+- [ ] Mock login user switcher 切換 user 後，dispatch / approve action 帶不同 actor_id
+- [ ] Onshore farm 的 work order，`start_work` 不再顯示 weather_window 選項
+- [ ] Offshore farm（彰化）`start_work` 提示「請先綁定 weather_window_id」並提供選擇 widget
+- [ ] 全 backend tests + frontend build 0 regression
+
+#### Depends on
+- 無（純獨立功能）
+
+#### Blocks
+- M6 客戶 demo（沒有 mock login 給客戶看 demo 會看到「dev placeholder」很不專業）
+
+#### Notes
+- **不做** real JWT auth — 那是 WMOM-2026XX-XX（M6+ if customer 真要 PoC 上線）
+- Mock login 的 4 fixture user 是 demo 用，production 模式應該被禁用
+- Part C 也修「2026-05-10 hot fix 把 weather_window checkbox 拿掉」的暫時方案
+
+---
+
 ## 廢棄 / 不做（避免反覆討論）
 
 | Item | 為什麼不做 | 取代方案 |

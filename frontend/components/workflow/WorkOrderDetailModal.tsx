@@ -93,7 +93,6 @@ const WorkOrderDetailModal: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
 
   // form fields
-  const [requireWeather, setRequireWeather] = useState(false);
   const [progressNote, setProgressNote] = useState('');
   const [actualHours, setActualHours] = useState('');
   const [followupKind, setFollowupKind] = useState<FollowupKind>('none');
@@ -118,7 +117,6 @@ const WorkOrderDetailModal: React.FC<Props> = ({
     setRejectReason('');
     setCancelReason('');
     setReopenReason('');
-    setRequireWeather(false);
     setDispatchAssignee('');
   };
 
@@ -474,22 +472,23 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 6 }}>
                   {ui('Start work', '開始作業')}
                 </div>
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: C.sub, marginBottom: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={requireWeather}
-                    onChange={e => setRequireWeather(e.target.checked)}
-                  />
+                {/*
+                  hotfix-2026-05-10: weather_window checkbox 拿掉。原設計讓 user 每次手動
+                  決定 "這是不是離岸風場" 是反向 UX — farm config 應該知道。等 M5
+                  WMOM-20260510-01 加上 farm `is_offshore` field + 自動偵測後再加回。
+                  目前所有 farm 走 onshore 路徑（require_weather_window=false）。
+                */}
+                <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
                   {ui(
-                    'Require weather window (offshore)',
-                    '需檢查氣象窗（離岸風場）',
+                    'Confirm to start the work (state → IN_PROGRESS).',
+                    '確認開始維修作業（狀態 → 進行中）。',
                   )}
-                </label>
+                </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <Btn onClick={resetForms}>{ui('Cancel', '取消')}</Btn>
                   <Btn
                     variant="primary"
-                    onClick={() => runMutation(() => onStartWork(wo.id, requireWeather))}
+                    onClick={() => runMutation(() => onStartWork(wo.id, false))}
                     disabled={submitting}
                     ariaLabel={ui('Start work', '開始作業')}
                   >
