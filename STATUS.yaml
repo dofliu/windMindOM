@@ -1,10 +1,10 @@
 name: windMindOM
 name_zh: 風心智運維平台
 category: wind_energy
-progress: 98
+progress: 99
 status: active
 last_updated: "2026-05-10"
-next_milestone: "**🎉 M4 backend 100% — A8 Reporting backend (PDF 月報 + 年度預算) 完工 + code review 全收**：A8 一日推完（kpi_calculator pure-agg / monthly_report Jinja2 HTML inline CSS + reportlab PDF / annual_budget 12 個月 forecast / reporting_router 3 endpoints）+ code-reviewer subagent 找出 4 must-fix + 4 should-fix 全修 + 8 個 regression test。新增 56 個 reporting tests，全 backend：446 → **502 passed, 1 xfailed (zero regression)**。Reporting 主要產出：(1) `POST /api/reporting/monthly?format=pdf|html|json` 月報 PDF，4 區塊（KPI / cost / WO 統計 / availability）+ 重大事件 timeline；(2) `POST /api/reporting/annual-budget?format=pdf|json` 12 個月 budget forecast，過去用 confirmed actual / 當月用 actual_partial（解耦 forecast 避免低估）/ 未來月用 3-month rolling 歷史平均；(3) `GET /api/reporting/templates` 列出可用 template。Review fix 重點：(a) `in_progress` WO 跨月不再雙計（用 `open_states()` + `closed_at` 上下界）；(b) `actual_partial` 區隔讓當月 forecast 與 partial actual 解耦；(c) Content-Disposition header injection 防護（`_safe_filename_token`）；(d) 共用 WO snapshot 避免雙倍 DB query；(e) `_pdf_styles.py` 共用 reportlab style 跨 monthly/annual 兩個 PDF。設計選用 reportlab（劉老師 Windows weasyprint 撞 Pango DLL）+ HTML preview inline CSS（避免 API endpoint 載不到外部 .css）。M6 客戶第一份月報 demo-ready。下一步候選：A6/A7 frontend 領料庫存頁、A9 frontend reports 頁、A10 E2E lifecycle test、F1-F6 follow-up。"
+next_milestone: "**🎉 M4 reports frontend (A9) 完工 — M6 客戶 demo flow 完整貫通**：今日續推 A9（A8 reporting backend 的 customer-facing manifestation），新增 7 個 frontend 檔（reportingService + useReports + ReportsPage + MonthlyReportPanel + AnnualBudgetPanel + formatters + NavIcon `reports`），整合進 App.tsx PRIMARY_NAV。完整 UX flow：選 farm + year/month → click Generate → 同時取 JSON KPI + HTML iframe preview → PDF download 觸發瀏覽器下載。Annual budget 配 recharts BarChart 12 月預測 vs 實際對比 + StatusPill 突出 `actual_partial`（當月 partial）vs `actual`（已結帳）vs `historical_average`（預測）三種 method。Code-reviewer subagent 找出 4 must-fix + 6 should-fix + 4 nice-to-have，採納 11 條全修：(1) iframe `srcDoc` 加 `sandbox=\"\"` 完全隔離 XSS 防護；(2) `buildQuery` 型別簽章對齊 runtime guard 加 null；(3) generate error / download error 拆兩個獨立顯示框 + generate 時清掉舊 download error；(4) `farmLoaded` state 區分「尚未 fetch」vs「fetch 完成但無 active farm」避免無限 loading；(5) `formatters.ts` 抽共用 fmtMoneyDecimal / fmtPct（兩 panel 重複定義 + 行為分歧）；(6) year range 擴 -4~+1（multi-year O&M 客戶）；(7) recharts future months actual=null 不畫 0；(8) 移除 dead exports + unused reset + backend impl 細節 leak。`npx tsc --noEmit` 0 errors，`npx vite build` 5.29s 733 modules。後端 502+1 不動（純 frontend session）。M4 progress：75% → 90%（A6/A7/A10 + F1-F6 仍 pending）。下一步候選：A6 領料 frontend、A7 庫存 frontend、A10 E2E lifecycle test、F1-F6 follow-up。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 75  # A1-A5 backend + review-fixes 全收 + A8 reporting backend（PDF 月報 + 年度預算）+ 8 review-fix + 56 tests；A6/A7/A9 frontend + A10 E2E + F1-F6 pending
+    progress: 90  # A1-A5 backend + A8 reporting backend + A9 reports frontend 全收（M6 demo flow point→click→PDF 完整貫通）；A6/A7 領料庫存 frontend + A10 E2E + F1-F6 pending
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 21
+  open: 20
   in_progress: 0
   blocked: 0
-  done: 30
+  done: 31
 
 inherited_baseline:
   source: digiWindTurbine

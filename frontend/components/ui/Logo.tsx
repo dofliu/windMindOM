@@ -20,6 +20,7 @@ export type NavIconId =
   | 'maintenance'
   | 'workflow'
   | 'cost'
+  | 'reports'
   | 'history'
   | 'faults'
   | 'settings';
@@ -64,6 +65,15 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
     cost: (
       <g {...cap}>
         <path d="M12 4v16M8 8h6a2 2 0 1 1 0 4H10a2 2 0 1 0 0 4h7" />
+      </g>
+    ),
+    reports: (
+      <g {...cap}>
+        {/* document outline */}
+        <path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+        <path d="M14 3v5h5" />
+        {/* mini bar chart inside */}
+        <path d="M9 17v-3M12 17v-6M15 17v-4" />
       </g>
     ),
     history: (

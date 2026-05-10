@@ -35,6 +35,7 @@ import HistoryPage from './components/HistoryPage';
 import FarmSelector from './components/FarmSelector';
 import CostPage from './components/CostPage';
 import WorkflowPage from './components/workflow/WorkflowPage';
+import ReportsPage from './components/reporting/ReportsPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { Sidebar, type NavItem } from './components/ui';
 
@@ -47,6 +48,7 @@ type ViewId =
   | 'workflow'
   | 'history'
   | 'cost'
+  | 'reports'
   | 'faults'
   | 'settings';
 
@@ -56,6 +58,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'maintenance', iconId: 'maintenance', labelEn: 'Maintenance', labelZh: '維護中心' },
   { id: 'workflow', iconId: 'workflow', labelEn: 'Workflow', labelZh: '工單管理' },
   { id: 'cost', iconId: 'cost', labelEn: 'Cost Model', labelZh: '成本模型' },
+  { id: 'reports', iconId: 'reports', labelEn: 'Reports', labelZh: '報表' },
   { id: 'history', iconId: 'history', labelEn: 'History', labelZh: '歷史資料' },
 ];
 
@@ -239,6 +242,8 @@ const AppShell: React.FC = () => {
         return <HistoryPage turbines={turbines} lang={lang} />;
       case 'cost':
         return <CostPage lang={lang} />;
+      case 'reports':
+        return <ReportsPage lang={lang} />;
       case 'faults':
         return <FaultInjectionPanel lang={lang} />;
       case 'settings':
