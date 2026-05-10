@@ -38,7 +38,12 @@ class WorkOrderORM(Base):
     partial index 跨版本行為差異。
     """
 
-    __tablename__ = "work_orders"
+    # WMOM-hotfix-2026-05-10：原表名 "work_orders" 與 digiWT legacy
+    # `monitoring/server/storage.py` 的 work_orders（10 欄舊 schema）撞名 →
+    # SQLite `CREATE TABLE IF NOT EXISTS` 是 idempotent 不做 ALTER，舊表先
+    # 建好就卡住新版查詢（OperationalError: no such column: work_orders.business_key）。
+    # 加 `wmom_` prefix 隔離兩個獨立系統。FK 引用同步調整。
+    __tablename__ = "wmom_work_orders"
 
     # ── identity ─────────────────────────────────────────────────────
     id: Mapped[str] = mapped_column(String(36), primary_key=True)            # UUID str
@@ -134,7 +139,7 @@ class ProgressNoteORM(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     work_order_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+        String(36), ForeignKey("wmom_work_orders.id", ondelete="CASCADE"), index=True
     )
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     actor_id: Mapped[str] = mapped_column(String(36))
@@ -155,7 +160,7 @@ class WorkOrderEventLogORM(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     work_order_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+        String(36), ForeignKey("wmom_work_orders.id", ondelete="CASCADE"), index=True
     )
     event_type: Mapped[str] = mapped_column(String(64))         # "created" | "dispatched" | ...
     from_status: Mapped[Optional[str]] = mapped_column(String(32))
