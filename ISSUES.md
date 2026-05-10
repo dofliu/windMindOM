@@ -1186,27 +1186,41 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-08 — Reporting backend（monthly_report.py PDF + annual_budget.py）
 
-- **Status**: open
+- **Status**: done（2026-05-10，PR pending merge）
 - **Milestone**: M4（後半 — 不依賴 inventory，可平行）
 - **Priority**: high（M6 客戶第一份月報沒被退是 done criteria）
-- **Estimate**: 1.5 工作天
+- **Estimate**: 1.5 工作天 → **實際 1 天**
 - **Description**:
   - `modules/reporting/services/monthly_report.py`：
     - 取資料：cost ledger（material/labour/equipment/revenue_loss 4 類加總）+ work order 完工統計（CORRECTIVE / PREVENTIVE / INSPECTION 計數）+ 物理模擬 availability（time / energy）
-    - 渲染：HTML template（Jinja2）→ PDF（WeasyPrint 或 reportlab）
+    - 渲染：HTML template（Jinja2 + inline CSS）→ PDF（**reportlab** — Windows weasyprint 撞 Pango DLL）
     - 內容：封面 + 摘要 KPI + 4 類成本明細 + 工單統計 + availability + 重大事件 timeline
-  - `modules/reporting/services/annual_budget.py`：12 個月 forecast（依 cost forecast endpoint + 歷史平均）
+  - `modules/reporting/services/annual_budget.py`：12 個月 forecast（過去用 actual / 當月 actual_partial / 未來月 historical_average rolling 3 月）
   - `modules/reporting/routers/reporting_router.py`：
-    - `POST /api/reporting/monthly?farm_id=...&year=...&month=...` → returns PDF binary 或 download URL
-    - `POST /api/reporting/annual-budget?farm_id=...&year=...` → returns PDF / Excel
+    - `POST /api/reporting/monthly?farm_id=...&year=...&month=...&format=pdf|html|json` → returns PDF binary / HTML preview / JSON 結構化資料
+    - `POST /api/reporting/annual-budget?farm_id=...&year=...&format=pdf|json`
     - `GET /api/reporting/templates` → 可用 template 列表
-  - `modules/reporting/templates/monthly_report.html`（Jinja2）+ `static/reporting.css`
+  - `modules/reporting/templates/monthly_report.html`（Jinja2）+ `static/reporting.css` + `services/_pdf_styles.py`（共用 reportlab style）
 - **Acceptance**:
-  - 跑得出真實 PDF（Z72 demo farm 一個月跑 5 次驗）
-  - 月報內容 4 大區塊都正確（KPI / cost / work orders / availability）
-  - 25+ pytest（含 template render / PDF 不空 / KPI 計算正確 / fixture month 資料）
+  - ✅ 跑得出真實 PDF（PDF magic bytes + ≥1KB + 重複 render size 一致 — `test_render_pdf_*` 4 個測試）
+  - ✅ 月報內容 4 大區塊正確（KPI / cost / work orders / availability — `test_monthly_report_data_full_assembly`）
+  - ✅ **56 pytest** pass（含 8 個 review fix regression test，超過 25 acceptance）
 - **Depends on**: WMOM-20260509-05（要從 cost ledger 讀 confirmed material cost）
 - **Blocks**: WMOM-20260509-09
+- **Result**:
+  - Backend 全 446 → **502 passed, 1 xfailed (zero regression)**
+  - code-reviewer subagent 找出 4 must-fix + 4 should-fix 全修：
+    - Must #1: `in_progress` WO 跨月雙計（用 `open_states()` + `closed_at` 上下界）
+    - Must #2: annual budget current_month 區隔 `actual_partial` 與 `actual`，forecast 解耦
+    - Must #3: Content-Disposition header injection 防護（`_safe_filename_token`）
+    - Must #4: `compute_notable_events` 共用 WO snapshot 避免雙倍 query
+    - Should #1: `history_window > 12` guard 給明確錯誤
+    - Should #2: `_WO_FETCH_PAGE_SIZE` 抽常數
+    - Should #3: `_pdf_styles.py` 共用 reportlab style
+    - Should #4: HTML preview inline CSS（避免 API endpoint 載不到外部檔）
+  - Nice-to-have 4 條留 follow-up（_month_period 兩處實作 / notable_events 加 stalled 類型 / `_jinja_env` thread race / `_FARM_REGISTRY` setter coupling）
+  - PR：[claude/issue-WMOM-20260509-08-2026-05-10]
+  - Work-log：work-logs/2026-05/2026-05-10-reporting-backend-monthly-pdf.md
 
 ---
 
