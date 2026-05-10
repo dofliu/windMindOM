@@ -82,9 +82,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS：browser spec 禁止 `allow_origins=["*"]` 配 `allow_credentials=True` 同時生效
+# （等於沒設），fix 為列舉 dev / docker localhost 來源。生產可從 env 讀。
+import os as _os  # noqa: E402
+
+_default_cors_origins = [
+    "http://localhost:3100",   # Vite dev (本 repo 預設)
+    "http://localhost:5173",   # Vite default
+    "http://localhost:5179",   # legacy Vite (handoff doc 提的)
+    "http://127.0.0.1:3100",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5179",
+]
+_env_cors = _os.environ.get("WMOM_CORS_ORIGINS", "").strip()
+_cors_origins = (
+    [o.strip() for o in _env_cors.split(",") if o.strip()]
+    if _env_cors
+    else _default_cors_origins
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
