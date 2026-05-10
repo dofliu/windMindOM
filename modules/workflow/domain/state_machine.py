@@ -85,9 +85,16 @@ class TransitionRule:
 
 
 def _guard_dispatch(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]) -> None:
-    """dispatch — assignee_id（被派者）+ actor_id（派工人，給 audit 用）都必填。"""
-    if wo.assignee_id is None:
-        raise InvalidTransition("dispatch requires assignee_id to be set on the work order")
+    """dispatch — assignee_id（被派者）+ actor_id（派工人，給 audit 用）都必填。
+
+    assignee_id 來源（任一即可）：
+    1. 工單已預先設定（建單時就指派）
+    2. 派工時透過 ``kwargs["assignee_id"]`` 補帶（推薦 — 派工時才知派誰）
+    """
+    if wo.assignee_id is None and kwargs.get("assignee_id") is None:
+        raise InvalidTransition(
+            "dispatch requires assignee_id (set on work order or pass in dispatch request)"
+        )
     if actor_id is None:
         raise InvalidTransition("dispatch requires actor_id (the dispatcher, for audit)")
 
@@ -266,6 +273,10 @@ def _apply_side_effects(
     """
     now = _utc_now()
     if action == "dispatch":
+        # 若 caller 在派工時帶 assignee_id（補單建立時未指派的情境），
+        # 在 transition apply 階段一併寫入工單。guard 已驗證至少其中一處有值。
+        if kwargs.get("assignee_id") is not None:
+            wo.assignee_id = kwargs["assignee_id"]
         wo.dispatched_at = now
         wo.dispatched_by = actor_id
     elif action == "start_work":

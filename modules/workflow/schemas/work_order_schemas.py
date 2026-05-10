@@ -60,11 +60,13 @@ class CreateWorkOrderRequest(BaseModel):
 class DispatchRequest(BaseModel):
     """``POST /api/workflow/work-orders/{id}/dispatch`` — 派工。
 
-    actor_id 必填（誰派工的，給 audit）；assignee_id 若還沒在工單上會 reject —
-    建議建單時就帶 assignee_id。
+    actor_id 必填（誰派工的，給 audit）；
+    assignee_id 為選填 — 若工單建立時沒指派被派者，可在派工時補帶；
+    若兩處皆無，state machine 拒絕（dispatch 必須有被派工的人）。
     """
 
     actor_id: UUID
+    assignee_id: Optional[UUID] = None
 
 
 class StartWorkRequest(BaseModel):

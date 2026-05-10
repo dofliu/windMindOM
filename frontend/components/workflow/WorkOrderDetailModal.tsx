@@ -35,7 +35,11 @@ type Lang = 'en' | 'zh';
 interface Props {
   workOrder: WorkOrderResponse;
   /** 觸發狀態變更的 callbacks（呼叫 hook 的 mutation） */
-  onDispatch: (id: string) => Promise<WorkOrderResponse>;
+  /**
+   * 觸發 dispatch transition。
+   * @param assigneeId 派工時補帶 assignee；若工單已有 assignee 且 caller 沒傳，使用既有值。
+   */
+  onDispatch: (id: string, assigneeId?: string) => Promise<WorkOrderResponse>;
   onStartWork: (id: string, requireWeatherWindow: boolean) => Promise<WorkOrderResponse>;
   onUpdateProgress: (id: string, note: string) => Promise<WorkOrderResponse>;
   onFinish: (
@@ -98,6 +102,8 @@ const WorkOrderDetailModal: React.FC<Props> = ({
   const [followupNote, setFollowupNote] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [cancelReason, setCancelReason] = useState('');
+  // dispatch assignee：建單若未指派，派工時可在此補帶（hotfix-2026-05-10）
+  const [dispatchAssignee, setDispatchAssignee] = useState('');
   const [reopenReason, setReopenReason] = useState('');
 
   const resetForms = () => {
@@ -113,6 +119,7 @@ const WorkOrderDetailModal: React.FC<Props> = ({
     setCancelReason('');
     setReopenReason('');
     setRequireWeather(false);
+    setDispatchAssignee('');
   };
 
   const runMutation = async (fn: () => Promise<WorkOrderResponse>) => {
@@ -411,15 +418,48 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                 </div>
                 <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
                   {ui(
-                    `Will dispatch as actor ${DEV_ACTOR_ID} (dev placeholder).`,
-                    `將以 actor ${DEV_ACTOR_ID} 身分派工（dev 占位）。`,
+                    `Actor (dispatcher): ${DEV_ACTOR_ID} (dev placeholder).`,
+                    `派工人 actor：${DEV_ACTOR_ID}（dev 占位）。`,
                   )}
+                </div>
+                {/* hotfix-2026-05-10：建單時若未指派，派工時補帶 assignee_id */}
+                <div style={{ marginBottom: 10 }}>
+                  <Field
+                    label={ui('Assignee UUID (technician to perform the work)', '派工對象 UUID（執行維修的技師）')}
+                    hint={
+                      wo.assignee_id
+                        ? ui(
+                            `Currently assigned to ${wo.assignee_id}. Leave blank to keep, or enter a new UUID to reassign.`,
+                            `目前指派給 ${wo.assignee_id}。留空保留原值，或輸入新 UUID 重新指派。`,
+                          )
+                        : ui(
+                            'Required (work order has no assignee yet). Leave blank to use the dev placeholder.',
+                            '必填（工單尚未指派）。留空將使用 dev 占位 UUID。',
+                          )
+                    }
+                  >
+                    <Input
+                      value={dispatchAssignee}
+                      onChange={setDispatchAssignee}
+                      placeholder={wo.assignee_id ?? DEV_ACTOR_ID}
+                      fullWidth
+                      monospace
+                    />
+                  </Field>
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <Btn onClick={resetForms}>{ui('Cancel', '取消')}</Btn>
                   <Btn
                     variant="primary"
-                    onClick={() => runMutation(() => onDispatch(wo.id))}
+                    onClick={() => {
+                      // 若 input 為空：工單已有 assignee 則用既有；否則用 dev 占位
+                      const trimmed = dispatchAssignee.trim();
+                      const assignee =
+                        trimmed.length > 0
+                          ? trimmed
+                          : (wo.assignee_id ?? DEV_ACTOR_ID);
+                      return runMutation(() => onDispatch(wo.id, assignee));
+                    }}
                     disabled={submitting}
                     ariaLabel={ui('Confirm dispatch', '確認派工')}
                   >

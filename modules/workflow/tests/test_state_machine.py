@@ -114,6 +114,35 @@ def test_dispatch_requires_actor_id_for_audit():
         WorkOrderStateMachine.transition(wo, "dispatch")  # 沒 actor_id
 
 
+def test_dispatch_with_assignee_kwarg_when_wo_has_no_assignee():
+    """Hotfix-2026-05-10：派工時用 kwargs 補帶 assignee_id（建單時未指派的常見場景）。
+
+    使用情境：建單者（值班主管）建單時還不知道派誰，DRAFT 留空白；
+    後續派工時主管才決定 assignee → 透過 dispatch kwargs 補帶。
+    """
+    actor = uuid4()
+    new_assignee = uuid4()
+    wo = _wo()  # no assignee on the work order
+    WorkOrderStateMachine.transition(
+        wo, "dispatch", actor_id=actor, assignee_id=new_assignee,
+    )
+    assert wo.status == WorkOrderStatus.DISPATCHED
+    assert wo.assignee_id == new_assignee  # ← kwarg 寫入工單
+    assert wo.dispatched_by == actor
+
+
+def test_dispatch_kwarg_assignee_overrides_existing_on_wo():
+    """若工單已有 assignee 但 dispatch 又帶 kwarg，以 kwarg 為準（重新指派）。"""
+    actor = uuid4()
+    original = uuid4()
+    new_assignee = uuid4()
+    wo = _wo(assignee_id=original)
+    WorkOrderStateMachine.transition(
+        wo, "dispatch", actor_id=actor, assignee_id=new_assignee,
+    )
+    assert wo.assignee_id == new_assignee  # kwarg 覆寫
+
+
 @pytest.mark.parametrize("source_status", [
     WorkOrderStatus.DISPATCHED,
     WorkOrderStatus.IN_PROGRESS,
