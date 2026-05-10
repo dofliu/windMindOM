@@ -340,9 +340,17 @@ async def dispatch(
     req: DispatchRequest,
     farm_id: str = Query(..., min_length=1),
 ) -> WorkOrderResponse:
-    """DRAFT → DISPATCHED。"""
+    """DRAFT → DISPATCHED。
+
+    若 ``req.assignee_id`` 有值，會在 transition 時一併寫入工單；
+    若工單建單時未指派 + 派工時也未帶 → state machine 拒絕。
+    """
     repo = _get_repo(farm_id)
-    return _run_transition(repo, work_order_id, "dispatch", actor_id=req.actor_id)
+    return _run_transition(
+        repo, work_order_id, "dispatch",
+        actor_id=req.actor_id,
+        assignee_id=req.assignee_id,
+    )
 
 
 @router.post("/work-orders/{work_order_id}/start-work", response_model=WorkOrderResponse)

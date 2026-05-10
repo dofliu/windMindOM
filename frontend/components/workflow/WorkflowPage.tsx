@@ -256,7 +256,9 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
         <WorkOrderDetailModal
           workOrder={selectedWO}
           onClose={() => setSelectedWO(null)}
-          onDispatch={id => wo.dispatch(id, { actor_id: DEV_ACTOR_ID })}
+          onDispatch={(id, assigneeId) =>
+            wo.dispatch(id, { actor_id: DEV_ACTOR_ID, assignee_id: assigneeId })
+          }
           onStartWork={(id, requireWeather) =>
             wo.startWork(id, { require_weather_window: requireWeather })
           }

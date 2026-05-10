@@ -65,6 +65,8 @@ export interface CreateWorkOrderRequest {
 
 export interface DispatchRequest {
   actor_id: string;
+  /** 可選：派工時補帶 assignee_id（建單未指派的情境）。 */
+  assignee_id?: string | null;
 }
 
 export interface StartWorkRequest {
