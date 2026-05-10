@@ -1226,23 +1226,39 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-09 — `/admin/reports` frontend（月報生成 + 年度預算）
 
-- **Status**: open
+- **Status**: done（2026-05-10，PR pending）
 - **Milestone**: M4
 - **Priority**: high
-- **Estimate**: 1 工作天
-- **UI directive**：同 -06。
+- **Estimate**: 1 工作天 → **實際 1 天**
+- **UI directive**：同 -06（走 ui 元件庫 / 不硬寫 hex / 全 theme palette）
 - **Description**:
-  - `frontend/services/reportingService.ts`
-  - `frontend/hooks/useReports.ts`
-  - 新主頁 `/admin/reports`（在 nav 加 `reports` 主項 + NavIcon），對應 `frontend/components/ReportsPage.tsx`
+  - ✅ `frontend/services/reportingService.ts`（typed client + downloadBlob helper）
+  - ✅ `frontend/hooks/useReports.ts`（monthly + annual sub-state mgmt）
+  - ✅ 新主頁 `frontend/components/reporting/ReportsPage.tsx`，nav 加 `reports` 主項 + NavIcon (document with mini bar chart)
   - 子元件：
-    - `frontend/components/reporting/MonthlyReportPanel.tsx`：選 farm / year / month → 點 generate → 顯示 preview + download PDF
-    - `frontend/components/reporting/AnnualBudgetPanel.tsx`：選 year → 12 個月 forecast 表格 + chart
+    - ✅ `MonthlyReportPanel.tsx`：year/month picker → generate → KPI cards + cost breakdown table + iframe HTML preview + PDF download
+    - ✅ `AnnualBudgetPanel.tsx`：year + current_month picker → KPI + recharts BarChart + 12-month table + PDF download
+  - ✅ `formatters.ts` 共用 fmtMoneyDecimal / fmtPct
 - **Acceptance**:
-  - 點按鈕後 30 秒內拿到 PDF binary，瀏覽器自動下載
-  - 走 ui 元件庫；NavIcon 加 `reports`（document-with-chart icon）
+  - ✅ 點按鈕後 30 秒內拿到 PDF binary，瀏覽器自動下載（`downloadBlob` helper + 1s revoke timeout）
+  - ✅ 走 ui 元件庫；NavIcon `reports` 加 document-with-bar-chart icon
 - **Depends on**: WMOM-20260509-08
 - **Blocks**: -
+- **Result**:
+  - `npx tsc --noEmit` → 0 errors；`npx vite build` → 5.29s，733 modules
+  - code-reviewer subagent 找出 4 must + 6 should + 4 nice，採納 11 條全修：
+    - Must #1: iframe `srcDoc` 加 `sandbox=""` 完全隔離（XSS 防護）
+    - Must #2: `buildQuery` 型別簽章對齊 runtime guard（加 null）
+    - Must #3: generate error / download error 拆兩個獨立顯示框
+    - Must #4: `farmLoaded` state 區分 loading vs 無 active farm 避免無限 loading
+    - Should #1: `formatters.ts` 抽共用 fmtMoneyDecimal（兩 panel 重複定義 + null 行為分歧）
+    - Should #2: 移除 dead exports `ReportFormat` / `AnnualFormat`
+    - Should #6: year range 擴 -4~+1（multi-year O&M）
+    - Nice #1: recharts future months `actual=null` 不畫 0 bar
+    - Nice #2: 移除未使用的 `useReports.reset`
+    - Nice #3: 移除 PageHeader sub backend impl 細節 leak
+  - PR：[claude/issue-WMOM-20260509-09-2026-05-10]
+  - Work-log：work-logs/2026-05/2026-05-10-reports-frontend.md
 
 ---
 
