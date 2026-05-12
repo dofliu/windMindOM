@@ -29,3 +29,6 @@ docs/sales/customer_feedback/20*-*-*-*.md
 # Claude Code subagent worktrees（isolation 模式留下的暫時 git worktree 副本，
 # 含完整 frontend/node_modules — 不該 commit；定期可手動 rm -rf 釋放空間）
 .claude/worktrees/
+
+# Physics test reports — pytest 自動產生（regenerable，不該 commit）
+tests/physics/reports/

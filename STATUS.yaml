@@ -62,7 +62,7 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 21  # +1: WMOM-20260510-01 dev mode + mock login + farm is_offshore
+  open: 22  # +1: WMOM-20260513-01 UI 改版 v2 (placeholder, 等劉老師補 spec)
   in_progress: 0
   blocked: 0
   done: 31

@@ -1768,8 +1768,8 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   | 風場總覽 | `匯出` / `+ 新報告` | VA.jsx §4.1 | `匯出` 可接 `/api/export/snapshot`；`+ 新報告` 暫無 API |
   | 風機細節 | `限載` / `停機` / `安排檢查` | VA.jsx §4.2 | 同頁右側「操作控制」卡片有完整 6 指令（重複入口） |
 - **Reference**:
-  - `WMOM 介面改版交接書.md`（劉老師主 repo 根目錄，未進 worktree）
-  - `app/VA.jsx`、`app/data.js`（design canvas，未進 worktree）
+  - `docs/design/2026-05-07-ui-source/WMOM 介面改版交接書.md`（2026-05-12 歸檔保存）
+  - `docs/design/2026-05-07-ui-source/app/VA.jsx`、`data.js`（design canvas）
   - `work-logs/2026-05/2026-05-07-ui-revamp-calm-operator.md`
 
 ---
@@ -1796,6 +1796,51 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260513-01 — UI 改版 v2（placeholder — 等劉老師補新設計交接書）
+
+- **Status**: open (placeholder — **設計規範未提供前不開工**)
+- **Milestone**: 未排（待 spec 後決定 M4 後半 / M5）
+- **Priority**: TBD（依劉老師對外 demo 與客戶溝通的時程急迫度決定）
+- **Estimate**: TBD（依改版幅度 — 微調 1d / 重畫 3-5d / 換主題系統 1 週）
+- **Source**: 2026-05-12 劉老師提及「想修改 UI」；2026-05-07 WMOM-20260507-01 完成 Calm Operator 後，劉老師可能想做 v2 iteration
+
+#### 背景
+
+- 2026-05-07 已完成 WMOM-20260507-01「前端 UI 改版（A · Calm Operator + 雙主題）」
+- 既有設計 source 已歸檔在 [`docs/design/2026-05-07-ui-source/`](docs/design/2026-05-07-ui-source/)（WMOM 介面改版交接書 / app/VA-VC.jsx / variants/V1-V3.jsx / shared/MiniDashboard / 各 HTML mockup）
+- 劉老師 2026-05-12 表示有新 UI 想法
+
+#### Description（待補）
+
+下列為 placeholder，**劉老師需補完才能開工**：
+
+- [ ] 新版設計交接書（類似 2026-05-07 那份 markdown）
+- [ ] 主要要改哪幾頁？（FarmOverview / TurbineDetail / MaintenanceHub / CostPage / HistoryPage / Workflow / Reports 全動還是局部）
+- [ ] 主題系統異動嗎？（保留鼠尾草綠+翡翠玻璃 / 換新色 / 加第三主題）
+- [ ] 字型異動嗎？（保留 DM Serif + Manrope + JetBrains Mono / 換）
+- [ ] 元件庫 (`frontend/components/ui/`) 要新增哪些？或重做哪些？
+- [ ] 是否影響 backend schema 或 API contract？（默認否）
+
+#### Acceptance（待補）
+
+- [ ] `npx tsc --noEmit` 0 errors
+- [ ] `npx vite build` 成功
+- [ ] 全頁面在 light + dark 兩主題下 visually consistent
+- [ ] 不破壞既有 functionality（hooks / API / modal flow 全保留）
+- [ ] 留新版交接書到 `docs/design/{YYYY-MM-DD}-ui-source/`
+
+#### Depends on
+- 劉老師補 spec
+
+#### Blocks
+- 無（純美術 polish，不卡主線功能）
+
+#### Notes for daily routine
+- **此 issue 因缺 spec 暫時跳過** — daily autonomous worker 不要 pick 起來做
+- 等劉老師補完 description 區塊後改 status，再進排程
 
 ---
 
