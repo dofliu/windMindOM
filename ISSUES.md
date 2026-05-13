@@ -1264,10 +1264,18 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-10 — E2E lifecycle test（pytest 兩層 + demo orchestrator placeholder）
 
-- **Status**: open
+- **Status**: done（2026-05-13）
 - **Milestone**: M4 收官（A6/A7/A9 done 後）
 - **Priority**: high（**ROADMAP M4 demo flow 的 acceptance**）
-- **Estimate**: 1-1.5 工作天
+- **Estimate**: 1-1.5 工作天 → **實際 0.5 工作天**
+- **完成**:
+  - Layer A：`tests/e2e/test_fault_to_signoff_lifecycle.py` 6 個 test（3 happy CORRECTIVE/PREVENTIVE/INSPECTION + 2 unhappy reject-retry + insufficient-stock + 1 timing sentinel），全 pass in 1.88s（acceptance < 60s 通過）
+  - Layer B：`frontend/components/demo/DemoOrchestratorPage.tsx` skeleton placeholder（tsc clean）
+  - Mock simulator/fault：暫以 `source_alarm_code` 字串模擬 fault trigger；真接 SCADA simulator 留 follow-up WMOM-20260513-02
+  - Code review subagent 找 4 must-fix + 7 should-fix；must-fix 全修 + 多數 should-fix 採納
+  - 關鍵驗證：3 階 approve 後 MR DISPATCHED + stock 扣 + ledger ESTIMATED 中間狀態（擋 dispatch guard regression）
+  - PR：claude/issue-WMOM-20260509-10-2026-05-13
+  - Work-log：work-logs/2026-05/2026-05-13-a10-e2e-lifecycle-test.md
 - **Description**:
   把「運轉資料 → 故障觸發 → 派工 → 開單 → 領料 → 排除 → 紀錄 → 簽核」全鏈路串起來測。
 
@@ -1841,6 +1849,54 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 #### Notes for daily routine
 - **此 issue 因缺 spec 暫時跳過** — daily autonomous worker 不要 pick 起來做
 - 等劉老師補完 description 區塊後改 status，再進排程
+
+---
+
+### WMOM-20260513-02 — Demo Orchestrator full impl + simulator integration（A10 follow-up）
+
+- **Status**: open
+- **Milestone**: M5（2026-09）
+- **Priority**: medium（demo polish；客戶 demo 時若想一鍵 replay lifecycle 需要這個）
+- **Estimate**: 2-3 工作天
+- **Source**: 2026-05-13 A10 (WMOM-20260509-10) 收尾留下的兩個延伸缺口
+
+#### Description
+
+A10 完成 Layer A pytest E2E（6 個 test 跑完整 lifecycle）+ Layer B 純靜態
+`DemoOrchestratorPage.tsx` skeleton；此 follow-up 把兩個缺口補完：
+
+**Part A — Demo Orchestrator UI 接 API（1-1.5d）**
+
+- `frontend/components/demo/DemoOrchestratorPage.tsx` 從 skeleton 進化成可執行
+- 「Run Full Demo」按鈕走 11 個 step：建單 → 派工 → 開始 → MR → 3 階 approve → receive → finish → 工單 2 階 approve → 月報
+- 每 step 顯示 running / done / skipped + 可逐步暫停 / reset
+- 確保 step list 與 `tests/e2e/test_fault_to_signoff_lifecycle.py::_walk_happy_lifecycle` 順序對齊（程式碼裡留 cross-reference comment）
+
+**Part B — 真 simulator + canonical alarm code（1-1.5d）**
+
+A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 monitoring 層
+（`modules/monitoring/simulator/physics/fault_engine.py`）的 alarm 結構是
+`{type: "T1"|"T2"|"A", code: int}`。Follow-up：
+- 抽 shared constant：`shared/alarm_codes.py` 定義 canonical Z72 alarm taxonomy
+- E2E test 改用 canonical schema（e.g. `"T1:301"` for gearbox temp high）
+- `tests/e2e/test_fault_to_signoff_lifecycle.py::_walk_happy_lifecycle` Step 1 改成
+  真的呼叫 `simulator.inject_fault(scenario="gearbox_temp_high")` + assert SCADA tag delta
+- 另加 INSPECTION over-use variant（`estimated_qty=1, actual_qty=2`），驗 receive
+  endpoint 對「actual > estimated」的業務規則（cap at estimated vs allow over-use —
+  需 product decision）
+
+#### Acceptance
+- [ ] DemoOrchestratorPage「Run Full Demo」按鈕端到端跑通 11 step → CLOSED + 月報
+- [ ] Shared alarm code taxonomy 被 monitoring + workflow + E2E test 三方共用
+- [ ] E2E test 改用真 simulator fault injection（不再用字串 mock）
+- [ ] INSPECTION over-use variant 新增 1 個 test
+- [ ] 全 backend + frontend 0 regression
+
+#### Depends on
+- WMOM-20260509-10（A10）已完成 ✓
+
+#### Blocks
+- 無（M5 demo polish）
 
 ---
 
