@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 99
 status: active
-last_updated: "2026-05-10"
-next_milestone: "**🎉 M4 客戶 demo flow 端到端貫通 — 一日 4 PR + 1 cherry-pick + 真實 UI 實測 5 種 path 全 pass**：今日節奏 A8 reporting backend (PR #23) → A9 reports frontend (PR #24) → 劉老師實測踩到 4 連環 bug（CORS spec violation + work_orders 表撞名 + dispatch guard + weather_window UX），全修到 root cause（不是表面 patch）— hotfix CORS+table (PR #25) / dispatch+assignee (PR #26) / weather UX cherry-pick (9c8f476) + 開新 issue WMOM-20260510-01 (Identity / dev mode / mock login / farm is_offshore) 進 M5 backlog。劉老師實測完整 lifecycle：建單 → 派工 → 開始 → 進度紀錄 → 完工 → 員工簽 → 組長簽（通過/駁回/重新走）→ CLOSED + /admin/reports 月報 PDF download，**端到端全通**。後端 502 → 504 passed (zero regression)，frontend tsc 0 + vite build 6.06s 733 modules。所有 PR branches 已 merged + 刪除（local + remote），main 100% production-ready M4 狀態。M4 progress：90% → 95%。最大教訓：今日 hotfix 風暴源於沒有 lifecycle E2E test — 強烈建議下次 session 第一件事做 A10。詳細 handoff 在 work-logs/2026-05/2026-05-10-session-wrapup-handoff.md。下次候選：A10 E2E test → WMOM-20260510-01 (mock login + is_offshore) → A6/A7 領料庫存 frontend → F1-F6 follow-up。"
+last_updated: "2026-05-13"
+next_milestone: "**🎉 A10 E2E lifecycle test done — M4 acceptance 補齊 + 從此 CI 自動擋住 lifecycle regression**：今日（autonomous daily worker session）認領 WMOM-20260509-10（5/10 handoff doc 強烈建議「第一件事」），實作 Layer A 6 個 pytest E2E test（3 happy CORRECTIVE/PREVENTIVE/INSPECTION + 2 unhappy reject-retry + insufficient-stock + 1 timing sentinel）+ Layer B frontend DemoOrchestratorPage skeleton placeholder。Mock 範圍：source_alarm_code 帶字串模擬 simulator fault trigger（真 simulator 整合留 M5 follow-up WMOM-20260513-02）。Backend：501+6=507 passed (zero new regression — 3 pre-existing cost-test pinned-float drift 與本 PR 無關) / frontend tsc 0 + vite build 4.34s 734 modules clean / 6 個 E2E test 1.83s 內跑完（acceptance < 60s 通過）。從此 CORS / table-collision / dispatch-guard 類 bug 會在 PR CI 直接擋下不會 leak 到 main。M4 progress：95% → 98%。下次候選：WMOM-20260510-01 (mock login + is_offshore Part A 起手) → A6/A7 領料庫存 frontend → F1-F6 small follow-ups。詳細 handoff 在 work-logs/2026-05/2026-05-13-a10-e2e-lifecycle-test.md。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 95  # A1-A5 backend + A8 reporting backend + A9 reports frontend + 4 hotfix 全收 + 劉老師實測 lifecycle 全通；剩 A6/A7 領料庫存 frontend + A10 E2E + F1-F6 follow-up
+    progress: 98  # A1-A5 backend + A8 reporting backend + A9 reports frontend + 4 hotfix + A10 E2E lifecycle test (6 tests) + Layer B placeholder 全收；剩 A6/A7 領料庫存 frontend + F1-F6 follow-up
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 22  # +1: WMOM-20260513-01 UI 改版 v2 (placeholder, 等劉老師補 spec)
+  open: 22  # -1 (A10 done) +1 (WMOM-20260513-02 demo orchestrator follow-up); WMOM-20260513-01 UI 改版 v2 placeholder
   in_progress: 0
   blocked: 0
-  done: 31
+  done: 32  # +1: WMOM-20260509-10 (A10 E2E lifecycle test)
 
 inherited_baseline:
   source: digiWindTurbine
