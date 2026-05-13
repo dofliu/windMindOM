@@ -72,6 +72,22 @@ fixture 補上（會在 work-log 留 follow-up issue）。
 
 ---
 
+## 0. ⚠️ 給劉老師的訊息（給人工開 PR）
+
+GitHub MCP token 在 sandbox 端 auth 失敗（`Failed to retrieve GitHub token`），所以 daily worker **無法自動開 PR**。請手動到 GitHub 開 PR：
+
+- Branch（已 push）：`claude/issue-WMOM-20260509-10-2026-05-13`
+- Base：`main`
+- 建議 title：`test(#WMOM-20260509-10): A10 E2E lifecycle test + demo orchestrator placeholder`
+- PR 內容直接從 commit message body 複製即可
+
+或直接 visit GitHub UI：
+```
+https://github.com/dofliu/windMindOM/pull/new/claude/issue-WMOM-20260509-10-2026-05-13
+```
+
+---
+
 ## 3. 今日成果
 
 ### 3.1 檔案異動
