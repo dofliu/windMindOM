@@ -126,8 +126,9 @@ def lifecycle_setup(tmp_path):
 
 
 def _approve_chain(client, chain_id: str, levels=("employee", "leader")):
-    actor = str(uuid4())
+    # WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor
     for level in levels:
+        actor = str(uuid4())
         pending = client.get(
             "/api/workflow/approvals/pending",
             params={"farm_id": "changhua", "level": level},

@@ -159,10 +159,14 @@ def _approve_chain(
     levels: tuple[str, ...],
     actor_id: str | None = None,
 ) -> dict:
-    """依序 approve 每一階；回最後一階 approve response（含 transition_error）。"""
-    actor = actor_id or str(uuid4())
+    """依序 approve 每一階；回最後一階 approve response（含 transition_error）。
+
+    WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor（除非 caller
+    傳 ``actor_id`` 強制單一 actor，用於 only-1-level 場景如 reject-retry 的 employee 階）。
+    """
     last_resp: dict = {}
     for level in levels:
+        actor = actor_id if actor_id is not None else str(uuid4())
         pending = client.get(
             "/api/workflow/approvals/pending",
             params={"farm_id": FARM_ID, "level": level},
@@ -380,8 +384,9 @@ def _walk_happy_lifecycle(
         SignoffSubjectType.WORK_ORDER, wo.id,
     )
     assert wo_chain is not None, "WO finish 應該自動建 signoff chain"
+    # WMOM-20260510-01 Part A：每階用不同 actor（不再強制 actor=作業員 actor）
     wo_final = _approve_chain(
-        client, str(wo_chain.id), ("employee", "leader"), actor_id=str(actor),
+        client, str(wo_chain.id), ("employee", "leader"),
     )
 
     return {
@@ -657,9 +662,9 @@ def test_mr_final_approve_under_insufficient_stock(e2e_setup):
     )
 
     # 走 3 階 approve；final approve 撞 insufficient
+    # WMOM-20260510-01 Part A：每階用不同 actor（不再強制 actor=fixture actor）
     final_resp = _approve_chain(
         client, mr_bundle["chain_id"], ("employee", "leader", "treasury"),
-        actor_id=str(actor),
     )
 
     # ── 關鍵 assertions ──

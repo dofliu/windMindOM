@@ -160,7 +160,9 @@ def test_approve_last_step_closes_work_order(client):
     """通過 LEADER 階（最後一階）→ chain APPROVED + 自動 work_order.approve_all → CLOSED。"""
     wo_id, farm_id, _ = _create_and_finish_wo(client)
     qs = f"?farm_id={farm_id}"
-    actor = str(uuid4())
+    # WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor
+    actor_emp = str(uuid4())
+    actor_lead = str(uuid4())
 
     # 第一階
     pending_emp = client.get(
@@ -168,7 +170,7 @@ def test_approve_last_step_closes_work_order(client):
     ).json()
     client.post(
         f"/api/workflow/approvals/{pending_emp['items'][0]['step']['id']}/approve{qs}",
-        json={"actor_id": actor},
+        json={"actor_id": actor_emp},
     )
 
     # 第二階 LEADER
@@ -177,7 +179,7 @@ def test_approve_last_step_closes_work_order(client):
     ).json()
     r = client.post(
         f"/api/workflow/approvals/{pending_lead['items'][0]['step']['id']}/approve{qs}",
-        json={"actor_id": actor, "comment": "all good"},
+        json={"actor_id": actor_lead, "comment": "all good"},
     )
     assert r.status_code == 200
     data = r.json()

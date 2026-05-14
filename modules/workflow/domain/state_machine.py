@@ -90,6 +90,9 @@ def _guard_dispatch(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]
     assignee_id 來源（任一即可）：
     1. 工單已預先設定（建單時就指派）
     2. 派工時透過 ``kwargs["assignee_id"]`` 補帶（推薦 — 派工時才知派誰）
+
+    Note（WMOM-20260510-01 Part A）：本 guard 不檢「dispatcher == assignee」職責分離
+    （該 check 留待未來 issue 引入；屆時 bypass 走 ``shared.dev_mode.is_dev_mode_enabled``）。
     """
     if wo.assignee_id is None and kwargs.get("assignee_id") is None:
         raise InvalidTransition(

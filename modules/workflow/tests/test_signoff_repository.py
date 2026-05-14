@@ -219,14 +219,15 @@ def test_approve_first_step_advances_chain(repo):
 
 
 def test_approve_last_step_completes_chain(repo):
-    actor = uuid4()
+    # WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor
+    actor_emp, actor_lead = uuid4(), uuid4()
     chain = repo.create_chain_for_work_order(
         work_order_id=uuid4(), farm_id="x"
     )
     steps = repo.get_steps(chain.id)
-    repo.approve_step(steps[0].id, actor_id=actor)
+    repo.approve_step(steps[0].id, actor_id=actor_emp)
 
-    updated, is_last = repo.approve_step(steps[1].id, actor_id=actor)
+    updated, is_last = repo.approve_step(steps[1].id, actor_id=actor_lead)
     assert is_last is True
     assert updated.overall_status == SignoffStatus.APPROVED
     assert updated.completed_at is not None
@@ -475,13 +476,14 @@ def test_history_records_chain_lifecycle(repo):
     from modules.workflow.repository.orm_models import SignoffHistoryORM
     from sqlalchemy import select
 
-    actor = uuid4()
+    # WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor
+    actor_emp, actor_lead = uuid4(), uuid4()
     chain = repo.create_chain_for_work_order(
         work_order_id=uuid4(), farm_id="x"
     )
     steps = repo.get_steps(chain.id)
-    repo.approve_step(steps[0].id, actor_id=actor)
-    repo.approve_step(steps[1].id, actor_id=actor)
+    repo.approve_step(steps[0].id, actor_id=actor_emp)
+    repo.approve_step(steps[1].id, actor_id=actor_lead)
 
     with repo._sessionmaker() as sess:
         events = list(sess.execute(
@@ -514,3 +516,78 @@ def test_history_records_reject(repo):
 
     types = [e.event_type for e in events]
     assert types == ["chain_created", "step_rejected", "chain_completed"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# WMOM-20260510-01 Part A：separation-of-duties guard + WMOM_DEV_MODE bypass
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_same_actor_cannot_sign_consecutive_levels_in_production(
+    repo, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生產環境（無 WMOM_DEV_MODE）：同 actor 連簽兩階 → SignoffActionError。"""
+    monkeypatch.delenv("WMOM_DEV_MODE", raising=False)
+    actor = uuid4()
+    chain = repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+    steps = repo.get_steps(chain.id)
+
+    repo.approve_step(steps[0].id, actor_id=actor)
+    with pytest.raises(SignoffActionError, match="separation of duties"):
+        repo.approve_step(steps[1].id, actor_id=actor)
+
+
+def test_same_actor_cannot_reject_after_approving_in_production(
+    repo, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同 actor approve 第一階後不可在第二階 reject（也算連簽）。"""
+    monkeypatch.delenv("WMOM_DEV_MODE", raising=False)
+    actor = uuid4()
+    chain = repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+    steps = repo.get_steps(chain.id)
+
+    repo.approve_step(steps[0].id, actor_id=actor)
+    with pytest.raises(SignoffActionError, match="separation of duties"):
+        repo.reject_step(steps[1].id, actor_id=actor, reason="自己駁回自己")
+
+
+def test_dev_mode_bypasses_same_actor_consecutive_approve(
+    repo, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WMOM_DEV_MODE=true：同 actor 連簽兩階 OK（demo / 教學用）。"""
+    monkeypatch.setenv("WMOM_DEV_MODE", "true")
+    actor = uuid4()
+    chain = repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+    steps = repo.get_steps(chain.id)
+
+    repo.approve_step(steps[0].id, actor_id=actor)
+    updated, is_last = repo.approve_step(steps[1].id, actor_id=actor)
+    assert is_last is True
+    assert updated.overall_status == SignoffStatus.APPROVED
+
+
+def test_dev_mode_bypasses_same_actor_reject_after_approve(
+    repo, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WMOM_DEV_MODE=true：同 actor approve 然後 reject 也 OK。"""
+    monkeypatch.setenv("WMOM_DEV_MODE", "true")
+    actor = uuid4()
+    chain = repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+    steps = repo.get_steps(chain.id)
+
+    repo.approve_step(steps[0].id, actor_id=actor)
+    updated = repo.reject_step(steps[1].id, actor_id=actor, reason="dev demo")
+    assert updated.overall_status == SignoffStatus.REJECTED
+
+
+def test_distinct_actors_always_allowed(repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    """無論 WMOM_DEV_MODE 開關，每階 actor 不同就一律 OK。"""
+    monkeypatch.delenv("WMOM_DEV_MODE", raising=False)
+    actor_emp, actor_lead = uuid4(), uuid4()
+    chain = repo.create_chain_for_work_order(work_order_id=uuid4(), farm_id="x")
+    steps = repo.get_steps(chain.id)
+
+    repo.approve_step(steps[0].id, actor_id=actor_emp)
+    updated, is_last = repo.approve_step(steps[1].id, actor_id=actor_lead)
+    assert is_last is True
+    assert updated.overall_status == SignoffStatus.APPROVED

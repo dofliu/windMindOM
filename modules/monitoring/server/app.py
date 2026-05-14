@@ -21,6 +21,19 @@ ws_clients: List[WebSocket] = []
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle: start simulator and Modbus on startup, clean up on shutdown."""
+    # WMOM-20260510-01 Part A：啟動時 log dev mode warning（若 WMOM_DEV_MODE=true）。
+    # helper 已用 logging.warning；額外 print 到 stdout 是為了確保 lifespan 階段
+    # logging handler 尚未配齊時操作者仍看得到（雙保險 — 訊息字串一致，便於 log
+    # aggregator dedupe）。
+    from shared.dev_mode import log_dev_mode_warning_if_enabled
+    _DEV_MODE_BANNER = (
+        "⚠ WMOM_DEV_MODE active — separation-of-duties checks bypassed "
+        "(dispatcher==assignee allowed, same actor may sign consecutive signoff levels). "
+        "DO NOT use this build for production."
+    )
+    if log_dev_mode_warning_if_enabled():
+        print(f"[Server] {_DEV_MODE_BANNER}")
+
     # Migrate legacy DB if it exists
     from pathlib import Path
     legacy_path = Path(__file__).parent.parent / "wind_farm_data.db"

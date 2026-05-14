@@ -323,11 +323,14 @@ def test_dispatch_404_unknown(client):
 
 def _approve_all_chain(client, chain_id: str, farm_id: str = "changhua") -> str:
     """Approve 所有 pending steps（依 LEADER → TREASURY 順序），回傳最後一階的 ApprovalResultResponse。
-    回傳 type 是 dict 但取 'subject_status_changed' 等欄位。"""
+    回傳 type 是 dict 但取 'subject_status_changed' 等欄位。
+
+    WMOM-20260510-01 Part A：separation-of-duties → 每階用不同 actor。
+    """
     last_resp = None
-    actor = str(uuid4())
     levels = ["employee", "leader", "treasury"]  # MR 預設 3 階
     for level in levels:
+        actor = str(uuid4())
         # 找該 level 的 pending step
         pending = client.get(
             "/api/workflow/approvals/pending",
