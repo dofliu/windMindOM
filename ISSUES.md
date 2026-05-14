@@ -1927,11 +1927,14 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260510-01 — Identity / dev mode / mock login + farm `is_offshore` field
 
-- **Status**: open
+- **Status**: in_progress（Part A in progress 2026-05-14）
 - **Milestone**: M5（2026-09）
 - **Priority**: high（demo-blocker — 沒有身份切換無法給客戶看完整 lifecycle）
 - **Estimate**: 2-3 工作天
 - **Source**: 劉老師 2026-05-10 操作 lifecycle UI 時提出的 3 個關連缺口
+- **Progress**:
+  - Part A — Backend dev mode：in_progress（branch `claude/issue-WMOM-20260510-01A-2026-05-14`）
+  - Part B / C / D：未開始
 
 #### 背景
 

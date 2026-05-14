@@ -32,6 +32,7 @@ from modules.workflow.domain import (
     build_chain_levels,
 )
 from modules.workflow.domain.work_order import _utc_now
+from shared.dev_mode import is_dev_mode_enabled
 
 from ._helpers import (
     ensure_utc,
@@ -325,6 +326,7 @@ class SignoffRepository:
                 raise LookupError(f"signoff_chain for step {step_id} missing")
 
             self._validate_step_decidable(chain_orm, step_orm)
+            self._check_actor_separation(sess, chain_orm, step_orm, actor_id)
 
             now = _utc_now()
             step_orm.status = SignoffStatus.APPROVED.value
@@ -385,6 +387,7 @@ class SignoffRepository:
                 raise LookupError(f"signoff_chain for step {step_id} missing")
 
             self._validate_step_decidable(chain_orm, step_orm)
+            self._check_actor_separation(sess, chain_orm, step_orm, actor_id)
 
             now = _utc_now()
             step_orm.status = SignoffStatus.REJECTED.value
@@ -415,6 +418,41 @@ class SignoffRepository:
             return self._chain_to_domain(chain_orm)
 
     # ── Internal helpers ────────────────────────────────────────────
+
+    def _check_actor_separation(
+        self,
+        sess: Session,
+        chain_orm: SignoffChainORM,
+        step_orm: SignoffStepORM,
+        actor_id: UUID,
+    ) -> None:
+        """職責分離（WMOM-20260510-01 Part A）：actor 不可與同 chain 內任何先前 step 的
+        decided_by 相同，避免一人扮多角通過全 chain。
+
+        Production 強制；``WMOM_DEV_MODE=true`` 跳過（demo / 教學 / 內部測試情境）。
+
+        Query 顯式加 ``decided_by IS NOT NULL`` 過濾 — 標準 SQL `NULL = 'x'` 為 NULL 不
+        為 TRUE，本不會 match，但寫死防 driver / dialect 對 NULL 比較行為不一致（review fix）。
+        """
+        if is_dev_mode_enabled():
+            return
+
+        actor_str = str(actor_id)
+        prior_decider = sess.execute(
+            select(SignoffStepORM.decided_by, SignoffStepORM.level).where(
+                SignoffStepORM.chain_id == chain_orm.id,
+                SignoffStepORM.sequence < step_orm.sequence,
+                SignoffStepORM.decided_by == actor_str,
+                SignoffStepORM.decided_by.isnot(None),
+            ).limit(1)
+        ).first()
+        if prior_decider is not None:
+            raise SignoffActionError(
+                f"actor {actor_id} already decided a prior step in chain "
+                f"{chain_orm.id} (level={prior_decider[1]}); separation of duties "
+                "prohibits same person signing consecutive levels; "
+                "set WMOM_DEV_MODE=true to bypass for demo"
+            )
 
     def _validate_step_decidable(
         self, chain_orm: SignoffChainORM, step_orm: SignoffStepORM

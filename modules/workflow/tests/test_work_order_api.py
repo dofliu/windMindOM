@@ -273,8 +273,9 @@ def test_full_happy_path_lifecycle_via_api(client):
     assert finish_resp["status"] == "awaiting_signoff"
     assert finish_resp["signoff_chain_id"] is not None  # auto-created chain
 
-    # 走 signoff approve flow (2 階)
+    # 走 signoff approve flow (2 階) — WMOM-20260510-01 Part A：每階用不同 actor
     for level in ("employee", "leader"):
+        signer = str(uuid4())
         pending = client.get(
             f"/api/workflow/approvals/pending?farm_id={farm_id}&level={level}"
         ).json()
@@ -282,7 +283,7 @@ def test_full_happy_path_lifecycle_via_api(client):
         step_id = pending["items"][0]["step"]["id"]
         client.post(
             f"/api/workflow/approvals/{step_id}/approve{qs}",
-            json={"actor_id": actor},
+            json={"actor_id": signer},
         )
 
     # 工單已 CLOSED
@@ -362,14 +363,15 @@ def test_reopen_uses_independent_reason_field(client):
             "followup_note": "完工觀察一週",
         },
     )
-    # 走 signoff approve flow 把工單帶到 CLOSED
+    # 走 signoff approve flow 把工單帶到 CLOSED — 每階用不同 actor（WMOM-20260510-01 Part A）
     for level in ("employee", "leader"):
+        signer = str(uuid4())
         pending = client.get(
             f"/api/workflow/approvals/pending?farm_id={farm_id}&level={level}"
         ).json()
         client.post(
             f"/api/workflow/approvals/{pending['items'][0]['step']['id']}/approve{qs}",
-            json={"actor_id": actor},
+            json={"actor_id": signer},
         )
 
     r = client.post(
