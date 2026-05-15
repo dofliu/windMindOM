@@ -14,7 +14,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Btn, Card, PageHeader, StatusPill } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
-  DEV_ACTOR_ID,
   farmApi,
   type CreateWorkOrderRequest,
   type FollowupKind,
@@ -26,6 +25,7 @@ import {
 } from '../../services/workOrderService';
 import { useWorkOrders } from '../../hooks/useWorkOrders';
 import { usePendingApprovals } from '../../hooks/usePendingApprovals';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 import WorkOrderListPanel from './WorkOrderListPanel';
 import CreateWorkOrderWizard from './CreateWorkOrderWizard';
 import WorkOrderDetailModal from './WorkOrderDetailModal';
@@ -44,6 +44,7 @@ interface Props {
 
 const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   const { C } = useTheme();
+  const { currentUser } = useCurrentUser();
   const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
   // ── Active farm（單次抓 + 監聽切換 reload） ──
@@ -165,8 +166,9 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
             {ui('Active farm', '目前風場')}:{' '}
             <span style={{ color: C.accent, fontWeight: 600 }}>{farmName || farmId}</span>
             {' · '}
-            <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
-              actor {DEV_ACTOR_ID.slice(0, 8)}…
+            <span style={{ fontSize: 11 }}>
+              {ui('Acting as', '目前身份')}:{' '}
+              <span style={{ color: C.accent, fontWeight: 600 }}>{currentUser.name}</span>
             </span>
           </span>
         }
@@ -257,13 +259,13 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           workOrder={selectedWO}
           onClose={() => setSelectedWO(null)}
           onDispatch={(id, assigneeId) =>
-            wo.dispatch(id, { actor_id: DEV_ACTOR_ID, assignee_id: assigneeId })
+            wo.dispatch(id, { actor_id: currentUser.id, assignee_id: assigneeId })
           }
           onStartWork={(id, requireWeather) =>
             wo.startWork(id, { require_weather_window: requireWeather })
           }
           onUpdateProgress={(id, note) =>
-            wo.updateProgress(id, { actor_id: DEV_ACTOR_ID, note })
+            wo.updateProgress(id, { actor_id: currentUser.id, note })
           }
           onFinish={(id, payload) =>
             wo.finish(id, {
@@ -293,7 +295,7 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onClose={() => setApprovalAction(null)}
           onApprove={async (stepId, comment) => {
             const result = await approvals.approve(stepId, {
-              actor_id: DEV_ACTOR_ID,
+              actor_id: currentUser.id,
               comment,
             });
             // approve 完成可能讓 chain 結案 → 若是工單 subject 且 closed，list 也要重 fetch
@@ -304,7 +306,7 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           }}
           onReject={async (stepId, reason) => {
             const result = await approvals.reject(stepId, {
-              actor_id: DEV_ACTOR_ID,
+              actor_id: currentUser.id,
               reason,
             });
             // reject 會把工單 IN_PROGRESS 回退 → 同步 orders list

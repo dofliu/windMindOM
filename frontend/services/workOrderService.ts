@@ -430,7 +430,19 @@ export const farmApi = {
   list: () => getJSON<FarmsResponse>('/api/farms'),
 };
 
-// ─── Dev placeholder actor — 等 user system 上線後抽掉 ─────────────────────
+// ─── Dev placeholder actor / 目前登入者 ─────────────────────────────────
 
-/** TODO: replace with authenticated user UUID when auth lands (M5+). */
+/**
+ * 早期 hardcoded placeholder — 5/15 之後改走 mock login（WMOM-20260510-01 Part B）。
+ *
+ * 仍保留此 const 給少數 fallback 顯示用（既有 hint 文字）。新代碼請改用：
+ *   - React 元件：`useCurrentUser().currentUser.id`
+ *   - 非 React 模組：`getCurrentActorId()`
+ *
+ * @deprecated Use `useCurrentUser().currentUser.id` (React) or
+ * `getCurrentActorId()` (non-React) instead. Will be removed in M5+ real auth migration.
+ */
 export const DEV_ACTOR_ID = '00000000-0000-0000-0000-000000000001';
+
+// Re-export 給 workflow component 用，省得多 import 一條
+export { getCurrentActorId } from './mockUsers';
