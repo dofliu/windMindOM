@@ -33,10 +33,12 @@ import WorkOrderDetailModal from './components/WorkOrderDetailModal';
 import SettingsPage from './components/SettingsPage';
 import HistoryPage from './components/HistoryPage';
 import FarmSelector from './components/FarmSelector';
+import UserSwitcher from './components/UserSwitcher';
 import CostPage from './components/CostPage';
 import WorkflowPage from './components/workflow/WorkflowPage';
 import ReportsPage from './components/reporting/ReportsPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import { UserProvider } from './hooks/useCurrentUser';
 import { Sidebar, type NavItem } from './components/ui';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
@@ -274,7 +276,12 @@ const AppShell: React.FC = () => {
         backendHealthy={backendHealthy}
         mobileOpen={mobileMenuOpen}
         onMobileClose={() => setMobileMenuOpen(false)}
-        footerExtra={<FarmSelector lang={lang} />}
+        footerExtra={
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <FarmSelector lang={lang} />
+            <UserSwitcher lang={lang} />
+          </div>
+        }
       />
 
       <main
@@ -337,7 +344,9 @@ const AppShell: React.FC = () => {
 
 const App: React.FC = () => (
   <ThemeProvider>
-    <AppShell />
+    <UserProvider>
+      <AppShell />
+    </UserProvider>
   </ThemeProvider>
 );
 

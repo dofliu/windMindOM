@@ -15,11 +15,11 @@ import React, { useEffect, useState } from 'react';
 import { Btn, Card, Field, Input, Select, StatusPill } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
-  DEV_ACTOR_ID,
   FollowupKindValues,
   type FollowupKind,
   type WorkOrderResponse,
 } from '../../services/workOrderService';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 import {
   followupLabel,
   fmtDateTime,
@@ -82,6 +82,7 @@ const WorkOrderDetailModal: React.FC<Props> = ({
   lang,
 }) => {
   const { C } = useTheme();
+  const { currentUser } = useCurrentUser();
   const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
   // 局部 state — transition 後直接更新顯示，不用等父層 list 推
@@ -416,8 +417,8 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                 </div>
                 <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
                   {ui(
-                    `Actor (dispatcher): ${DEV_ACTOR_ID} (dev placeholder).`,
-                    `派工人 actor：${DEV_ACTOR_ID}（dev 占位）。`,
+                    `Acting as: ${currentUser.name} (mock login). Switch user from the sidebar to act as a different role.`,
+                    `目前身份：${currentUser.name}（模擬登入）。可從左側 sidebar 切換不同 role。`,
                   )}
                 </div>
                 {/* hotfix-2026-05-10：建單時若未指派，派工時補帶 assignee_id */}
@@ -431,15 +432,15 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                             `目前指派給 ${wo.assignee_id}。留空保留原值，或輸入新 UUID 重新指派。`,
                           )
                         : ui(
-                            'Required (work order has no assignee yet). Leave blank to use the dev placeholder.',
-                            '必填（工單尚未指派）。留空將使用 dev 占位 UUID。',
+                            `Required (work order has no assignee yet). Leave blank to assign to ${currentUser.name}.`,
+                            `必填（工單尚未指派）。留空將指派給 ${currentUser.name}。`,
                           )
                     }
                   >
                     <Input
                       value={dispatchAssignee}
                       onChange={setDispatchAssignee}
-                      placeholder={wo.assignee_id ?? DEV_ACTOR_ID}
+                      placeholder={wo.assignee_id ?? currentUser.id}
                       fullWidth
                       monospace
                     />
@@ -450,12 +451,12 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                   <Btn
                     variant="primary"
                     onClick={() => {
-                      // 若 input 為空：工單已有 assignee 則用既有；否則用 dev 占位
+                      // 若 input 為空：工單已有 assignee 則用既有；否則指派給目前 mock-login user
                       const trimmed = dispatchAssignee.trim();
                       const assignee =
                         trimmed.length > 0
                           ? trimmed
-                          : (wo.assignee_id ?? DEV_ACTOR_ID);
+                          : (wo.assignee_id ?? currentUser.id);
                       return runMutation(() => onDispatch(wo.id, assignee));
                     }}
                     disabled={submitting}
