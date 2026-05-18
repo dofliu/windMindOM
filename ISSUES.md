@@ -1175,23 +1175,28 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-07 — `/admin/workflow/inventory` 庫存 frontend
 
-- **Status**: open
+- **Status**: done（2026-05-18）
 - **Milestone**: M4
 - **Priority**: high
-- **Estimate**: 0.5-1 工作天
+- **Estimate**: 0.5-1 工作天 → **實際 0.5 工作天**
 - **UI directive**：同 -06。
 - **Description**:
-  - `frontend/services/inventoryService.ts`
-  - `frontend/hooks/useInventory.ts`
-  - `frontend/components/workflow/InventoryListPanel.tsx`：料件列表（new / used / repairing 三欄 stock + safety_stock 警示 pill + last_used_at）
-  - `frontend/components/workflow/InventoryAdjustmentDialog.tsx`：手動 +/- 調整對話框（delta_kind / delta / reason 必填）
-  - `frontend/components/workflow/InventoryDetailDrawer.tsx`：點 row 開 drawer 顯示 adjustment_log audit
-  - 改 `WorkflowPage.tsx`：加 `inventory` tab
+  - ✅ `frontend/services/inventoryService.ts`（完整 8 endpoint：6 inventory + 2 warehouse）
+  - ✅ `frontend/hooks/useInventory.ts`（list + adjust + listAdjustments + warehouses sub-fetch）
+  - ✅ `frontend/components/workflow/InventoryListPanel.tsx`：warehouse filter / below_safety toggle / 三欄 stock / LOW pill / border-left 4px warn 警示
+  - ✅ `frontend/components/workflow/InventoryAdjustmentDialog.tsx`：delta_kind / 整數 delta / reason 必填 + 預覽顯示 `qty + delta = next` 含 negative 警告
+  - ✅ `frontend/components/workflow/InventoryDetailDrawer.tsx`：右側 480px drawer + audit log + 觸發 adjust dialog（z=300 over drawer z=180）
+  - ✅ 改 `WorkflowPage.tsx`：加 `inventory` tab + selectedInvItem rawItems sync + invHook 接合
+  - ✅ 擴 `statusUtils.ts`：`locationKindLabel` for warehouse location enum
 - **Acceptance**:
-  - tsc clean / vite build pass
-  - safety_stock 警示視覺正確（low stock row 醒目）
-- **Depends on**: WMOM-20260509-04
+  - ✅ tsc clean / vite build pass（748 modules, 4.47s）
+  - ✅ safety_stock 警示視覺正確：border-left 4px warn + LOW pill + filter toggle
+- **Depends on**: WMOM-20260509-04（done）
 - **Blocks**: -
+- **Result**:
+  - Backend 未動 — 512 passed + 1 xfailed + 3 pre-existing numpy drift（與 main baseline 一致 zero regression；今日 flaky concurrency test 通過）
+  - PR：claude/issue-WMOM-20260509-07-2026-05-18
+  - Work-log：work-logs/2026-05/2026-05-18-inventory-frontend.md
 
 ---
 

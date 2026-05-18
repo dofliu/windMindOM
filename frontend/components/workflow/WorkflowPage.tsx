@@ -29,9 +29,11 @@ import {
   type MaterialRequestResponse,
   type MaterialRequestStatus,
 } from '../../services/materialService';
+import { type InventoryItemResponse } from '../../services/inventoryService';
 import { useWorkOrders } from '../../hooks/useWorkOrders';
 import { usePendingApprovals } from '../../hooks/usePendingApprovals';
 import { useMaterialRequests } from '../../hooks/useMaterialRequests';
+import { useInventory } from '../../hooks/useInventory';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import WorkOrderListPanel from './WorkOrderListPanel';
 import CreateWorkOrderWizard from './CreateWorkOrderWizard';
@@ -41,10 +43,12 @@ import ApprovalActionDialog, { type ApprovalMode } from './ApprovalActionDialog'
 import MaterialRequestListPanel from './MaterialRequestListPanel';
 import CreateMaterialRequestWizard from './CreateMaterialRequestWizard';
 import MaterialRequestDetailModal from './MaterialRequestDetailModal';
+import InventoryListPanel from './InventoryListPanel';
+import InventoryDetailDrawer from './InventoryDetailDrawer';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
-type Tab = 'orders' | 'material' | 'approval';
+type Tab = 'orders' | 'material' | 'inventory' | 'approval';
 
 interface Props {
   lang: Lang;
@@ -107,6 +111,18 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     search: mrSearch,
   });
 
+  // ── Inventory tab state ──
+  const [invWarehouse, setInvWarehouse] = useState<string | 'all'>('all');
+  const [invBelowSafetyOnly, setInvBelowSafetyOnly] = useState(false);
+  const [invSearch, setInvSearch] = useState('');
+
+  const invHook = useInventory({
+    farmId,
+    warehouseId: invWarehouse === 'all' ? undefined : invWarehouse,
+    belowSafetyOnly: invBelowSafetyOnly,
+    search: invSearch,
+  });
+
   // ── Approval tab state ──
   const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
   const [subjectTypeFilter, setSubjectTypeFilter] = useState<SignoffSubjectType | 'all'>('all');
@@ -122,6 +138,7 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   const [showMRWizard, setShowMRWizard] = useState(false);
   const [selectedWO, setSelectedWO] = useState<WorkOrderResponse | null>(null);
   const [selectedMR, setSelectedMR] = useState<MaterialRequestResponse | null>(null);
+  const [selectedInvItem, setSelectedInvItem] = useState<InventoryItemResponse | null>(null);
   const [approvalAction, setApprovalAction] = useState<{
     mode: ApprovalMode;
     pending: PendingSignoffItem;
@@ -161,6 +178,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       setSelectedMR(fresh);
     }
   }, [mrHook.rawItems, selectedMR]);
+
+  // 同上：inventory drawer 開啟期間 adjust 完成後 list 會 patch，
+  // 從 rawItems sync 拿最新 row（搜尋中也不會 stale）。
+  useEffect(() => {
+    if (!selectedInvItem) return;
+    const fresh = invHook.rawItems.find(x => x.id === selectedInvItem.id);
+    if (fresh && fresh !== selectedInvItem) {
+      setSelectedInvItem(fresh);
+    }
+  }, [invHook.rawItems, selectedInvItem]);
 
   // ── No farm fallback ──
   if (farmFetchError) {
@@ -255,6 +282,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           {ui('Material requests', '領料單')}
         </Btn>
         <Btn
+          variant={tab === 'inventory' ? 'primary' : 'ghost'}
+          onClick={() => setTab('inventory')}
+          ariaLabel={ui('Inventory tab', '庫存頁籤')}
+          ariaPressed={tab === 'inventory'}
+        >
+          {ui('Inventory', '庫存')}
+        </Btn>
+        <Btn
           variant={tab === 'approval' ? 'primary' : 'ghost'}
           onClick={() => setTab('approval')}
           ariaLabel={ui('Approval tab', '簽核頁籤')}
@@ -297,6 +332,25 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onSearchChange={setMrSearch}
           onSelect={setSelectedMR}
           onRefresh={mrHook.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'inventory' && (
+        <InventoryListPanel
+          items={invHook.items}
+          total={invHook.total}
+          loading={invHook.loading}
+          error={invHook.error}
+          warehouses={invHook.warehouses}
+          warehouseId={invWarehouse}
+          onWarehouseChange={setInvWarehouse}
+          belowSafetyOnly={invBelowSafetyOnly}
+          onBelowSafetyChange={setInvBelowSafetyOnly}
+          search={invSearch}
+          onSearchChange={setInvSearch}
+          onSelect={setSelectedInvItem}
+          onRefresh={invHook.refresh}
           lang={lang}
         />
       )}
@@ -392,6 +446,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
             await mrHook.refresh();
           }}
           onCloseModal={() => setSelectedMR(null)}
+          lang={lang}
+        />
+      )}
+
+      {selectedInvItem && (
+        <InventoryDetailDrawer
+          item={selectedInvItem}
+          onAdjust={invHook.adjust}
+          loadAdjustments={invHook.listAdjustments}
+          onClose={() => setSelectedInvItem(null)}
           lang={lang}
         />
       )}
