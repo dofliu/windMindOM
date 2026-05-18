@@ -433,13 +433,41 @@ class MaterialRequestRepository:
         returned_by: UUID,
         note: str | None = None,
     ) -> MaterialReturn:
-        """建 MaterialReturn 記錄 + 同 transaction 加回 stock。
+        """建 MaterialReturn 記錄 + 同 transaction 加回 stock + 寫 ledger 沖銷 entry。
 
-        ⚠ 不寫 ledger 沖銷（A5 cost ledger 整合再做 — 用 wo_finish hook 算 actual_qty
-           差異一次到位較精確）。本 method 只動 stock + log。
+        WMOM-20260509-F1：補寫 cost ledger 沖銷 entry — 避免月報 ``summary_by_category``
+        加總時退料金額未扣回（會計偏高）。
+
+        策略（**新 entry with negative amount** — 保留 audit trail）：
+
+        1. 查原 dispatch ledger entry（``find_for_mr_item`` pattern：source_type=
+           MATERIAL_REQUEST + source_event_id=mr.id + source_item_id=mr_item.id +
+           ``amount > 0`` 排除自己上次寫的 offset）
+        2. 若找到：寫一筆新 ledger entry，``amount=-(qty × locked_unit_cost)``，**status
+           match original**：
+           - 情境 1（退料發生在 wo finish **之前**）→ 原 entry ESTIMATED → offset ESTIMATED
+           - 情境 2（退料發生在 wo finish **之後**）→ 原 entry CONFIRMED → offset CONFIRMED
+           兩種情境下 ``summary_by_category`` 都自動扣回
+        3. 若找不到（dispatch 失敗但 status 仍進 DISPATCHED 的罕見 corner case）：
+           log warning + skip ledger write（不阻塞 stock 加回主功能）
+
+        ⚠ ``mr_item_id`` 與 ``item_id`` 不同：前者是 ``MaterialRequestItem.id`` (line item)，
+        後者是 ``InventoryItem.id``（料件本身）。本 method 接 ``item_id``（料件），需自
+        request_id + item_id 查到對應 MR line item id 才能對齊 ledger entry 的
+        ``source_item_id``。
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
+
+        # Lazy import 避循環依賴（同 dispatch_request pattern）
+        from modules.cost.repository.cost_ledger import (
+            CostLedgerCategory,
+            CostLedgerEntry,
+            CostLedgerEntryORM,
+            CostLedgerSourceType,
+            CostLedgerStatus,
+            insert_in_session,
+        )
 
         with self._sessionmaker() as sess:
             try:
@@ -451,6 +479,79 @@ class MaterialRequestRepository:
                 apply_stock_delta_in_session(
                     sess, item_id=item_id, kind=return_to_kind, delta=+qty
                 )
+
+                # ── F1：找對應的 MR line item + dispatch ledger entry，寫 offset ──
+                # 1) 查 MR line item id（ledger 用 line item id 當 source_item_id）
+                line_item_stmt = select(MaterialRequestItemORM.id).where(
+                    MaterialRequestItemORM.request_id == str(request_id),
+                    MaterialRequestItemORM.item_id == str(item_id),
+                )
+                mr_item_id_str = sess.execute(line_item_stmt).scalar_one_or_none()
+
+                # 2) 查 dispatch ledger entry
+                ledger_orm: CostLedgerEntryORM | None = None
+                if mr_item_id_str is not None:
+                    ledger_stmt = select(CostLedgerEntryORM).where(
+                        CostLedgerEntryORM.source_event_id == str(request_id),
+                        CostLedgerEntryORM.source_item_id == mr_item_id_str,
+                        CostLedgerEntryORM.source_type
+                        == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                        CostLedgerEntryORM.category
+                        == CostLedgerCategory.MATERIAL.value,
+                        # 排除 amount<0 的既有 offset entry，避免抓到自己（多次退料情境）
+                        CostLedgerEntryORM.amount > 0,
+                    )
+                    ledger_orm = sess.execute(ledger_stmt).scalars().first()
+
+                # 3) 寫 offset entry（若 dispatch entry 存在）
+                # mr_item_id_str 不會 None 在這個分支：ledger_orm 只在 mr_item_id_str
+                # 不為 None 時才會被查到（見上方 line_item_stmt 守衛）
+                if (
+                    ledger_orm is not None
+                    and ledger_orm.locked_unit_cost is not None
+                    and mr_item_id_str is not None
+                ):
+                    locked_cost = Decimal(str(ledger_orm.locked_unit_cost))
+                    # Should-fix #4：amount 欄位是 Numeric(15,2)，locked_unit_cost 是
+                    # Numeric(12,4)，乘出來最多 4 位小數。明確 quantize 到 2 位避免
+                    # SQLite 隱式截斷造成 dispatch entry 與 offset entry 差 1 分錢
+                    # 而沒對稱沖銷（demo 月報差異會被察覺）
+                    offset_amount = (-Decimal(qty) * locked_cost).quantize(
+                        Decimal("0.01")
+                    )
+                    # status match original：dispatch 後未 finish → ESTIMATED；
+                    # 已 finish → CONFIRMED
+                    original_status = CostLedgerStatus(ledger_orm.status)
+                    offset_entry = CostLedgerEntry(
+                        farm_id=mr_orm.farm_id,
+                        category=CostLedgerCategory.MATERIAL,
+                        amount=offset_amount,
+                        source_event_id=UUID(mr_orm.id),
+                        source_item_id=UUID(mr_item_id_str),
+                        locked_unit_cost=locked_cost,
+                        source_type=CostLedgerSourceType.MATERIAL_REQUEST,
+                        status=original_status,
+                        actor_id=returned_by,
+                        # Should-fix #3：confirmed_at 在 offset entry 代表「退料事件
+                        # 時刻」，不是「estimated → confirmed flip 時刻」（offset 從
+                        # 一開始就 born-confirmed）；audit query 若用 confirmed_at 做
+                        # 時間軸分析需注意此差異。recorded_at 仍是退料時刻不變
+                        note=(
+                            f"退料 reason={reason.value} qty={qty} "
+                            f"kind={return_to_kind.value}"
+                        ),
+                        confirmed_at=_utc_now()
+                        if original_status is CostLedgerStatus.CONFIRMED
+                        else None,
+                    )
+                    insert_in_session(sess, offset_entry)
+                else:
+                    # dispatch ledger entry 不存在 — log warning，不阻塞退料
+                    _logger.warning(
+                        "add_return: no dispatch ledger entry for MR %s item %s — "
+                        "ledger offset skipped",
+                        request_id, item_id,
+                    )
 
                 ret_id = uuid4()
                 ret_orm = MaterialReturnORM(

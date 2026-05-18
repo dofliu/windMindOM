@@ -129,13 +129,20 @@ class CostLedgerRepository:
     def find_for_mr_item(
         self, material_request_id: UUID, item_id: UUID
     ) -> CostLedgerEntry | None:
-        """精確找 MR 某個 line item 對應的 ledger entry（A5 confirm flow 用）。"""
+        """精確找 MR 某個 line item 對應的**原 dispatch ledger entry**（A5 confirm flow 用）。
+
+        F1 修：``amount > 0`` filter 排除退料 offset entries。dispatch entry 永遠是
+        ``estimated_qty × locked_unit_cost`` 正值；退料寫的 offset 是 negative。若不
+        filter，wo finish hook 在退料後呼叫此方法會被 `MultipleResultsFound` 炸掉
+        導致整張工單無法 confirm ledger。
+        """
         with self._sessionmaker() as sess:
             stmt = select(CostLedgerEntryORM).where(
                 CostLedgerEntryORM.source_event_id == str(material_request_id),
                 CostLedgerEntryORM.source_item_id == str(item_id),
                 CostLedgerEntryORM.source_type
                 == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                CostLedgerEntryORM.amount > 0,
             )
             orm = sess.execute(stmt).scalar_one_or_none()
             return self._to_domain(orm) if orm else None

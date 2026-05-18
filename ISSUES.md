@@ -13,11 +13,11 @@
 
 | Status | Count |
 |--------|------|
-| open | 22 |
+| open | 20 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 29 |
-| **total (active)** | **51** |
+| done | 34 |
+| **total (active)** | **54** |
 
 最後更新：2026-05-09（**🎉 M4 backend 5 issue 全收 + 2026-05-09 code review fixes — backend 收官完整版**）。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
 
@@ -1319,10 +1319,10 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F1 — `add_return` 寫 ledger 沖銷
 
-- **Status**: open
+- **Status**: done（2026-05-18，branch `claude/nice-brown-VTEh0`）
 - **Milestone**: M4 後續（不阻塞 frontend）
 - **Priority**: medium（demo 給客戶看月報時會被發現偏高）
-- **Estimate**: 0.5 工作天
+- **Estimate**: 0.5 工作天 → **實際 0.5 工作天**
 - **Source**: 2026-05-09 code review Should-fix #2
 - **Description**:
   目前 `MaterialRequestRepository.add_return` 只動 stock + 寫 MaterialReturn 紀錄，**不寫 ledger 沖銷 entry**。退料後 `summary_by_category(status=CONFIRMED)` 拿到的月報材料成本會偏高（沒扣回退料金額）。
@@ -1330,6 +1330,17 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 或改 update 既有 confirmed entry 的 amount（會喪失退料 audit trail，較不推薦）
   - 建議走「新 entry with negative amount」更乾淨
 - **Reference**: code review subagent 報告 Should-fix #2
+- **Result**:
+  - `add_return` 在原 atomic transaction 內補寫 offset ledger entry：
+    - 走「新 entry with negative amount」保留 audit trail
+    - **Status match original**（dispatch 未 finish → ESTIMATED；已 finish → CONFIRMED），讓 `summary_by_category` 兩種 status 篩選都自動扣回
+    - 用原 dispatch entry 的 `locked_unit_cost`（不重查 inventory；保 A5 review fix #1 同基礎不變式）
+    - 找不到原 dispatch entry 的罕見 corner case → log warning + skip ledger write，stock 仍加回（不阻塞退料）
+    - 多次退料情境：用 `WHERE amount > 0` 排除既有 offset，避免抓到自己
+  - 6 個新 regression test 全 pass（estimated / confirmed / locked_unit_cost 不變式 / 多次退料 / corner case no dispatch / atomic rollback）
+  - Backend baseline 518 passed / 1 xfailed（3 個 pre-existing numpy 精度漂移與本 fix 無關）
+  - E2E lifecycle test 6 個全 pass（dispatch + return 鏈路無 regression）
+  - Work-log：`work-logs/2026-05/2026-05-18-f1-add-return-ledger-offset.md`
 
 ---
 
