@@ -28,10 +28,22 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-# Cost ledger imports are lazy (inside dispatch_request) to break the circular
-# import chain: cost_ledger.py needs workflow.orm_models.Base, but
-# workflow.repository.__init__ loads this material_request_repository which would
-# need cost_ledger before it's done loading. Lazy import is the cleanest fix.
+# cost_ledger top-level import 唯一目的：觸發 ``CostLedgerEntryORM`` 註冊進
+# ``Base.metadata`` — 讓 ``Base.metadata.create_all()`` 一次建出
+# ``cost_ledger_entries`` 表（否則只走 add_return 不經 dispatch 的測試 / 流程會撞
+# "no such table"）。
+#
+# 直接 ``from modules.cost.repository.cost_ledger import X`` 或 attr-access pattern
+# 會撞 partial-init circular（``workflow.repository.__init__`` →
+# ``material_request_repository`` → ``cost.repository.cost_ledger`` → 回頭 import
+# ``workflow.repository.orm_models``，此時 workflow.repository.__init__ 尚在 loading
+# 沒擺進 sys.modules，attr-access 抓不到 cost_ledger 內 enum）。改走 package 入口
+# import 觸發整個 cost.repository 載入但**不 attr-access**，names 留到 function-level
+# 用 ``_cost_ledger.X`` 取，function 執行時所有 module 都已 fully initialized。
+#
+# WMOM-20260509-F1：原本是 function-level lazy import + 矛盾「避循環」注解；現整理為
+# top-level module import + function 內 attr-access，意圖明確。
+from modules.cost.repository import cost_ledger as _cost_ledger  # noqa: F401
 
 from modules.workflow.domain import InvalidTransition
 from modules.workflow.domain.inventory import (
@@ -330,14 +342,7 @@ class MaterialRequestRepository:
             InvalidTransition: 不在 APPROVED state
             InsufficientStock: 某 item 庫存不足扣
         """
-        # Lazy import to break circular dependency
-        from modules.cost.repository.cost_ledger import (
-            CostLedgerCategory,
-            CostLedgerEntry,
-            CostLedgerSourceType,
-            CostLedgerStatus,
-            insert_in_session,
-        )
+        # cost_ledger 已於模組頂部 top-level import（review fix #2）
 
         with self._sessionmaker() as sess:
             try:
@@ -382,17 +387,17 @@ class MaterialRequestRepository:
                     # estimated/confirmed 不同基礎（會計做帳要求一致）
                     locked_cost = Decimal(str(inv_orm.unit_cost))
                     amount = Decimal(it.estimated_qty) * locked_cost
-                    insert_in_session(
+                    _cost_ledger.insert_in_session(
                         sess,
-                        CostLedgerEntry(
+                        _cost_ledger.CostLedgerEntry(
                             farm_id=mr_orm.farm_id,
-                            category=CostLedgerCategory.MATERIAL,
+                            category=_cost_ledger.CostLedgerCategory.MATERIAL,
                             amount=amount,
                             source_event_id=UUID(mr_orm.id),
                             source_item_id=UUID(it.id),  # A5
                             locked_unit_cost=locked_cost,  # review fix #1
-                            source_type=CostLedgerSourceType.MATERIAL_REQUEST,
-                            status=CostLedgerStatus.ESTIMATED,
+                            source_type=_cost_ledger.CostLedgerSourceType.MATERIAL_REQUEST,
+                            status=_cost_ledger.CostLedgerStatus.ESTIMATED,
                             actor_id=actor_id,
                             note=f"item={it.item_id} qty={it.estimated_qty} {it.stock_kind}",
                         ),
@@ -433,19 +438,79 @@ class MaterialRequestRepository:
         returned_by: UUID,
         note: str | None = None,
     ) -> MaterialReturn:
-        """建 MaterialReturn 記錄 + 同 transaction 加回 stock。
+        """建 MaterialReturn 記錄 + 同 transaction 加回 stock + **寫負值 ledger 沖銷**。
 
-        ⚠ 不寫 ledger 沖銷（A5 cost ledger 整合再做 — 用 wo_finish hook 算 actual_qty
-           差異一次到位較精確）。本 method 只動 stock + log。
+        WMOM-20260509-F1：本 method 三件事**原子**完成：
+
+        1. ``inventory.stock_{kind}`` += qty（透過 ``apply_stock_delta_in_session``）
+        2. 寫 ``MaterialReturnORM`` 紀錄
+        3. 寫 cost ledger 沖銷 entry：
+           - ``status=CONFIRMED``（退料是 definitive 事件）
+           - ``amount=-(qty × parent_locked_unit_cost)``（用 dispatch 當下鎖定的 unit_cost
+             反沖，避免 inventory unit_cost 改動造成沖銷基礎不一致）
+           - ``source_item_id=ret_id``（MaterialReturn.id；**不用 mr_item.id** 避免與
+             dispatch parent entry 撞 (mr.id, mr_item.id) 唯一 key，破壞
+             ``find_for_mr_item`` 的 ``scalar_one_or_none``）
+
+        Edge cases：
+
+        - Parent ledger entry 找不到（極罕見：dispatch 失敗但 status 進 DISPATCHED）→
+          log warning + 跳過 ledger 寫入（不阻擋 stock + MaterialReturn record）
+        - Parent ``locked_unit_cost`` 為 None（老 entries）→ fallback 查 inventory
+          ``unit_cost`` + log warning（與 ``_confirm_material_ledger_for_finished_wo``
+          同 pattern）
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
+
+        # cost_ledger 已於模組頂部 top-level import（review fix #2）
 
         with self._sessionmaker() as sess:
             try:
                 mr_orm = sess.get(MaterialRequestORM, str(request_id))
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
+
+                # 找對應 dispatch parent ledger entry（取 locked_unit_cost）
+                # 用 (mr.id, mr_item.id) 唯一找一筆 — dispatch 只會寫一筆 parent；
+                # 退料 entries 改用 source_item_id=return.id 不會出現在這個查詢
+                parent_item_stmt = select(MaterialRequestItemORM).where(
+                    MaterialRequestItemORM.request_id == str(request_id),
+                    MaterialRequestItemORM.item_id == str(item_id),
+                )
+                parent_item = sess.execute(parent_item_stmt).scalar_one_or_none()
+
+                locked_unit_cost: Decimal | None = None
+                if parent_item is not None:
+                    parent_entry_stmt = select(_cost_ledger.CostLedgerEntryORM).where(
+                        _cost_ledger.CostLedgerEntryORM.source_event_id == str(request_id),
+                        _cost_ledger.CostLedgerEntryORM.source_item_id == parent_item.id,
+                        _cost_ledger.CostLedgerEntryORM.source_type
+                        == _cost_ledger.CostLedgerSourceType.MATERIAL_REQUEST.value,
+                    )
+                    parent_entry = sess.execute(parent_entry_stmt).scalar_one_or_none()
+                    if parent_entry is not None and parent_entry.locked_unit_cost is not None:
+                        locked_unit_cost = Decimal(str(parent_entry.locked_unit_cost))
+                    elif parent_entry is not None:
+                        # 老 entries 沒 locked_unit_cost — fallback 查 inventory
+                        from .inventory_orm import InventoryItemORM
+                        inv_orm = sess.get(InventoryItemORM, str(item_id))
+                        if inv_orm is not None:
+                            _logger.warning(
+                                "add_return: ledger entry %s for MR %s item %s has no "
+                                "locked_unit_cost, fallback to inventory.unit_cost",
+                                parent_entry.id, request_id, item_id,
+                            )
+                            locked_unit_cost = Decimal(str(inv_orm.unit_cost))
+                        else:
+                            # review fix nice-to-have #6：fallback inventory 也找不到 — 獨立 warning
+                            # 不歸到「no parent entry」訊息桶（misleading）
+                            _logger.warning(
+                                "add_return: ledger entry %s for MR %s item %s has no "
+                                "locked_unit_cost AND inventory item not found — "
+                                "skipping ledger offset",
+                                parent_entry.id, request_id, item_id,
+                            )
 
                 # 加回 stock（atomic）
                 apply_stock_delta_in_session(
@@ -465,6 +530,33 @@ class MaterialRequestRepository:
                     returned_at=_utc_now(),
                 )
                 sess.add(ret_orm)
+
+                # 寫 cost ledger 沖銷 entry（同 transaction）
+                if locked_unit_cost is not None:
+                    offset_amount = -(Decimal(qty) * locked_unit_cost)
+                    _cost_ledger.insert_in_session(
+                        sess,
+                        _cost_ledger.CostLedgerEntry(
+                            farm_id=mr_orm.farm_id,
+                            category=_cost_ledger.CostLedgerCategory.MATERIAL,
+                            amount=offset_amount,
+                            source_event_id=request_id,
+                            source_item_id=ret_id,
+                            locked_unit_cost=locked_unit_cost,
+                            source_type=_cost_ledger.CostLedgerSourceType.MATERIAL_REQUEST,
+                            status=_cost_ledger.CostLedgerStatus.CONFIRMED,
+                            confirmed_at=_utc_now(),
+                            actor_id=returned_by,
+                            note=f"退料沖銷 reason={reason.value} qty={qty} item={item_id}",
+                        ),
+                    )
+                else:
+                    _logger.warning(
+                        "add_return: no parent ledger entry for MR %s item %s — "
+                        "skipping ledger offset (stock + return record still committed)",
+                        request_id, item_id,
+                    )
+
                 sess.commit()
                 sess.refresh(ret_orm)
                 return MaterialReturn(

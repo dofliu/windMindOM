@@ -201,7 +201,13 @@ class CostLedgerRepository:
 
         - 已 confirmed → no-op return（idempotent，避免 wo 重 finish 重複觸發）
         - entry 不存在 → ``LookupError``
-        - new_amount 必須非負
+        - ``new_amount`` 必須**非負** — 此 method 只處理 ESTIMATED → CONFIRMED 的
+          正向 flip（dispatch parent entry 的 amount = qty × unit_cost，必為非負）
+
+        ⚠ WMOM-20260509-F1：**退料沖銷 entry（負值 CONFIRMED）不走本 method**，
+        由 ``MaterialRequestRepository.add_return`` 直接 ``insert_in_session`` 寫
+        CONFIRMED + 負 amount。不要在此 method 加「退料 confirm」分支 — 沖銷 entry
+        建立時就已是 CONFIRMED 終態，無需再 flip。
 
         Note：actor_id 寫進 entry.actor_id（覆蓋 dispatch 時的 actor，因為 confirm 是
         新事件）；保留原 entry.id 不換。

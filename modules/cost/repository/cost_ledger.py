@@ -84,8 +84,18 @@ class CostLedgerEntry:
       dispatch 後 unit_cost 改動造成 estimated/confirmed 基礎不一致（會計做帳
       錯誤、月報差異分析失效）
 
-    當 source_type=MATERIAL_REQUEST 時，``source_item_id=MaterialRequestItem.id``，
-    ``locked_unit_cost=inventory_item.unit_cost`` (在 dispatch 那一刻)。
+    當 source_type=MATERIAL_REQUEST 時，``source_item_id`` 區分兩種 row：
+
+    - **Dispatch parent entry**：``source_item_id=MaterialRequestItem.id``，
+      ``locked_unit_cost=inventory_item.unit_cost`` (在 dispatch 那一刻)，
+      初始 ``status=ESTIMATED``，工單 finish hook 翻 CONFIRMED + 更新 amount
+    - **退料沖銷 entry**（WMOM-20260509-F1）：``source_item_id=MaterialReturn.id``，
+      ``locked_unit_cost`` 沿用 dispatch parent 的 locked_unit_cost，
+      ``amount`` 為負值 = -(return_qty × locked_unit_cost)，
+      建立時即 ``status=CONFIRMED``
+
+    用不同 ``source_item_id`` 確保 ``find_for_mr_item(mr.id, mr_item.id)``
+    仍唯一指向 dispatch parent（不會被退料 entries 干擾 ``scalar_one_or_none``）。
     """
 
     farm_id: str

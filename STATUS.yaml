@@ -4,7 +4,7 @@ category: wind_energy
 progress: 99
 status: active
 last_updated: "2026-05-18"
-next_milestone: "**WMOM-20260510-01 全 4-part done — farm is_offshore 後端欄位 + frontend auto-drive start_work weather_window 上線**：今日（autonomous daily worker session）依 5/15 Part B handoff 建議一次收尾 Part C + Part D。Part C（後端）：（1）`FarmConfig` 加 `is_offshore: bool = False` dataclass 欄位 + `from_row` / `to_dict` 含此欄；（2）`_init_db` 加 idempotent ALTER TABLE migration（try/except OperationalError pattern，避免 multi-process startup TOCTOU race）；（3）`create_farm` / `update_farm` / `clone_farm` 全接 `is_offshore`，update 嚴格 isinstance(bool) 拒絕字串；（4）`POST /api/farms` body 讀 `is_offshore`；（5）`StartWorkRequest` schema 加 `weather_window_id: Optional[UUID]`，state machine `_guard_start_work` + `_apply_side_effects` 兼看 kwargs 與 wo 既有值（empty string 視同未帶；只在 require_weather_window=True 時寫回工單，避免 onshore 工單被誤寫）。Part D（前端）：（1）`FarmSelector` CreateFarmModal 加 is_offshore checkbox（外層 `<label>` 提供 accessible name）；（2）`WorkflowPage` 抓 active farm.is_offshore 傳給 `WorkOrderDetailModal`；（3）`WorkOrderDetailModal` start_work form 依 `farmIsOffshore` 切換 — onshore 直接送 / offshore 顯示 weather_window_id 輸入框 + 「產生 demo UUID」按鈕（用 crypto.randomUUID()），未填不可送。Backend：522 passed（+2 review-fix tests）/ 3 numpy 精度漂移 pre-existing；Frontend：tsc / vite build zero error。Code-reviewer subagent 跑：3 must-fix + 2 should-fix 全採納。下次候選：A6 領料 frontend / A7 庫存 frontend / F1-F6 follow-up / WMOM-20260513-02 demo orchestrator 後續。詳細 handoff 在 work-logs/2026-05/2026-05-18-farm-is-offshore.md。"
+next_milestone: "**WMOM-20260509-F1 done — `add_return` 寫負值 ledger 沖銷 entry，月報材料成本不再因退料偏高**：今日（autonomous daily worker session）挑 F1 — 5/9 code review 留的 should-fix #2，補上「退料 → cost ledger 沖銷」的 missing link。實作（`modules/workflow/repository/material_request_repository.py`）：（1）add_return 同 transaction 內查 dispatch parent ledger entry 拿 `locked_unit_cost`；（2）寫一筆新 ledger entry — status=CONFIRMED / amount=-(qty × parent_locked_unit_cost) / source_event_id=mr.id / **source_item_id=MaterialReturn.id**（不用 mr_item.id 避免撞 dispatch parent 的 (mr.id, mr_item.id) 鍵，破壞 `find_for_mr_item.scalar_one_or_none()`）；（3）`cost_ledger` 從 lazy import 改 top-level — 觸發 `cost_ledger_entries` 表進 `Base.metadata`，否則非 dispatch path（如純 add_return）拿不到 table；（4）fallback：parent 沒 `locked_unit_cost` 查 inventory + warning，parent 完全找不到 skip ledger + warning 不阻擋 stock/return record。Tests（+8）：覆蓋負值寫入 / source_item_id=return.id 不破壞 find_for_mr_item / locked_unit_cost 沿用 parent（即使 inventory 改價）/ 多次退料各寫 entry / summary_by_category 退料後 net=actual-return / atomic rollback / 無 parent 仍成功 + warning / audit metadata。Backend：519 passed（baseline 512 → +8 F1 - 1 flaky concurrent test pre-existing）+ 1 xfailed / 3 numpy 精度漂移 pre-existing / 1 concurrent test pre-existing flaky（vs main 也會 flake）。Code-reviewer：採納 must-fix。下次候選：A6 領料 frontend / A7 庫存 frontend / F2-F5 cosmetic refactor / WMOM-20260513-02 demo orchestrator。詳細 handoff 在 work-logs/2026-05/2026-05-18-f1-add-return-ledger-offset.md。"
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 21  # -1 (WMOM-20260510-01 全 4-part done)
+  open: 20  # -1 (WMOM-20260509-F1 done — add_return 寫 ledger 沖銷)
   in_progress: 0
   blocked: 0
-  done: 33  # +1: WMOM-20260510-01 全 4-part done (Part C + Part D 2026-05-18)
+  done: 34  # +1: WMOM-20260509-F1 done (2026-05-18)
 
 inherited_baseline:
   source: digiWindTurbine

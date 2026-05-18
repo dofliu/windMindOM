@@ -1319,7 +1319,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F1 — `add_return` 寫 ledger 沖銷
 
-- **Status**: open
+- **Status**: done（2026-05-18 完成，PR pending）
 - **Milestone**: M4 後續（不阻塞 frontend）
 - **Priority**: medium（demo 給客戶看月報時會被發現偏高）
 - **Estimate**: 0.5 工作天
