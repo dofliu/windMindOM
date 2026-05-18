@@ -4,7 +4,7 @@ category: wind_energy
 progress: 99
 status: active
 last_updated: "2026-05-18"
-next_milestone: "**WMOM-20260510-01 全 4-part done — farm is_offshore 後端欄位 + frontend auto-drive start_work weather_window 上線**：今日（autonomous daily worker session）依 5/15 Part B handoff 建議一次收尾 Part C + Part D。Part C（後端）：（1）`FarmConfig` 加 `is_offshore: bool = False` dataclass 欄位 + `from_row` / `to_dict` 含此欄；（2）`_init_db` 加 idempotent ALTER TABLE migration（try/except OperationalError pattern，避免 multi-process startup TOCTOU race）；（3）`create_farm` / `update_farm` / `clone_farm` 全接 `is_offshore`，update 嚴格 isinstance(bool) 拒絕字串；（4）`POST /api/farms` body 讀 `is_offshore`；（5）`StartWorkRequest` schema 加 `weather_window_id: Optional[UUID]`，state machine `_guard_start_work` + `_apply_side_effects` 兼看 kwargs 與 wo 既有值（empty string 視同未帶；只在 require_weather_window=True 時寫回工單，避免 onshore 工單被誤寫）。Part D（前端）：（1）`FarmSelector` CreateFarmModal 加 is_offshore checkbox（外層 `<label>` 提供 accessible name）；（2）`WorkflowPage` 抓 active farm.is_offshore 傳給 `WorkOrderDetailModal`；（3）`WorkOrderDetailModal` start_work form 依 `farmIsOffshore` 切換 — onshore 直接送 / offshore 顯示 weather_window_id 輸入框 + 「產生 demo UUID」按鈕（用 crypto.randomUUID()），未填不可送。Backend：522 passed（+2 review-fix tests）/ 3 numpy 精度漂移 pre-existing；Frontend：tsc / vite build zero error。Code-reviewer subagent 跑：3 must-fix + 2 should-fix 全採納。下次候選：A6 領料 frontend / A7 庫存 frontend / F1-F6 follow-up / WMOM-20260513-02 demo orchestrator 後續。詳細 handoff 在 work-logs/2026-05/2026-05-18-farm-is-offshore.md。"
+next_milestone: "**WMOM-20260509-06 A6 領料單 frontend done — M4 demo flow 接合 backend 完成**：今日（autonomous daily worker session）依 5/18 farm is_offshore handoff 建議推進 A6 frontend。8 個新檔（materialService / useMaterialRequests / useInventoryItems / MaterialRequestListPanel / CreateMaterialRequestWizard / MaterialRequestDetailModal / statusUtils 擴 + WorkflowPage 加 `material` tab）。Wizard 3 步精靈（關聯工單 → 左右 split picker / cart 選料件 → 檢閱 submit）；Detail modal 6 transitions（submit_for_approval / dispatch / receive 預填 estimated_qty / close / cancel / createReturn 退料 4 reason）；List filter 9 個 MR status；WorkflowPage tab 從 2 變 3（orders / material / approval）。Backend：未動，511 passed + 1 xfailed zero regression（與 main baseline 完全一致：3 pre-existing numpy drift + 1 flaky concurrency test）；Frontend：tsc 0 error / vite build 3.56s, 743 modules。Code-reviewer subagent 跑：2 must-fix + 2 should-fix + 1 nice-to-have 採納（fmtDateTime/fmtDate 改 Intl.DateTimeFormat Asia/Taipei 明確 / selectedMR sync 改用 rawItems 避免 search 期間 stale / backdrop click 加 window.confirm 防誤關 / mrStatusTone 進度感漸進色 / useInventoryItems comment 修齊）；2 should-fix + 2 nice-to-have 列 follow-up（fetch signal pass-through / detail modal SKU+name join 開新 issue WMOM-20260518-01 / sort 意圖 comment / useCallback dep）。M4 progress：98 → 99（剩 A7 庫存 frontend + F1-F6 follow-up）。下次候選：A7 inventory frontend / F1-F6 follow-up / WMOM-20260518-01 SKU+name join / WMOM-20260513-02 demo orchestrator 後續。詳細 handoff 在 work-logs/2026-05/2026-05-18-material-request-frontend.md。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: in_progress
-    progress: 98  # A1-A5 backend + A8 reporting backend + A9 reports frontend + 4 hotfix + A10 E2E lifecycle test (6 tests) + Layer B placeholder 全收；剩 A6/A7 領料庫存 frontend + F1-F6 follow-up
+    progress: 99  # A1-A5 backend + A8 reporting backend + A9 reports frontend + A6 領料 frontend done; 4 hotfix + A10 E2E + Layer B placeholder 全收；剩 A7 庫存 frontend + F1-F6 follow-up + WMOM-20260518-01 SKU/name join
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 21  # -1 (WMOM-20260510-01 全 4-part done)
+  open: 21  # +1 (WMOM-20260518-01 follow-up 開) -1 (WMOM-20260509-06 done) = 21 net
   in_progress: 0
   blocked: 0
-  done: 33  # +1: WMOM-20260510-01 全 4-part done (Part C + Part D 2026-05-18)
+  done: 34  # +1: WMOM-20260509-06 done (2026-05-18)
 
 inherited_baseline:
   source: digiWindTurbine

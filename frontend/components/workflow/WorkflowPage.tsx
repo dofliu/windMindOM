@@ -1,11 +1,12 @@
 /**
- * WorkflowPage — `/admin/workflow/*` 主入口（WMOM-20260504-19 + -20）。
+ * WorkflowPage — `/admin/workflow/*` 主入口（WMOM-20260504-19 + -20 + -20260509-06）。
  *
  * 結構：
- *   - PageHeader：標題 + Create work order primary 按鈕
- *   - Tab 切換：orders（-19）/ approval（-20）
- *   - 主內容：依 tab 切到 WorkOrderListPanel 或 PendingApprovalPanel
- *   - Modal：CreateWorkOrderWizard / WorkOrderDetailModal / ApprovalActionDialog
+ *   - PageHeader：標題 + Create primary 按鈕（依 tab 切 work order / material request）
+ *   - Tab 切換：orders（-19）/ material（A6）/ approval（-20）
+ *   - 主內容：依 tab 切到 WorkOrderListPanel / MaterialRequestListPanel / PendingApprovalPanel
+ *   - Modal：CreateWorkOrderWizard / WorkOrderDetailModal /
+ *           CreateMaterialRequestWizard / MaterialRequestDetailModal / ApprovalActionDialog
  *
  * 不接 farm_id 參數 — 內部跑 /api/farms 拿 active_farm_id（與 FarmSelector 同來源）。
  */
@@ -23,18 +24,27 @@ import {
   type WorkOrderResponse,
   type WorkOrderStatus,
 } from '../../services/workOrderService';
+import {
+  type CreateMaterialRequestPayload,
+  type MaterialRequestResponse,
+  type MaterialRequestStatus,
+} from '../../services/materialService';
 import { useWorkOrders } from '../../hooks/useWorkOrders';
 import { usePendingApprovals } from '../../hooks/usePendingApprovals';
+import { useMaterialRequests } from '../../hooks/useMaterialRequests';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import WorkOrderListPanel from './WorkOrderListPanel';
 import CreateWorkOrderWizard from './CreateWorkOrderWizard';
 import WorkOrderDetailModal from './WorkOrderDetailModal';
 import PendingApprovalPanel from './PendingApprovalPanel';
 import ApprovalActionDialog, { type ApprovalMode } from './ApprovalActionDialog';
+import MaterialRequestListPanel from './MaterialRequestListPanel';
+import CreateMaterialRequestWizard from './CreateMaterialRequestWizard';
+import MaterialRequestDetailModal from './MaterialRequestDetailModal';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
-type Tab = 'orders' | 'approval';
+type Tab = 'orders' | 'material' | 'approval';
 
 interface Props {
   lang: Lang;
@@ -87,6 +97,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     search,
   });
 
+  // ── Material tab state ──
+  const [mrStatusFilter, setMrStatusFilter] = useState<MaterialRequestStatus | 'all'>('all');
+  const [mrSearch, setMrSearch] = useState('');
+
+  const mrHook = useMaterialRequests({
+    farmId,
+    status: mrStatusFilter === 'all' ? undefined : mrStatusFilter,
+    search: mrSearch,
+  });
+
   // ── Approval tab state ──
   const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
   const [subjectTypeFilter, setSubjectTypeFilter] = useState<SignoffSubjectType | 'all'>('all');
@@ -99,7 +119,9 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
 
   // ── Modals ──
   const [showWizard, setShowWizard] = useState(false);
+  const [showMRWizard, setShowMRWizard] = useState(false);
   const [selectedWO, setSelectedWO] = useState<WorkOrderResponse | null>(null);
+  const [selectedMR, setSelectedMR] = useState<MaterialRequestResponse | null>(null);
   const [approvalAction, setApprovalAction] = useState<{
     mode: ApprovalMode;
     pending: PendingSignoffItem;
@@ -113,6 +135,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     [wo],
   );
 
+  const handleCreateMR = useCallback(
+    async (req: CreateMaterialRequestPayload) => {
+      await mrHook.create(req);
+      setShowMRWizard(false);
+    },
+    [mrHook],
+  );
+
   // 把 selected detail 維持與 list 同步（list patch 後 re-select 最新一筆）
   useEffect(() => {
     if (!selectedWO) return;
@@ -121,6 +151,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       setSelectedWO(fresh);
     }
   }, [wo.items, selectedWO]);
+
+  // 必須讀 rawItems（未經 client-side search filter）— 否則 user 在 detail modal
+  // 開啟期間打字 search，filteredItems 把該 row 過濾掉時 selectedMR 會停在 stale。
+  useEffect(() => {
+    if (!selectedMR) return;
+    const fresh = mrHook.rawItems.find(x => x.id === selectedMR.id);
+    if (fresh && fresh !== selectedMR) {
+      setSelectedMR(fresh);
+    }
+  }, [mrHook.rawItems, selectedMR]);
 
   // ── No farm fallback ──
   if (farmFetchError) {
@@ -184,6 +224,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
             >
               + {ui('Create work order', '建立工單')}
             </Btn>
+          ) : tab === 'material' ? (
+            <Btn
+              variant="primary"
+              onClick={() => setShowMRWizard(true)}
+              ariaLabel={ui('Create material request', '建立領料單')}
+            >
+              + {ui('Create material request', '建立領料單')}
+            </Btn>
           ) : null
         }
       />
@@ -197,6 +245,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           ariaPressed={tab === 'orders'}
         >
           {ui('Work orders', '工單')}
+        </Btn>
+        <Btn
+          variant={tab === 'material' ? 'primary' : 'ghost'}
+          onClick={() => setTab('material')}
+          ariaLabel={ui('Material requests tab', '領料單頁籤')}
+          ariaPressed={tab === 'material'}
+        >
+          {ui('Material requests', '領料單')}
         </Btn>
         <Btn
           variant={tab === 'approval' ? 'primary' : 'ghost'}
@@ -225,6 +281,22 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onSearchChange={setSearch}
           onSelect={setSelectedWO}
           onRefresh={wo.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'material' && (
+        <MaterialRequestListPanel
+          items={mrHook.items}
+          total={mrHook.total}
+          loading={mrHook.loading}
+          error={mrHook.error}
+          status={mrStatusFilter}
+          onStatusChange={setMrStatusFilter}
+          search={mrSearch}
+          onSearchChange={setMrSearch}
+          onSelect={setSelectedMR}
+          onRefresh={mrHook.refresh}
           lang={lang}
         />
       )}
@@ -286,6 +358,40 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onReject={(id, reject_reason) => wo.reject(id, { reject_reason })}
           onCancel={(id, cancel_reason) => wo.cancel(id, { cancel_reason })}
           onReopen={(id, reopen_reason) => wo.reopen(id, { reopen_reason })}
+          lang={lang}
+        />
+      )}
+
+      {showMRWizard && (
+        <CreateMaterialRequestWizard
+          farmId={farmId}
+          requesterId={currentUser.id}
+          workOrders={wo.items}
+          onClose={() => setShowMRWizard(false)}
+          onSubmit={handleCreateMR}
+          lang={lang}
+        />
+      )}
+
+      {selectedMR && (
+        <MaterialRequestDetailModal
+          materialRequest={selectedMR}
+          onSubmitForApproval={(id, actorId) =>
+            mrHook.submitForApproval(id, { actor_id: actorId })
+          }
+          onDispatch={(id, actorId) => mrHook.dispatch(id, { actor_id: actorId })}
+          onReceive={(id, actorId, actual) =>
+            mrHook.receive(id, { actor_id: actorId, actual_quantities: actual })
+          }
+          onClose={(id, actorId) => mrHook.close(id, { actor_id: actorId })}
+          onCancel={(id, actorId, reason) =>
+            mrHook.cancel(id, { actor_id: actorId, cancel_reason: reason })
+          }
+          onCreateReturn={async (id, payload) => {
+            await mrHook.createReturn(id, payload);
+            await mrHook.refresh();
+          }}
+          onCloseModal={() => setSelectedMR(null)}
           lang={lang}
         />
       )}
