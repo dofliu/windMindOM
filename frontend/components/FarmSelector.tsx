@@ -10,19 +10,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../theme/ThemeProvider';
 import { Btn, Card, Field, Input } from './ui';
+import type { FarmInfo } from '../services/workOrderService';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-interface Farm {
-  farm_id: string;
-  name: string;
-  turbine_count: number;
-  is_active: boolean;
-  location: string;
-  description: string;
-  created_at: string;
-  turbine_spec: Record<string, unknown>;
-}
+/**
+ * code-review should-fix：與 `workOrderService.ts` 的 `FarmInfo` 共用同一個 type，
+ * 避免兩處定義分歧（特別是 is_offshore 新欄位）。
+ */
+type Farm = FarmInfo;
 
 interface Preset {
   key: string;
@@ -271,6 +267,8 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
   const [turbineCount, setTurbineCount] = useState(14);
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  // WMOM-20260510-01 Part D：離岸/陸上 toggle — 驅動工單 start_work weather_window 流程
+  const [isOffshore, setIsOffshore] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
@@ -291,6 +289,7 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
           turbine_count: turbineCount,
           location: location.trim(),
           description: description.trim(),
+          is_offshore: isOffshore,
         }),
       });
       if (!res.ok) {
@@ -450,6 +449,40 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
                 }}
               />
             </Field>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                padding: '8px 10px',
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                background: C.panel,
+                cursor: 'pointer',
+                fontSize: 13,
+                color: C.text,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isOffshore}
+                onChange={e => setIsOffshore(e.target.checked)}
+                aria-label={ui('Offshore wind farm', '離岸風場')}
+                style={{ marginTop: 2, cursor: 'pointer' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontWeight: 600 }}>
+                  {ui('Offshore wind farm', '離岸風場')}
+                </span>
+                <span style={{ fontSize: 11, color: C.sub }}>
+                  {ui(
+                    'Work order start_work requires weather_window_id binding.',
+                    '工單開始作業時需綁定 weather window（氣象窗口）。',
+                  )}
+                </span>
+              </div>
+            </label>
 
             {error && (
               <div

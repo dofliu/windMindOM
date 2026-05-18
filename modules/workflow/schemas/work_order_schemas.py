@@ -73,10 +73,13 @@ class StartWorkRequest(BaseModel):
     """``/start-work`` — 開始維修。
 
     onshore 場景：``require_weather_window=False`` 即可。
-    offshore 場景：``require_weather_window=True``，工單需先綁 weather_window_id。
+    offshore 場景：``require_weather_window=True``，工單需先綁 weather_window_id；
+    若工單尚未綁，caller 可在同一次請求帶 ``weather_window_id`` 一次完成綁定 + 啟動
+    （WMOM-20260510-01 Part C — frontend offshore start_work 對話框流程）。
     """
 
     require_weather_window: bool = False
+    weather_window_id: Optional[UUID] = None
 
 
 class UpdateProgressRequest(BaseModel):

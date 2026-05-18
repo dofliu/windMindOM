@@ -16,10 +16,12 @@
 | open | 22 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 29 |
-| **total (active)** | **51** |
+| done | 30 |
+| **total (active)** | **52** |
 
-最後更新：2026-05-09（**🎉 M4 backend 5 issue 全收 + 2026-05-09 code review fixes — backend 收官完整版**）。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
+最後更新：2026-05-18（**WMOM-20260510-01 全 4 part 收官 — farm is_offshore + start_work onshore/offshore 自動分流**）。從 5/14 Part A（backend dev mode）+ 5/15 Part B（frontend mock login）+ 5/18 Part C+D（farm is_offshore field + UI checkbox）三個 session 收滿一整個 demo-polish 多 part issue。Backend 12 新 test / 0 regression（516 passed / 4 pre-existing fail 為 numpy 精度漂移 + dispatch concurrent flake）。Frontend tsc + vite build zero error。Code review 採納 2 must-fix（clone_farm 漏帶 is_offshore + WorkflowPage farm 切換 stale）+ 3 should-fix（PATCH `is_offshore` 字串 truthiness guard / UUID inline validation / FarmSelector 私有 Farm 改 import FarmInfo）。下次候選：A6 領料 frontend（WMOM-20260509-06）、A7 庫存 frontend（WMOM-20260509-07）、F1-F6 follow-up。
+
+### 之前更新（2026-05-09）：M4 backend 5 issue 全收 + code review fixes — backend 收官完整版。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
 
 ---
 
@@ -1927,15 +1929,16 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260510-01 — Identity / dev mode / mock login + farm `is_offshore` field
 
-- **Status**: in_progress（Part A done 2026-05-14 / Part B in progress 2026-05-15）
+- **Status**: done（全 4 part 收官 2026-05-18）
 - **Milestone**: M5（2026-09）
 - **Priority**: high（demo-blocker — 沒有身份切換無法給客戶看完整 lifecycle）
-- **Estimate**: 2-3 工作天
+- **Estimate**: 2-3 工作天（實 4 個 session 完成 — 5/14 + 5/15 + 5/18，總約 2.5d）
 - **Source**: 劉老師 2026-05-10 操作 lifecycle UI 時提出的 3 個關連缺口
 - **Progress**:
   - Part A — Backend dev mode：done（merged 2026-05-14, branch `claude/issue-WMOM-20260510-01A-2026-05-14`）
-  - Part B — Frontend mock login：in_progress（branch `claude/issue-WMOM-20260510-01B-2026-05-15`）
-  - Part C / D：未開始
+  - Part B — Frontend mock login：done（merged 2026-05-15, branch `claude/issue-WMOM-20260510-01B-2026-05-15`）
+  - Part C — Farm `is_offshore` field：done（2026-05-18, branch `claude/issue-WMOM-20260510-01CD-2026-05-18`）
+  - Part D — Farm 設定 UI checkbox：done（同上 PR）
 
 #### 背景
 

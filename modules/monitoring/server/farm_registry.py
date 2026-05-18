@@ -42,6 +42,8 @@ class FarmConfig:
     layout: Dict = field(default_factory=dict)
     location: str = ""
     description: str = ""
+    # WMOM-20260510-01 Part C：離岸/陸上屬性 — 驅動 work_order start_work 是否要求 weather_window
+    is_offshore: bool = False
     created_at: str = ""
     last_active_at: str = ""
 
@@ -50,6 +52,11 @@ class FarmConfig:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FarmConfig":
+        # is_offshore 在既有 DB 可能不存在（ALTER 前），用 try/except 兼容 legacy row
+        try:
+            is_offshore_val = bool(row["is_offshore"])
+        except (IndexError, KeyError):
+            is_offshore_val = False
         return cls(
             farm_id=row["farm_id"],
             name=row["name"],
@@ -60,6 +67,7 @@ class FarmConfig:
             layout=json.loads(row["layout_json"] or "{}"),
             location=row["location"] or "",
             description=row["description"] or "",
+            is_offshore=is_offshore_val,
             created_at=row["created_at"] or "",
             last_active_at=row["last_active_at"] or "",
         )
@@ -95,9 +103,16 @@ class FarmRegistry:
                 description TEXT,
                 created_at TEXT NOT NULL,
                 last_active_at TEXT,
-                is_active INTEGER NOT NULL DEFAULT 0
+                is_active INTEGER NOT NULL DEFAULT 0,
+                is_offshore INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # WMOM-20260510-01 Part C：既有 DB 補欄位（冪等 — 已存在則跳過）
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(farms)").fetchall()}
+        if "is_offshore" not in cols:
+            conn.execute(
+                "ALTER TABLE farms ADD COLUMN is_offshore INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
         conn.close()
 
@@ -110,7 +125,8 @@ class FarmRegistry:
                     grid_profile: Optional[Dict] = None,
                     layout: Optional[Dict] = None,
                     location: str = "",
-                    description: str = "") -> FarmConfig:
+                    description: str = "",
+                    is_offshore: bool = False) -> FarmConfig:
         """Create a new wind farm project with its own database directory."""
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
@@ -121,8 +137,9 @@ class FarmRegistry:
             INSERT INTO farms (farm_id, name, turbine_count,
                                turbine_spec_json, wind_profile_json,
                                grid_profile_json, layout_json,
-                               location, description, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               location, description, created_at,
+                               is_offshore)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             farm_id, name, turbine_count,
             json.dumps(turbine_spec or {}),
@@ -130,6 +147,7 @@ class FarmRegistry:
             json.dumps(grid_profile or {}),
             json.dumps(layout or {}),
             location, description, now,
+            1 if is_offshore else 0,
         ))
         conn.commit()
         conn.close()
@@ -139,7 +157,8 @@ class FarmRegistry:
             farm_id=farm_id, name=name, turbine_count=turbine_count,
             turbine_spec=turbine_spec or {}, wind_profile=wind_profile or {},
             grid_profile=grid_profile or {}, layout=layout or {},
-            location=location, description=description, created_at=now,
+            location=location, description=description,
+            is_offshore=is_offshore, created_at=now,
         )
         config_path.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
         return cfg
@@ -157,7 +176,7 @@ class FarmRegistry:
         return [FarmConfig.from_row(r) for r in rows]
 
     def update_farm(self, farm_id: str, **kwargs) -> Optional[FarmConfig]:
-        """Update farm metadata. Accepts: name, location, description, turbine_spec, wind_profile, grid_profile."""
+        """Update farm metadata. Accepts: name, location, description, turbine_spec, wind_profile, grid_profile, is_offshore."""
         farm = self.get_farm(farm_id)
         if not farm:
             return None
@@ -171,11 +190,22 @@ class FarmRegistry:
             "wind_profile": "wind_profile_json",
             "grid_profile": "grid_profile_json",
             "layout": "layout_json",
+            "is_offshore": "is_offshore",
         }
         for key, val in kwargs.items():
             col = field_map.get(key)
             if col and val is not None:
-                db_val = json.dumps(val) if col.endswith("_json") else val
+                if col.endswith("_json"):
+                    db_val: object = json.dumps(val)
+                elif col == "is_offshore":
+                    # 嚴格 bool — 字串 "false" 走 Python truthiness 會變 True 是 bug 風險
+                    if not isinstance(val, bool):
+                        raise TypeError(
+                            f"is_offshore must be bool (got {type(val).__name__}={val!r})"
+                        )
+                    db_val = 1 if val else 0
+                else:
+                    db_val = val
                 conn.execute(f"UPDATE farms SET {col} = ? WHERE farm_id = ?", (db_val, farm_id))
         conn.commit()
         conn.close()
@@ -248,6 +278,7 @@ class FarmRegistry:
             layout=source.layout,
             location=source.location,
             description=f"Cloned from {source_farm_id}",
+            is_offshore=source.is_offshore,
         )
 
         if include_data:

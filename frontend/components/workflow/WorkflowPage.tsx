@@ -50,21 +50,36 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   // ── Active farm（單次抓 + 監聽切換 reload） ──
   const [farmId, setFarmId] = useState<string | null>(null);
   const [farmName, setFarmName] = useState<string>('');
+  // Part C：active farm 的 is_offshore 旗標 — 驅動 start_work 對話框流程
+  const [farmIsOffshore, setFarmIsOffshore] = useState<boolean>(false);
   const [farmFetchError, setFarmFetchError] = useState<string | null>(null);
+
+  // 抽出來：farm refresh 用於 mount + 開工單 modal 時重抓（offshore flag 是 start_work 行為的 source-of-truth）
+  const fetchActiveFarm = useCallback(async (): Promise<void> => {
+    try {
+      const resp = await farmApi.list();
+      setFarmId(resp.active_farm_id);
+      const active = resp.farms.find(f => f.farm_id === resp.active_farm_id);
+      setFarmName(active?.name ?? '');
+      setFarmIsOffshore(Boolean(active?.is_offshore));
+    } catch (e) {
+      setFarmFetchError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const resp = await farmApi.list();
-        if (cancelled) return;
-        setFarmId(resp.active_farm_id);
-        const active = resp.farms.find(f => f.farm_id === resp.active_farm_id);
-        setFarmName(active?.name ?? '');
-      } catch (e) {
-        if (cancelled) return;
-        setFarmFetchError(e instanceof Error ? e.message : String(e));
-      }
+      // 包一層 cancelled 處理，避免 unmount race
+      const resp = await farmApi.list().catch(e => {
+        if (!cancelled) setFarmFetchError(e instanceof Error ? e.message : String(e));
+        return null;
+      });
+      if (cancelled || !resp) return;
+      setFarmId(resp.active_farm_id);
+      const active = resp.farms.find(f => f.farm_id === resp.active_farm_id);
+      setFarmName(active?.name ?? '');
+      setFarmIsOffshore(Boolean(active?.is_offshore));
     })();
     return () => {
       cancelled = true;
@@ -118,6 +133,15 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       setSelectedWO(fresh);
     }
   }, [wo.items, selectedWO]);
+
+  // 開啟工單詳情 modal 時重抓 active farm — 確保 farmIsOffshore 不會 stale
+  // （理論上 FarmSelector 切 farm 會 window.reload，但避免 PATCH /api/farms/{id}
+  // 等帶外狀態造成 start_work 行為錯誤；code-review must-fix）
+  useEffect(() => {
+    if (selectedWO) {
+      void fetchActiveFarm();
+    }
+  }, [selectedWO, fetchActiveFarm]);
 
   // ── No farm fallback ──
   if (farmFetchError) {
@@ -257,12 +281,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       {selectedWO && (
         <WorkOrderDetailModal
           workOrder={selectedWO}
+          isOffshoreFarm={farmIsOffshore}
           onClose={() => setSelectedWO(null)}
           onDispatch={(id, assigneeId) =>
             wo.dispatch(id, { actor_id: currentUser.id, assignee_id: assigneeId })
           }
-          onStartWork={(id, requireWeather) =>
-            wo.startWork(id, { require_weather_window: requireWeather })
+          onStartWork={(id, requireWeather, weatherWindowId) =>
+            wo.startWork(id, {
+              require_weather_window: requireWeather,
+              weather_window_id: weatherWindowId ?? null,
+            })
           }
           onUpdateProgress={(id, note) =>
             wo.updateProgress(id, { actor_id: currentUser.id, note })

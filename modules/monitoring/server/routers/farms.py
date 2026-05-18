@@ -106,6 +106,7 @@ async def create_farm(body: dict):
         layout=body.get("layout", {}),
         location=body.get("location", ""),
         description=body.get("description", ""),
+        is_offshore=bool(body.get("is_offshore", False)),
     )
     return {"status": "created", "farm": farm.to_dict()}
 
@@ -114,8 +115,20 @@ async def create_farm(body: dict):
 
 @router.patch("/{farm_id}")
 async def update_farm(farm_id: str, body: dict):
-    """Update farm metadata (name, description, location, turbine_spec, etc.)."""
-    farm = _get_registry().update_farm(farm_id, **body)
+    """Update farm metadata (name, description, location, turbine_spec, is_offshore, ...)."""
+    # is_offshore：若送的是非 bool（例如字串 "false"），Python truthiness 會錯誤
+    # 轉成 True；在這層先強制成嚴格 bool，避免下游 reg.update_farm 走錯路徑
+    if "is_offshore" in body:
+        raw = body["is_offshore"]
+        if not isinstance(raw, bool):
+            raise HTTPException(
+                status_code=422,
+                detail=f"is_offshore must be boolean (got {type(raw).__name__})",
+            )
+    try:
+        farm = _get_registry().update_farm(farm_id, **body)
+    except TypeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not farm:
         raise HTTPException(404, f"Farm not found: {farm_id}")
     return {"status": "updated", "farm": farm.to_dict()}

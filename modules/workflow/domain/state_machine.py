@@ -105,11 +105,16 @@ def _guard_dispatch(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]
 def _guard_start_work(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]) -> None:
     """start_work — onshore 不檢 weather_window；offshore caller 傳
     ``require_weather_window=True`` 時強制檢查 ``wo.weather_window_id``。
+
+    WMOM-20260510-01 Part C：caller 可在同一次 transition 帶
+    ``weather_window_id`` kwarg 一次綁定 + 啟動（用於 frontend offshore start_work
+    對話框，省去額外 PATCH 端點）。本 guard 接受 wo 已綁或 kwargs 即將綁兩種來源。
     """
     if wo.assignee_id is None:
         raise InvalidTransition("start_work requires assignee_id")
     if kwargs.get("require_weather_window"):
-        if wo.weather_window_id is None:
+        has_window = wo.weather_window_id is not None or kwargs.get("weather_window_id") is not None
+        if not has_window:
             raise InvalidTransition(
                 "start_work requires weather_window_id (offshore farm policy)"
             )
@@ -283,6 +288,9 @@ def _apply_side_effects(
         wo.dispatched_at = now
         wo.dispatched_by = actor_id
     elif action == "start_work":
+        # Part C：若 caller 在 start_work 同時綁 weather_window_id，一次寫入
+        if kwargs.get("weather_window_id") is not None:
+            wo.weather_window_id = kwargs["weather_window_id"]
         wo.started_at = now
     elif action == "update_progress":
         # guard 已確保 actor_id 與 note 都非空

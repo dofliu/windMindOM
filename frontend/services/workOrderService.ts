@@ -71,6 +71,8 @@ export interface DispatchRequest {
 
 export interface StartWorkRequest {
   require_weather_window?: boolean;
+  /** WMOM-20260510-01 Part C：offshore farm start_work 同步綁 weather_window_id。 */
+  weather_window_id?: string | null;
 }
 
 export interface UpdateProgressRequest {
@@ -419,6 +421,8 @@ export interface FarmInfo {
   description: string;
   created_at: string;
   turbine_spec: Record<string, unknown>;
+  /** WMOM-20260510-01 Part C：離岸/陸上屬性 — 驅動 start_work weather_window 流程。 */
+  is_offshore?: boolean;
 }
 
 export interface FarmsResponse {

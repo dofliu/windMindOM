@@ -212,6 +212,33 @@ def test_start_work_onshore_does_not_check_weather_window():
     assert wo.status == WorkOrderStatus.IN_PROGRESS
 
 
+def test_start_work_offshore_binds_weather_window_id_inline():
+    """WMOM-20260510-01 Part C：caller 可在 start_work 同步綁 weather_window_id
+    一次完成綁定 + 啟動（frontend offshore start_work 對話框流程）。
+    """
+    window_id = uuid4()
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    assert wo.weather_window_id is None  # 起初未綁
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id=window_id,
+    )
+    assert wo.status == WorkOrderStatus.IN_PROGRESS
+    assert wo.weather_window_id == window_id  # 同步寫入工單
+
+
+def test_start_work_offshore_inline_window_overrides_none():
+    """既有 wo 沒綁 weather_window_id + caller 沒帶 → 應拒絕（Part C 不應放過）。"""
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    with pytest.raises(InvalidTransition, match="weather_window_id"):
+        WorkOrderStateMachine.transition(
+            wo, "start_work",
+            require_weather_window=True,
+            weather_window_id=None,
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # update_progress（self-loop）
 # ─────────────────────────────────────────────────────────────────────────
