@@ -361,12 +361,14 @@ async def start_work(
 ) -> WorkOrderResponse:
     """DISPATCHED | REOPENED → IN_PROGRESS。
 
-    offshore farm 傳 ``require_weather_window=True`` 強制檢 weather_window_id。
+    offshore farm 傳 ``require_weather_window=True`` 強制檢 weather_window_id；
+    WMOM-20260510-01 Part D：caller 可直接帶 ``weather_window_id`` 一次完成綁定 + 開工。
     """
     repo = _get_repo(farm_id)
     return _run_transition(
         repo, work_order_id, "start_work",
         require_weather_window=req.require_weather_window,
+        weather_window_id=req.weather_window_id,
     )
 
 

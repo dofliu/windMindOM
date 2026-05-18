@@ -50,6 +50,8 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   // ── Active farm（單次抓 + 監聽切換 reload） ──
   const [farmId, setFarmId] = useState<string | null>(null);
   const [farmName, setFarmName] = useState<string>('');
+  // WMOM-20260510-01 Part D：driving start_work weather_window 必填的 UI 邏輯
+  const [farmIsOffshore, setFarmIsOffshore] = useState<boolean>(false);
   const [farmFetchError, setFarmFetchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,6 +63,7 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
         setFarmId(resp.active_farm_id);
         const active = resp.farms.find(f => f.farm_id === resp.active_farm_id);
         setFarmName(active?.name ?? '');
+        setFarmIsOffshore(Boolean(active?.is_offshore));
       } catch (e) {
         if (cancelled) return;
         setFarmFetchError(e instanceof Error ? e.message : String(e));
@@ -257,12 +260,16 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       {selectedWO && (
         <WorkOrderDetailModal
           workOrder={selectedWO}
+          farmIsOffshore={farmIsOffshore}
           onClose={() => setSelectedWO(null)}
           onDispatch={(id, assigneeId) =>
             wo.dispatch(id, { actor_id: currentUser.id, assignee_id: assigneeId })
           }
-          onStartWork={(id, requireWeather) =>
-            wo.startWork(id, { require_weather_window: requireWeather })
+          onStartWork={(id, requireWeather, weatherWindowId) =>
+            wo.startWork(id, {
+              require_weather_window: requireWeather,
+              weather_window_id: weatherWindowId ?? null,
+            })
           }
           onUpdateProgress={(id, note) =>
             wo.updateProgress(id, { actor_id: currentUser.id, note })

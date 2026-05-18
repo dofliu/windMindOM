@@ -106,6 +106,7 @@ async def create_farm(body: dict):
         layout=body.get("layout", {}),
         location=body.get("location", ""),
         description=body.get("description", ""),
+        is_offshore=bool(body.get("is_offshore", False)),
     )
     return {"status": "created", "farm": farm.to_dict()}
 

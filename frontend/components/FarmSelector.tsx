@@ -22,6 +22,7 @@ interface Farm {
   description: string;
   created_at: string;
   turbine_spec: Record<string, unknown>;
+  is_offshore?: boolean;
 }
 
 interface Preset {
@@ -271,6 +272,7 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
   const [turbineCount, setTurbineCount] = useState(14);
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
+  const [isOffshore, setIsOffshore] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
@@ -291,6 +293,7 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
           turbine_count: turbineCount,
           location: location.trim(),
           description: description.trim(),
+          is_offshore: isOffshore,
         }),
       });
       if (!res.ok) {
@@ -450,6 +453,38 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
                 }}
               />
             </Field>
+
+            {/* WMOM-20260510-01 Part D：is_offshore 旗標 — driving start_work weather_window 必填 */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                padding: '10px 12px',
+                border: `1px solid ${C.border}`,
+                borderRadius: 8,
+                background: isOffshore ? C.accentSoft : C.panel,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isOffshore}
+                onChange={e => setIsOffshore(e.target.checked)}
+                style={{ marginTop: 2, cursor: 'pointer' }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                  {ui('Offshore wind farm', '離岸風場')}
+                </div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {ui(
+                    'Enables weather-window enforcement when starting work orders.',
+                    '勾選後，工單「開始作業」會強制要求綁定氣象視窗 ID（離岸專屬流程）。',
+                  )}
+                </div>
+              </div>
+            </label>
 
             {error && (
               <div

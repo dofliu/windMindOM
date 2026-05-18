@@ -72,11 +72,13 @@ class DispatchRequest(BaseModel):
 class StartWorkRequest(BaseModel):
     """``/start-work`` — 開始維修。
 
-    onshore 場景：``require_weather_window=False`` 即可。
-    offshore 場景：``require_weather_window=True``，工單需先綁 weather_window_id。
+    onshore 場景：``require_weather_window=False`` 即可，``weather_window_id`` 省略。
+    offshore 場景：``require_weather_window=True``，必須帶 ``weather_window_id``
+    （或工單上已綁定，本欄省略也可）— WMOM-20260510-01 Part D 合併「綁 + 開工」單一步驟。
     """
 
     require_weather_window: bool = False
+    weather_window_id: Optional[UUID] = None
 
 
 class UpdateProgressRequest(BaseModel):
