@@ -212,6 +212,84 @@ def test_start_work_onshore_does_not_check_weather_window():
     assert wo.status == WorkOrderStatus.IN_PROGRESS
 
 
+def test_start_work_offshore_kwargs_weather_window_id_satisfies_guard():
+    """WMOM-20260510-01 Part D：caller 在 kwargs 帶 weather_window_id（工單原本 None），
+    亦視為已綁定 — 合併「綁 + 開工」單一步驟。"""
+    ww_id = uuid4()
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    assert wo.weather_window_id is None
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id=ww_id,
+    )
+    assert wo.status == WorkOrderStatus.IN_PROGRESS
+    # side-effect：寫回工單
+    assert wo.weather_window_id == ww_id
+
+
+def test_start_work_offshore_kwargs_weather_window_id_overwrites_existing():
+    """工單原已綁 weather_window_id，caller 又帶新值 → kwargs 值 overrides（讓 caller 換窗）。"""
+    old_ww = uuid4()
+    new_ww = uuid4()
+    wo = _wo(
+        status=WorkOrderStatus.DISPATCHED,
+        assignee_id=uuid4(),
+        weather_window_id=old_ww,
+    )
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id=new_ww,
+    )
+    assert wo.weather_window_id == new_ww
+
+
+def test_start_work_offshore_weather_window_id_none_still_rejects():
+    """require_weather_window=True 但 kwargs weather_window_id=None + wo 也無 → 拒絕。"""
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    with pytest.raises(InvalidTransition, match="weather_window_id"):
+        WorkOrderStateMachine.transition(
+            wo, "start_work",
+            require_weather_window=True,
+            weather_window_id=None,
+        )
+
+
+def test_start_work_onshore_does_not_write_weather_window_id_kwarg():
+    """code review fix（SHOULD-FIX #4）：onshore（require_weather_window 缺省 / False）
+    時，即使 caller 多帶 weather_window_id，side-effect 也不應寫入工單 —
+    避免 onshore 工單被誤寫 ww_id 造成 reporting 錯誤。"""
+    ww_id = uuid4()
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        weather_window_id=ww_id,
+    )
+    assert wo.status == WorkOrderStatus.IN_PROGRESS
+    # 不寫入 — onshore 路徑保持 None
+    assert wo.weather_window_id is None
+
+
+def test_start_work_offshore_empty_string_weather_window_id_does_not_clobber_existing():
+    """code review fix（MUST-FIX #1）：caller 傳空字串 weather_window_id，
+    guard 走 falsy fallback 到工單既有 ww_id 通過；side-effect 也走 truthy gate
+    不應覆寫成空字串。"""
+    valid_ww = uuid4()
+    wo = _wo(
+        status=WorkOrderStatus.DISPATCHED,
+        assignee_id=uuid4(),
+        weather_window_id=valid_ww,
+    )
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id="",  # type: ignore[arg-type]  # 模擬 caller 漏填
+    )
+    # 工單既有的 valid_ww 不被覆寫
+    assert wo.weather_window_id == valid_ww
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # update_progress（self-loop）
 # ─────────────────────────────────────────────────────────────────────────

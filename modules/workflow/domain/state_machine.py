@@ -104,12 +104,17 @@ def _guard_dispatch(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]
 
 def _guard_start_work(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]) -> None:
     """start_work — onshore 不檢 weather_window；offshore caller 傳
-    ``require_weather_window=True`` 時強制檢查 ``wo.weather_window_id``。
+    ``require_weather_window=True`` 時強制檢查 weather_window_id。
+
+    WMOM-20260510-01 Part D：caller 可在 kwargs 多帶 ``weather_window_id``，本 guard
+    兼看 kwargs 與 ``wo.weather_window_id`` — 任一有值即視為已綁定；側效會把 kwargs
+    的值寫回 wo（合併「綁 + 開工」單一步驟，給 frontend 一次傳完）。
     """
     if wo.assignee_id is None:
         raise InvalidTransition("start_work requires assignee_id")
     if kwargs.get("require_weather_window"):
-        if wo.weather_window_id is None:
+        ww_id = kwargs.get("weather_window_id") or wo.weather_window_id
+        if ww_id is None:
             raise InvalidTransition(
                 "start_work requires weather_window_id (offshore farm policy)"
             )
@@ -284,6 +289,12 @@ def _apply_side_effects(
         wo.dispatched_by = actor_id
     elif action == "start_work":
         wo.started_at = now
+        # WMOM-20260510-01 Part D：offshore caller 一併帶 weather_window_id 進來，
+        # 此處寫回工單。Gate 條件對齊 guard 的 truthy 檢查（empty string 視同未帶，
+        # 避免覆寫工單既有的有效 UUID），且只在 require_weather_window=True 時才寫
+        # （避免 onshore 工單被誤寫 ww_id 造成 reporting 錯誤）。
+        if kwargs.get("require_weather_window") and kwargs.get("weather_window_id"):
+            wo.weather_window_id = kwargs["weather_window_id"]
     elif action == "update_progress":
         # guard 已確保 actor_id 與 note 都非空
         assert actor_id is not None  # type: assertion for static analysis

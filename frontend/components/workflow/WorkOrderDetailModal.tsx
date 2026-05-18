@@ -34,13 +34,24 @@ type Lang = 'en' | 'zh';
 
 interface Props {
   workOrder: WorkOrderResponse;
+  /** 目前 farm 是否為離岸（WMOM-20260510-01 Part D）— driving start_work 是否要求 weather_window */
+  farmIsOffshore: boolean;
   /** 觸發狀態變更的 callbacks（呼叫 hook 的 mutation） */
   /**
    * 觸發 dispatch transition。
    * @param assigneeId 派工時補帶 assignee；若工單已有 assignee 且 caller 沒傳，使用既有值。
    */
   onDispatch: (id: string, assigneeId?: string) => Promise<WorkOrderResponse>;
-  onStartWork: (id: string, requireWeatherWindow: boolean) => Promise<WorkOrderResponse>;
+  /**
+   * 觸發 start_work transition。
+   * @param requireWeatherWindow offshore farm → true（後端強制檢 weather_window_id）
+   * @param weatherWindowId offshore 場景一併傳，給 backend 一次完成「綁定 + 開工」
+   */
+  onStartWork: (
+    id: string,
+    requireWeatherWindow: boolean,
+    weatherWindowId?: string,
+  ) => Promise<WorkOrderResponse>;
   onUpdateProgress: (id: string, note: string) => Promise<WorkOrderResponse>;
   onFinish: (
     id: string,
@@ -71,6 +82,7 @@ type ActionForm =
 
 const WorkOrderDetailModal: React.FC<Props> = ({
   workOrder: initialWO,
+  farmIsOffshore,
   onDispatch,
   onStartWork,
   onUpdateProgress,
@@ -105,6 +117,8 @@ const WorkOrderDetailModal: React.FC<Props> = ({
   // dispatch assignee：建單若未指派，派工時可在此補帶（hotfix-2026-05-10）
   const [dispatchAssignee, setDispatchAssignee] = useState('');
   const [reopenReason, setReopenReason] = useState('');
+  // WMOM-20260510-01 Part D：offshore farm start_work 必填 weather_window_id
+  const [weatherWindowId, setWeatherWindowId] = useState('');
 
   const resetForms = () => {
     setActiveForm(null);
@@ -119,6 +133,7 @@ const WorkOrderDetailModal: React.FC<Props> = ({
     setCancelReason('');
     setReopenReason('');
     setDispatchAssignee('');
+    setWeatherWindowId('');
   };
 
   const runMutation = async (fn: () => Promise<WorkOrderResponse>) => {
@@ -474,28 +489,84 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                   {ui('Start work', '開始作業')}
                 </div>
                 {/*
-                  hotfix-2026-05-10: weather_window checkbox 拿掉。原設計讓 user 每次手動
-                  決定 "這是不是離岸風場" 是反向 UX — farm config 應該知道。等 M5
-                  WMOM-20260510-01 加上 farm `is_offshore` field + 自動偵測後再加回。
-                  目前所有 farm 走 onshore 路徑（require_weather_window=false）。
+                  WMOM-20260510-01 Part D：依 farm.is_offshore 自動決定要不要 weather_window。
+                  - Onshore：直接送 require_weather_window=false
+                  - Offshore：必須帶 weather_window_id（合併「綁定 + 開工」單一步驟，後端
+                    state machine 一併寫回工單）
                 */}
-                <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
-                  {ui(
-                    'Confirm to start the work (state → IN_PROGRESS).',
-                    '確認開始維修作業（狀態 → 進行中）。',
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <Btn onClick={resetForms}>{ui('Cancel', '取消')}</Btn>
-                  <Btn
-                    variant="primary"
-                    onClick={() => runMutation(() => onStartWork(wo.id, false))}
-                    disabled={submitting}
-                    ariaLabel={ui('Start work', '開始作業')}
-                  >
-                    {submitting ? ui('Starting…', '啟動中…') : ui('Start work', '開始作業')}
-                  </Btn>
-                </div>
+                {farmIsOffshore ? (
+                  <>
+                    <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
+                      {ui(
+                        'Offshore farm — requires a weather window ID before starting work.',
+                        '離岸風場：開始作業前需綁定氣象視窗 ID（weather_window_id）。',
+                      )}
+                    </div>
+                    <Field label={ui('Weather window ID (UUID)', '氣象視窗 ID（UUID）')} fullWidth>
+                      <Input
+                        value={weatherWindowId}
+                        onChange={setWeatherWindowId}
+                        placeholder="00000000-0000-0000-0000-000000000000"
+                        fullWidth
+                        ariaLabel={ui('Weather window ID', '氣象視窗 ID')}
+                      />
+                    </Field>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => setWeatherWindowId(crypto.randomUUID())}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: C.accent,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          textDecoration: 'underline',
+                          padding: 0,
+                        }}
+                        aria-label={ui('Generate demo weather window UUID', '產生 demo 氣象視窗 UUID')}
+                      >
+                        {ui('Generate demo UUID', '產生 demo UUID')}
+                      </button>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Btn onClick={resetForms}>{ui('Cancel', '取消')}</Btn>
+                        <Btn
+                          variant="primary"
+                          onClick={() =>
+                            runMutation(() =>
+                              onStartWork(wo.id, true, weatherWindowId.trim()),
+                            )
+                          }
+                          disabled={submitting || weatherWindowId.trim().length === 0}
+                          ariaLabel={ui('Start work', '開始作業')}
+                        >
+                          {submitting ? ui('Starting…', '啟動中…') : ui('Start work', '開始作業')}
+                        </Btn>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
+                      {ui(
+                        'Onshore farm — no weather window required. Confirm to start (state → IN_PROGRESS).',
+                        '陸上風場：不需綁定氣象視窗。確認後狀態 → 進行中。',
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <Btn onClick={resetForms}>{ui('Cancel', '取消')}</Btn>
+                      <Btn
+                        variant="primary"
+                        onClick={() => runMutation(() => onStartWork(wo.id, false))}
+                        disabled={submitting}
+                        ariaLabel={ui('Start work', '開始作業')}
+                      >
+                        {submitting ? ui('Starting…', '啟動中…') : ui('Start work', '開始作業')}
+                      </Btn>
+                    </div>
+                  </>
+                )}
               </Card>
             )}
 

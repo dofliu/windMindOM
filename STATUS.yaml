@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 99
 status: active
-last_updated: "2026-05-15"
-next_milestone: "**WMOM-20260510-01 Part B frontend mock login done — 4 fixture user switcher 上線，DEV_ACTOR_ID 退場為 fallback**：今日（autonomous daily worker session）依 5/14 handoff 建議認領 WMOM-20260510-01 Part B，實作（1）`frontend/services/mockUsers.ts` — 4 個 fixture user constants（Alice 員工 / Bob 組長 / Carol 財務 / Owner dev-only）+ `getCurrentActorId()` 同步 helper（讀 localStorage `wmom_actor_id`）；（2）`frontend/hooks/useCurrentUser.tsx` — `UserProvider` Context + `useCurrentUser` hook，lazy 初始化讀 localStorage，setCurrentUser 同步寫回；（3）`frontend/components/UserSwitcher.tsx` — sidebar 底部 dropdown widget（樣式參考 FarmSelector），向上彈出 4 個 user，Owner 標 (dev) tag，aria-haspopup/listbox roles；（4）替換 `WorkflowPage.tsx` 4 處 `DEV_ACTOR_ID` → `getCurrentActorId()`，header 顯示 currentUser.name；（5）替換 `WorkOrderDetailModal.tsx` dispatch hint 顯示與 assignee fallback 改用 currentUser；（6）`App.tsx` 包 `UserProvider` + sidebar footerExtra slot 加入 `UserSwitcher`。Frontend：`npx tsc --noEmit` zero error；`npx vite build` 成功（737 modules / 860 KB bundle）。Backend：未動，3 條 numpy 精度漂移 + 1-2 條 dispatch concurrent test 偶爾失敗均為 pre-existing 環境問題與本 PR 無關。下次候選：Part C farm `is_offshore` field（0.5d）+ Part D farm 設定 UI checkbox（0.5d）以收滿 WMOM-20260510-01 全 4 part；或 A6/A7 領料庫存 frontend；或 F1-F6 follow-up。詳細 handoff 在 work-logs/2026-05/2026-05-15-mock-login-frontend.md。"
+last_updated: "2026-05-18"
+next_milestone: "**WMOM-20260510-01 全 4-part done — farm is_offshore 後端欄位 + frontend auto-drive start_work weather_window 上線**：今日（autonomous daily worker session）依 5/15 Part B handoff 建議一次收尾 Part C + Part D。Part C（後端）：（1）`FarmConfig` 加 `is_offshore: bool = False` dataclass 欄位 + `from_row` / `to_dict` 含此欄；（2）`_init_db` 加 idempotent ALTER TABLE migration（try/except OperationalError pattern，避免 multi-process startup TOCTOU race）；（3）`create_farm` / `update_farm` / `clone_farm` 全接 `is_offshore`，update 嚴格 isinstance(bool) 拒絕字串；（4）`POST /api/farms` body 讀 `is_offshore`；（5）`StartWorkRequest` schema 加 `weather_window_id: Optional[UUID]`，state machine `_guard_start_work` + `_apply_side_effects` 兼看 kwargs 與 wo 既有值（empty string 視同未帶；只在 require_weather_window=True 時寫回工單，避免 onshore 工單被誤寫）。Part D（前端）：（1）`FarmSelector` CreateFarmModal 加 is_offshore checkbox（外層 `<label>` 提供 accessible name）；（2）`WorkflowPage` 抓 active farm.is_offshore 傳給 `WorkOrderDetailModal`；（3）`WorkOrderDetailModal` start_work form 依 `farmIsOffshore` 切換 — onshore 直接送 / offshore 顯示 weather_window_id 輸入框 + 「產生 demo UUID」按鈕（用 crypto.randomUUID()），未填不可送。Backend：522 passed（+2 review-fix tests）/ 3 numpy 精度漂移 pre-existing；Frontend：tsc / vite build zero error。Code-reviewer subagent 跑：3 must-fix + 2 should-fix 全採納。下次候選：A6 領料 frontend / A7 庫存 frontend / F1-F6 follow-up / WMOM-20260513-02 demo orchestrator 後續。詳細 handoff 在 work-logs/2026-05/2026-05-18-farm-is-offshore.md。"
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 22  # -1 (A10 done) +1 (WMOM-20260513-02 demo orchestrator follow-up); WMOM-20260513-01 UI 改版 v2 placeholder
+  open: 21  # -1 (WMOM-20260510-01 全 4-part done)
   in_progress: 0
   blocked: 0
-  done: 32  # +1: WMOM-20260509-10 (A10 E2E lifecycle test)
+  done: 33  # +1: WMOM-20260510-01 全 4-part done (Part C + Part D 2026-05-18)
 
 inherited_baseline:
   source: digiWindTurbine
