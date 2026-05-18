@@ -212,6 +212,59 @@ def test_start_work_onshore_does_not_check_weather_window():
     assert wo.status == WorkOrderStatus.IN_PROGRESS
 
 
+# ── WMOM-20260510-01 Part C：start_work request 內帶 weather_window_id ──
+
+
+def test_start_work_offshore_accepts_weather_window_id_from_kwargs():
+    """offshore 路徑：工單尚未綁 ww_id，但 start_work 同時帶 weather_window_id
+    （新的 frontend 在 start_work 對話框一次完成綁定）→ guard 通過 +
+    apply 階段寫入工單。"""
+    ww_id = uuid4()
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    assert wo.weather_window_id is None
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id=ww_id,
+    )
+    assert wo.status == WorkOrderStatus.IN_PROGRESS
+    assert wo.weather_window_id == ww_id
+
+
+def test_start_work_offshore_kwargs_ww_id_overrides_existing():
+    """若工單已綁 ww_id A、start_work 又帶 ww_id B → apply 以 kwargs 為準。
+    （demo orchestrator 換氣象窗的情境）"""
+    existing_ww = uuid4()
+    new_ww = uuid4()
+    wo = _wo(
+        status=WorkOrderStatus.DISPATCHED,
+        assignee_id=uuid4(),
+        weather_window_id=existing_ww,
+    )
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        require_weather_window=True,
+        weather_window_id=new_ww,
+    )
+    assert wo.weather_window_id == new_ww
+
+
+def test_start_work_onshore_ignores_weather_window_id_in_kwargs():
+    """Regression (review 5/18 must-fix #1)：onshore（require_weather_window 未傳/=False）
+    + caller 偷塞 weather_window_id 進來時，apply 不應靜默寫入 wo.weather_window_id。
+    保證 guard 與 apply 條件一致，避免陸上工單被污染。"""
+    stray_ww = uuid4()
+    wo = _wo(status=WorkOrderStatus.DISPATCHED, assignee_id=uuid4())
+    assert wo.weather_window_id is None
+    # 沒帶 require_weather_window → guard 不檢，但 apply 也不該寫入
+    WorkOrderStateMachine.transition(
+        wo, "start_work",
+        weather_window_id=stray_ww,
+    )
+    assert wo.status == WorkOrderStatus.IN_PROGRESS
+    assert wo.weather_window_id is None, "onshore 路徑不應寫入 weather_window_id"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # update_progress（self-loop）
 # ─────────────────────────────────────────────────────────────────────────

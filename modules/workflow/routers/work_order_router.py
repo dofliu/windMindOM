@@ -367,6 +367,7 @@ async def start_work(
     return _run_transition(
         repo, work_order_id, "start_work",
         require_weather_window=req.require_weather_window,
+        weather_window_id=req.weather_window_id,
     )
 
 

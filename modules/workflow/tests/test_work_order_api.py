@@ -406,6 +406,35 @@ def test_offshore_start_work_blocks_without_weather_window(client):
     assert "weather_window_id" in r.json()["detail"]
 
 
+def test_offshore_start_work_with_weather_window_id_in_body_passes(client):
+    """WMOM-20260510-01 Part C：start_work body 直接帶 weather_window_id —
+    工單沒先 PATCH 綁 ww_id，state machine apply 階段一併寫入後轉 IN_PROGRESS。"""
+    actor = str(uuid4())
+    ww_id = str(uuid4())
+    created = client.post(
+        "/api/workflow/work-orders",
+        json=_create_payload(assignee_id=actor),
+    ).json()
+    qs = "?farm_id=台中港曲風場"
+
+    dispatch_resp = client.post(
+        f"/api/workflow/work-orders/{created['id']}/dispatch{qs}",
+        json={"actor_id": actor},
+    )
+    # debuggability: 確保前置 dispatch 步驟成功，避免 start_work 失敗時誤導 root cause
+    assert dispatch_resp.status_code == 200, f"dispatch failed: {dispatch_resp.text}"
+
+    r = client.post(
+        f"/api/workflow/work-orders/{created['id']}/start-work{qs}",
+        json={"require_weather_window": True, "weather_window_id": ww_id},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "in_progress"
+    # weather_window_id 寫入工單，後續 detail GET 也能看到
+    assert data["weather_window_id"] == ww_id
+
+
 def test_cancel_with_reason_persists(client):
     actor = str(uuid4())
     created = client.post(

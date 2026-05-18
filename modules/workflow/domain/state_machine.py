@@ -104,12 +104,21 @@ def _guard_dispatch(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]
 
 def _guard_start_work(wo: WorkOrder, actor_id: UUID | None, kwargs: dict[str, Any]) -> None:
     """start_work — onshore 不檢 weather_window；offshore caller 傳
-    ``require_weather_window=True`` 時強制檢查 ``wo.weather_window_id``。
+    ``require_weather_window=True`` 時強制檢查 weather_window_id。
+
+    weather_window_id 來源優先級（WMOM-20260510-01 Part C 後）：
+      1. ``kwargs["weather_window_id"]``（start_work request body 帶來）
+      2. ``wo.weather_window_id``（工單既存）
+    兩者皆 None 才 raise。實際綁定到工單發生在 _apply_transition。
     """
     if wo.assignee_id is None:
         raise InvalidTransition("start_work requires assignee_id")
     if kwargs.get("require_weather_window"):
-        if wo.weather_window_id is None:
+        has_ww = (
+            kwargs.get("weather_window_id") is not None
+            or wo.weather_window_id is not None
+        )
+        if not has_ww:
             raise InvalidTransition(
                 "start_work requires weather_window_id (offshore farm policy)"
             )
@@ -283,6 +292,15 @@ def _apply_side_effects(
         wo.dispatched_at = now
         wo.dispatched_by = actor_id
     elif action == "start_work":
+        # WMOM-20260510-01 Part C：若 caller 帶 weather_window_id 進來 *且* 屬 offshore
+        # 路徑（require_weather_window=True），transition apply 階段一併寫入工單；
+        # apply 條件刻意與 guard 一致，避免 onshore caller 偷塞 ww_id 污染工單欄位
+        # （review 5/18 must-fix #1）。
+        if (
+            kwargs.get("require_weather_window")
+            and kwargs.get("weather_window_id") is not None
+        ):
+            wo.weather_window_id = kwargs["weather_window_id"]
         wo.started_at = now
     elif action == "update_progress":
         # guard 已確保 actor_id 與 note 都非空

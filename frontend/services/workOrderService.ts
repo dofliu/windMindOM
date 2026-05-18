@@ -71,6 +71,11 @@ export interface DispatchRequest {
 
 export interface StartWorkRequest {
   require_weather_window?: boolean;
+  /**
+   * WMOM-20260510-01 Part C follow-up：offshore 工單 start_work 一次帶綁定的氣象窗 UUID。
+   * onshore 工單留空即可。state machine 會在 transition apply 階段寫入工單。
+   */
+  weather_window_id?: string;
 }
 
 export interface UpdateProgressRequest {

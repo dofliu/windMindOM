@@ -50,24 +50,38 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   // ── Active farm（單次抓 + 監聽切換 reload） ──
   const [farmId, setFarmId] = useState<string | null>(null);
   const [farmName, setFarmName] = useState<string>('');
+  // WMOM-20260510-01 Part C：active farm.is_offshore 驅動 start_work 對話框分支
+  const [farmIsOffshore, setFarmIsOffshore] = useState<boolean>(false);
   const [farmFetchError, setFarmFetchError] = useState<string | null>(null);
 
+  // FarmSelector 切 farm 後會 `window.location.reload()`，因此初次 mount 抓的
+  // active farm 通常已是最新值；保險起見再加 `visibilitychange` 監聽，
+  // 使用者從別處 tab/window 切換 farm 回到本頁面時也會重抓 (review 5/18 must-fix #2)。
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const loadActiveFarm = async () => {
       try {
         const resp = await farmApi.list();
         if (cancelled) return;
         setFarmId(resp.active_farm_id);
         const active = resp.farms.find(f => f.farm_id === resp.active_farm_id);
         setFarmName(active?.name ?? '');
+        setFarmIsOffshore(active?.is_offshore ?? false);
       } catch (e) {
         if (cancelled) return;
         setFarmFetchError(e instanceof Error ? e.message : String(e));
       }
-    })();
+    };
+    loadActiveFarm();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadActiveFarm();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -261,9 +275,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onDispatch={(id, assigneeId) =>
             wo.dispatch(id, { actor_id: currentUser.id, assignee_id: assigneeId })
           }
-          onStartWork={(id, requireWeather) =>
-            wo.startWork(id, { require_weather_window: requireWeather })
+          onStartWork={(id, requireWeather, weatherWindowId) =>
+            wo.startWork(id, {
+              require_weather_window: requireWeather,
+              // 顯式只在 offshore 路徑帶 ww_id，避免依賴 JSON.stringify 的 undefined 副作用
+              ...(weatherWindowId !== undefined ? { weather_window_id: weatherWindowId } : {}),
+            })
           }
+          isOffshore={farmIsOffshore}
           onUpdateProgress={(id, note) =>
             wo.updateProgress(id, { actor_id: currentUser.id, note })
           }

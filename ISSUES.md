@@ -1935,8 +1935,8 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 - **Progress**:
   - Part A — Backend dev mode：done（merged 2026-05-14, branch `claude/issue-WMOM-20260510-01A-2026-05-14`）
   - Part B — Frontend mock login：done（merged 2026-05-15, branch `claude/issue-WMOM-20260510-01B-2026-05-15`）
-  - Part C — Backend farm `is_offshore` field：done（2026-05-18, branch `claude/issue-WMOM-20260510-01C-2026-05-18` / 14 new tests / FarmConfig + SQLite migration + farms_router POST/PATCH 正規化 + frontend TS type 同步,不動 UI）
-  - Part D：未開始（farm 設定頁 checkbox + WorkOrder start_work 自動 weather window UI / 0.5d）
+  - Part C — Farm `is_offshore` field + start_work 自動分支：done 2026-05-18, branch `claude/issue-WMOM-20260510-01C-2026-05-18`（commit 88262cf backend infra：FarmConfig + SQLite migration + farms_router + 14 farm_registry tests；follow-up commit frontend wiring：StartWorkRequest +weather_window_id、state machine guard OR/apply 同條件、WorkOrderDetailModal isOffshore 分支、WorkflowPage visibilitychange listener、+4 新 test）
+  - Part D：未開始（farm 設定頁 `is_offshore` checkbox UI / 0.5d）
 
 #### 背景
 
