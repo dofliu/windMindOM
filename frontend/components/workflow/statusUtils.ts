@@ -13,6 +13,11 @@ import type {
   SignoffStatus,
   SignoffSubjectType,
 } from '../../services/workOrderService';
+import type {
+  MaterialRequestStatus,
+  ReturnReason,
+  StockKind,
+} from '../../services/materialService';
 
 type Lang = 'en' | 'zh';
 
@@ -93,16 +98,23 @@ export function followupLabel(f: FollowupKind, lang: Lang): string {
   return lang === 'zh' ? zh : en;
 }
 
-/** 短日期格式：YYYY-MM-DD HH:mm（給列表 / detail 用，不顯秒） */
+/** 短日期格式：YYYY-MM-DD HH:mm（明確 Asia/Taipei，避免不同 browser timezone 漂移）
+ *  Backend 統一存 UTC tz-aware datetime，UI 一律 Asia/Taipei（CLAUDE.md §B）。 */
 export function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const lookup = (k: string) => parts.find(p => p.type === k)?.value ?? '00';
+  return `${lookup('year')}-${lookup('month')}-${lookup('day')} ${lookup('hour')}:${lookup('minute')}`;
 }
 
 // ─── Signoff label / tone（WMOM-20） ─────────────────────────────────────
@@ -151,11 +163,80 @@ export function subjectTypeLabel(t: SignoffSubjectType, lang: Lang): string {
   return lang === 'zh' ? zh : en;
 }
 
-/** 短日期：YYYY-MM-DD */
+/** 短日期：YYYY-MM-DD（明確 Asia/Taipei） */
 export function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const lookup = (k: string) => parts.find(p => p.type === k)?.value ?? '00';
+  return `${lookup('year')}-${lookup('month')}-${lookup('day')}`;
+}
+
+// ─── Material Request label / tone（WMOM-20260509-06） ──────────────────
+
+export function mrStatusLabel(s: MaterialRequestStatus, lang: Lang): string {
+  const map: Record<MaterialRequestStatus, [string, string]> = {
+    draft: ['DRAFT', '草稿'],
+    awaiting_approval: ['AWAITING APPROVAL', '待簽核'],
+    approved: ['APPROVED', '已通過'],
+    dispatched: ['DISPATCHED', '已出庫'],
+    received: ['RECEIVED', '已簽收'],
+    used: ['USED', '已使用'],
+    closed: ['CLOSED', '已結案'],
+    cancelled: ['CANCELLED', '已取消'],
+    rejected: ['REJECTED', '已駁回'],
+  };
+  const [en, zh] = map[s];
+  return lang === 'zh' ? zh : en;
+}
+
+export function mrStatusTone(s: MaterialRequestStatus): PillTone {
+  // 進度感：muted → amber → info → accent → accent → ok → ok（從建到結案）
+  switch (s) {
+    case 'draft':
+      return 'muted';
+    case 'awaiting_approval':
+      return 'amber';
+    case 'approved':
+      return 'info';
+    case 'dispatched':
+      return 'accent';
+    case 'received':
+      return 'accent';
+    case 'used':
+      return 'ok';
+    case 'closed':
+      return 'ok';
+    case 'cancelled':
+      return 'muted';
+    case 'rejected':
+      return 'warn';
+  }
+}
+
+export function stockKindLabel(k: StockKind, lang: Lang): string {
+  const map: Record<StockKind, [string, string]> = {
+    new: ['New', '全新'],
+    used: ['Used', '良品'],
+    repairing: ['Repairing', '維修中'],
+  };
+  const [en, zh] = map[k];
+  return lang === 'zh' ? zh : en;
+}
+
+export function returnReasonLabel(r: ReturnReason, lang: Lang): string {
+  const map: Record<ReturnReason, [string, string]> = {
+    surplus: ['Surplus', '用剩'],
+    wrong_part: ['Wrong part', '拿錯料件'],
+    failed_install: ['Failed install', '試裝失敗'],
+    other: ['Other', '其他'],
+  };
+  const [en, zh] = map[r];
+  return lang === 'zh' ? zh : en;
 }

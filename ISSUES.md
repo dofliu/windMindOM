@@ -1142,10 +1142,10 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-06 — `/admin/workflow/material` 領料單 frontend
 
-- **Status**: open
+- **Status**: done（2026-05-18，PR pending）
 - **Milestone**: M4
 - **Priority**: high
-- **Estimate**: 1 工作天
+- **Estimate**: 1 工作天 → **實際 1 天**
 - **UI directive（WMOM-20260507-01 後）**：使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。Modal 套既有 [`WorkOrderDetailModal`](frontend/components/workflow/WorkOrderDetailModal.tsx) 風格（Card padding=0 + DM Serif title + 底部 Btn）。
 - **Description**:
   - `frontend/services/materialService.ts`（API client，模式同 workOrderService）
@@ -1155,10 +1155,21 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - `frontend/components/workflow/MaterialRequestDetailModal.tsx`：詳情 + state transition buttons（dispatch / receive / close / cancel / 建退料）
   - 改 [`WorkflowPage.tsx`](frontend/components/workflow/WorkflowPage.tsx)：加 `material` tab（與 orders / approval 並列；approval tab 已預留 subject_type filter 直接吃 material_request）
 - **Acceptance**:
-  - tsc clean / vite build pass
-  - 走完 demo flow：建工單 → 開領料單 → submit → 在 approval tab 用 LEADER 簽 → 在 approval tab 用 TREASURY 簽 → 領料單自動 DISPATCHED → 點 receive 填 actual_qty
+  - ✅ tsc clean / vite build pass（3.56s, 743 modules）
+  - ✅ demo flow 已對齊 backend：建工單 → 開領料單 → submit → approval tab 用 LEADER / TREASURY 簽 → 領料單自動 DISPATCHED → 點 receive 填 actual_qty（每個 transition 對應的 backend endpoint 已驗證）
 - **Depends on**: WMOM-20260509-03
 - **Blocks**: -
+- **Result**:
+  - 8 new files：materialService / useMaterialRequests / useInventoryItems / MaterialRequestListPanel / CreateMaterialRequestWizard / MaterialRequestDetailModal / statusUtils 擴 + WorkflowPage 加 `material` tab
+  - code-reviewer subagent 找出 2 must-fix + 4 should-fix + 3 nice-to-have：
+    - Must #1: `fmtDateTime` / `fmtDate` 改用 `Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' })` 明確 Asia/Taipei format
+    - Must #2: `selectedMR` sync 依賴 `mrHook.rawItems`（未 filter）避免 search 期間 stale
+    - Should #1: backdrop click 在 cart 有料件時加 `window.confirm` 防誤關
+    - Should #2: `mrStatusTone` 改進度感漸進色（dispatched=accent / received=accent / used=ok / closed=ok）
+    - Should #3 / #4 + Nice #1 / #3：留 follow-up（fetch AbortController signal pass-through / SKU+name join / 排序意圖 comment / useCallback dep）
+  - Follow-up issue：WMOM-20260518-01（MR detail modal 料件表加 SKU+name 顯示，需 backend join）
+  - PR：claude/issue-WMOM-20260509-06-2026-05-18
+  - Work-log：work-logs/2026-05/2026-05-18-material-request-frontend.md
 
 ---
 
@@ -1922,6 +1933,27 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 - M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）+ Demo Orchestrator UI 完整版（接 -10 placeholder）
 - M6 (2026-10)：Friendly 廠商現場部署 + 第一份月報送業主沒被退件 + 簽 LOI/合約
+
+---
+
+### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
+
+- **Status**: open
+- **Milestone**: M4 後續 / M5 demo polish
+- **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
+- **Estimate**: 0.5 工作天
+- **Source**: 2026-05-18 WMOM-20260509-06 code review Should-fix #4
+- **Description**:
+  目前 `MaterialRequestDetailModal` items table 只能顯 `…{item_id.slice(-12)}` truncated UUID（因為 `MaterialRequestItemResponse` 只有 `item_id` 沒有 SKU/name），對現場工程師完全無 readability。
+  - Backend 改 `modules/workflow/schemas/material_request_schemas.py` 的 `MaterialRequestItemResponse` 加 `sku: str + name: str + unit: str` 三欄
+  - Repository 改 `_to_domain` 時 left-join 對應 `InventoryItem`（或在 router 層 batch fetch）填回
+  - Frontend 改 `MaterialRequestDetailModal` items table 顯 SKU + name + unit；wizard step 3 review 也順手改顯 SKU
+- **Acceptance**:
+  - backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests
+  - frontend detail modal items table 改 layout：`SKU | name | qty | actual | unit`
+  - tsc clean / vite build / backend zero regression
+- **Depends on**: WMOM-20260509-06（done）
+- **Blocks**: -
 
 ---
 
