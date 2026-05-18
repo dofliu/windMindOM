@@ -18,7 +18,6 @@ import type {
   AdjustInventoryResult,
   AdjustmentLogResponse,
   InventoryItemResponse,
-  StockKind,
 } from '../../services/inventoryService';
 import { fmtDateTime, stockKindLabel } from './statusUtils';
 import InventoryAdjustmentDialog from './InventoryAdjustmentDialog';
@@ -451,7 +450,7 @@ const AuditRow: React.FC<AuditRowProps> = ({ log, lang }) => {
           }}
         >
           {sign}
-          {log.delta} {stockKindLabel(log.delta_kind as StockKind, lang)}
+          {log.delta} {stockKindLabel(log.delta_kind, lang)}
         </span>
         <span style={{ fontSize: 11, color: C.faint }}>
           {fmtDateTime(log.occurred_at)}

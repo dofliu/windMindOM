@@ -141,9 +141,29 @@ M STATUS.yaml                                            M4 progress 99→100；
 
 ### 5.4 Code review
 
-Code-reviewer subagent 在 commit 後 async background 執行；本 session 沒有等回（為符合 daily routine 收工時限 + stop hook 觸發）。
-若 review 找出 must-fix，下次 session 開工時讀本 work-log + review report，做為下一輪小修並 push 第二 commit 進同 PR。
-（與 A6 不同：A6 在 session 內等回 review 並同 commit fold；A7 因 session 時序緊湊改 async 處理）
+Code-reviewer subagent 在第一 commit push 後回報，**3 must-fix + 4 should-fix + 3 nice-to-have**。本 session 第二輪 commit 採納：
+
+**Must-fix 全採納（3/3）**：
+1. ✅ `StockKind` canonical source 在 `materialService.ts` — `inventoryService.ts` 改為 import + re-export 同 union；移除 `InventoryDetailDrawer` 的 `as StockKind` cast（避免未來 union 擴成員時靜默漏接）
+2. ✅ List row hover 不再動 `borderColor` — 改只動 `background`，避免 shorthand `borderColor` 把低庫存 row 的 4px warn borderLeft 蓋成 accent 弱化警示視覺
+3. ✅ `buildQuery` 額外排除 `v === false` — `below_safety_only=false` 不再送進 query string，語意對齊「不送 = false」
+
+**Should-fix 採納（3/4）**：
+- ✅ Should #1：移除 `locationKindLabel` dead export（本 PR 無 caller，違反 CLAUDE.md「no dead code」）
+- ✅ Should #2：preview 在 `deltaValid=false`（如 user 中途輸入 "-"）時顯 "—" 而非「currentQty 0 = currentQty」
+- ✅ Should #4：`Select onChange` 用 `isStockKind` type guard narrow 而非 `as StockKind` cast
+- ⏭ Should #3：`InventoryDetailDrawer.onAdjusted` prop 文件加說明 — comment-only nice-to-have，留下次 session
+
+**Nice-to-have 採納（0/3）**：
+- ⏭ Nice #1：`useInventory` `offset` option 加注解或移除 — 沿用 useWorkOrders / useMaterialRequests 對外 API surface 一致性，列 follow-up
+- ⏭ Nice #2：`unit_cost` 改 `fmtMoney` 包裝 — 需新增 statusUtils helper，列 follow-up（同 cost module formatter 對齊）
+- ⏭ Nice #3：`AuditRow.actor_id` 加 `title` 顯示完整 UUID — 小修，留 follow-up
+
+### 5.5 Build / test 再次驗證（第二 commit 後）
+
+- `npx tsc --noEmit` → exit=0
+- `npx vite build` → 3.77s, 748 modules transformed, 916.55 kB（gzip 264.76 kB；比第一 commit + 1 byte，可忽略）
+- Backend 未動，511 passed + 1 xfailed + 4 failed（與 baseline 同 — 此次 flaky concurrency test 又 fail；3 個 pre-existing numpy drift 不變）— **zero regression**
 
 ---
 

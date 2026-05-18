@@ -18,7 +18,6 @@ import type {
   ReturnReason,
   StockKind,
 } from '../../services/materialService';
-import type { WarehouseLocationKind } from '../../services/inventoryService';
 
 type Lang = 'en' | 'zh';
 
@@ -242,14 +241,3 @@ export function returnReasonLabel(r: ReturnReason, lang: Lang): string {
   return lang === 'zh' ? zh : en;
 }
 
-// ─── Warehouse location kind label（WMOM-20260509-07） ──────────────────
-
-export function locationKindLabel(k: WarehouseLocationKind, lang: Lang): string {
-  const map: Record<WarehouseLocationKind, [string, string]> = {
-    onshore_base: ['Onshore base', '陸上基地'],
-    vessel_storage: ['Vessel storage', '工作船倉'],
-    offshore_platform: ['Offshore platform', '海上平台'],
-  };
-  const [en, zh] = map[k];
-  return lang === 'zh' ? zh : en;
-}

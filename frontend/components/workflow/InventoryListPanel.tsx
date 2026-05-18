@@ -155,19 +155,20 @@ const InventoryListPanel: React.FC<Props> = ({
                 padding: '12px 14px',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
-                transition: 'border-color 160ms ease, background 160ms ease',
+                transition: 'background 160ms ease',
                 display: 'grid',
                 gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(160px, 1fr) auto',
                 gap: 12,
                 alignItems: 'center',
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = C.accent;
+                // 只動 background，不動 borderColor — 否則 hover 時 shorthand
+                // borderColor 會把低庫存 row 的 4px warn borderLeft 蓋成 accent，
+                // 弱化安全庫存警示視覺（code review 2026-05-18 Must-fix #2）。
+                (e.currentTarget as HTMLButtonElement).style.background = C.panel;
               }}
               onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = isLow
-                  ? C.warn
-                  : C.border;
+                (e.currentTarget as HTMLButtonElement).style.background = C.panelMuted;
               }}
             >
               {/* Left col：SKU + name + unit */}

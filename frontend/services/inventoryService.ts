@@ -16,8 +16,10 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 
 // ─── Enums ─────────────────────────────────────────────────────────────────
 
-export const StockKindValues = ['new', 'used', 'repairing'] as const;
-export type StockKind = (typeof StockKindValues)[number];
+// StockKind canonical source 在 materialService.ts —— 兩個 service 共用同一 union
+// 避免結構相同但名稱分裂導致需要 `as` cast（code review 2026-05-18 Must-fix #1）。
+import { StockKindValues, type StockKind } from './materialService';
+export { StockKindValues, type StockKind };
 
 export const WarehouseLocationKindValues = [
   'onshore_base',
@@ -187,7 +189,9 @@ function buildQuery(
 ): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null || v === '') continue;
+    // 同時排除 false — 預設為 false 的 toggle 不應送進 URL，避免語意模糊
+    // （e.g. `below_safety_only=false` vs 不送）— code review 2026-05-18 Must-fix #3
+    if (v === undefined || v === null || v === '' || v === false) continue;
     parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
   }
   return parts.length > 0 ? `?${parts.join('&')}` : '';

@@ -28,6 +28,12 @@ import { stockKindLabel } from './statusUtils';
 
 type Lang = 'en' | 'zh';
 
+/** Select onChange 收 string，narrow 回 StockKind union；
+ *  避免 `as StockKind` cast 在 union 未來擴成員時靜默漏接（code review 2026-05-18 Should-fix #4）。 */
+function isStockKind(v: string): v is StockKind {
+  return (StockKindValues as readonly string[]).includes(v);
+}
+
 interface Props {
   item: InventoryItemResponse;
   onAdjust: (req: AdjustInventoryPayload) => Promise<AdjustInventoryResult>;
@@ -208,7 +214,9 @@ const InventoryAdjustmentDialog: React.FC<Props> = ({
                   value: k,
                   label: stockKindLabel(k, lang),
                 }))}
-                onChange={v => setDeltaKind(v as StockKind)}
+                onChange={v => {
+                  if (isStockKind(v)) setDeltaKind(v);
+                }}
                 ariaLabel={ui('Choose stock kind', '選擇庫存類別')}
                 fullWidth
               />
@@ -246,8 +254,9 @@ const InventoryAdjustmentDialog: React.FC<Props> = ({
                 }}
               >
                 {stockKindLabel(deltaKind, lang)}: {currentQty}{' '}
-                {deltaValid && deltaParsed >= 0 ? '+' : ''}
-                {deltaValid ? deltaParsed : 0} = {previewNext}
+                {deltaValid
+                  ? `${deltaParsed >= 0 ? '+' : ''}${deltaParsed} = ${previewNext}`
+                  : '—'}
               </div>
               {previewNegative && (
                 <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
