@@ -22,6 +22,7 @@ interface Farm {
   description: string;
   created_at: string;
   turbine_spec: Record<string, unknown>;
+  is_offshore: boolean;
 }
 
 interface Preset {

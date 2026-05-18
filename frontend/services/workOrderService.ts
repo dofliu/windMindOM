@@ -419,6 +419,8 @@ export interface FarmInfo {
   description: string;
   created_at: string;
   turbine_spec: Record<string, unknown>;
+  // 離岸/陸上旗標 — Part D 才接 UI;Part C 先補 type 讓 TS 同步 API contract
+  is_offshore: boolean;
 }
 
 export interface FarmsResponse {

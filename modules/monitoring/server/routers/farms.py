@@ -75,7 +75,9 @@ async def create_farm(body: dict):
 
     Required: name
     Optional: farm_id, turbine_count, preset, turbine_spec,
-              wind_profile, grid_profile, location, description
+              wind_profile, grid_profile, location, description,
+              is_offshore (bool, default false — 驅動 work order
+              start_work 是否強制氣象窗)
     """
     reg = _get_registry()
     name = body.get("name")
@@ -106,6 +108,7 @@ async def create_farm(body: dict):
         layout=body.get("layout", {}),
         location=body.get("location", ""),
         description=body.get("description", ""),
+        is_offshore=bool(body.get("is_offshore", False)),
     )
     return {"status": "created", "farm": farm.to_dict()}
 
@@ -114,7 +117,15 @@ async def create_farm(body: dict):
 
 @router.patch("/{farm_id}")
 async def update_farm(farm_id: str, body: dict):
-    """Update farm metadata (name, description, location, turbine_spec, etc.)."""
+    """Update farm metadata.
+
+    Accepts: name, description, location, turbine_spec, wind_profile,
+             grid_profile, layout, is_offshore.
+    """
+    # 與 POST 對齊 — is_offshore 在 router 層先正規化成真 bool,避免
+    # 「下游收到 truthy 字串就視為 True」的歧義 (WMOM-20260510-01 Part C review)。
+    if body.get("is_offshore") is not None:
+        body = {**body, "is_offshore": bool(body["is_offshore"])}
     farm = _get_registry().update_farm(farm_id, **body)
     if not farm:
         raise HTTPException(404, f"Farm not found: {farm_id}")

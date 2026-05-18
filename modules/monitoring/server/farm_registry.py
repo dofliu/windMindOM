@@ -44,12 +44,16 @@ class FarmConfig:
     description: str = ""
     created_at: str = ""
     last_active_at: str = ""
+    # 離岸 / 陸上旗標 — 驅動 work order start_work 是否強制氣象窗（WMOM-20260510-01 Part C）
+    is_offshore: bool = False
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FarmConfig":
+        # SQLite 用 INTEGER 0/1 儲存 bool;older row 在 is_offshore 欄缺欄時讀回 None
+        raw_offshore = cls._row_get_int(row, "is_offshore")
         return cls(
             farm_id=row["farm_id"],
             name=row["name"],
@@ -62,7 +66,20 @@ class FarmConfig:
             description=row["description"] or "",
             created_at=row["created_at"] or "",
             last_active_at=row["last_active_at"] or "",
+            is_offshore=bool(raw_offshore) if raw_offshore is not None else False,
         )
+
+    @staticmethod
+    def _row_get_int(row: sqlite3.Row, key: str) -> Optional[int]:
+        """Safe SQLite INTEGER column lookup — sqlite3.Row 無 .get,且舊 schema 缺欄會 raise。
+
+        回傳 int (0/1) 或 None (欄位不存在 / 為 NULL)。
+        """
+        try:
+            val = row[key]
+        except (IndexError, KeyError):
+            return None
+        return int(val) if val is not None else None
 
 
 class FarmRegistry:
@@ -95,11 +112,43 @@ class FarmRegistry:
                 description TEXT,
                 created_at TEXT NOT NULL,
                 last_active_at TEXT,
-                is_active INTEGER NOT NULL DEFAULT 0
+                is_active INTEGER NOT NULL DEFAULT 0,
+                is_offshore INTEGER NOT NULL DEFAULT 0
             )
         """)
+        self._migrate_schema(conn)
         conn.commit()
         conn.close()
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """Idempotent schema migration — 既有 DB 沒有 is_offshore 欄就補。
+
+        repo 內無 alembic migration framework,改用「偵測 column → ALTER TABLE ADD COLUMN」策略。
+        ADD COLUMN 在 SQLite 是 O(1) schema-only 操作,不掃資料,既有 row 自動取 default。
+
+        ## 雙路徑設計
+
+        - **新 DB**: `_init_db` 的 CREATE TABLE 已含完整 schema,此函式 PRAGMA
+          查到所有 column 都存在 → 不跑任何 ALTER (no-op)。
+        - **舊 DB**: CREATE TABLE IF NOT EXISTS 對既有表為 no-op,本函式偵測
+          缺欄 → 跑對應 ALTER TABLE ADD COLUMN 補欄位。
+
+        ## 維護原則
+
+        新 column 必須同步加進兩處:
+        1. `_init_db` CREATE TABLE 語句 (給新 DB 用)
+        2. 下面的 `column_migrations` list (給舊 DB 升級用)
+
+        漏其中一處會造成「新 vs 舊 DB schema 不一致」的長期 bug。
+        """
+        existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(farms)")}
+        # (column_name, ALTER 子句) — 順序維持新欄宣告順序
+        column_migrations = [
+            ("is_offshore", "ALTER TABLE farms ADD COLUMN is_offshore INTEGER NOT NULL DEFAULT 0"),
+        ]
+        for column_name, alter_sql in column_migrations:
+            if column_name not in existing_columns:
+                conn.execute(alter_sql)
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
@@ -110,8 +159,14 @@ class FarmRegistry:
                     grid_profile: Optional[Dict] = None,
                     layout: Optional[Dict] = None,
                     location: str = "",
-                    description: str = "") -> FarmConfig:
-        """Create a new wind farm project with its own database directory."""
+                    description: str = "",
+                    is_offshore: bool = False) -> FarmConfig:
+        """Create a new wind farm project with its own database directory.
+
+        Args:
+            is_offshore: 離岸風場旗標,驅動 work order start_work 是否要綁定氣象窗。
+                預設 False(陸上)以與既有 demo 風場一致。
+        """
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
 
@@ -121,8 +176,8 @@ class FarmRegistry:
             INSERT INTO farms (farm_id, name, turbine_count,
                                turbine_spec_json, wind_profile_json,
                                grid_profile_json, layout_json,
-                               location, description, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               location, description, created_at, is_offshore)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             farm_id, name, turbine_count,
             json.dumps(turbine_spec or {}),
@@ -130,6 +185,7 @@ class FarmRegistry:
             json.dumps(grid_profile or {}),
             json.dumps(layout or {}),
             location, description, now,
+            1 if is_offshore else 0,
         ))
         conn.commit()
         conn.close()
@@ -140,6 +196,7 @@ class FarmRegistry:
             turbine_spec=turbine_spec or {}, wind_profile=wind_profile or {},
             grid_profile=grid_profile or {}, layout=layout or {},
             location=location, description=description, created_at=now,
+            is_offshore=is_offshore,
         )
         config_path.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
         return cfg
@@ -157,7 +214,11 @@ class FarmRegistry:
         return [FarmConfig.from_row(r) for r in rows]
 
     def update_farm(self, farm_id: str, **kwargs) -> Optional[FarmConfig]:
-        """Update farm metadata. Accepts: name, location, description, turbine_spec, wind_profile, grid_profile."""
+        """Update farm metadata.
+
+        Accepts: name, location, description, turbine_spec, wind_profile,
+        grid_profile, layout, is_offshore.
+        """
         farm = self.get_farm(farm_id)
         if not farm:
             return None
@@ -171,11 +232,20 @@ class FarmRegistry:
             "wind_profile": "wind_profile_json",
             "grid_profile": "grid_profile_json",
             "layout": "layout_json",
+            "is_offshore": "is_offshore",
         }
         for key, val in kwargs.items():
             col = field_map.get(key)
             if col and val is not None:
-                db_val = json.dumps(val) if col.endswith("_json") else val
+                if col.endswith("_json"):
+                    db_val: object = json.dumps(val)
+                elif col == "is_offshore":
+                    # bool / int 0/1 收成 INTEGER 0/1。
+                    # 注意:Python `bool("false") is True`,所以「字串 boolean」不在
+                    # 支援範圍 — router 端應該先正規化成真 bool 再傳進來。
+                    db_val = 1 if bool(val) else 0
+                else:
+                    db_val = val
                 conn.execute(f"UPDATE farms SET {col} = ? WHERE farm_id = ?", (db_val, farm_id))
         conn.commit()
         conn.close()
@@ -248,6 +318,7 @@ class FarmRegistry:
             layout=source.layout,
             location=source.location,
             description=f"Cloned from {source_farm_id}",
+            is_offshore=source.is_offshore,
         )
 
         if include_data:
