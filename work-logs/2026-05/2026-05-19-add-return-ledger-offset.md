@@ -90,7 +90,8 @@ M STATUS.yaml                                                   last_updated / n
 - [x] e2e lifecycle 6/6 仍通過
 - [x] code-reviewer subagent（async）
 - [x] STATUS.yaml + ISSUES.md（F1 → done, issue_stats 20→19 open / 35→36 done）
-- [ ] commit + push + PR
+- [x] commit + push（branch `claude/issue-WMOM-20260509-F1-2026-05-19` 已推到 origin）
+- [ ] PR open — GitHub MCP `create_pull_request` 回 403 forbidden（copilot user 無權限），請劉老師手動開 PR：https://github.com/dofliu/windMindOM/pull/new/claude/issue-WMOM-20260509-F1-2026-05-19
 
 ---
 
