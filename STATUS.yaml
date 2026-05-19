@@ -4,7 +4,7 @@ category: wind_energy
 progress: 100
 status: active
 last_updated: "2026-05-19"
-next_milestone: "**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**：今日（autonomous daily worker, 5/19 20:00）從 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫（stock + MaterialReturn）升級為三寫（+ ledger offset entry）。Offset entry 設計：`amount=-(qty × locked_unit_cost from dispatch entry)`，`status=CONFIRMED + confirmed_at=now`（退料是 actual cash flow），`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 多筆 collision。新加 `_lookup_offset_unit_cost(sess, request_id, item_id, return_to_kind) -> Decimal | None` static method：先找 dispatch ledger entry 取 locked_unit_cost（會計一致性 — dispatch 後漲價也用鎖定值）→ fallback 查當前 inventory.unit_cost → 都沒則 warning + skip ledger（stock + MaterialReturn 仍寫）。Cross-kind return（dispatch NEW → return USED 試裝後歸二手）docstring + test 涵蓋。17 個新 test（happy path 3 + 月報視角 3 含 mid-state confirmed=-450 + wo hook 互動 1 + fallback 3 + multi 2 + atomic 1 + cross-kind 1 + cross-cutting 2 + N#1）。Backend 551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 找 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard：dispatch 2 件 + actual=1 confirm + 退 2 件 → confirmed=-300 負值漏洞，F1 scope 不加 guard 改 docstring 警示）。M4 milestone 維持 100%；issue_stats open 19 → 19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36 → 37。下次候選：WMOM-20260519-01（F1 follow-up，0.5-1d）/ F2-F5 一次清掉（4 個 0.5h）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md."
+next_milestone: "**WMOM-20260519-01 done — `add_return` 超量退料 domain guard（F1 follow-up）**：今日（autonomous daily worker, 5/19 20:00）從 F1 wrap-up handoff 推進 fresh-in-mind 的 WMOM-20260519-01。加 `MaterialRequest.compute_returnable_upper_bound(item_id) -> int` 純 domain method = `max(0, dispatched_total − consumed_total)`（dispatched=Σ estimated_qty matching item_id、consumed=Σ actual_qty where set）；repository `add_return` 內加 `int(SUM MaterialReturn.qty)` 為 `already_returned`，guard `already_returned + qty <= upper_bound` 違反 raise `MaterialRequestRuleViolation` → router 422，stock + ledger + MR.status 全不動。Cross-kind 退料（dispatch NEW、退 USED）視為同一 item_id 物理進出帳，不 group by stock_kind。F1 邊界場景（dispatched=2 / receive actual_qty=1 / return 2）被擋下 → 月報 confirmed 視角不再可能變 -300。15 個新 test：5 個 domain pure（dispatched only / consumed subtracts / multi-line cross-kind aggregate / unknown item_id / consumed > dispatched floor at 0）+ 9 個 repo guard（qty exceeds raise / boundary equal allowed / F1 邊界 / cumulative already-returned blocking 2nd / cross-kind aggregate / no matching item / 月報視角 / unknown MR LookupError / qty=0 早擋）+ 1 router 422 integration。2 個既有 test 修補（`test_add_return_increments_stock` estimated 1→2、`test_metadata_after_add_return` actual_qty 5→4 — 與新 guard 對齊更貼近實務）。Backend 560 passed (+15 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**；e2e/ 6 個 lifecycle 全 pass。Code-reviewer subagent 跑出 1 must-fix + 3 should-fix + 2 nice-to-have，**採納 3/6**（int cast + router test 改 sys.modules + test count 對齊）；must-fix #1 是 DRAFT add_return 仍會 stock += qty 漏洞（cost ledger 已被 F1 自動沖銷，但 stock 層 leak），**out-of-scope** 改開 follow-up issue WMOM-20260519-02 評估 status guard（影響 F1 fallback test 場景需獨立 PR 處理）。M4 milestone 維持 100%；issue_stats open 19 → 19（WMOM-20260519-01 done -1 + WMOM-20260519-02 new +1）/ done 37 → 38。下次候選：WMOM-20260519-02（status guard，0.5-1d）/ F2-F5 一次清掉（4 個 0.5h）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-wmom-20260519-01-add-return-over-quantity-guard.md."
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 19  # WMOM-20260509-F1 done (-1) + WMOM-20260519-01 new (+1) = 19 net
+  open: 19  # WMOM-20260519-01 done (-1) + WMOM-20260519-02 new (+1) = 19 net
   in_progress: 0
   blocked: 0
-  done: 37  # +1: WMOM-20260509-F1 done (2026-05-19 autonomous daily worker, 含 follow-up issue WMOM-20260519-01)
+  done: 38  # +1: WMOM-20260519-01 done (2026-05-19 autonomous daily worker, 含 follow-up issue WMOM-20260519-02)
 
 inherited_baseline:
   source: digiWindTurbine

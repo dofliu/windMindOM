@@ -499,12 +499,14 @@ class MaterialRequestRepository:
         - dispatch entry 的 ``locked_unit_cost`` 為 None（向後相容老 entries）→ fallback
           查當前 inventory ``unit_cost``
 
-        ⚠ 會計邊界（caller 責任）：
-        - 本 method 沒驗證 ``qty <= (dispatched_qty - already_returned_qty - actual_consumed)``。
-          若退料 qty 超過實際派出未消耗的量（例如 wo finish ``actual_qty=1`` 但退料 2 件），
-          月報 ``summary_by_category(CONFIRMED)`` 視角會出現負值材料成本。
-        - Future work：WMOM-20260519-F1-followup 評估是否要在 domain 層加 guard 或在
-          UI/router 層擋。本 F1 改動只負責「退料 → 寫沖銷 entry」的會計動作。
+        Domain guard（WMOM-20260519-01）：
+        - 退料總量不可超過「dispatched − consumed」的物理上限：
+          ``existing_returns(item_id) + qty <= MaterialRequest.compute_returnable_upper_bound(item_id)``
+        - 超量 raise ``MaterialRequestRuleViolation``（router → 422）；stock / ledger 全
+          不動。例如 dispatched 2 / actual_qty=1 / return 2 之 F1 邊界場景，月報 confirmed
+          視角不再可能變負值。
+        - guard 用 ``item_id`` aggregate 不 group by ``stock_kind`` — cross-kind 退料（如
+          dispatch NEW、退 USED）視為同一料件總帳。
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
@@ -524,6 +526,32 @@ class MaterialRequestRepository:
                 mr_orm = sess.get(MaterialRequestORM, str(request_id))
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
+
+                # ── Domain guard（WMOM-20260519-01）：超量退料擋下 ──────────
+                # upper_bound = dispatched − consumed（pure-domain）；caller 加
+                # already_returned 比對。等值邊界（剛好把剩餘量退完）也允許。
+                #
+                # ⚠ MR status 未列為 guard（DRAFT 直接 add_return 仍會 stock += qty）；
+                # 由 WMOM-20260519-02 follow-up 評估是否要擋 — 本 PR scope 只解決會計
+                # 視角負值漏洞。
+                mr = self._to_domain(mr_orm)
+                upper_bound = mr.compute_returnable_upper_bound(item_id)
+                # SQLAlchemy `coalesce(SUM, 0)` 在 SQLite 回 int、PostgreSQL 可能回 Decimal；
+                # 強制 int() 保證 + qty / 比較 upper_bound（int）型別安全
+                already_returned = int(sess.execute(
+                    select(func.coalesce(func.sum(MaterialReturnORM.qty), 0)).where(
+                        MaterialReturnORM.request_id == str(request_id),
+                        MaterialReturnORM.item_id == str(item_id),
+                    )
+                ).scalar_one())
+                if already_returned + qty > upper_bound:
+                    raise MaterialRequestRuleViolation(
+                        f"add_return: qty={qty} exceeds remaining returnable "
+                        f"({upper_bound - already_returned}); "
+                        f"dispatched − consumed = {upper_bound}, "
+                        f"already_returned = {already_returned}, "
+                        f"request_id={request_id}, item_id={item_id}"
+                    )
 
                 # 加回 stock（atomic）
                 apply_stock_delta_in_session(

@@ -216,6 +216,33 @@ class MaterialRequest:
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
 
+    def compute_returnable_upper_bound(self, item_id: UUID) -> int:
+        """累計可退數量上限（WMOM-20260519-01）— pure domain invariant。
+
+        公式：``max(0, dispatched_total - consumed_total)``。其中
+        - ``dispatched_total`` = Σ ``estimated_qty``  for items matching ``item_id``
+          （dispatch 時實際扣 stock 的量；當前資料模型 dispatched == estimated_qty）
+        - ``consumed_total``   = Σ ``actual_qty``     for items matching ``item_id``
+          AND ``actual_qty is not None``（receive 時填的實用量，None 視為 0）
+
+        Caller（repository ``add_return``）應再扣掉 ``already_returned`` 累計值才得到
+        「現在還可退多少」，並以此 guard ``MaterialRequestRuleViolation``。
+
+        Cross-kind 處理：不 group by ``stock_kind`` — 物理上同一料件（``item_id``）的
+        進出總帳；dispatch NEW、退 USED 屬同一進出帳。
+
+        ⚠ pure-domain（不查 DB）— ``already_returned`` 不在此計算範圍。
+        """
+        dispatched_total = sum(
+            it.estimated_qty for it in self.items if it.item_id == item_id
+        )
+        consumed_total = sum(
+            it.actual_qty
+            for it in self.items
+            if it.item_id == item_id and it.actual_qty is not None
+        )
+        return max(0, dispatched_total - consumed_total)
+
 
 @dataclass
 class MaterialReturn:

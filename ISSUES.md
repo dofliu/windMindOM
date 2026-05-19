@@ -16,10 +16,10 @@
 | open | 19 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 37 |
-| **total (active)** | **56** |
+| done | 38 |
+| **total (active)** | **57** |
 
-最後更新：2026-05-19 20:xx（**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**）。今日 autonomous daily worker session 從 5/19 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫升級為三寫（stock + MaterialReturn + ledger offset entry）；offset entry `amount = -(qty × locked_unit_cost from dispatch entry)`、`status=CONFIRMED + confirmed_at=now`、`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 撈出多筆 collision。新加 `_lookup_offset_unit_cost(sess, ...)` static method 分兩階段找沖銷 unit_cost（dispatch ledger entry → inventory fallback → None defensive）。Cross-kind return（dispatch NEW → return USED）docstring 補強 + test 涵蓋會計一致性原則（沖銷用 dispatch 時鎖定的成本，不重查當前 inventory）。17 個新 test 涵蓋 happy path / fallback / mid-state / atomic / multi / cross-kind / 月報視角；551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard）。M4 維持 100%；issue_stats open 19→19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36→37。下次候選：WMOM-20260519-01（F1 follow-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md。
+最後更新：2026-05-19 20:xx（**WMOM-20260519-01 done — `add_return` 超量退料 domain guard，F1 follow-up**）。今日 autonomous daily worker session（晚場）從 F1 wrap-up handoff 推進 WMOM-20260519-01（fresh-in-mind 0.5-1d）。`MaterialRequest.compute_returnable_upper_bound(item_id)` 新 pure-domain method = `max(0, dispatched_total − consumed_total)`（dispatched=Σ estimated_qty、consumed=Σ actual_qty where set）；repository `add_return` 加 `int(SUM MaterialReturn.qty WHERE request_id+item_id)` 作 `already_returned`，guard `already_returned + qty <= upper_bound`，違反 raise `MaterialRequestRuleViolation` → router 422。Cross-kind 退料（dispatch NEW、退 USED）視為同一 item_id aggregate，不 group by stock_kind。F1 邊界場景（dispatched=2 / actual_qty=1 / return 2）被擋下，月報 confirmed 視角不再可能變 -300。15 個新 test（5 domain pure + 9 repo guard + 1 router 422 integration）；2 個既有 test 修補（`test_add_return_increments_stock` estimated 1→2、`test_metadata_after_add_return` actual_qty 5→4）。Backend 560 passed (+15 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 1 must-fix + 3 should-fix + 2 nice-to-have，採納 2 should-fix（int cast + router test 改用 sys.modules）+ 1 nice-to-have（test count 對齊），**must-fix #1（DRAFT add_return stock leak）開 follow-up issue WMOM-20260519-02**（out-of-scope 設計決策需獨立 PR）。M4 維持 100%；issue_stats open 19→19（WMOM-20260519-01 done -1 + WMOM-20260519-02 new +1）/ done 37→38。下次候選：WMOM-20260519-02（status guard）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-wmom-20260519-01-add-return-over-quantity-guard.md。
 
 ---
 
@@ -1375,7 +1375,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260519-01 — `add_return` 超量退料 domain guard 評估（F1 follow-up）
 
-- **Status**: open
+- **Status**: done（2026-05-19 autonomous daily worker, PR #TBD）
 - **Milestone**: M4 後續
 - **Priority**: medium-low（影響月報極端場景；正常 lifecycle 不觸發）
 - **Estimate**: 0.5-1 工作天
@@ -1387,19 +1387,54 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - **若退料 2 件**（合法呼叫，但業務上不該；qty ≤ stock 可派出量，stock 加回未 guard）→ return entry -600 confirmed
   - confirmed 視角 = 300 + (-600) = **-300**（負值材料成本，月報異常）
 
-  F1 scope 不加 guard，docstring 標註「caller 責任」。本 follow-up issue 評估：
-  1. 是否要在 domain 層加 guard：`qty <= (estimated_qty or dispatched_qty - already_returned_qty - actual_consumed)`
-  2. 或在 router 層擋
-  3. 或保留現狀 + 在 UI 層擋（field engineer 介面禁止超量輸入）
-  4. 是否要查 wo finish hook 後 actual_qty 才能驗證「actual_consumed」
+  **決策（done）**：選方案 1 — domain layer guard。
+  - 加 `MaterialRequest.compute_returnable_upper_bound(item_id)` pure-domain method
+  - `add_return` 內 query already_returned + 比對 `qty + already_returned <= upper_bound`
+  - 違反 raise `MaterialRequestRuleViolation` → router 422
+  - 15 個新 test 涵蓋 domain pure + repo + boundary + multi-line + cross-kind + F1 邊界場景
+  - 修補 2 個既有 test：`test_add_return_increments_stock` (estimated 1→2) + `test_metadata_after_add_return` (actual_qty 5→4)
 
-  決策後實作 + 加 negative path test。
+- **衍生**：[WMOM-20260519-02](#wmom-20260519-02) — DRAFT 狀態 add_return 仍會 stock += qty 漏洞（status guard）
 
-- **Files候選**：
+- **Files**：
+  - `modules/workflow/domain/inventory.py`：`MaterialRequest.compute_returnable_upper_bound`
   - `modules/workflow/repository/material_request_repository.py:add_return`
-  - 或 `modules/workflow/domain/inventory.py:MaterialRequest`（新 domain method）
+  - `modules/workflow/tests/test_add_return_over_quantity_guard.py`（新）
+  - `modules/workflow/tests/test_material_request_repository.py:test_add_return_increments_stock`（修）
+  - `modules/workflow/tests/test_material_request_item_metadata.py:test_metadata_after_add_return`（修）
 - **Depends on**: WMOM-20260509-F1（done）
-- **Blocks**: 月報極端場景 demo（如果客戶 demo 時操作「過度退料」會看到負值）
+- **Blocks**: 月報極端場景 demo（如果客戶 demo 時操作「過度退料」會看到負值）— **已解除**
+
+---
+
+### WMOM-20260519-02 — `add_return` 在非 dispatched 狀態下仍會加 stock（status guard 評估）
+
+- **Status**: open
+- **Milestone**: M4 後續
+- **Priority**: low-medium（demo 場景罕見觸發；但有 stock 加無扣的會計風險）
+- **Estimate**: 0.5-1 工作天
+- **Source**: 2026-05-19 WMOM-20260519-01 code review Must-fix #1
+- **Description**:
+  WMOM-20260519-01 加完 qty domain guard 後，發現另一個邊界：
+  - 一張 MR `create` 後仍在 DRAFT 狀態（從未 dispatch、stock 沒扣）
+  - 仍可呼叫 `add_return(qty=estimated_qty)` → guard 通過（upper_bound = estimated_qty）→ stock += qty
+  - 結果：stock 無中生有的 +qty，沒有對應的扣 stock 事件
+
+  Note：cost ledger 已被 WMOM-20260509-F1 處理（fallback 走 inventory unit_cost 寫 offset entry），
+  所以**月報層面**會自動沖銷（estimated 0 - return 是 negative confirmed）— 但 **stock 層面**仍 leak。
+
+  決策候選：
+  1. 加 MR status guard：只允許 ``DISPATCHED / RECEIVED / USED / CLOSED`` 狀態 add_return
+  2. 接受 stock leak（庫管員紙本/週盤點吸收）
+  3. 把 DRAFT add_return 改走 `InventoryRepository.adjust`（純調整 path，不寫 MaterialReturn）
+
+  **影響範圍 evaluation**：
+  - F1 test `test_add_return_without_dispatch_entry_uses_inventory_fallback` 是測 ledger fallback path，
+    若採 (1) 需重寫該 test 用 dispatched MR + 砍 dispatch ledger entry 做 fallback 場景
+  - frontend 退料 UI 應由 MR 詳情頁觸發（已限定 DISPATCHED+ 狀態），但 API 沒擋
+
+- **Depends on**: WMOM-20260519-01（done）
+- **Blocks**: -
 
 ---
 

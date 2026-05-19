@@ -186,11 +186,13 @@ def test_metadata_after_add_return(mr_repo, inv_repo, item):
     mr_repo.transition(mr.id, "submit_for_approval", actor_id=requester)
     mr_repo.transition(mr.id, "approve_all")
     mr_repo.dispatch_request(mr.id, actor_id=requester)
+    # WMOM-20260519-01：actual_qty=4 才能再退 1 件（upper_bound = 5 − 4 = 1）；
+    # 原 actual=5 + return=1 在 domain guard 下會被擋為 0+1>0
     received = mr_repo.transition(
         mr.id,
         "receive",
         actor_id=requester,
-        actual_quantities={mr.items[0].id: 5},
+        actual_quantities={mr.items[0].id: 4},
     )
     assert received.status is MaterialRequestStatus.RECEIVED
     # 建退料記錄（加回 stock）
