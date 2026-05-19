@@ -35,6 +35,7 @@ from .material_request_schemas import (
     MaterialReturnResponse,
     ReceiveMaterialRequest,
     SubmitForApprovalRequest,
+    build_material_request_response,
 )
 from .inventory_schemas import (
     AdjustInventoryRequest,
@@ -84,6 +85,7 @@ __all__ = [
     "MaterialReturnResponse",
     "ReceiveMaterialRequest",
     "SubmitForApprovalRequest",
+    "build_material_request_response",
     # inventory (WMOM-20260509-04)
     "AdjustInventoryRequest",
     "AdjustInventoryResult",

@@ -50,6 +50,11 @@ export interface MaterialRequestItem {
   estimated_qty: number;
   actual_qty: number | null;
   stock_kind: StockKind;
+  // denormalized 顯示欄位 — backend join InventoryItem 填入；
+  // 既有 MR / metadata 失敗 fallback 時為 null（WMOM-20260518-01）
+  sku?: string | null;
+  name?: string | null;
+  unit?: string | null;
 }
 
 export interface MaterialReturnResponse {

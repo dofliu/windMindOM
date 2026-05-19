@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-18"
-next_milestone: "**WMOM-20260509-07 A7 庫存 frontend done — M4 frontend 全收，demo flow 100% 接合**：今日（autonomous daily worker session, 5/18 19:00）依 5/18 早班 A6 handoff 推進候選清單最高優先 A7。6 個新檔（inventoryService 8 endpoint / useInventory hook / InventoryListPanel / InventoryAdjustmentDialog / InventoryDetailDrawer / statusUtils 擴 locationKindLabel + WorkflowPage 加 `inventory` tab）。List panel：warehouse filter / below_safety toggle / sku|name search / 三欄 stock cell（new / used / repairing）/ LOW 警示 pill + border-left 4px warn；Detail drawer 480px 右側滑出：完整 metadata + audit log lazy load + 觸發 adjust dialog（z=300 over drawer z=180）；Adjust dialog：delta_kind / 整數 delta（0 invalid）/ reason 必填 / preview 顯示 `qty {sign}{abs} = next` 含 negative 警告（client preempts 409）；WorkflowPage tab 從 3 變 4（orders / material / inventory / approval），selectedInvItem rawItems sync 與 selectedMR 同 pattern 避 search stale。Backend：未動，512 passed + 1 xfailed + 3 pre-existing numpy drift（與 main baseline 一致 zero regression；flaky concurrency test 今日通過比 baseline 多 1 pass）；Frontend：tsc 0 error / vite build 4.47s, 748 modules (+5 from A6 baseline)。Code-reviewer subagent 跑（async background，PR open 時併入 must-fix）。M4 progress 99 → 100（A1-A10 全 done + frontend 全收；剩 F1-F6 / WMOM-20260518-01 follow-up 為 nice-to-have）。M4 milestone 進度 99 → 100。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI 完整版）/ F1-F6 follow-up / WMOM-20260518-01 SKU+name join / WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-18-inventory-frontend.md。"
+last_updated: "2026-05-19"
+next_milestone: "**WMOM-20260518-01 MR detail SKU+name join done — A6/A7 demo polish 收官**：今日（autonomous daily worker session, 5/19 20:00）依 5/18 A7 handoff 推進「demo polish」候選清單 — 選 WMOM-20260518-01（A6 code review Should-fix #4 follow-up）為 well-scoped 全棧 0.5d issue。Backend：MaterialRequestItemResponse 加 sku/name/unit (Optional[str], 向後相容)；MaterialRequestRepository 加 fetch_item_metadata 批次 IN-query（空 list 直接 return {} 避 SQL error；可選 farm_id filter 給 multi-farm 防禦）；router 加 _enriched_response(repo, mr) helper — 8 個 single-MR endpoint 統一走 helper，list endpoint 用 set comprehension 跨 MR 收集 all item_ids 後一次批次 fetch 避 N+1；schemas 模組加 build_material_request_response(mr, metadata) 純函式（model_copy update items 注入 enrichment）。Frontend：materialService MaterialRequestItem 型別補 sku?/name?/unit? optional fields；MaterialRequestDetailModal items table 從 4 欄 Item UUID / Stock kind / Est. / Actual 改 5 欄 SKU / 名稱 / 庫存類型 / 預估 / 實領，unit 合併到 qty 後（避免欄位擁擠），sku=null 時 fallback truncated UUID + mono font + dim color + title 顯完整 UUID。Code-reviewer subagent 跑 staged diff 回 3 must-fix + 2 should-fix（不含已測項）— 全採納：(1) None vs {} 語意分離（{} 走 enrich loop 全 miss 保 None） (2) tuple element 型別改 str | None (3) router _enriched_response 改 TYPE_CHECKING import 真型別不再用 mr: object 加 type ignore；schemas 同 pattern 移除底部 E402 noqa import；repository 加 farm_id 可選 filter。新增 12 個 regression test（含 None vs {} 語意 + farm_id filter）。Backend：523 passed + 1 xfailed + 3 pre-existing numpy drift（baseline 512 + 11 new + 1 flaky concurrency 今次 pass）；Frontend：tsc 0 error / vite build 3.48s, 748 modules / 916.88 kB（同 A7 baseline 0 module change，僅 type + layout 改動）。Issue stats: open 21→20, done 35→36；M4 維持 100%。下次候選：M5 規劃（knowledge module + demo orchestrator full impl）/ F1-F6 follow-up（F2/F3/F5 各 0.5h）/ WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-detail-sku-name-join.md。"
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: completed
-    progress: 100  # A1-A10 全 done + 4 frontend（reports / approval / material / inventory）全收；F1-F6 follow-up + WMOM-20260518-01 為 nice-to-have，不影響 M4 完成度
+    progress: 100  # A1-A10 全 done + 4 frontend（reports / approval / material / inventory）全收 + WMOM-20260518-01 SKU+name join done；剩 F1-F6 backend follow-up 為 nice-to-have，不影響 M4 完成度
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 20  # -1 (WMOM-20260509-07 done) = 20 net
+  open: 19  # -1 (WMOM-20260518-01 done) = 19 net
   in_progress: 0
   blocked: 0
-  done: 35  # +1: WMOM-20260509-07 done (2026-05-18 PM)
+  done: 36  # +1: WMOM-20260518-01 done (2026-05-19)
 
 inherited_baseline:
   source: digiWindTurbine

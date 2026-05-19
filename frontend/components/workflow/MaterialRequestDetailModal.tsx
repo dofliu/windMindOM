@@ -414,7 +414,7 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                    gridTemplateColumns: '1.1fr 1.6fr 0.8fr 0.8fr 1fr',
                     padding: '8px 12px',
                     borderBottom: `1px solid ${C.border}`,
                     fontSize: 11,
@@ -422,34 +422,55 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                     textTransform: 'uppercase',
                   }}
                 >
-                  <div>{ui('Item ID', '料件 UUID')}</div>
+                  <div>{ui('SKU', '料號')}</div>
+                  <div>{ui('Name', '名稱')}</div>
                   <div>{ui('Stock kind', '庫存類型')}</div>
                   <div>{ui('Est. qty', '預估量')}</div>
                   <div>{ui('Actual qty', '實領量')}</div>
                 </div>
-                {mr.items.map(it => (
-                  <div
-                    key={it.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr',
-                      padding: '8px 12px',
-                      borderTop: `1px solid ${C.border}`,
-                      fontSize: 12,
-                      color: C.text,
-                      alignItems: 'center',
-                    }}
-                  >
+                {mr.items.map(it => {
+                  // 後端 join 失敗或舊資料時 fallback truncated UUID — 維持原 v0.8.x 行為
+                  const fallback = `…${it.item_id.slice(-12)}`;
+                  const skuLabel = it.sku ?? fallback;
+                  const nameLabel = it.name ?? '—';
+                  const unitSuffix = it.unit ? ` ${it.unit}` : '';
+                  const estDisplay = `${it.estimated_qty}${unitSuffix}`;
+                  const actDisplay =
+                    it.actual_qty == null ? '—' : `${it.actual_qty}${unitSuffix}`;
+                  return (
                     <div
-                      style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}
+                      key={it.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1.1fr 1.6fr 0.8fr 0.8fr 1fr',
+                        padding: '8px 12px',
+                        borderTop: `1px solid ${C.border}`,
+                        fontSize: 12,
+                        color: C.text,
+                        alignItems: 'center',
+                      }}
                     >
-                      …{it.item_id.slice(-12)}
+                      <div
+                        style={{
+                          fontFamily: it.sku
+                            ? 'inherit'
+                            : 'JetBrains Mono, monospace',
+                          fontSize: it.sku ? 12 : 11,
+                          color: it.sku ? C.text : C.sub,
+                        }}
+                        title={it.sku ? undefined : it.item_id}
+                      >
+                        {skuLabel}
+                      </div>
+                      <div style={{ color: it.name ? C.text : C.sub }}>
+                        {nameLabel}
+                      </div>
+                      <div>{stockKindLabel(it.stock_kind, lang)}</div>
+                      <div>{estDisplay}</div>
+                      <div>{actDisplay}</div>
                     </div>
-                    <div>{stockKindLabel(it.stock_kind, lang)}</div>
-                    <div>{it.estimated_qty}</div>
-                    <div>{it.actual_qty ?? '—'}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </Card>
             </div>
 

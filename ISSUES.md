@@ -1943,10 +1943,10 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
 
-- **Status**: open
+- **Status**: done（2026-05-19 完成，branch `claude/issue-WMOM-20260518-01-2026-05-19`）
 - **Milestone**: M4 後續 / M5 demo polish
 - **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
-- **Estimate**: 0.5 工作天
+- **Estimate**: 0.5 工作天 → **實際 ~3 小時**
 - **Source**: 2026-05-18 WMOM-20260509-06 code review Should-fix #4
 - **Description**:
   目前 `MaterialRequestDetailModal` items table 只能顯 `…{item_id.slice(-12)}` truncated UUID（因為 `MaterialRequestItemResponse` 只有 `item_id` 沒有 SKU/name），對現場工程師完全無 readability。
@@ -1954,9 +1954,13 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - Repository 改 `_to_domain` 時 left-join 對應 `InventoryItem`（或在 router 層 batch fetch）填回
   - Frontend 改 `MaterialRequestDetailModal` items table 顯 SKU + name + unit；wizard step 3 review 也順手改顯 SKU
 - **Acceptance**:
-  - backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests
-  - frontend detail modal items table 改 layout：`SKU | name | qty | actual | unit`
-  - tsc clean / vite build / backend zero regression
+  - [x] backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests（512 → 523 全 pass，+11 new tests）
+  - [x] frontend detail modal items table 改 layout：`SKU | name | 庫存類型 | 預估 | 實領`（unit 合併進 qty 後）
+  - [x] tsc clean / vite build clean / backend zero regression
+- **Completion summary**:
+  - 設計選 router-side enrichment（domain 純度保留）：schema 加 Optional sku/name/unit；repo 加 `fetch_item_metadata` 批次 IN-query；router 加 `_enriched_response` helper；list endpoint 用 set comprehension 跨 MR 收集 all item_ids 避 N+1
+  - 採納 code-reviewer subagent 全部 3 must-fix + 2 should-fix：(1) `None vs {}` 語意分離 (2) tuple element `str | None` (3) router 用 TYPE_CHECKING import 真型別 (4) schemas 移除 E402 noqa (5) repo `fetch_item_metadata` 加可選 `farm_id` filter 給 multi-farm 防禦
+  - Frontend fallback：sku=null 時 mono font + dim color + 完整 UUID 用 `title` attr 顯示給工程師 debug；wizard step 3 已從 cart 直接拿 sku 不需動
 - **Depends on**: WMOM-20260509-06（done）
 - **Blocks**: -
 

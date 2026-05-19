@@ -49,6 +49,7 @@ from modules.workflow.domain.inventory_state_machine import (
 
 from ._helpers import ensure_utc, str_to_uuid, uuid_to_str
 from .inventory_orm import (
+    InventoryItemORM,
     MaterialRequestItemORM,
     MaterialRequestORM,
     MaterialReturnORM,
@@ -481,6 +482,46 @@ class MaterialRequestRepository:
             except Exception:
                 sess.rollback()
                 raise
+
+    # ──────────────────────────────────────────────────────────────────
+    # Item metadata batch fetch（WMOM-20260518-01）
+    # ──────────────────────────────────────────────────────────────────
+
+    def fetch_item_metadata(
+        self,
+        item_ids: list[UUID] | set[UUID] | tuple[UUID, ...],
+        *,
+        farm_id: str | None = None,
+    ) -> dict[UUID, tuple[str | None, str | None, str | None]]:
+        """批次取得 ``inventory_items`` 的 ``(sku, name, unit)`` — 給 router 在組裝
+        ``MaterialRequestResponse`` 時 enrich items 的 display 欄位。
+
+        Args:
+            item_ids: 要查詢的 ``InventoryItem.id`` 清單；空集合直接回空 dict（避免 IN ()）。
+            farm_id: 可選 — 限定 farm，給未來 multi-farm single-DB 部署做防禦；
+                當前 single-farm-per-DB 架構下省略。
+
+        Returns:
+            ``{item_id: (sku, name, unit)}``；不存在 / 跨 farm 的 id 不會出現在回傳 dict
+            中（caller 自行 fallback）。tuple 元素標 ``str | None`` 以防未來 schema 允許
+            NULL（目前 ORM 為 NOT NULL）。
+        """
+        ids = [str(i) for i in item_ids]
+        if not ids:
+            return {}
+        with self._sessionmaker() as sess:
+            stmt = select(
+                InventoryItemORM.id,
+                InventoryItemORM.sku,
+                InventoryItemORM.name,
+                InventoryItemORM.unit,
+            ).where(InventoryItemORM.id.in_(ids))
+            if farm_id is not None:
+                stmt = stmt.where(InventoryItemORM.farm_id == farm_id)
+            return {
+                UUID(row.id): (row.sku, row.name, row.unit)
+                for row in sess.execute(stmt)
+            }
 
     # ──────────────────────────────────────────────────────────────────
     # Business key 自動編號（同 work_order pattern）

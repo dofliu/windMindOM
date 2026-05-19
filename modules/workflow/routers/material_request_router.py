@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,6 +21,10 @@ from modules.workflow.domain.inventory import (
     MaterialRequestStatus,
     StockKind,
 )
+
+if TYPE_CHECKING:
+    # Type-only import 給 _enriched_response 的 mr 參數標型用 — runtime 不需要。
+    from modules.workflow.domain.inventory import MaterialRequest
 from modules.workflow.repository import (
     InsufficientStock,
     MaterialRequestRepository,
@@ -41,6 +45,7 @@ from modules.workflow.schemas import (
     MaterialReturnResponse,
     ReceiveMaterialRequest,
     SubmitForApprovalRequest,
+    build_material_request_response,
 )
 
 
@@ -107,6 +112,25 @@ def _get_signoff_repo(farm_id: str) -> SignoffRepository:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Enrichment helper（WMOM-20260518-01）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _enriched_response(
+    repo: MaterialRequestRepository,
+    mr: "MaterialRequest",
+) -> MaterialRequestResponse:
+    """單一 MR 組裝：批次取 metadata + 走 builder enrich items 的 SKU/name/unit。
+
+    給 8 個 single-MR 端點共用；list 端點走 ``build_material_request_response`` 直接
+    呼叫一次批次 fetch 全部 item_ids（避 N+1）。
+    """
+    item_ids = [it.item_id for it in mr.items]
+    metadata = repo.fetch_item_metadata(item_ids)
+    return build_material_request_response(mr, metadata)
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Error mapping helper
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -152,7 +176,7 @@ async def create_material_request(req: CreateMaterialRequest) -> MaterialRequest
         )
     except MaterialRequestRuleViolation as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 @router.get("/material-requests", response_model=MaterialRequestListResponse)
@@ -171,9 +195,12 @@ async def list_material_requests(
         limit=limit,
         offset=offset,
     )
+    # 跨 MR 批次 fetch metadata 一次（避免 N+1）
+    all_item_ids = {it.item_id for mr in items for it in mr.items}
+    metadata = repo.fetch_item_metadata(list(all_item_ids))
     return MaterialRequestListResponse(
         total=total,
-        items=[MaterialRequestResponse.model_validate(mr) for mr in items],
+        items=[build_material_request_response(mr, metadata) for mr in items],
     )
 
 
@@ -192,7 +219,7 @@ async def get_material_request(
             status_code=404,
             detail=f"material_request {material_request_id} not found",
         )
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -253,7 +280,7 @@ async def submit_for_approval(
         )
 
     mr = mr_repo.get(material_request_id)
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(mr_repo, mr)
 
 
 @router.post(
@@ -282,7 +309,7 @@ async def dispatch_material_request(
         raise _map_state_error("dispatch", e)
     except InsufficientStock as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 @router.post(
@@ -309,7 +336,7 @@ async def receive_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("receive", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 @router.post(
@@ -332,7 +359,7 @@ async def close_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("close", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 @router.post(
@@ -362,7 +389,7 @@ async def cancel_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("cancel", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _enriched_response(repo, mr)
 
 
 @router.post(
