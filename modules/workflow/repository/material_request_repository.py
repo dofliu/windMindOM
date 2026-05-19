@@ -562,6 +562,11 @@ class MaterialRequestRepository:
                     estimated_qty=it.estimated_qty,
                     actual_qty=it.actual_qty,
                     stock_kind=StockKind(it.stock_kind),
+                    # WMOM-20260518-01：viewonly relationship 拉 InventoryItem metadata；
+                    # cross-DB / 缺對映時 inventory_item 為 None，三欄保持 None 不阻斷 lifecycle
+                    sku=(it.inventory_item.sku if it.inventory_item else None),
+                    name=(it.inventory_item.name if it.inventory_item else None),
+                    unit=(it.inventory_item.unit if it.inventory_item else None),
                 )
                 for it in (orm.items or [])
             ],
