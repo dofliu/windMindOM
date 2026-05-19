@@ -613,7 +613,9 @@ const CreateMaterialRequestWizard: React.FC<Props> = ({
                           >
                             {line.item.sku}
                           </span>{' '}
-                          × {line.estimated_qty} · {stockKindLabel(line.stock_kind, lang)}
+                          · {line.item.name}{' '}
+                          × {line.estimated_qty} {line.item.unit}{' '}
+                          · {stockKindLabel(line.stock_kind, lang)}
                         </div>
                       ))}
                     </div>

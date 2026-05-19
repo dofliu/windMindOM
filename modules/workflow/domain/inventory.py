@@ -146,6 +146,14 @@ class MaterialRequestItem:
 
     ``estimated_qty`` 是建單時的估計、``actual_qty`` 是簽收時填入的實際領用數
     （D3-Q3：兩個都記，給 cost ledger estimated → confirmed flow 用）。
+
+    ``item_sku`` / ``item_name`` / ``item_unit`` 為從 ``InventoryItem`` join 進來的
+    denormalized lookup 欄位（read-model）：
+    - 純 domain logic（state machine、invariants）不需要這些，所以保持 Optional
+    - 從 DB 讀回時由 ``MaterialRequestRepository._to_domain`` 一併 populate；前端
+      detail modal / wizard review 顯示直接讀，避免再多一次 inventory API call
+      (WMOM-20260518-01)
+    - 建單 / state transition 路徑不用填，留 None
     """
 
     request_id: UUID                          # FK to MaterialRequest
@@ -154,6 +162,9 @@ class MaterialRequestItem:
     id: UUID = field(default_factory=uuid4)
     actual_qty: int | None = None             # 實際領用（簽收時填）
     stock_kind: StockKind = StockKind.NEW     # 領哪個 stock 欄位（預設新品優先）
+    item_sku: str | None = None               # denormalized：InventoryItem.sku
+    item_name: str | None = None              # denormalized：InventoryItem.name
+    item_unit: str | None = None              # denormalized：InventoryItem.unit
 
     def __post_init__(self) -> None:
         # invariant：estimated_qty 嚴格正

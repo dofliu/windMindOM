@@ -97,6 +97,14 @@ class CreateMaterialReturn(BaseModel):
 
 
 class MaterialRequestItemResponse(BaseModel):
+    """領料明細 row response。
+
+    ``item_sku`` / ``item_name`` / ``item_unit`` 三欄是從 ``InventoryItem`` join 進來
+    的 denormalized 顯示欄位（WMOM-20260518-01）— 從 DB 讀回時由 repo populate；
+    建單 / state transition 路徑不會帶這幾欄（domain 端為 None，pydantic 直接吃
+    Optional）。前端 detail modal / wizard review 顯示直接讀，避免另一次 API call。
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -105,6 +113,9 @@ class MaterialRequestItemResponse(BaseModel):
     estimated_qty: int
     actual_qty: Optional[int] = None
     stock_kind: StockKind
+    item_sku: Optional[str] = None
+    item_name: Optional[str] = None
+    item_unit: Optional[str] = None
 
 
 class MaterialReturnResponse(BaseModel):

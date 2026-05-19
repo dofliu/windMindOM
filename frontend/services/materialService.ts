@@ -50,6 +50,12 @@ export interface MaterialRequestItem {
   estimated_qty: number;
   actual_qty: number | null;
   stock_kind: StockKind;
+  // 從 InventoryItem join 進來的 denormalized lookup（WMOM-20260518-01）。
+  // 後端 ``_to_domain`` 同 session 批次 fetch 並注入；前端直接讀取顯示，
+  // 不需再呼叫 inventory API。historical entries / 異常 stale 情況可能為 null。
+  item_sku: string | null;
+  item_name: string | null;
+  item_unit: string | null;
 }
 
 export interface MaterialReturnResponse {

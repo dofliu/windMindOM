@@ -49,6 +49,7 @@ from modules.workflow.domain.inventory_state_machine import (
 
 from ._helpers import ensure_utc, str_to_uuid, uuid_to_str
 from .inventory_orm import (
+    InventoryItemORM,
     MaterialRequestItemORM,
     MaterialRequestORM,
     MaterialReturnORM,
@@ -183,12 +184,16 @@ class MaterialRequestRepository:
                 sess.add(item_orm)
             sess.commit()
             sess.refresh(orm)
-            return self._to_domain(orm)
+            info = self._fetch_item_info_map(sess, [orm])
+            return self._to_domain(orm, item_info_map=info)
 
     def get(self, mr_id: UUID) -> MaterialRequest | None:
         with self._sessionmaker() as sess:
             orm = sess.get(MaterialRequestORM, str(mr_id))
-            return self._to_domain(orm) if orm else None
+            if orm is None:
+                return None
+            info = self._fetch_item_info_map(sess, [orm])
+            return self._to_domain(orm, item_info_map=info)
 
     def get_by_business_key(self, business_key: str) -> MaterialRequest | None:
         with self._sessionmaker() as sess:
@@ -196,7 +201,10 @@ class MaterialRequestRepository:
                 MaterialRequestORM.business_key == business_key
             )
             orm = sess.execute(stmt).scalar_one_or_none()
-            return self._to_domain(orm) if orm else None
+            if orm is None:
+                return None
+            info = self._fetch_item_info_map(sess, [orm])
+            return self._to_domain(orm, item_info_map=info)
 
     def list(
         self,
@@ -222,8 +230,10 @@ class MaterialRequestRepository:
                 .limit(limit)
                 .offset(offset)
             )
+            orms = list(sess.execute(paged).scalars().all())
+            info = self._fetch_item_info_map(sess, orms)
             return (
-                [self._to_domain(orm) for orm in sess.execute(paged).scalars().all()],
+                [self._to_domain(orm, item_info_map=info) for orm in orms],
                 total,
             )
 
@@ -233,9 +243,9 @@ class MaterialRequestRepository:
             stmt = select(MaterialRequestORM).where(
                 MaterialRequestORM.work_order_id == str(work_order_id)
             )
-            return [
-                self._to_domain(orm) for orm in sess.execute(stmt).scalars().all()
-            ]
+            orms = list(sess.execute(stmt).scalars().all())
+            info = self._fetch_item_info_map(sess, orms)
+            return [self._to_domain(orm, item_info_map=info) for orm in orms]
 
     def set_signoff_chain_id(self, mr_id: UUID, chain_id: UUID) -> None:
         """Wire signoff chain id 進 MR（給 approval router 在 submit_for_approval 後 backlink 用）。"""
@@ -277,7 +287,11 @@ class MaterialRequestRepository:
             if orm is None:
                 raise LookupError(f"material_request {mr_id} not found")
 
-            mr = self._to_domain(orm)
+            # SKU/name/unit 為 InventoryItem 靜態 metadata；本 transaction
+            # 內 transition 只動 MR 狀態 / actual_qty，不可能影響 inventory metadata，
+            # 因此 fetch 一次給入境（state machine 顯示）+ 出境（return）共用即可。
+            info = self._fetch_item_info_map(sess, [orm])
+            mr = self._to_domain(orm, item_info_map=info)
             # Domain 層走 state machine（會 raise InvalidTransition）
             MaterialRequestStateMachine.transition(
                 mr, action, actor_id=actor_id, **kwargs
@@ -302,7 +316,7 @@ class MaterialRequestRepository:
 
             sess.commit()
             sess.refresh(orm)
-            return self._to_domain(orm)
+            return self._to_domain(orm, item_info_map=info)
 
     # ──────────────────────────────────────────────────────────────────
     # ATOMIC DISPATCH（M4 雙寫核心 — DN-03 §2.3）
@@ -407,7 +421,8 @@ class MaterialRequestRepository:
                 # ── Step 5: commit ───────────────────────────────────────
                 sess.commit()
                 sess.refresh(mr_orm)
-                return self._to_domain(mr_orm)
+                info = self._fetch_item_info_map(sess, [mr_orm])
+                return self._to_domain(mr_orm, item_info_map=info)
             except (LookupError, InvalidTransition, InsufficientStock):
                 sess.rollback()
                 raise
@@ -504,15 +519,48 @@ class MaterialRequestRepository:
     # ──────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _to_domain(orm: MaterialRequestORM) -> MaterialRequest:
-        return MaterialRequest(
-            id=UUID(orm.id),
-            business_key=orm.business_key,
-            farm_id=orm.farm_id,
-            requester_id=UUID(orm.requester_id),
-            work_order_id=str_to_uuid(orm.work_order_id),
-            status=MaterialRequestStatus(orm.status),
-            items=[
+    def _fetch_item_info_map(
+        sess: Session, mr_orms: list[MaterialRequestORM]
+    ) -> dict[str, tuple[str | None, str | None, str | None]]:
+        """Batch fetch InventoryItem.sku/name/unit for items referenced in given MRs.
+
+        回傳 ``{inventory_item.id: (sku, name, unit)}``。一次 ``IN`` 查詢避免 N+1。
+        若 MR 內 item_id 對應的 InventoryItem 不存在（理論上 FK 擋住，但 stale 資料 fallback），
+        該 item 在 map 內就缺，下游 ``_to_domain`` 會以 ``None`` 填補三欄。
+
+        Return type tuple 用 ``str | None`` 是 defensive：ORM 雖然 schema 上 sku/name/unit
+        NOT NULL，但若未來 schema 改 nullable，本 helper 簽名不會誤導下游 mypy。
+        (WMOM-20260518-01)
+        """
+        item_ids: set[str] = set()
+        for mr in mr_orms:
+            for it in (mr.items or []):
+                item_ids.add(it.item_id)
+        if not item_ids:
+            return {}
+        stmt = select(
+            InventoryItemORM.id,
+            InventoryItemORM.sku,
+            InventoryItemORM.name,
+            InventoryItemORM.unit,
+        ).where(InventoryItemORM.id.in_(item_ids))
+        return {
+            row[0]: (row[1], row[2], row[3])
+            for row in sess.execute(stmt).all()
+        }
+
+    @staticmethod
+    def _to_domain(
+        orm: MaterialRequestORM,
+        *,
+        item_info_map: dict[str, tuple[str | None, str | None, str | None]]
+        | None = None,
+    ) -> MaterialRequest:
+        info = item_info_map or {}
+        items: list[MaterialRequestItem] = []
+        for it in (orm.items or []):
+            lookup = info.get(it.item_id)
+            items.append(
                 MaterialRequestItem(
                     id=UUID(it.id),
                     request_id=UUID(it.request_id),
@@ -520,9 +568,19 @@ class MaterialRequestRepository:
                     estimated_qty=it.estimated_qty,
                     actual_qty=it.actual_qty,
                     stock_kind=StockKind(it.stock_kind),
+                    item_sku=lookup[0] if lookup else None,
+                    item_name=lookup[1] if lookup else None,
+                    item_unit=lookup[2] if lookup else None,
                 )
-                for it in (orm.items or [])
-            ],
+            )
+        return MaterialRequest(
+            id=UUID(orm.id),
+            business_key=orm.business_key,
+            farm_id=orm.farm_id,
+            requester_id=UUID(orm.requester_id),
+            work_order_id=str_to_uuid(orm.work_order_id),
+            status=MaterialRequestStatus(orm.status),
+            items=items,
             signoff_chain_id=str_to_uuid(orm.signoff_chain_id),
             requested_at=ensure_utc(orm.requested_at) or _utc_now(),
             submitted_at=ensure_utc(orm.submitted_at),

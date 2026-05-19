@@ -13,11 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 22 |
+| open | 19 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 29 |
-| **total (active)** | **51** |
+| done | 36 |
+| **total (active)** | **55** |
+
+最後更新：2026-05-19（**WMOM-20260518-01 MR item SKU/name/unit join done — M4 demo polish 細節收官**）。今日（autonomous daily worker session, 5/19 20:00）依 5/18 inventory frontend handoff 推薦清單挑 WMOM-20260518-01（A6 follow-up nice-to-have，concrete scope）。Domain `MaterialRequestItem` 加 3 個 `Optional[str]` denormalized read-model 欄位；Repository `_fetch_item_info_map` 一次 IN 查詢 batch fetch sku/name/unit；7 條 read path（create / get / get_by_business_key / list / list_for_work_order / transition / dispatch_request）皆 populate；Schema 同 3 欄；Frontend detail modal items table 從 4 欄改 6 欄 grid（SKU | name | qty | actual | unit | stock_kind），receive form label / return dropdown / wizard step 3 review 同步顯 SKU+name+unit；fallback `it.item_sku ?? …{uuid8}` 維持與 return dropdown 8-char 一致。14 個新 regression test 全綠：domain 2 + 6 read paths + dispatch + multi-items 配對 + schema 序列化（含 None）+ helper edge case（empty list / empty items）。**672 backend tests pass, 1 xfailed, 3 failed**（與 main baseline 完全一致：3 個 pre-existing numpy 2.x precision drift）— zero regression；frontend tsc 0 error, vite build 917.06 kB (+0.5 kB)。Code-reviewer 1 must-fix + 4 should-fix + 1 nice-to-have 全採納（單 commit）。M4 polish 收一個小尾，現場工程師 demo 終於看到「人話料件」而非 UUID tail。下次候選：M5 規劃 / F2-F6 follow-up / WMOM-20260513-02 demo orchestrator simulator 接合。詳見 `work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md`。
+
+## 早期統計 snapshot
 
 最後更新：2026-05-09（**🎉 M4 backend 5 issue 全收 + 2026-05-09 code review fixes — backend 收官完整版**）。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
 
@@ -1943,7 +1947,7 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
 
-- **Status**: open
+- **Status**: done（2026-05-19, branch `claude/issue-WMOM-20260518-01-2026-05-19`）
 - **Milestone**: M4 後續 / M5 demo polish
 - **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
 - **Estimate**: 0.5 工作天
@@ -1959,6 +1963,16 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - tsc clean / vite build / backend zero regression
 - **Depends on**: WMOM-20260509-06（done）
 - **Blocks**: -
+- **完成紀錄**：
+  Domain `MaterialRequestItem` 加 3 個 `Optional[str]` denormalized 欄位（read-model），
+  repository 新增 `_fetch_item_info_map` 一次 IN 查詢 batch 帶回 sku/name/unit；
+  7 條 read path（create / get / get_by_business_key / list / list_for_work_order /
+  transition / dispatch_request）皆已 populate。Frontend detail modal items table 改 6
+  欄 grid（SKU | name | qty | actual | unit | stock_kind），receive form label / return
+  dropdown / wizard step 3 review 同步顯 SKU+name+unit。14 個 regression test 全綠
+  (672 backend tests pass, zero regression)；frontend tsc 0 error, vite build 917 kB
+  (+0.5 kB)。Code-reviewer 1 must-fix + 4 should-fix + 1 nice-to-have 全採納。
+  詳見 `work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md`。
 
 ---
 
