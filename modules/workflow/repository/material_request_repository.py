@@ -520,9 +520,14 @@ class MaterialRequestRepository:
                             request_id, line_item_orm.id,
                         )
 
-                    if locked_cost is not None:
+                    if locked_cost is not None and ledger_orm is not None:
                         now = _utc_now()
                         offset_amount = -(Decimal(qty) * locked_cost)
+                        # Mirror dispatch entry status：return-before-finish 情境
+                        # dispatch 仍 ESTIMATED → offset 也 ESTIMATED，避免
+                        # summary_by_category(CONFIRMED) 看到 negative-only entry
+                        # （review fix 2026-05-19 must-fix #2，會計正確性）
+                        mirrored_status = CostLedgerStatus(ledger_orm.status)
                         insert_in_session(
                             sess,
                             CostLedgerEntry(
@@ -532,8 +537,12 @@ class MaterialRequestRepository:
                                 source_event_id=request_id,
                                 source_item_id=UUID(line_item_orm.id),
                                 source_type=CostLedgerSourceType.MATERIAL_REQUEST,
-                                status=CostLedgerStatus.CONFIRMED,
-                                confirmed_at=now,
+                                status=mirrored_status,
+                                confirmed_at=(
+                                    now
+                                    if mirrored_status is CostLedgerStatus.CONFIRMED
+                                    else None
+                                ),
                                 locked_unit_cost=locked_cost,
                                 actor_id=returned_by,
                                 note=(

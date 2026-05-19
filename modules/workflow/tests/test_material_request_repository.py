@@ -300,8 +300,13 @@ def test_add_return_unknown_request(mr_repo, item):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _dispatch_mr(mr_repo, item_id, qty: int = 3, unit_cost: Decimal = Decimal("450.00")):
-    """Helper：建 MR → submit → approve → dispatch，回傳 (mr_id, line_item_id)。"""
+def _dispatch_mr(mr_repo, item_id, qty: int = 3):
+    """Helper：建 MR → submit → approve → dispatch，回傳 (mr_id, line_item_id)。
+
+    locked_unit_cost 由 inventory item 建立時的 unit_cost 決定，**不是**本 helper
+    的責任 — caller 若要控制 locked_unit_cost，請在呼叫前透過
+    `inv_repo.create_item(..., unit_cost=...)` 或 `inv_repo.update_metadata(...)` 設定。
+    """
     mr = mr_repo.create(
         farm_id="changhua", requester_id=uuid4(),
         items=[(item_id, qty, StockKind.NEW)],
@@ -335,8 +340,11 @@ def _query_ledger(mr_repo, mr_id: UUID):
 
 
 def test_add_return_writes_negative_ledger_entry(mr_repo, inv_repo, item):
-    """退料後 ledger 多一筆 negative entry（amount = -qty × locked_unit_cost）。"""
-    mr_id, line_id = _dispatch_mr(mr_repo, item.id, qty=3, unit_cost=Decimal("450.00"))
+    """退料後 ledger 多一筆 negative entry（amount = -qty × locked_unit_cost）。
+
+    item fixture: unit_cost=450, stock_new=10 → dispatch qty=3 寫 +1350 ESTIMATED。
+    """
+    mr_id, line_id = _dispatch_mr(mr_repo, item.id, qty=3)
     before = _query_ledger(mr_repo, mr_id)
     assert len(before) == 1  # dispatch 寫的 estimated entry
     dispatch_entry = before[0]
@@ -356,8 +364,9 @@ def test_add_return_writes_negative_ledger_entry(mr_repo, inv_repo, item):
     assert len(after) == 2
     offset = next(e for e in after if Decimal(str(e.amount)) < 0)
     assert Decimal(str(offset.amount)) == Decimal("-900.00")  # -(2 × 450)
-    assert offset.status == "confirmed"
-    assert offset.confirmed_at is not None
+    # status 鏡像 dispatch entry — dispatch 尚未 confirm，所以 offset 也 ESTIMATED
+    assert offset.status == "estimated"
+    assert offset.confirmed_at is None
     assert offset.source_item_id == str(line_id)
     assert offset.category == "material"
     assert offset.locked_unit_cost == Decimal("450.0000")
@@ -365,11 +374,48 @@ def test_add_return_writes_negative_ledger_entry(mr_repo, inv_repo, item):
     assert "reason=surplus" in (offset.note or "")
 
 
+def test_add_return_offset_mirrors_estimated_when_dispatch_not_finished(
+    mr_repo, inv_repo, item, db_path
+):
+    """**會計正確性 regression（must-fix #2）**：dispatch 仍 ESTIMATED 時退料 →
+    offset 也 ESTIMATED，`summary_by_category(CONFIRMED)` 不會出現 negative-only entry。
+    """
+    from modules.cost.repository import get_cost_ledger_repository
+    from modules.cost.repository.cost_ledger import (
+        CostLedgerCategory,
+        CostLedgerStatus,
+    )
+
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=3)  # dispatch entry ESTIMATED +1350
+    # **不**呼叫 confirm_entry — 工單尚未 finish
+    mr_repo.add_return(
+        request_id=mr_id, item_id=item.id, qty=2,
+        reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    ledger_repo = get_cost_ledger_repository(db_path)
+    confirmed = ledger_repo.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.CONFIRMED
+    )
+    estimated = ledger_repo.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.ESTIMATED
+    )
+    # CONFIRMED 桶完全空 — 不可出現 -900 negative-only
+    assert confirmed.get(CostLedgerCategory.MATERIAL, Decimal("0")) == Decimal("0")
+    # ESTIMATED 桶 net out：+1350 + (-900) = 450
+    assert estimated.get(CostLedgerCategory.MATERIAL) == Decimal("450.00")
+
+
 def test_add_return_uses_dispatch_locked_unit_cost_even_if_inventory_changed(
     mr_repo, inv_repo, item
 ):
-    """退料金額用 dispatch 當下的 locked_unit_cost — inventory.unit_cost 改動不影響。"""
-    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2, unit_cost=Decimal("450.00"))
+    """退料金額用 dispatch 當下的 locked_unit_cost — inventory.unit_cost 改動不影響。
+
+    item fixture unit_cost=450 → dispatch locked=450；之後改 inventory=999.99，
+    退料應仍用 450。
+    """
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2)
     # dispatch 後改 inventory unit_cost（模擬料件再進貨改價）
     inv_repo.update_metadata(item.id, unit_cost=Decimal("999.99"))
 
@@ -397,7 +443,7 @@ def test_add_return_summary_by_category_nets_correctly(mr_repo, inv_repo, item, 
         CostLedgerStatus,
     )
 
-    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=3, unit_cost=Decimal("450.00"))
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=3)
     # 退料前先把 estimated 翻 confirmed（模擬 wo finish hook）
     ledger_repo = get_cost_ledger_repository(db_path)
     entries = _query_ledger(mr_repo, mr_id)
@@ -434,7 +480,7 @@ def test_add_return_no_matching_line_item_still_returns_stock(
         farm_id="changhua", warehouse_id=warehouse.id,
         unit_cost=Decimal("200"), stock_new=10,
     )
-    mr_id, _ = _dispatch_mr(mr_repo, item_a.id, qty=1, unit_cost=Decimal("100"))
+    mr_id, _ = _dispatch_mr(mr_repo, item_a.id, qty=1)
 
     initial_b = inv_repo.get_item(item_b.id).stock_new
     # 退 item B（mr 沒這個 line item）— 應該 stock 加回 + skip ledger
@@ -455,8 +501,9 @@ def test_add_return_atomic_rollback_on_failure(mr_repo, inv_repo, item):
     """退料 atomic：raise 後 stock / ledger / return record 全部不變。"""
     from unittest.mock import patch
 
-    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2, unit_cost=Decimal("450.00"))
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2)
     stock_before = inv_repo.get_item(item.id).stock_new
+    assert stock_before == 8  # 10 (fixture) - 2 (dispatch 扣的)
     ledger_before = _query_ledger(mr_repo, mr_id)
 
     # patch insert_in_session raise → 整個 transaction rollback

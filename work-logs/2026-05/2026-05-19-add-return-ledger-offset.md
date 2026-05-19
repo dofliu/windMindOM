@@ -182,10 +182,64 @@ M STATUS.yaml
   / `test_varfluct_year_1_pinned`，與 main baseline 完全一致 — zero regression；
   flaky `test_concurrent_dispatch_same_item_serialized_correctly` 今天通過）
 
-### 5.4 Code review
+### 5.4 Code review（第二輪 commit）
 
-Code-reviewer subagent 已啟動 async background，回報後若有 must-fix 第二輪
-commit 修正。
+Code-reviewer subagent 回報 **2 must-fix + 1 should-fix + 1 nice-to-have**：
+
+**Must-fix（全採納）**
+
+1. **Offset status 應鏡像 dispatch entry status**（會計正確性 — file:
+   material_request_repository.py:535）
+   - 原本硬寫 `CostLedgerStatus.CONFIRMED` 不管 dispatch entry 是 `estimated`
+     或 `confirmed`
+   - **Bug**：若 wo 尚未 finish（dispatch entry = ESTIMATED）就退料，
+     `summary_by_category(CONFIRMED)` 會看到 negative-only entry（-900）而看不到
+     原 +1350 — 月報材料成本變負數，比沒這個 feature 還更錯
+   - **修法**：讀 `ledger_orm.status` 用 `CostLedgerStatus(...)` 建構 mirrored
+     status；`confirmed_at = now if mirrored is CONFIRMED else None`
+   - 新加 regression test `test_add_return_offset_mirrors_estimated_when_dispatch_not_finished`：
+     dispatch 後 **不** confirm → 退料 → assert `summary(CONFIRMED)` material = 0
+     + `summary(ESTIMATED)` material = 450 (1350-900 net)
+
+2. **`_dispatch_mr` helper 的 `unit_cost` 參數是 dead code**（test 文件性 —
+   file: test_material_request_repository.py:303）
+   - 參數從未傳給 API；locked_unit_cost 實際由 `inv_repo.create_item(..., unit_cost=...)`
+     決定，與本 helper 參數無關
+   - **修法**：移除參數 + 加 docstring 註明「caller 控制 locked_unit_cost 請改
+     `create_item` 或 `update_metadata`」
+   - 5 個既有測試呼叫端全部移除 `unit_cost=` kwarg；
+     `test_add_return_writes_negative_ledger_entry` docstring 補上「item fixture
+     unit_cost=450」前提
+
+**Should-fix（採納）**
+
+- `test_add_return_atomic_rollback_on_failure` 加 `assert stock_before == 8` 文件
+  化前提（10 fixture - 2 dispatch 扣的 = 8），未來 fixture 改值不會靜默失效
+
+**Nice-to-have（留 follow-up）**
+
+- `locked_unit_cost=None` fallback 分支（老 entries 用 inv.unit_cost）未覆蓋測試 —
+  影響 0（新部署無老 entries），列為 nice-to-have follow-up
+
+### 5.5 第二輪 build / test 驗證
+
+- `python -m pytest modules/workflow/tests/test_material_request_repository.py`
+  → 26 passed in 1.55s（5 → 6 個新 test：新加 mirror status test）
+- 全 backend regression：518 passed + 1 xfailed + 3 pre-existing numpy drift
+  （與 main baseline 一致 — zero regression）
+
+### 5.6 衍生 follow-up（不在本 issue scope）
+
+**WMOM-2026XX-XX（待開）**：`wo_finish` hook 也需要 flip 相關 offset entries 的
+status。當前修正解了「return-before-finish」造成的 CONFIRMED 桶 negative-only
+問題，但若 return-then-finish flow：
+- return 時 dispatch ESTIMATED → offset ESTIMATED -900
+- 之後 wo_finish 只 confirm 原 dispatch entry → CONFIRMED +1350，offset 仍 ESTIMATED
+- `summary(CONFIRMED)` 變 over-count by 900，`summary(ESTIMATED)` 變 -900
+
+修法是 `_confirm_material_ledger_for_finished_wo` 同時找該 mr_line 所有 entries
+（含負 offset）一起 flip。本次 F1 不做（scope discipline）；下次 daily session
+若有時間可接續。
 
 ---
 
