@@ -125,9 +125,11 @@ M STATUS.yaml         last_updated / next_milestone
 - [x] backend module docstring + add_return docstring 更新
 - [x] backend test 新增 7 cases
 - [x] backend pytest zero regression（modules/workflow + cost + reporting + e2e）
-- [x] code-reviewer subagent + 採納 must-fix / should-fix
+- [x] code-reviewer subagent + 採納 0 must-fix + 3 should-fix + 1 nice-to-have
 - [x] ISSUES.md / STATUS.yaml update
-- [ ] commit + push + PR
+- [x] commit（feat + docs 兩 commit）+ push
+- [x] review fix commit（S1 + S2 + S3 + N3）
+- [ ] PR
 
 ---
 
@@ -160,11 +162,36 @@ M STATUS.yaml         last_updated / next_milestone
 
 ### 5.3 Build / test 驗證
 
-- 待補
+- `python -m pytest modules/workflow/tests/test_add_return_ledger_offset.py` → **10 passed**
+- 完整後端 `python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ tests/e2e/`
+  → **543 passed + 1 xfailed**；3 個 pre-existing numpy drift（cost test_monte_carlo /
+  test_var_fluct，sandbox 浮點精度問題）+ 1 個 flaky dispatch concurrency（SQLite WAL 時序，
+  與我改動無關）— **zero regression**
 
 ### 5.4 Code review 採納
 
-- 待補
+Code-reviewer subagent 跑完報 **0 must-fix + 3 should-fix + 3 nice-to-have**。
+採納 3 should-fix + 1 nice-to-have（N3，與 S1 相關自然清掉）：
+
+| 級別 | # | 議題 | 修法 |
+|------|---|------|------|
+| Should | 1 | `_resolve_dispatch_ledger_meta` ledger query 缺 status discriminator — 第二次退料可能拿到第一次寫的 offset entry（目前因 locked_cost 數值一致無實害，但 query intent 與語意脫鉤） | 加 `status == CostLedgerStatus.ESTIMATED.value` filter + docstring 解釋為何此 filter 安全（退料窗口必在 WO finish 前，dispatch entry 必是 ESTIMATED） |
+| Should | 2 | test 用 `__import__()` 反模式 | top-level import 加 `MaterialReturnORM`，測試裸用 `select(MaterialReturnORM)` |
+| Should | 3 | `test_add_return_without_dispatch_entry_logs_skip` 斷言 `stock_new == 6` 把「DRAFT 退料 stock 可加回」這個 pre-existing permissive 行為當預期固定下來 | 加 comment 註明此為 pre-existing 設計，未來補 MR 狀態守衛時須調整 |
+| Nice | 3 | return type `tuple[UUID \| None, Decimal \| None]` 語意鬆散（實際上是 both-None 或 both-set） | 改 `tuple[UUID, Decimal] \| None`，caller 用 `if dispatch_meta is not None:` |
+
+不採納：
+- Nice #1（Numeric 精度截斷）：是 pre-existing schema design，dispatch_request 同樣問題；
+  schema migration 超出 scope，記憶體後續開 issue
+- Nice #2（over-return 邊界 test）：`apply_stock_delta_in_session` 已負責 stock 守衛
+  （overflow / int 範圍），ledger 沖銷無此風險（amount 是 Decimal）；推開 follow-up
+
+新增 1 regression test（`test_second_return_resolves_dispatch_entry_not_first_offset`）
+直接驗 S1 修法：手動把第一筆 offset entry 的 `locked_unit_cost` 改成 999，驗第二次
+退料仍從 dispatch entry（locked=100）算 amount（而非 999）。**測試本身要先 fail
+（無 status filter 時）才證明 fix 有效** — 已手動 toggle 過確認新 filter 必要。
+
+最終 test 數：9 → 10。
 
 ---
 

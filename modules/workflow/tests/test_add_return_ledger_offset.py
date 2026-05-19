@@ -49,6 +49,7 @@ from modules.workflow.repository import (
 from modules.workflow.repository.inventory_orm import (
     InventoryItemORM,
     MaterialRequestItemORM,
+    MaterialReturnORM,
 )
 from modules.workflow.repository.work_order_repository import (
     clear_engine_cache_for_test,
@@ -252,6 +253,58 @@ def test_add_return_multiple_returns_each_writes_own_offset(repos):
     assert entries[2].source_item_id == entries[0].source_item_id
 
 
+def test_second_return_resolves_dispatch_entry_not_first_offset(repos):
+    """**Review fix Should #1 regression** — 第二次退料的 `_resolve_dispatch_ledger_meta`
+    必須拿到 dispatch entry (status=ESTIMATED) 的 locked_unit_cost，**不是**第一次寫的
+    offset entry。
+
+    為什麼重要：dispatch / offset 共用 (source_event_id, source_item_id, source_type)
+    三欄；無 status discriminator 時 `scalars().first()` 可能拿到 offset entry。本 test
+    手動把 offset entry 的 locked_unit_cost 改成 999 模擬未來邏輯改動，驗證第二次退料
+    仍用 dispatch entry 的 100（而非 offset entry 的 999）算 amount。
+    """
+    inv_repo, mr_repo = repos
+    mr_id, item_id = _setup_dispatched_mr(
+        inv_repo, mr_repo,
+        initial_stock=10, estimated_qty=5, unit_cost=Decimal("100.00"),
+    )
+
+    # 第一次退料
+    mr_repo.add_return(
+        request_id=mr_id, item_id=item_id, qty=2,
+        reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    # 手動把第一筆 offset entry 的 locked_unit_cost 改成 999
+    # （模擬未來邏輯改動，例如 confirm flow 重新計算 offset 的 locked_cost）
+    entries_after_first = _get_ledger_entries(mr_repo)
+    assert len(entries_after_first) == 2
+    offset_orm = entries_after_first[1]
+    assert Decimal(str(offset_orm.amount)) == Decimal("-200.00")
+    with mr_repo._sessionmaker() as sess:
+        sess.execute(
+            CostLedgerEntryORM.__table__.update()
+            .where(CostLedgerEntryORM.id == offset_orm.id)
+            .values(locked_unit_cost=Decimal("999.00"))
+        )
+        sess.commit()
+
+    # 第二次退料 — 應該拿 dispatch entry (locked=100) 而非被污染的 offset (locked=999)
+    mr_repo.add_return(
+        request_id=mr_id, item_id=item_id, qty=1,
+        reason=ReturnReason.WRONG_PART, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    entries_after_second = _get_ledger_entries(mr_repo)
+    assert len(entries_after_second) == 3
+    second_offset = entries_after_second[2]
+    # ✓ 用 dispatch entry 的 100，amount=-(1×100)=-100；不是 -(1×999)=-999
+    assert Decimal(str(second_offset.amount)) == Decimal("-100.00")
+    assert Decimal(str(second_offset.locked_unit_cost)) == Decimal("100.00")
+
+
 def test_summary_by_category_confirmed_excludes_returned_amount(repos, db_path):
     """月報 query `status=CONFIRMED` 應反映退料沖銷後的淨成本。
 
@@ -315,12 +368,17 @@ def test_add_return_without_dispatch_entry_logs_skip(repos, caplog):
             returned_by=uuid4(),
         )
 
-    # Stock 應加回（+1 → 6）
+    # NOTE：add_return 目前沒 MR 狀態守衛（允許在 DRAFT 退料）— 屬 pre-existing
+    # permissive design，stock 仍從 5 → 6。若未來補 MR 狀態驗證（DISPATCHED 才允許
+    # 退料），這條 assert 需改為 stock_new == 5（且 warning log 訊息會不同）。
+    # 本 test 主旨：驗 ledger 沖銷在缺 dispatch entry 時 graceful skip，不破壞主流程。
     assert inv_repo.get_item(item.id).stock_new == 6
     # Ledger 不應寫任何 entry
     assert _get_ledger_entries(mr_repo) == []
     # 應有 warning log
-    assert any("no dispatch ledger entry" in r.message for r in caplog.records)
+    assert any(
+        "no ESTIMATED dispatch ledger entry" in r.message for r in caplog.records
+    )
 
 
 def test_add_return_with_no_matching_mr_line_item_logs_skip(repos, caplog):
@@ -366,16 +424,7 @@ def test_add_return_atomic_rollback_on_ledger_failure(repos):
     ledger_before = len(_get_ledger_entries(mr_repo))
     with mr_repo._sessionmaker() as sess:
         return_count_before = len(
-            sess.execute(
-                select(
-                    __import__(
-                        "modules.workflow.repository.inventory_orm",
-                        fromlist=["MaterialReturnORM"],
-                    ).MaterialReturnORM
-                )
-            )
-            .scalars()
-            .all()
+            sess.execute(select(MaterialReturnORM)).scalars().all()
         )
 
     target = "modules.cost.repository.cost_ledger.insert_in_session"
@@ -392,16 +441,7 @@ def test_add_return_atomic_rollback_on_ledger_failure(repos):
     assert len(_get_ledger_entries(mr_repo)) == ledger_before
     with mr_repo._sessionmaker() as sess:
         return_count_after = len(
-            sess.execute(
-                select(
-                    __import__(
-                        "modules.workflow.repository.inventory_orm",
-                        fromlist=["MaterialReturnORM"],
-                    ).MaterialReturnORM
-                )
-            )
-            .scalars()
-            .all()
+            sess.execute(select(MaterialReturnORM)).scalars().all()
         )
     assert return_count_after == return_count_before
 

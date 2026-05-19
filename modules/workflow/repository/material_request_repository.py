@@ -533,12 +533,13 @@ class MaterialRequestRepository:
                 sess.add(ret_orm)
 
                 # WMOM-20260509-F1：寫 ledger 負向 entry 沖銷 dispatch 時的成本
-                mr_line_item_id, locked_cost = self._resolve_dispatch_ledger_meta(
+                dispatch_meta = self._resolve_dispatch_ledger_meta(
                     sess,
                     request_id=request_id,
                     inventory_item_id=item_id,
                 )
-                if mr_line_item_id is not None and locked_cost is not None:
+                if dispatch_meta is not None:
+                    mr_line_item_id, locked_cost = dispatch_meta
                     offset_amount = -(Decimal(qty) * locked_cost)
                     insert_in_session(
                         sess,
@@ -583,7 +584,7 @@ class MaterialRequestRepository:
         *,
         request_id: UUID,
         inventory_item_id: UUID,
-    ) -> tuple[UUID | None, Decimal | None]:
+    ) -> tuple[UUID, Decimal] | None:
         """退料沖銷用 — 找 dispatch 時寫的 ledger entry 的 line item id + locked_unit_cost。
 
         步驟：
@@ -591,17 +592,23 @@ class MaterialRequestRepository:
            取 line_item.id（若多筆 — 同一張 MR 同 inventory item 重覆登錄，
            取第一筆並 log warning）
         2. 用 ``(source_event_id=request_id, source_item_id=line_item.id,
-           source_type=MATERIAL_REQUEST)`` 查 ``CostLedgerEntryORM`` 取
-           locked_unit_cost（estimated 或 confirmed 皆可，dispatch 時就鎖定）
+           source_type=MATERIAL_REQUEST, status=ESTIMATED)`` 查 ``CostLedgerEntryORM``
+           取 locked_unit_cost。
+           ⚠ ``status=ESTIMATED`` filter（**review fix Should #1**）是必要 discriminator：
+           dispatch entry / 多筆 offset entry 共用 (source_event_id, source_item_id,
+           source_type) 三欄；無 status filter 時第二次退料可能拿到前一次自己寫的 offset
+           entry（amount<0）。dispatch entry 在 WO finish hook flip 前都是 ESTIMATED，
+           退料窗口必在 finish 前（state machine 設計），所以此 filter 安全。
 
         Returns:
-            ``(mr_line_item_id, locked_unit_cost)``；任一步找不到 → ``(None, None)``。
+            ``(mr_line_item_id, locked_unit_cost)``；任一步找不到 → ``None``。
             Caller 拿 None 時應 log warning 並跳過沖銷（不阻 stock add-back）。
         """
         # Lazy import 避 circular（同 add_return）
         from modules.cost.repository.cost_ledger import (
             CostLedgerEntryORM,
             CostLedgerSourceType,
+            CostLedgerStatus,
         )
 
         line_items = sess.execute(
@@ -617,7 +624,7 @@ class MaterialRequestRepository:
                 request_id,
                 inventory_item_id,
             )
-            return (None, None)
+            return None
         if len(line_items) > 1:
             _logger.warning(
                 "add_return: %d MR line items match request_id=%s item_id=%s — "
@@ -634,23 +641,26 @@ class MaterialRequestRepository:
                 CostLedgerEntryORM.source_item_id == mr_line_item.id,
                 CostLedgerEntryORM.source_type
                 == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                # review fix Should #1：必須限定 ESTIMATED，避免拿到自己寫過的 offset entry
+                CostLedgerEntryORM.status == CostLedgerStatus.ESTIMATED.value,
             )
         ).scalars().first()
         if ledger_entry is None:
             _logger.warning(
-                "add_return: no dispatch ledger entry for request_id=%s "
-                "mr_line_item_id=%s — skipping ledger offset",
+                "add_return: no ESTIMATED dispatch ledger entry for request_id=%s "
+                "mr_line_item_id=%s — skipping ledger offset (MR 已 finish hook "
+                "flip 或從未 dispatch)",
                 request_id,
                 mr_line_item.id,
             )
-            return (None, None)
+            return None
         if ledger_entry.locked_unit_cost is None:
             _logger.warning(
                 "add_return: ledger entry %s has null locked_unit_cost — "
                 "skipping ledger offset",
                 ledger_entry.id,
             )
-            return (None, None)
+            return None
 
         return (
             UUID(mr_line_item.id),
