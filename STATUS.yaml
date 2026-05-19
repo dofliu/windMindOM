@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-18"
-next_milestone: "**WMOM-20260509-07 A7 庫存 frontend done — M4 frontend 全收，demo flow 100% 接合**：今日（autonomous daily worker session, 5/18 19:00）依 5/18 早班 A6 handoff 推進候選清單最高優先 A7。6 個新檔（inventoryService 8 endpoint / useInventory hook / InventoryListPanel / InventoryAdjustmentDialog / InventoryDetailDrawer / statusUtils 擴 locationKindLabel + WorkflowPage 加 `inventory` tab）。List panel：warehouse filter / below_safety toggle / sku|name search / 三欄 stock cell（new / used / repairing）/ LOW 警示 pill + border-left 4px warn；Detail drawer 480px 右側滑出：完整 metadata + audit log lazy load + 觸發 adjust dialog（z=300 over drawer z=180）；Adjust dialog：delta_kind / 整數 delta（0 invalid）/ reason 必填 / preview 顯示 `qty {sign}{abs} = next` 含 negative 警告（client preempts 409）；WorkflowPage tab 從 3 變 4（orders / material / inventory / approval），selectedInvItem rawItems sync 與 selectedMR 同 pattern 避 search stale。Backend：未動，512 passed + 1 xfailed + 3 pre-existing numpy drift（與 main baseline 一致 zero regression；flaky concurrency test 今日通過比 baseline 多 1 pass）；Frontend：tsc 0 error / vite build 4.47s, 748 modules (+5 from A6 baseline)。Code-reviewer subagent 跑（async background，PR open 時併入 must-fix）。M4 progress 99 → 100（A1-A10 全 done + frontend 全收；剩 F1-F6 / WMOM-20260518-01 follow-up 為 nice-to-have）。M4 milestone 進度 99 → 100。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI 完整版）/ F1-F6 follow-up / WMOM-20260518-01 SKU+name join / WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-18-inventory-frontend.md。"
+last_updated: "2026-05-19"
+next_milestone: "**WMOM-20260509-F1 add_return ledger 沖銷 done — M4 月報會計正確性補完**：今日（daily worker session, 5/19 20:00）從 M4 follow-up F1-F6 挑出 medium priority + 0.5d 規模的 F1（『退料不寫 ledger 沖銷 → 月報 confirmed material cost 偏高』）。修在 `MaterialRequestRepository.add_return()` 同 transaction 內加寫 negative `CostLedgerEntry`：amount = -(qty × locked_unit_cost)，status=CONFIRMED + confirmed_at=now，source_item_id 反查 MR line item 後關聯到原 dispatch entry；locked_unit_cost sourcing 三段 fallback（dispatch entry snapshot → inventory.unit_cost → skip ledger 但仍加回 stock，防禦不擋退料）。同 session reverse lookup 用 `sess.execute(select(CostLedgerEntryORM))` 而非 cross-session repo call，避免 rollback 邊界破裂。新增 5 個 regression test（happy / locked snapshot 不受 inventory 改價影響 / `summary_by_category(CONFIRMED)` net out / 不在 MR 的料件退料 skip ledger / atomic rollback patch insert_in_session raise → stock/ledger 全不變）。Backend 517 passed + 1 xfailed + 3 pre-existing numpy drift（與 main baseline 完全一致，zero regression；flaky concurrency test 今日通過）。Frontend 未動。Code-reviewer subagent 跑（async background，PR open 時若有 must-fix 第二輪 commit 修）。M4 仍 100，本 issue 為 follow-up 品質補強。下次候選：F4 shared FARM_REGISTRY refactor（1h，跨 4 routers 適合 daily session）/ F2 SQL-side func.count（0.5h）/ F3 list_warehouses repo method（0.5h）/ WMOM-20260518-01 MR detail SKU+name / M5 規劃 RAG knowledge。詳細 handoff 在 work-logs/2026-05/2026-05-19-add-return-ledger-offset.md。"
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 20  # -1 (WMOM-20260509-07 done) = 20 net
+  open: 19  # -1 (WMOM-20260509-F1 done 2026-05-19) = 19 net
   in_progress: 0
   blocked: 0
-  done: 35  # +1: WMOM-20260509-07 done (2026-05-18 PM)
+  done: 36  # +1: WMOM-20260509-F1 done (2026-05-19 daily worker session)
 
 inherited_baseline:
   source: digiWindTurbine

@@ -293,3 +293,184 @@ def test_add_return_unknown_request(mr_repo, item):
             return_to_kind=StockKind.NEW,
             returned_by=uuid4(),
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Returns ledger offset（WMOM-20260509-F1，2026-05-19）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _dispatch_mr(mr_repo, item_id, qty: int = 3, unit_cost: Decimal = Decimal("450.00")):
+    """Helper：建 MR → submit → approve → dispatch，回傳 (mr_id, line_item_id)。"""
+    mr = mr_repo.create(
+        farm_id="changhua", requester_id=uuid4(),
+        items=[(item_id, qty, StockKind.NEW)],
+    )
+    mr_repo.transition(mr.id, "submit_for_approval")
+    mr_repo.transition(mr.id, "approve_all")
+    mr_repo.dispatch_request(mr.id)
+    refreshed = mr_repo.get(mr.id)
+    return mr.id, refreshed.items[0].id
+
+
+def _query_ledger(mr_repo, mr_id: UUID):
+    """直接從 mr_repo session query CostLedgerEntryORM by source_event_id。"""
+    from sqlalchemy import select
+
+    from modules.cost.repository.cost_ledger import (
+        CostLedgerEntryORM,
+        CostLedgerSourceType,
+    )
+
+    with mr_repo._sessionmaker() as sess:
+        return list(
+            sess.execute(
+                select(CostLedgerEntryORM).where(
+                    CostLedgerEntryORM.source_event_id == str(mr_id),
+                    CostLedgerEntryORM.source_type
+                    == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                )
+            ).scalars().all()
+        )
+
+
+def test_add_return_writes_negative_ledger_entry(mr_repo, inv_repo, item):
+    """退料後 ledger 多一筆 negative entry（amount = -qty × locked_unit_cost）。"""
+    mr_id, line_id = _dispatch_mr(mr_repo, item.id, qty=3, unit_cost=Decimal("450.00"))
+    before = _query_ledger(mr_repo, mr_id)
+    assert len(before) == 1  # dispatch 寫的 estimated entry
+    dispatch_entry = before[0]
+    assert Decimal(str(dispatch_entry.amount)) == Decimal("1350.00")  # 3 × 450
+
+    mr_repo.add_return(
+        request_id=mr_id,
+        item_id=item.id,
+        qty=2,
+        reason=ReturnReason.SURPLUS,
+        return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+        note="退 2 顆",
+    )
+
+    after = _query_ledger(mr_repo, mr_id)
+    assert len(after) == 2
+    offset = next(e for e in after if Decimal(str(e.amount)) < 0)
+    assert Decimal(str(offset.amount)) == Decimal("-900.00")  # -(2 × 450)
+    assert offset.status == "confirmed"
+    assert offset.confirmed_at is not None
+    assert offset.source_item_id == str(line_id)
+    assert offset.category == "material"
+    assert offset.locked_unit_cost == Decimal("450.0000")
+    assert "退料沖銷" in (offset.note or "")
+    assert "reason=surplus" in (offset.note or "")
+
+
+def test_add_return_uses_dispatch_locked_unit_cost_even_if_inventory_changed(
+    mr_repo, inv_repo, item
+):
+    """退料金額用 dispatch 當下的 locked_unit_cost — inventory.unit_cost 改動不影響。"""
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2, unit_cost=Decimal("450.00"))
+    # dispatch 後改 inventory unit_cost（模擬料件再進貨改價）
+    inv_repo.update_metadata(item.id, unit_cost=Decimal("999.99"))
+
+    mr_repo.add_return(
+        request_id=mr_id,
+        item_id=item.id,
+        qty=1,
+        reason=ReturnReason.SURPLUS,
+        return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    entries = _query_ledger(mr_repo, mr_id)
+    offset = next(e for e in entries if Decimal(str(e.amount)) < 0)
+    # -1 × 450（dispatch locked），不是 -1 × 999.99（current inventory）
+    assert Decimal(str(offset.amount)) == Decimal("-450.00")
+    assert offset.locked_unit_cost == Decimal("450.0000")
+
+
+def test_add_return_summary_by_category_nets_correctly(mr_repo, inv_repo, item, db_path):
+    """退料後 summary_by_category(CONFIRMED) 正確 net out。"""
+    from modules.cost.repository import get_cost_ledger_repository
+    from modules.cost.repository.cost_ledger import (
+        CostLedgerCategory,
+        CostLedgerStatus,
+    )
+
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=3, unit_cost=Decimal("450.00"))
+    # 退料前先把 estimated 翻 confirmed（模擬 wo finish hook）
+    ledger_repo = get_cost_ledger_repository(db_path)
+    entries = _query_ledger(mr_repo, mr_id)
+    dispatch_entry_id = UUID(entries[0].id)
+    ledger_repo.confirm_entry(dispatch_entry_id, new_amount=Decimal("1350.00"))
+
+    # 退 2
+    mr_repo.add_return(
+        request_id=mr_id, item_id=item.id, qty=2,
+        reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    summary = ledger_repo.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.CONFIRMED
+    )
+    material_total = summary.get(CostLedgerCategory.MATERIAL, Decimal("0"))
+    # 1350 (confirmed) + (-900) (offset) = 450（實際消耗 1 顆 × 450）
+    assert material_total == Decimal("450.00")
+
+
+def test_add_return_no_matching_line_item_still_returns_stock(
+    mr_repo, inv_repo, warehouse
+):
+    """退料對應不到 MR line item 時，stock 仍加回但 ledger 不寫（防禦）。"""
+    # 建 item A（mr 內），item B（mr 沒收）
+    item_a = inv_repo.create_item(
+        sku="A-1", name="a", description="a", unit="piece",
+        farm_id="changhua", warehouse_id=warehouse.id,
+        unit_cost=Decimal("100"), stock_new=10,
+    )
+    item_b = inv_repo.create_item(
+        sku="B-1", name="b", description="b", unit="piece",
+        farm_id="changhua", warehouse_id=warehouse.id,
+        unit_cost=Decimal("200"), stock_new=10,
+    )
+    mr_id, _ = _dispatch_mr(mr_repo, item_a.id, qty=1, unit_cost=Decimal("100"))
+
+    initial_b = inv_repo.get_item(item_b.id).stock_new
+    # 退 item B（mr 沒這個 line item）— 應該 stock 加回 + skip ledger
+    mr_repo.add_return(
+        request_id=mr_id, item_id=item_b.id, qty=1,
+        reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    assert inv_repo.get_item(item_b.id).stock_new == initial_b + 1
+    # ledger 只有 item A 的 dispatch entry，沒有 item B 的 offset
+    entries = _query_ledger(mr_repo, mr_id)
+    assert len(entries) == 1
+    assert Decimal(str(entries[0].amount)) > 0  # 只有原 dispatch 正 entry
+
+
+def test_add_return_atomic_rollback_on_failure(mr_repo, inv_repo, item):
+    """退料 atomic：raise 後 stock / ledger / return record 全部不變。"""
+    from unittest.mock import patch
+
+    mr_id, _ = _dispatch_mr(mr_repo, item.id, qty=2, unit_cost=Decimal("450.00"))
+    stock_before = inv_repo.get_item(item.id).stock_new
+    ledger_before = _query_ledger(mr_repo, mr_id)
+
+    # patch insert_in_session raise → 整個 transaction rollback
+    with patch(
+        "modules.cost.repository.cost_ledger.insert_in_session",
+        side_effect=RuntimeError("injected failure"),
+    ):
+        with pytest.raises(RuntimeError, match="injected failure"):
+            mr_repo.add_return(
+                request_id=mr_id, item_id=item.id, qty=1,
+                reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+                returned_by=uuid4(),
+            )
+
+    # stock 沒變、ledger 沒新 entry
+    assert inv_repo.get_item(item.id).stock_new == stock_before
+    assert len(_query_ledger(mr_repo, mr_id)) == len(ledger_before)
