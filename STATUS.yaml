@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-18"
-next_milestone: "**WMOM-20260509-07 A7 庫存 frontend done — M4 frontend 全收，demo flow 100% 接合**：今日（autonomous daily worker session, 5/18 19:00）依 5/18 早班 A6 handoff 推進候選清單最高優先 A7。6 個新檔（inventoryService 8 endpoint / useInventory hook / InventoryListPanel / InventoryAdjustmentDialog / InventoryDetailDrawer / statusUtils 擴 locationKindLabel + WorkflowPage 加 `inventory` tab）。List panel：warehouse filter / below_safety toggle / sku|name search / 三欄 stock cell（new / used / repairing）/ LOW 警示 pill + border-left 4px warn；Detail drawer 480px 右側滑出：完整 metadata + audit log lazy load + 觸發 adjust dialog（z=300 over drawer z=180）；Adjust dialog：delta_kind / 整數 delta（0 invalid）/ reason 必填 / preview 顯示 `qty {sign}{abs} = next` 含 negative 警告（client preempts 409）；WorkflowPage tab 從 3 變 4（orders / material / inventory / approval），selectedInvItem rawItems sync 與 selectedMR 同 pattern 避 search stale。Backend：未動，512 passed + 1 xfailed + 3 pre-existing numpy drift（與 main baseline 一致 zero regression；flaky concurrency test 今日通過比 baseline 多 1 pass）；Frontend：tsc 0 error / vite build 4.47s, 748 modules (+5 from A6 baseline)。Code-reviewer subagent 跑（async background，PR open 時併入 must-fix）。M4 progress 99 → 100（A1-A10 全 done + frontend 全收；剩 F1-F6 / WMOM-20260518-01 follow-up 為 nice-to-have）。M4 milestone 進度 99 → 100。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI 完整版）/ F1-F6 follow-up / WMOM-20260518-01 SKU+name join / WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-18-inventory-frontend.md。"
+last_updated: "2026-05-19"
+next_milestone: "**WMOM-20260518-01 done — MR detail items 加 SKU/name/unit enrichment**：今日（autonomous daily worker session, 5/19 20:00）依 5/18 A7 handoff 候選清單推進 demo polish 第一順位 A6 follow-up。Backend：MaterialRequestItemResponse 加 3 個 Optional 欄位（sku/name/unit），由 router 層 `_build_mr_response` / `_build_mr_responses` 兩 helper enrich（共用同個 farm DB engine 的 InventoryRepository batch-fetch，避 N+1）；InventoryRepository 加 `get_items_by_ids(ids) -> dict` 一次 `WHERE id IN (...)`；MaterialRequestRepository 加 `engine` public property。8 個 router call site 全改 helper。新增 5 regression test（test_mr_item_enrichment.py，含 missing-item fallback to None）— 517 passed + 1 xfailed + 3 pre-existing numpy drift。Frontend：MaterialRequestDetailModal items table 從 4 欄擴 6 欄（SKU / 名稱 / 預估 / 實領 / 單位 / 庫存類型）；receive form label / return form select option 也用 SKU 顯示；service `MaterialRequestItem` interface 加 3 Optional 欄位；tsc 0 error / vite build 4.45s, 748 modules (與 A7 baseline 一致)。Zero regression。M4 follow-up 之一 done。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI 完整版，最高優先）/ F1-F6 follow-up（F2 / F3 / F5 小修可 30min-1h 塞進）/ WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-items-sku-name.md。"
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 20  # -1 (WMOM-20260509-07 done) = 20 net
+  open: 19  # -1 (WMOM-20260518-01 done) = 19 net
   in_progress: 0
   blocked: 0
-  done: 35  # +1: WMOM-20260509-07 done (2026-05-18 PM)
+  done: 36  # +1: WMOM-20260518-01 done (2026-05-19 PM)
 
 inherited_baseline:
   source: digiWindTurbine

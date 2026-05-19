@@ -241,6 +241,23 @@ class InventoryRepository:
             orm = sess.get(InventoryItemORM, str(item_id))
             return self._item_to_domain(orm) if orm else None
 
+    def get_items_by_ids(self, item_ids: list[UUID]) -> dict[UUID, InventoryItem]:
+        """Batch fetch — 一次 ``WHERE id IN (...)`` 取多個 item，回 dict 方便 lookup。
+
+        給 MaterialRequest response enrichment 用：避開 N+1（200 MR × 3 items 不能 600 query）。
+        缺漏的 ``item_ids`` 不在 dict 內（caller 自行 fallback）；空 list 回空 dict。
+        """
+        if not item_ids:
+            return {}
+        with self._sessionmaker() as sess:
+            stmt = select(InventoryItemORM).where(
+                InventoryItemORM.id.in_([str(i) for i in item_ids])
+            )
+            return {
+                UUID(orm.id): self._item_to_domain(orm)
+                for orm in sess.execute(stmt).scalars().all()
+            }
+
     def get_item_by_sku(self, farm_id: str, sku: str) -> InventoryItem | None:
         with self._sessionmaker() as sess:
             stmt = select(InventoryItemORM).where(

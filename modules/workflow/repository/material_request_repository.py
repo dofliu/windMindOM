@@ -104,6 +104,13 @@ class MaterialRequestRepository:
         self._engine = engine
         self._sessionmaker = sessionmaker(engine, expire_on_commit=False, future=True)
 
+    @property
+    def engine(self) -> Engine:
+        """Read-only engine accessor — 給 router 共享 InventoryRepository 在同個 farm DB engine
+        上做 batch enrich（避免重新 resolve farm_id → db_path）。
+        """
+        return self._engine
+
     # ──────────────────────────────────────────────────────────────────
     # CRUD
     # ──────────────────────────────────────────────────────────────────

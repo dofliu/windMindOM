@@ -21,8 +21,10 @@ from modules.workflow.domain.inventory import (
     MaterialRequestStatus,
     StockKind,
 )
+from modules.workflow.domain.inventory import MaterialRequest
 from modules.workflow.repository import (
     InsufficientStock,
+    InventoryRepository,
     MaterialRequestRepository,
     MaterialRequestRuleViolation,
     SignoffRepository,
@@ -128,6 +130,71 @@ def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Response enrichment（WMOM-20260518-01）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _build_mr_response(
+    mr_repo: MaterialRequestRepository, mr: MaterialRequest
+) -> MaterialRequestResponse:
+    """把 ``MaterialRequest`` 轉成帶 SKU / name / unit enriched 的 response。
+
+    用 ``InventoryRepository`` batch-fetch（共用同個 farm DB engine）避 N+1：一張 MR 多筆
+    item 仍只發一次 ``WHERE id IN (...)``。找不到對應 InventoryItem 的 row（被刪 / migration
+    不完整）→ 該 row 的 SKU/name/unit 保留 None（schema 為 Optional），frontend fallback 顯
+    truncated UUID 與既有行為一致。
+    """
+    base = MaterialRequestResponse.model_validate(mr)
+    if not mr.items:
+        return base
+    inv_repo = InventoryRepository(mr_repo.engine)
+    items_by_id = inv_repo.get_items_by_ids([it.item_id for it in mr.items])
+    enriched_items = [
+        item.model_copy(
+            update={
+                "sku": inv.sku if (inv := items_by_id.get(item.item_id)) else None,
+                "name": inv.name if inv else None,
+                "unit": inv.unit if inv else None,
+            }
+        )
+        for item in base.items
+    ]
+    return base.model_copy(update={"items": enriched_items})
+
+
+def _build_mr_responses(
+    mr_repo: MaterialRequestRepository, mrs: list[MaterialRequest]
+) -> list[MaterialRequestResponse]:
+    """List 端 batch enrich — 把所有 MR 的 items 一次 ``WHERE id IN (...)`` 撈完。
+
+    比 per-MR 各自呼叫 ``_build_mr_response`` 更省一輪 query；200 MR × 平均 3 items 由 200
+    query 壓縮到 1 query。
+    """
+    if not mrs:
+        return []
+    base_list = [MaterialRequestResponse.model_validate(mr) for mr in mrs]
+    all_item_ids = list({it.item_id for mr in mrs for it in mr.items})
+    if not all_item_ids:
+        return base_list
+    inv_repo = InventoryRepository(mr_repo.engine)
+    items_by_id = inv_repo.get_items_by_ids(all_item_ids)
+    enriched: list[MaterialRequestResponse] = []
+    for resp in base_list:
+        new_items = [
+            item.model_copy(
+                update={
+                    "sku": inv.sku if (inv := items_by_id.get(item.item_id)) else None,
+                    "name": inv.name if inv else None,
+                    "unit": inv.unit if inv else None,
+                }
+            )
+            for item in resp.items
+        ]
+        enriched.append(resp.model_copy(update={"items": new_items}))
+    return enriched
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # CRUD
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -152,7 +219,7 @@ async def create_material_request(req: CreateMaterialRequest) -> MaterialRequest
         )
     except MaterialRequestRuleViolation as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 @router.get("/material-requests", response_model=MaterialRequestListResponse)
@@ -173,7 +240,7 @@ async def list_material_requests(
     )
     return MaterialRequestListResponse(
         total=total,
-        items=[MaterialRequestResponse.model_validate(mr) for mr in items],
+        items=_build_mr_responses(repo, items),
     )
 
 
@@ -192,7 +259,7 @@ async def get_material_request(
             status_code=404,
             detail=f"material_request {material_request_id} not found",
         )
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -253,7 +320,7 @@ async def submit_for_approval(
         )
 
     mr = mr_repo.get(material_request_id)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr_repo, mr)
 
 
 @router.post(
@@ -282,7 +349,7 @@ async def dispatch_material_request(
         raise _map_state_error("dispatch", e)
     except InsufficientStock as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 @router.post(
@@ -309,7 +376,7 @@ async def receive_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("receive", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 @router.post(
@@ -332,7 +399,7 @@ async def close_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("close", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 @router.post(
@@ -362,7 +429,7 @@ async def cancel_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("cancel", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(repo, mr)
 
 
 @router.post(

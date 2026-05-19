@@ -50,6 +50,10 @@ export interface MaterialRequestItem {
   estimated_qty: number;
   actual_qty: number | null;
   stock_kind: StockKind;
+  // Backend enrich 自 InventoryItem 主檔（WMOM-20260518-01）；item 被刪時為 null
+  sku: string | null;
+  name: string | null;
+  unit: string | null;
 }
 
 export interface MaterialReturnResponse {

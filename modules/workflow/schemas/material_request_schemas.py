@@ -97,6 +97,13 @@ class CreateMaterialReturn(BaseModel):
 
 
 class MaterialRequestItemResponse(BaseModel):
+    """單一料件明細 response。
+
+    ``sku`` / ``name`` / ``unit`` 為 router 層 enrich 自 ``InventoryItem`` 主檔
+    的 denormalized 欄位（給 frontend 直接顯示，避免 N+1 fetch）；inventory_item
+    被刪或 join 失敗時為 None。
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -105,6 +112,11 @@ class MaterialRequestItemResponse(BaseModel):
     estimated_qty: int
     actual_qty: Optional[int] = None
     stock_kind: StockKind
+
+    # 自 InventoryItem batch-fetch enrich（給 frontend 顯示用）
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    unit: Optional[str] = None
 
 
 class MaterialReturnResponse(BaseModel):

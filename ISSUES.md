@@ -13,11 +13,11 @@
 
 | Status | Count |
 |--------|------|
-| open | 22 |
+| open | 19 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 29 |
-| **total (active)** | **51** |
+| done | 36 |
+| **total (active)** | **55** |
 
 最後更新：2026-05-09（**🎉 M4 backend 5 issue 全收 + 2026-05-09 code review fixes — backend 收官完整版**）。今日一日推完 A1..A5（domain → repo+atomic dispatch → MR API + signoff → inventory API → cost ledger 整合），再透過 code-reviewer subagent 找到 3 must-fix（會計正確性 / multi-farm safe / fragile error mapping）已全修 + 11 review-fix tests。M4 backend 累計：5 issue + 1 review-fixes commit / **216 new tests** / 33 endpoints / 完整 lifecycle 鏈路（建料件 → 開單 → 簽核 → atomic 出庫 → 簽收 → 完工 → ledger confirmed with **locked unit_cost**）。Workflow + cost 全 446 pass + 1 xfailed (existing) — **0 regression**。Review-fix 重點：(1) `locked_unit_cost` 欄位讓 confirmed amount 用 dispatch 當下的價，不被 dispatch 後 unit_cost 變動影響（會計做帳要求）；(2) `_finish_hook_db_path_overrides` 改 dict + farm_id key 解 multi-farm singleton 風險；(3) `InvalidTransition.reason` 屬性精確 router 端 status code mapping，不依賴字串匹配；(4) approval_router MR auto-dispatch 加 bare except 兜底 (chain 已落地的 unexpected error 不 raise 500)。同時加入 6 個 follow-up issues（F1-F6）追蹤 should-fix / nice-to-have（add_return ledger 沖銷 / func.count / list_warehouses repo / shared FARM_REGISTRY / actor_id Optional / PostgreSQL row-lock test）。M4 milestone progress 60% → 65%（review-fix 不算 backend 進度但讓品質達 production-ready）。下一步：A6 frontend 接 API（material_request UI），或 A8 reporting backend。下次 session 從 main 開始。）
 
@@ -1943,7 +1943,7 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
 
-- **Status**: open
+- **Status**: done（2026-05-19，branch `claude/issue-WMOM-20260518-01-2026-05-19`）
 - **Milestone**: M4 後續 / M5 demo polish
 - **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
 - **Estimate**: 0.5 工作天
@@ -1954,9 +1954,15 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - Repository 改 `_to_domain` 時 left-join 對應 `InventoryItem`（或在 router 層 batch fetch）填回
   - Frontend 改 `MaterialRequestDetailModal` items table 顯 SKU + name + unit；wizard step 3 review 也順手改顯 SKU
 - **Acceptance**:
-  - backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests
-  - frontend detail modal items table 改 layout：`SKU | name | qty | actual | unit`
-  - tsc clean / vite build / backend zero regression
+  - [x] backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests（517 passed + 1 xfailed，新增 5 個 regression test）
+  - [x] frontend detail modal items table 改 layout：`SKU | name | est | actual | unit | stock_kind` 6 欄
+  - [x] tsc clean / vite build / backend zero regression
+- **Implementation**:
+  - 採 router 層 batch enrich（非 repo `_to_domain` join）— pure domain 保持不被 denormalized 欄位污染
+  - 加 `InventoryRepository.get_items_by_ids(ids) -> dict` 一次 SQL `WHERE id IN (...)`
+  - 加 `MaterialRequestRepository.engine` public property 給 router 共用同 farm DB 的 InventoryRepository
+  - 加 `_build_mr_response(mr_repo, mr)` / `_build_mr_responses(mr_repo, mrs)` 兩 helper；8 個 call site 全改用
+  - InventoryItem 找不到（被刪 / migration 漏）→ `sku/name/unit` 留 None，frontend fallback 顯 truncated UUID
 - **Depends on**: WMOM-20260509-06（done）
 - **Blocks**: -
 

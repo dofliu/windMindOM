@@ -414,40 +414,53 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                    gridTemplateColumns: '1.1fr 1.8fr 0.8fr 0.8fr 0.8fr 1fr',
                     padding: '8px 12px',
                     borderBottom: `1px solid ${C.border}`,
                     fontSize: 11,
                     color: C.sub,
                     textTransform: 'uppercase',
+                    gap: 8,
                   }}
                 >
-                  <div>{ui('Item ID', '料件 UUID')}</div>
-                  <div>{ui('Stock kind', '庫存類型')}</div>
+                  <div>{ui('SKU', '料號')}</div>
+                  <div>{ui('Name', '名稱')}</div>
                   <div>{ui('Est. qty', '預估量')}</div>
                   <div>{ui('Actual qty', '實領量')}</div>
+                  <div>{ui('Unit', '單位')}</div>
+                  <div>{ui('Stock kind', '庫存類型')}</div>
                 </div>
                 {mr.items.map(it => (
                   <div
                     key={it.id}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                      gridTemplateColumns: '1.1fr 1.8fr 0.8fr 0.8fr 0.8fr 1fr',
                       padding: '8px 12px',
                       borderTop: `1px solid ${C.border}`,
                       fontSize: 12,
                       color: C.text,
                       alignItems: 'center',
+                      gap: 8,
                     }}
                   >
                     <div
-                      style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}
+                      style={{
+                        fontFamily: it.sku
+                          ? undefined
+                          : 'JetBrains Mono, monospace',
+                        fontSize: it.sku ? 12 : 11,
+                        color: it.sku ? C.text : C.sub,
+                      }}
+                      title={it.sku ?? it.item_id}
                     >
-                      …{it.item_id.slice(-12)}
+                      {it.sku ?? `…${it.item_id.slice(-12)}`}
                     </div>
-                    <div>{stockKindLabel(it.stock_kind, lang)}</div>
+                    <div title={it.name ?? undefined}>{it.name ?? '—'}</div>
                     <div>{it.estimated_qty}</div>
                     <div>{it.actual_qty ?? '—'}</div>
+                    <div style={{ color: C.sub }}>{it.unit ?? '—'}</div>
+                    <div>{stockKindLabel(it.stock_kind, lang)}</div>
                   </div>
                 ))}
               </Card>
@@ -553,10 +566,18 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                         key={it.id}
                         label={
                           <>
-                            <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                              …{it.item_id.slice(-8)}
-                            </span>{' '}
-                            ({ui('est.', '預估')} {it.estimated_qty})
+                            {it.sku ? (
+                              <span>
+                                <strong>{it.sku}</strong>
+                                {it.name ? ` · ${it.name}` : ''}
+                              </span>
+                            ) : (
+                              <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                                …{it.item_id.slice(-8)}
+                              </span>
+                            )}{' '}
+                            ({ui('est.', '預估')} {it.estimated_qty}
+                            {it.unit ? ` ${it.unit}` : ''})
                           </>
                         }
                       >
@@ -677,7 +698,9 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                           { value: '', label: ui('— Select item —', '— 選擇項目 —') },
                           ...mr.items.map(it => ({
                             value: it.item_id,
-                            label: `${it.item_id.slice(-8)} · ${ui('est.', '預估')} ${it.estimated_qty}`,
+                            label: it.sku
+                              ? `${it.sku} · ${it.name ?? ''} · ${ui('est.', '預估')} ${it.estimated_qty}${it.unit ? ` ${it.unit}` : ''}`
+                              : `${it.item_id.slice(-8)} · ${ui('est.', '預估')} ${it.estimated_qty}`,
                           })),
                         ]}
                         onChange={setReturnItemId}
