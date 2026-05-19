@@ -414,7 +414,7 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                    gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr',
                     padding: '8px 12px',
                     borderBottom: `1px solid ${C.border}`,
                     fontSize: 11,
@@ -422,7 +422,8 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                     textTransform: 'uppercase',
                   }}
                 >
-                  <div>{ui('Item ID', '料件 UUID')}</div>
+                  <div>{ui('SKU', '料號')}</div>
+                  <div>{ui('Name', '料件名')}</div>
                   <div>{ui('Stock kind', '庫存類型')}</div>
                   <div>{ui('Est. qty', '預估量')}</div>
                   <div>{ui('Actual qty', '實領量')}</div>
@@ -432,7 +433,7 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                     key={it.id}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                      gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr',
                       padding: '8px 12px',
                       borderTop: `1px solid ${C.border}`,
                       fontSize: 12,
@@ -442,12 +443,29 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                   >
                     <div
                       style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}
+                      title={it.item_id}
                     >
-                      …{it.item_id.slice(-12)}
+                      {it.sku ?? `…${it.item_id.slice(-8)}`}
+                    </div>
+                    <div
+                      style={{
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={it.name ?? undefined}
+                    >
+                      {it.name ?? '—'}
                     </div>
                     <div>{stockKindLabel(it.stock_kind, lang)}</div>
-                    <div>{it.estimated_qty}</div>
-                    <div>{it.actual_qty ?? '—'}</div>
+                    <div>
+                      {it.estimated_qty}
+                      {it.unit ? ` ${it.unit}` : ''}
+                    </div>
+                    <div>
+                      {it.actual_qty ?? '—'}
+                      {it.actual_qty !== null && it.unit ? ` ${it.unit}` : ''}
+                    </div>
                   </div>
                 ))}
               </Card>
@@ -554,9 +572,11 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                         label={
                           <>
                             <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                              …{it.item_id.slice(-8)}
-                            </span>{' '}
-                            ({ui('est.', '預估')} {it.estimated_qty})
+                              {it.sku ?? `…${it.item_id.slice(-8)}`}
+                            </span>
+                            {it.name ? ` · ${it.name}` : ''}{' '}
+                            ({ui('est.', '預估')} {it.estimated_qty}
+                            {it.unit ? ` ${it.unit}` : ''})
                           </>
                         }
                       >
@@ -675,10 +695,15 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                         value={returnItemId}
                         options={[
                           { value: '', label: ui('— Select item —', '— 選擇項目 —') },
-                          ...mr.items.map(it => ({
-                            value: it.item_id,
-                            label: `${it.item_id.slice(-8)} · ${ui('est.', '預估')} ${it.estimated_qty}`,
-                          })),
+                          ...mr.items.map(it => {
+                            const id = it.sku ?? `…${it.item_id.slice(-8)}`;
+                            const namePart = it.name ? ` · ${it.name}` : '';
+                            const unitPart = it.unit ? ` ${it.unit}` : '';
+                            return {
+                              value: it.item_id,
+                              label: `${id}${namePart} · ${ui('est.', '預估')} ${it.estimated_qty}${unitPart}`,
+                            };
+                          }),
                         ]}
                         onChange={setReturnItemId}
                         ariaLabel={ui('Item to return', '退料項目')}

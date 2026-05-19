@@ -178,6 +178,13 @@ class MaterialRequestItemORM(Base):
     stock_kind: Mapped[str] = mapped_column(String(16), default="new")  # new/used/repairing
 
     request: Mapped["MaterialRequestORM"] = relationship(back_populates="items")
+    # 純讀向 join — 給 _to_domain 拉 sku/name/unit metadata（WMOM-20260518-01）；
+    # item_id 已有 ForeignKey 宣告，SQLAlchemy 自動推算 primaryjoin，無須顯式設定。
+    inventory_item: Mapped[Optional["InventoryItemORM"]] = relationship(
+        "InventoryItemORM",
+        viewonly=True,
+        lazy="joined",
+    )
 
 
 class MaterialReturnORM(Base):
