@@ -18,10 +18,11 @@ Business key：``MR-{farm_id_short}-{YYYYMM}-{NN}``（與 work_order 同 pattern
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, func, select
@@ -49,6 +50,7 @@ from modules.workflow.domain.inventory_state_machine import (
 
 from ._helpers import ensure_utc, str_to_uuid, uuid_to_str
 from .inventory_orm import (
+    InventoryItemORM,
     MaterialRequestItemORM,
     MaterialRequestORM,
     MaterialReturnORM,
@@ -75,6 +77,19 @@ _logger = logging.getLogger(__name__)
 
 class MaterialRequestRuleViolation(Exception):
     """違反 business 規則（如 dispatch state mismatch、business_key 重覆）。"""
+
+
+@dataclass(frozen=True)
+class ItemMetadata:
+    """`MaterialRequestItem.item_id` 對應 InventoryItem 的 view-projection metadata。
+
+    給 router response builder 用 — 不放進 domain `MaterialRequestItem`，避免污染
+    aggregate 內部（SKU/名稱/單位屬於 InventoryItem 主檔）。
+    """
+
+    sku: str
+    name: str
+    unit: str
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -246,6 +261,33 @@ class MaterialRequestRepository:
             orm.signoff_chain_id = str(chain_id)
             orm.updated_at = _utc_now()
             sess.commit()
+
+    def resolve_item_metadata(
+        self, item_ids: Iterable[UUID]
+    ) -> dict[UUID, ItemMetadata]:
+        """Batch fetch (sku, name, unit) 給 router response builder。
+
+        - 走同一 farm DB engine 一次 SQL `SELECT id, sku, name, unit FROM inventory_items WHERE id IN (...)`
+        - 缺漏 item_id（data drift / 已刪）→ key 不存在於回傳 dict（不 raise）
+        - empty input → 直接 `{}`，避免發 0-row IN 查詢
+        - ``item_ids`` 為 ``Iterable`` 但**只消費一次**（先 materialise 成 set）；
+          caller 可放 set / list / generator 均可
+        """
+        ids = {str(i) for i in item_ids}
+        if not ids:
+            return {}
+        with self._sessionmaker() as sess:
+            stmt = select(
+                InventoryItemORM.id,
+                InventoryItemORM.sku,
+                InventoryItemORM.name,
+                InventoryItemORM.unit,
+            ).where(InventoryItemORM.id.in_(ids))
+            rows = sess.execute(stmt).all()
+            return {
+                UUID(row.id): ItemMetadata(sku=row.sku, name=row.name, unit=row.unit)
+                for row in rows
+            }
 
     # ──────────────────────────────────────────────────────────────────
     # State transition wrapper

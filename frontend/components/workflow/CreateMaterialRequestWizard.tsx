@@ -608,12 +608,12 @@ const CreateMaterialRequestWizard: React.FC<Props> = ({
                           key={line.item.id}
                           style={{ fontSize: 12, color: C.sub }}
                         >
-                          <span
-                            style={{ fontFamily: 'JetBrains Mono, monospace' }}
-                          >
+                          <strong style={{ color: C.text }}>
                             {line.item.sku}
-                          </span>{' '}
-                          × {line.estimated_qty} · {stockKindLabel(line.stock_kind, lang)}
+                          </strong>
+                          {' · '}
+                          {line.item.name} × {line.estimated_qty}{' '}
+                          {line.item.unit} · {stockKindLabel(line.stock_kind, lang)}
                         </div>
                       ))}
                     </div>

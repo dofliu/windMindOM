@@ -50,6 +50,11 @@ export interface MaterialRequestItem {
   estimated_qty: number;
   actual_qty: number | null;
   stock_kind: StockKind;
+
+  // Backend join from inventory_items（缺漏 / data drift 時為 null）
+  sku?: string | null;
+  name?: string | null;
+  unit?: string | null;
 }
 
 export interface MaterialReturnResponse {

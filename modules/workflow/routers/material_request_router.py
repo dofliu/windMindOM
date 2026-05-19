@@ -11,8 +11,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from modules.workflow.domain.inventory import MaterialRequest
+    from modules.workflow.repository import ItemMetadata
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -36,6 +40,7 @@ from modules.workflow.schemas import (
     CreateMaterialRequest,
     CreateMaterialReturn,
     DispatchMaterialRequest,
+    MaterialRequestItemResponse,
     MaterialRequestListResponse,
     MaterialRequestResponse,
     MaterialReturnResponse,
@@ -128,6 +133,69 @@ def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Response builder — enrich items with inventory metadata (sku/name/unit)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _enrich_items(
+    items: list[MaterialRequestItemResponse],
+    meta: dict[UUID, "ItemMetadata"],
+) -> list[MaterialRequestItemResponse]:
+    """以 ``model_copy(update=...)`` 不可變方式填回 sku/name/unit。
+
+    不直接 mutate 屬性是為了：未來若 schema 加上 ``frozen=True`` 也不會悄悄失效；
+    同時讓 enrichment 變成 pure function。
+    """
+    enriched: list[MaterialRequestItemResponse] = []
+    for it in items:
+        m = meta.get(it.item_id)
+        if m is None:
+            enriched.append(it)
+        else:
+            enriched.append(
+                it.model_copy(update={"sku": m.sku, "name": m.name, "unit": m.unit})
+            )
+    return enriched
+
+
+def _build_mr_response(
+    mr: "MaterialRequest", repo: MaterialRequestRepository
+) -> MaterialRequestResponse:
+    """``MaterialRequestResponse.model_validate(mr)`` 後批次填回 items 的 sku/name/unit。
+
+    注意：此 helper 在 ``repo.get / transition`` 完成後額外開一條 read session 取
+    inventory metadata，**非 transactional** — 若另一 process 在 mr fetch ↔ metadata
+    fetch 中間刪掉 item，回應的 sku/name/unit 會掉成 None（不會 raise / 不會 stale 對
+    caller 造成正確性問題，因為此為 view-projection only）。缺漏 item_id 在 schema 已
+    宣告 Optional。
+    """
+    resp = MaterialRequestResponse.model_validate(mr)
+    if not resp.items:
+        return resp
+    meta = repo.resolve_item_metadata([it.item_id for it in mr.items])
+    return resp.model_copy(update={"items": _enrich_items(resp.items, meta)})
+
+
+def _build_mr_list_response(
+    mrs: list["MaterialRequest"], total: int, repo: MaterialRequestRepository
+) -> MaterialRequestListResponse:
+    """List 場景：一次 union 所有 items 的 item_id 集合，單次 SQL 取得全部 metadata。"""
+    if not mrs:
+        return MaterialRequestListResponse(total=total, items=[])
+    all_item_ids: set[UUID] = set()
+    for mr in mrs:
+        all_item_ids.update(it.item_id for it in mr.items)
+    meta = repo.resolve_item_metadata(all_item_ids)
+    resp_items: list[MaterialRequestResponse] = []
+    for mr in mrs:
+        resp = MaterialRequestResponse.model_validate(mr)
+        resp_items.append(
+            resp.model_copy(update={"items": _enrich_items(resp.items, meta)})
+        )
+    return MaterialRequestListResponse(total=total, items=resp_items)
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # CRUD
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -152,7 +220,7 @@ async def create_material_request(req: CreateMaterialRequest) -> MaterialRequest
         )
     except MaterialRequestRuleViolation as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 @router.get("/material-requests", response_model=MaterialRequestListResponse)
@@ -171,10 +239,7 @@ async def list_material_requests(
         limit=limit,
         offset=offset,
     )
-    return MaterialRequestListResponse(
-        total=total,
-        items=[MaterialRequestResponse.model_validate(mr) for mr in items],
-    )
+    return _build_mr_list_response(items, total, repo)
 
 
 @router.get(
@@ -192,7 +257,7 @@ async def get_material_request(
             status_code=404,
             detail=f"material_request {material_request_id} not found",
         )
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -253,7 +318,7 @@ async def submit_for_approval(
         )
 
     mr = mr_repo.get(material_request_id)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, mr_repo)
 
 
 @router.post(
@@ -282,7 +347,7 @@ async def dispatch_material_request(
         raise _map_state_error("dispatch", e)
     except InsufficientStock as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 @router.post(
@@ -309,7 +374,7 @@ async def receive_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("receive", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 @router.post(
@@ -332,7 +397,7 @@ async def close_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("close", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 @router.post(
@@ -362,7 +427,7 @@ async def cancel_material_request(
         )
     except InvalidTransition as e:
         raise _map_state_error("cancel", e)
-    return MaterialRequestResponse.model_validate(mr)
+    return _build_mr_response(mr, repo)
 
 
 @router.post(

@@ -45,6 +45,7 @@ from .inventory_repository import (
     get_inventory_repository,
 )
 from .material_request_repository import (
+    ItemMetadata,
     MaterialRequestRepository,
     MaterialRequestRuleViolation,
     get_material_request_repository,
@@ -71,6 +72,7 @@ __all__ = [
     "InventoryAdjustmentLogORM",
     "InventoryItemORM",
     "InventoryRepository",
+    "ItemMetadata",
     "MaterialRequestItemORM",
     "MaterialRequestNotificationORM",
     "MaterialRequestORM",

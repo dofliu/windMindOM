@@ -106,6 +106,12 @@ class MaterialRequestItemResponse(BaseModel):
     actual_qty: Optional[int] = None
     stock_kind: StockKind
 
+    # ── 由 router 在 response builder 階段 batch 從 inventory_items join 填入 ──
+    # 若對應 item_id 在 inventory_items 已刪 / 不存在 → 保持 None（不 raise）
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    unit: Optional[str] = None
+
 
 class MaterialReturnResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
