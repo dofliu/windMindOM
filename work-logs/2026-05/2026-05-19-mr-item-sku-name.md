@@ -1,100 +1,120 @@
-# 2026-05-19 WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
+# 2026-05-19 WMOM-20260518-01 — MR detail items 加 SKU + name + unit（A6 follow-up）
 
-> **Issue**：WMOM-20260518-01 — MR detail modal 料件表加 SKU + name + unit 顯示
-> **Branch**：`claude/issue-WMOM-20260518-01-2026-05-19`
-> **Goal**：把 `MaterialRequestItemResponse` 補上 `sku / name / unit` 三欄，讓 detail modal、receive form、退料 picker 顯示人類可讀料件名（而非 truncated UUID）— 對現場工程師 demo 友善度顯著提升。
+> **Issue**：WMOM-20260518-01 — `MaterialRequestItemResponse` 加 `sku/name/unit`，後端 join、前端 detail modal items table 與 wizard review step 顯示
+> **Branch**：`claude/nice-brown-kJDox`（autonomous daily worker session 指派）
+> **Goal**：消滅 MR detail items table 只顯 truncated UUID 的 readability 黑洞，補完 A6 review Should #4 留下的 follow-up
 
 ---
 
 ## 1. 為什麼今天做這個
 
-依 2026-05-18 A7 inventory frontend handoff doc 建議下次 session 候選清單：
-- **M5 規劃**（最高優先）
-- F1-F6 follow-up 任選
-- **WMOM-20260518-01 SKU/name join**（A6 follow-up，需動 backend MaterialRequestItemResponse + repo join）
+2026-05-18 inventory frontend handoff doc 列今日候選 3 條：
+- M5 規劃（最大，但需先讀 ROADMAP M5 章節 + 決定第一個 issue，single session 不易完成）
+- F1-F6 follow-up（皆小修，價值有限）
+- **WMOM-20260518-01**（0.5d，A6 直接 follow-up）
 
-M5 規劃需要劉老師回覆 RAG 範圍 + demo orchestrator UI scope，autonomous session 不適合動。F1-F6 都是 0.5h 微整理，價值低。WMOM-20260518-01 是「demo polish」直接相關項目（M4 進度 100% 但 demo readability 還欠這一塊），單一 issue 完整能 1 個 session 收完，pattern 也清楚（backend join + frontend table layout）— 適合本日工作。
+WMOM-20260518-01 是 single-session 落地剛好的中型任務：
+- backend 改一個 schema + 一個 repo helper + 9 個 router call site
+- frontend 改一個 service type + 一個 detail modal items table + wizard review step
+- 對 demo readability 立即有感（現場工程師看到 SKU 比 UUID 直觀百倍）
 
 ---
 
-## 2. Scope 與設計決策
+## 2. 設計決策
 
-### 2.1 後端 join 策略：dataclass 補欄 vs view-model
+### 2.1 enrichment 放哪一層？
 
 選項：
-- **A. 在 MaterialRequestItem dataclass 加 optional `sku/name/unit` 欄位**，repository `_to_domain` 經 ORM relationship 補值，schema `from_attributes=True` 自動 propagate
-- **B. 不動 dataclass，於 router 層 batch fetch InventoryItem 後 inject 進 response dict**
-- **C. 加新 read-only view-model class（MaterialRequestItemView）**
+- **A. 在 domain 層擴 `MaterialRequestItem`** 加 sku/name/unit — 污染 domain（這些屬於 InventoryItem）
+- **B. 在 ORM 層 `joinedload` MaterialRequestItemORM → InventoryItemORM** 改 relationship，`_to_domain` 直接拿 — schema 動到，scope creep
+- **C. 在 router 層 batch fetch 後合併** — 最 minimal invasive，response-only enrichment
 
-選 **A** — 對齊 `_to_domain` 既有 pattern（已用 ORM relationship 拉 items / returns）；schema layer 直接 `from_attributes` 帶過去；frontend 無需改 hook 邏輯。domain 純度上 sku/name/unit 是 informational metadata，optional 預設 `None`，純 domain 操作（state machine / dispatch）不依賴這幾欄；只有 view 場景才有意義。
+選 **C**。理由：sku/name/unit 是 view-projection（給 frontend 看），不是 MR 本身屬性，留在 response builder 收尾最乾淨。
 
-### 2.2 ORM relationship loading 策略
+### 2.2 batch resolver 放哪？
 
-`MaterialRequestItemORM.item_id` 已是 FK to `inventory_items.id`，加 `inventory_item: Mapped[InventoryItemORM] = relationship(lazy="joined")` 即可。
+兩個 repo 共用同一 engine（同 farm DB），所以 `MaterialRequestRepository` 直接用內部 engine 查 `inventory_items` 表是合理的（dispatch_request 已經這麼做）。
 
-- `lazy="joined"`：每次 access `it.inventory_item` 時自動 LEFT JOIN（不會 N+1，因為 outer query 已 join）
-- 對 `MaterialRequestORM.items` 預設 lazy load 不變（既有 pattern），單筆 MR 拉所有 items 再 join inventory_item — 對 demo 規模（≤ 200 MR × ≤ 10 items each）效能足夠
+加 `resolve_item_metadata(item_ids: Iterable[UUID]) -> dict[UUID, ItemMetadata]`：
+- batch `SELECT id, sku, name, unit FROM inventory_items WHERE id IN (...)`
+- 回 dict；missing item → key 不存在（不 raise，view layer 顯 fallback）
 
-### 2.3 Schema optional vs required
+### 2.3 router 怎麼用？
 
-`MaterialRequestItemResponse.sku/name/unit` 全 `Optional`（預設 `None`），原因：
-- 既有 35+ test 與 5 e2e test 部分用 raw dataclass round-trip（無 ORM session），這時 sku/name/unit 確實是 None
-- frontend 顯示用 `??` fallback truncated UUID 即可，不破壞 backwards compat
+加 helper `_build_mr_response(mr, repo) -> MaterialRequestResponse`：
+1. `resp = MaterialRequestResponse.model_validate(mr)`（既有 path）
+2. `meta = repo.resolve_item_metadata([it.item_id for it in mr.items])`
+3. for each `it_resp in resp.items`：如 `meta` 有對應 row 就填 sku/name/unit
 
-### 2.4 Frontend layout
+list endpoint 用同 helper 但 batch（一個 list call → 一次 union 所有 items 的 item_id 集合 → 一次 SQL）
 
-Detail modal items table grid：
-- 原：`2fr 1fr 1fr 1fr`（Item ID / Stock kind / Est. qty / Actual qty）
-- 新：`1fr 2fr 1fr 1fr 1fr`（SKU / Name / Stock kind / Est. qty / Actual qty）— SKU 黏 left 用 mono font，name 給最寬欄，unit 不獨立顯（合進 qty 後加 `unit` 後綴更省空間）
+### 2.4 schema 欄位 nullable 還是 required？
 
-Receive form items rows、returns item picker options 也同步改顯 `SKU · name`，比 `…lastN` 易讀。
+選 **Optional[str] = None**（向後相容）：
+- 既有測試 fixture 不一定建 inventory_item 對應 row（如 sigil mock data）
+- 真實 production data drift 也可能讓某 item 被刪 / 找不到（不該 crash response）
+
+### 2.5 frontend 改動範圍
+
+只改 **MR detail modal items table** 與 **wizard step 3 review**：
+- detail modal: `SKU | name | qty | actual | unit` 新 layout
+- wizard step 3 review: 顯示 `{sku} {name}` 比 truncated UUID 直觀
+- wizard step 2 picker 已用 `useInventoryItems` 拿到完整 InventoryItemSummary（已有 sku/name），**不改**
 
 ---
 
 ## 3. 檔案異動（規劃）
 
-### 3.1 修改
+### 3.1 修改 backend
 
 ```
-M modules/workflow/domain/inventory.py                     MaterialRequestItem 加 optional sku/name/unit
-M modules/workflow/repository/inventory_orm.py             MaterialRequestItemORM 加 inventory_item joined relationship
-M modules/workflow/repository/material_request_repository.py
-                                                            _to_domain 補 sku/name/unit
-M modules/workflow/schemas/material_request_schemas.py     MaterialRequestItemResponse 加 sku/name/unit
-M frontend/services/materialService.ts                     MaterialRequestItem type 加 sku/name/unit
-M frontend/components/workflow/MaterialRequestDetailModal.tsx
-                                                            items table grid 5 欄 + receive form rows + return picker labels
-M ISSUES.md                                                WMOM-20260518-01 → done
-M STATUS.yaml                                              last_updated / progress note
+M modules/workflow/schemas/material_request_schemas.py     MaterialRequestItemResponse 加 sku/name/unit Optional
+M modules/workflow/repository/material_request_repository.py  加 resolve_item_metadata + ItemMetadata dataclass
+M modules/workflow/routers/material_request_router.py      加 _build_mr_response helper + 9 個 call site 改用
++ modules/workflow/tests/test_mr_item_metadata.py          新測試（4-5 個 case）
 ```
 
-### 3.2 新增
+### 3.2 修改 frontend
 
 ```
-+ modules/workflow/tests/test_material_request_item_metadata.py  
-                                                          backend regression test：list / get / transition 後 response 含 sku/name/unit
-+ work-logs/2026-05/2026-05-19-mr-item-sku-name.md         本檔
+M frontend/services/materialService.ts                    MaterialRequestItemResponse type 加 sku/name/unit?: string
+M frontend/components/workflow/MaterialRequestDetailModal.tsx  items table layout 改 5 欄 SKU | Name | Qty | Actual | Unit
+M frontend/components/workflow/CreateMaterialRequestWizard.tsx  step 3 review 顯示 SKU + name（picker 已有，這裡只改顯示）
 ```
 
-### 3.3 不修改
+### 3.3 修改 tracking
 
-- `CreateMaterialRequestWizard.tsx` step 3 review — 既有已從 `line.item.sku` 顯示，不依賴 response join，無需動
-- approval panel — 沿用既有 fallback (`…subject_id8` `領料單`)；不在此 PR 擴 panel scope（保留 follow-up nice-to-have）
+```
+M ISSUES.md         WMOM-20260518-01 → done；issue_stats open 20→19 / done 35→36
+M STATUS.yaml       last_updated / next_milestone
++ work-logs/2026-05/2026-05-19-mr-item-sku-name.md  本檔
+```
+
+### 3.4 不修改
+
+- domain layer（`MaterialRequestItem` 不加屬性）
+- ORM layer（不加 relationship / joinedload）
+- materialService `inventoryApi` picker subset（已有完整 sku/name，不動）
 
 ---
 
-## 4. TODO（implementation checklist）
+## 4. TODO
 
+- [x] Read existing code（schema / repo / router / detail modal）
 - [x] Branch + work-log
-- [x] backend：dataclass + ORM + repo + schema
-- [x] backend test：regression `test_material_request_item_metadata.py`
-- [x] frontend：service type + detail modal items table + receive form rows + return picker label
-- [x] tsc clean
-- [x] vite build zero error
-- [x] backend zero regression（baseline 512+1+3）
-- [x] code-reviewer subagent 跑（async background — 第二 commit 採納 must-fix 若有）
-- [x] STATUS.yaml + ISSUES.md
-- [x] commit + push
+- [x] backend schema 加 Optional sku/name/unit
+- [x] backend repo `resolve_item_metadata` + `ItemMetadata` dataclass
+- [x] backend router `_build_mr_response` helper + 改 9 call sites
+- [x] backend tests for new helper + 不破壞既有 35+ MR + 5+ e2e tests（9 new tests）
+- [x] frontend type 加 sku/name/unit?
+- [x] frontend detail modal items table 改 6 欄（含 fallback UUID）
+- [x] frontend receive form + returns dropdown 改顯 SKU·name
+- [x] frontend wizard step 3 review 顯 SKU + name + unit
+- [x] tsc clean / vite build 3.57s 748 modules 917.15 kB
+- [x] backend pytest zero regression（526 pass + 1 xfailed + 3 numpy drift + 1 flaky）
+- [x] code-reviewer subagent + 採納 3 must-fix + 3 should-fix + 2 nice-to-have（全採納）
+- [x] ISSUES.md / STATUS.yaml update
+- [ ] commit + push + PR
 
 ---
 
@@ -102,66 +122,72 @@ M STATUS.yaml                                              last_updated / progre
 
 ### 5.1 完成檔案
 
-修改（8 個檔）：
-- `modules/workflow/domain/inventory.py` — `MaterialRequestItem` 加 3 optional metadata 欄位 `sku / name / unit`，預設 None，不影響 state machine / dispatch
-- `modules/workflow/repository/inventory_orm.py` — `MaterialRequestItemORM` 加 `inventory_item` joined relationship（`viewonly=True` 避免任何反向寫入）
-- `modules/workflow/repository/material_request_repository.py` — `_to_domain` 從 `it.inventory_item` 拉 `sku / name / unit` 填進 dataclass；defensive：item is None 時保持 None（理論上不可能，但守 multi-farm cross-DB edge case）
-- `modules/workflow/schemas/material_request_schemas.py` — `MaterialRequestItemResponse` 加 3 optional 欄位
-- `frontend/services/materialService.ts` — `MaterialRequestItem` interface 加 3 optional string fields
-- `frontend/components/workflow/MaterialRequestDetailModal.tsx` — items table grid 從 `2fr 1fr 1fr 1fr` 改 `1fr 2fr 1fr 1fr 1fr`（SKU / Name / Stock kind / Est. qty / Actual qty）+ qty 後 append unit；receive form rows 顯 `SKU · name` 取代 truncated UUID；return picker option label 顯 `SKU · name × est.qty`
+**Backend 修改（4 個檔）：**
+- `modules/workflow/schemas/material_request_schemas.py` — `MaterialRequestItemResponse` 加 `sku/name/unit: Optional[str] = None`
+- `modules/workflow/repository/material_request_repository.py` — 加 `ItemMetadata` frozen dataclass + `resolve_item_metadata(item_ids: Iterable[UUID]) -> dict[UUID, ItemMetadata]`（一次 batch SQL）
+- `modules/workflow/repository/__init__.py` — re-export `ItemMetadata`
+- `modules/workflow/routers/material_request_router.py` — 加 3 個 helper（`_enrich_items` / `_build_mr_response` / `_build_mr_list_response`）+ 換 9 個 endpoint call site
 
-新增（2 個檔）：
-- `modules/workflow/tests/test_material_request_item_metadata.py` — backend regression test 5 個：(1) get 後 items 帶 sku/name/unit、(2) list 後 items 帶 sku/name/unit、(3) transition (submit) 後仍帶、(4) dispatch_request 後 response 帶（最複雜：atomic stock + ledger 雙寫 path）、(5) cross-farm 不洩漏（farm A 的 item 不應被 farm B 的 MR `_to_domain` 拉到）
-- `work-logs/2026-05/2026-05-19-mr-item-sku-name.md` — 本檔
+**Backend 測試新增（1 個檔，9 test）：**
+- `modules/workflow/tests/test_mr_item_metadata.py` — repo 3（resolve / empty / missing item）+ router CRUD 3（create / get / list）+ transition smoke 2（4-state lifecycle + cancel）+ data drift 1
+
+**Frontend 修改（3 個檔）：**
+- `frontend/services/materialService.ts` — `MaterialRequestItem` 加 `sku/name/unit?: string | null`
+- `frontend/components/workflow/MaterialRequestDetailModal.tsx` — items table 4 欄 → 6 欄；receive form label + returns Select option 改顯 SKU·name
+- `frontend/components/workflow/CreateMaterialRequestWizard.tsx` — step 3 review 顯 `SKU · name × qty unit · stock_kind`（移除 InventoryItemSummary 非 nullable 欄的多餘 null guard）
 
 ### 5.2 設計決策落實
 
-- **ORM `viewonly=True`**：明確標示這個 relationship 純讀向，repository 寫入 path 既有以 `item_id` 字串 set，不需透過 relationship 反向寫；保險避免 SQLAlchemy 自動 cascade
-- **`Optional` 三欄全程 None-safe**：dataclass / schema / TS type 全部三欄 optional，避免既有 raw dataclass 構造 test（不過 ORM）broken
-- **Frontend grid 1fr 2fr 1fr 1fr 1fr**：SKU 1fr / Name 2fr 給名稱最寬 / qty 三欄各 1fr；unit append 進 `est_qty` 顯示 `2 個` 比獨立欄省空間
-- **Fallback `?? truncated UUID`**：service response 若無 sku（raw dataclass 場景）frontend 自動退化原行為
+- **enrichment 放 router 層**（不污染 domain；不動 ORM relationship）— `MaterialRequestItem` dataclass 維持原樣
+- **pure-function enrichment 用 `model_copy(update=...)`**（不 mutate Pydantic instance）— code review must-fix #1，未來若 schema 加 `frozen=True` 也不會悄悄失效
+- **batch fetch by IN clause**：list endpoint 一次 union 所有 mrs 的 item_ids 後單次 SQL 取 metadata，避免 N+1
+- **data drift fallback**：缺漏 item_id → key 不在 dict → schema 已宣告 Optional 自動成 None；前端顯示 fallback truncated UUID + monospace + `title={item_id}`
+- **transaction boundary**：metadata fetch 與 mr fetch 在不同 session，非 transactional — view-projection only，已在 `_build_mr_response` docstring 註明（code review must-fix #2）
 
 ### 5.3 Build / test 驗證
 
-- `python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/` → **517 passed, 1 xfailed, 3 failed**（5 新 test 全 pass；3 失敗 = pre-existing numpy 2.x precision drift `test_monte_carlo_k13_seed_42` / `test_mc_percentiles_pinned` / `test_varfluct_year_1_pinned`，與 main baseline 完全一致）— **zero regression**
 - `npx tsc --noEmit` → exit=0
-- `npx vite build` → 4.05s, 748 modules, 916.79 kB (gzip 264.82 kB) — 與 A7 baseline (748 modules / 916.55 kB) +0.24 kB（只動 type 與 modal layout）
+- `npx vite build` → 3.57s, 748 modules transformed, 917.15 kB（gzip 264.94 kB；與 A7 baseline 916.55 kB +0.6 kB — 合理：3 個 components 加 SKU/name 顯示）
+- `python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ tests/e2e/` → **526 passed (+9 new), 1 xfailed, 4 failed**（3 pre-existing numpy drift + 1 flaky concurrency；與 main baseline 同 — **zero regression**）
 
 ### 5.4 Code review 採納
 
-Code-reviewer subagent 對 staged diff 跑完，**verdict: Approve**。回 **0 must-fix + 3 should-fix + 2 nice-to-have**。本 commit 折進採納：
+Code-reviewer subagent 找出 **3 must-fix + 3 should-fix + 2 nice-to-have**，**全 8 採納**：
 
-**Must-fix（0/0）**：無
+| 級別 | # | 議題 | 修法 |
+|------|---|------|------|
+| Must-fix | 1 | Pydantic attribute mutation 若 schema 加 frozen=True 會悄悄失效 | 改用 `model_copy(update=...)` 並抽 `_enrich_items` pure helper |
+| Must-fix | 2 | enrichment 與 mr fetch 跨 session 非 transactional | docstring 註明 view-projection-only 邊界 |
+| Must-fix | 3 | transition endpoints（dispatch/receive/close/cancel）缺 enrichment smoke test | 加 `test_full_transition_chain_responses_carry_sku_name_unit` + `test_cancel_response_carries_sku_name_unit` |
+| Should-fix | 1 | `Iterable[UUID]` 語義不明 | docstring 註明「只消費一次」 |
+| Should-fix | 2 | 測試裸用 `sqlite3` 繞 ORM | import 移頂層 + 註解 SQLite-only（PG 切換見 WMOM-20260509-F6） |
+| Should-fix | 3 | grid SKU 欄寬度 1fr 太窄 | 改 1.2fr |
+| Nice | 1 | `_build_mr_list_response` 空 list 早 return | 加 `if not mrs: return ...` |
+| Nice | 2 | wizard 多餘 null guard | 移除（`InventoryItemSummary.name/unit` 為 required string） |
 
-**Should-fix 全採納（3/3）**：
-1. ✅ ORM `primaryjoin` 內 `foreign()` 標在 PK 側而非 FK 側 — 由於 `item_id` 已有真實 `ForeignKey("inventory_items.id")` 宣告，SQLAlchemy 2.0 可自動推算 join condition，**完全移除顯式 `primaryjoin`**，同步消除 Nice #5
-2. ✅ Test 缺 `cancel` / `add_return` path metadata 覆蓋 — 加 `test_metadata_after_cancel_transition` + `test_metadata_after_add_return` 2 test，共 7 個 metadata test 全 pass
-3. ✅ Cross-farm test 缺 `is not None` guard — 加 `assert fetched_a is not None` / `assert fetched_b is not None` 2 行，CI 紅燈訊息明確（`AssertionError` 而非 `AttributeError`）
-
-**Nice-to-have 採納（2/2）**：
-- ✅ Nice #4：work-log §5.4 與實際 code 描述不一致（原 draft 寫採納 `getattr + try/except`，實際 staged 只有 `if it.inventory_item else None`）— 改寫本段為實際採納內容
-- ✅ Nice #5：`primaryjoin` 顯式設定冗餘 — 同 Should #1 一併移除
-
-### 5.5 Build / test 再次驗證（review fix 後）
-
-- `python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ tests/e2e/` → **524 passed, 1 xfailed, 3 failed**（511 baseline + 7 新 metadata test + 6 e2e；3 failed = pre-existing numpy 2.x precision drift；deselect 1 個既知 flaky 並發 test）— **zero regression**
-- `npx tsc --noEmit` → exit=0
-- `npx vite build` → 同 5.3，748 modules / 916.99 kB（frontend 無動）
+無 follow-up 新 issue 開出。
 
 ---
 
 ## 6. 下次接手指南
 
 ### 已完成
-- WMOM-20260518-01 全 done — MR detail modal、receive form、return picker 三處顯示 SKU + name
-- 後端 schema / dataclass / repo 全鏈路加完 metadata 三欄；test 5 個新增覆蓋 get / list / transition / dispatch / cross-farm safety
-- M4 progress 維持 100%；issue_stats 1 done 新增
+- WMOM-20260518-01：MR detail modal items table + receive form + returns dropdown + wizard review 全切到 SKU+name+unit 顯示
+- Backend repo 加 `resolve_item_metadata` batch fetch helper（給未來 reporting / 警報 module 也可用）
+- 9 個新 test，含 data drift 場景（item 刪除後不 crash）
 
 ### 待辦（不阻塞）
-- F1-F6 任意一個塞進；M5 規劃需劉老師討論 RAG scope；A6 wizard step 3 已順手顯 SKU（既有）
-- WMOM-20260513-02 demo orchestrator simulator integration 仍 placeholder
+- PR 由本 session push 後若 gh CLI 不可用，劉老師人工開
+- F1-F6 follow-up 5 個小修（皆 0.5h-0.5d）
+- WMOM-20260513-02 demo orchestrator simulator 接合（M5 demo 視覺化用）
 
 ### 建議下次 session 工作
-1. **M5 規劃**（最高優先）：等劉老師回覆 RAG scope / mobile UI 範圍，先動 ROADMAP M5 章節落地第一個 issue
-2. F1（add_return ledger 沖銷）— 影響月報正確性，medium priority
-3. F4（FARM_REGISTRY shared）— cosmetic refactor 但 4 個 router 重複碼，清掉
+1. **F1-F6 小修一次清掉**（5 個 0.5h-0.5d，可一個 session 全做完）：
+   - F1 `add_return` 寫 ledger 沖銷（最高商業價值）
+   - F2 `list_items` / `list` 用 `func.count` 而非 Python `len`
+   - F3 `list_warehouses` 加 repo method
+   - F4 `_FARM_REGISTRY` lazy singleton 抽 shared
+   - F5 `InventoryAdjustmentLog.actor_id` 改 Optional
+2. **M5 規劃**：讀 `docs/product/ROADMAP.md` M5 章節決定第一個 issue（RAG knowledge module skeleton 或 demo orchestrator UI 完整版）
+3. **WMOM-20260513-02 demo orchestrator simulator**：A10 e2e 接 simulator 一鍵 replay lifecycle
+

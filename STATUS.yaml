@@ -4,7 +4,7 @@ category: wind_energy
 progress: 100
 status: active
 last_updated: "2026-05-19"
-next_milestone: "**WMOM-20260518-01 MR detail SKU/name/unit join done — demo readability polish**：今日（autonomous daily worker session, 5/19 20:00）依 5/18 A7 handoff 推進候選清單第三項（不動 M5 規劃 / F1-F6 微整理避免 scope creep）。動 4 backend 檔（dataclass + ORM viewonly relationship `lazy=joined` / `_to_domain` 三欄 join / schema 3 optional 欄）+ 2 frontend 檔（TS type 3 optional / MaterialRequestDetailModal items grid 4→5 欄 + receive form rows + return picker label 同步顯 `SKU · name`）+ 1 新 test 檔（5 test 涵蓋 get / list / transition / dispatch / cross-farm isolation，防 multi-tenant 洩漏）。Backend：516 passed (= 511 baseline + 5 新 test) + 1 xfailed + 3 pre-existing numpy drift（deselect 1 flaky concurrency test）— zero regression；Frontend：tsc 0 / vite 3.81s 748 modules / 916.99 kB（gzip 264.85 kB，較 A7 baseline +0.44 kB）。Code-reviewer subagent 跑 async；若有 must-fix 第二 commit 採納。M4 維持 100%；issue_stats open 20→19 / done 35→36。下次候選：M5 規劃（最高優先，等劉老師回覆 RAG / mobile UI scope）/ F1 (add_return ledger 沖銷，影響月報正確性) / F4 (FARM_REGISTRY shared) / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-item-sku-name.md。"
+next_milestone: "**WMOM-20260518-01 done — MR items table 加 SKU+name+unit 顯示**：今日（autonomous daily worker, 5/19 20:00）認領 A6 review 留下的 follow-up。Backend `MaterialRequestItemResponse` 加 sku/name/unit Optional 欄位 + `MaterialRequestRepository.resolve_item_metadata` 一次 batch IN 查 `inventory_items` join。Router 三個 pure helper（`_enrich_items` 用 pydantic v2 `model_copy(update=...)` 避 mutate / `_build_mr_response` / `_build_mr_list_response`）替換 9 個 call site。Frontend：`MaterialRequestDetailModal` items table 4 欄變 6 欄（SKU | Name | Stock kind | Est | Actual | Unit；fallback 仍顯示 truncated UUID 但 title 帶完整 ID）；receive form 與 returns dropdown label 都改用 SKU·name；wizard step 3 review 加 name 與 unit。新增 9 test（repo 3 + router CRUD 3 + transition smoke 2 + data drift 1）。Backend 526 passed (+9 new) + 1 xfailed + 3 pre-existing numpy drift + 1 flaky concurrency — zero regression；Frontend tsc 0 / vite build 3.57s, 748 modules, 917.15 kB。Code-reviewer 找 3 must-fix + 3 should-fix + 2 nice-to-have，**全採納**（model_copy 換 mutate / docstring 註 transaction 邊界 / 補 transition smoke test / sqlite3 import 移頂 + 註 SQLite-only / grid SKU 欄 1fr → 1.2fr / 空 list 早 return / 移除 wizard 多餘 null guard）。M4 milestone 維持 100%（本 issue 為 follow-up nice-to-have）；issue_stats open 20 → 19 / done 35 → 36。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI）/ F1-F6 follow-up（5 個 0.5h 小修可一次清掉）/ WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-item-sku-name.md。"
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 19  # -1 (WMOM-20260518-01 done) = 19 net
   in_progress: 0
   blocked: 0
-  done: 36  # +1: WMOM-20260518-01 done (2026-05-19 PM)
+  done: 36  # +1: WMOM-20260518-01 done (2026-05-19, autonomous daily worker)
 
 inherited_baseline:
   source: digiWindTurbine

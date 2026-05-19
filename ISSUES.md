@@ -1943,20 +1943,35 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
 
-- **Status**: done（2026-05-19）
+- **Status**: done（2026-05-19 完成；branch `claude/nice-brown-kJDox`）
 - **Milestone**: M4 後續 / M5 demo polish
 - **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
-- **Estimate**: 0.5 工作天
+- **Estimate**: 0.5 工作天 → **實際 ~3 小時**（含 code-review must-fix 採納）
 - **Source**: 2026-05-18 WMOM-20260509-06 code review Should-fix #4
-- **Description**:
-  目前 `MaterialRequestDetailModal` items table 只能顯 `…{item_id.slice(-12)}` truncated UUID（因為 `MaterialRequestItemResponse` 只有 `item_id` 沒有 SKU/name），對現場工程師完全無 readability。
-  - Backend 改 `modules/workflow/schemas/material_request_schemas.py` 的 `MaterialRequestItemResponse` 加 `sku: str + name: str + unit: str` 三欄
-  - Repository 改 `_to_domain` 時 left-join 對應 `InventoryItem`（或在 router 層 batch fetch）填回
-  - Frontend 改 `MaterialRequestDetailModal` items table 顯 SKU + name + unit；wizard step 3 review 也順手改顯 SKU
-- **Acceptance**:
-  - backend 加 join 不破壞既有 35+ MR tests / 5+ e2e lifecycle tests
-  - frontend detail modal items table 改 layout：`SKU | name | qty | actual | unit`
-  - tsc clean / vite build / backend zero regression
+- **Owner**: Claude（session 2026-05-19，autonomous daily worker）
+- **Completion summary**:
+  - ✅ Backend schema：`MaterialRequestItemResponse` 加 `sku/name/unit: Optional[str] = None`
+  - ✅ Backend repo：`MaterialRequestRepository.resolve_item_metadata(item_ids)` batch SELECT FROM `inventory_items` WHERE id IN (...)，回 `dict[UUID, ItemMetadata]`；缺漏 item → key omit；空輸入 → `{}` 不打 SQL
+  - ✅ Backend router：加 `_enrich_items` + `_build_mr_response` + `_build_mr_list_response` 三個 pure-function helper，用 pydantic v2 `model_copy(update=...)` 不可變 enrichment；9 個 endpoint call site 全切過去
+  - ✅ Frontend types：`MaterialRequestItem` interface 加 `sku/name/unit?: string | null`
+  - ✅ Frontend `MaterialRequestDetailModal` items table：4 欄改 6 欄 `SKU | Name | Stock kind | Est qty | Actual qty | Unit`，UUID fallback 保留 monospace title 顯示完整 ID
+  - ✅ Frontend receive form：label 從 truncated UUID 改 `SKU · name (est. N unit)`
+  - ✅ Frontend returns dropdown：item_id 選單從 UUID 切片改 `SKU · name · est. N unit`
+  - ✅ Frontend wizard step 3 review：顯 `SKU · name × qty unit · stock_kind`
+  - ✅ 新增 9 個 test（`test_mr_item_metadata.py`）：repo 3（resolve / empty / missing）+ router 3（create / get / list）+ transition smoke 2（dispatch+receive+close + cancel）+ data drift 1（item 刪除後 null fallback）
+  - ✅ Backend `python -m pytest modules/{workflow,cost,reporting}/tests/ tests/e2e/` → 526 passed (+9 new) + 1 xfailed + 3 pre-existing numpy drift + 1 flaky concurrency — zero regression
+  - ✅ Frontend `npx tsc --noEmit` exit=0；`npx vite build` 3.57s, 748 modules, 917.15 kB (gzip 264.94 kB)
+  - ✅ Code-reviewer subagent 找 3 must-fix + 3 should-fix + 2 nice-to-have，**全採納**：
+    - MF#1 改 `model_copy(update=...)` 而非 attribute mutation（pydantic frozen 安全）
+    - MF#2 加 docstring 註明 enrichment 非 transactional（read-after-fetch 跨 session）
+    - MF#3 補 dispatch/receive/close/cancel 4 transition smoke tests
+    - SF#1 `Iterable[UUID]` docstring 註明「只消費一次」
+    - SF#2 `sqlite3` import 移到頂層 + 註解 SQLite-only（PG 切換見 WMOM-20260509-F6）
+    - SF#3 grid SKU 欄寬度 `1fr` → `1.2fr`
+    - N#1 `_build_mr_list_response` 空 list 早 return
+    - N#2 移除 wizard `InventoryItemSummary.name/unit` 多餘 null guard（types 已 required string）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-19-mr-item-sku-name.md`](work-logs/2026-05/2026-05-19-mr-item-sku-name.md)
 - **Depends on**: WMOM-20260509-06（done）
 - **Blocks**: -
 - **Resolution**（2026-05-19 autonomous worker）：

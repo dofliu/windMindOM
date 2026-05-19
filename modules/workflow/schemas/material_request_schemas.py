@@ -106,8 +106,8 @@ class MaterialRequestItemResponse(BaseModel):
     actual_qty: Optional[int] = None
     stock_kind: StockKind
 
-    # ── 顯示用 metadata（WMOM-20260518-01）─ Repository `_to_domain` 補值；
-    # raw dataclass 構造（無 ORM session）三欄為 None，frontend fallback truncated UUID
+    # ── 由 router 在 response builder 階段 batch 從 inventory_items join 填入 ──
+    # 若對應 item_id 在 inventory_items 已刪 / 不存在 → 保持 None（不 raise）
     sku: Optional[str] = None
     name: Optional[str] = None
     unit: Optional[str] = None

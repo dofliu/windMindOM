@@ -50,8 +50,8 @@ export interface MaterialRequestItem {
   estimated_qty: number;
   actual_qty: number | null;
   stock_kind: StockKind;
-  // WMOM-20260518-01：backend `_to_domain` 透過 viewonly relationship 從
-  // InventoryItem join 補進；raw dataclass / 缺對映時為 null，UI fallback truncated UUID
+
+  // Backend join from inventory_items（缺漏 / data drift 時為 null）
   sku?: string | null;
   name?: string | null;
   unit?: string | null;
