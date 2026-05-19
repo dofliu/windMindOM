@@ -155,6 +155,14 @@ class MaterialRequestItem:
     actual_qty: int | None = None             # 實際領用（簽收時填）
     stock_kind: StockKind = StockKind.NEW     # 領哪個 stock 欄位（預設新品優先）
 
+    # ── 顯示用 metadata（WMOM-20260518-01）─────────────────────────────────
+    # 由 repository `_to_domain` 透過 ORM relationship join InventoryItem 補值；
+    # 純 informational，不參與 state machine / dispatch / domain invariant。
+    # raw dataclass 構造（test fixture / wizard preview）時保持 None。
+    sku: str | None = None
+    name: str | None = None
+    unit: str | None = None
+
     def __post_init__(self) -> None:
         # invariant：estimated_qty 嚴格正
         if self.estimated_qty <= 0:
