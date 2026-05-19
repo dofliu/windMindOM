@@ -168,22 +168,72 @@ Code-reviewer subagent 跑出 **1 must-fix + 4 should-fix + 1 nice-to-have**。�
 
 ## 6. 下次接手指南
 
+### ⚠ 重要：本 issue 已有兩個 open PR（劉老師要選一個 merge）
+
+Push 階段才發現 **同一 issue WMOM-20260518-01 已有 2 個 open PR**（同日早班並行 session 產出）：
+
+| PR | Branch | 作法 | Test 數 | Code review 結論 |
+|----|--------|------|---------|----------------|
+| **#37**（07:57 UTC） | `claude/issue-WMOM-20260518-01-2026-05-19` | ORM `viewonly` relationship + `lazy="joined"`；改 `inventory_orm.py` | 7 | 0 must-fix + 3 should-fix（全採納）+ 2 nice-to-have（全採納）；verdict: Approve |
+| **#38**（08:56 UTC） | `claude/nice-brown-kJDox` | Router 層 `_enrich_items` 用 pydantic `model_copy(update=...)`；公開 `MaterialRequestRepository.resolve_item_metadata` | 9 | 3 must-fix + 3 should-fix + 2 nice-to-have 全 8 採納 |
+| **本 session** | `claude/nice-brown-Qg9KM`（推上 remote，**未開 PR**） | Repository `_to_domain` 加 batch fetch helper `_fetch_item_info_map` + `item_info_map` kwarg；domain dataclass 加 3 Optional 欄 | 14 | 1 must-fix + 4 should-fix + 1 nice-to-have 全 6 採納 |
+
+**決定不開第 3 個 PR**：同 issue 三條 patch 撞在一起讓 reviewer 重複工作。本 session 的 commit 已 push 到 `claude/nice-brown-Qg9KM` (commit `33dc3fe`) 作為第 3 條 approach 參考，劉老師可比較三條後選一條 merge、close 其他 2 條。
+
+### 三條 approach 比較（給劉老師參考）
+
+| 維度 | PR #37 (ORM viewonly) | PR #38 (router enrichment) | 本 session (repo batch fetch) |
+|------|---------------------|--------------------------|----------------------------|
+| **抽象層次** | ORM | Router | Repository |
+| **改 ORM model?** | 是 | 否 | 否 |
+| **改 router?** | 否 | 是（9 endpoint call sites） | 否 |
+| **改 domain dataclass?** | 是 | 否 | 是 |
+| **N+1 防護** | `lazy="joined"` 全自動 | 一次 `IN` 查詢 | 一次 `IN` 查詢 + 含空集合 guard |
+| **新 helper 暴露** | 無 | `resolve_item_metadata` 公開 | `_fetch_item_info_map` 為 private static |
+| **data drift fallback** | join 失敗→None | 顯式 fallback | 顯式 fallback |
+| **multi-tenant 隔離 test** | 有 | 無 | 無（依賴 farm-scoped db_path） |
+| **dispatch_request test** | 有 | 有 | 有 |
+| **multi-items 配對 test** | 部分 | 部分 | 有（明確驗證不同 sku 對到不同 item） |
+| **empty-IN guard test** | 無 | 無 | 有 |
+| **Schema serialize None test** | 無 | 無 | 有 |
+
+**主觀建議**：PR #38（router enrichment）與本 session 都把改動量收在 schema/router/repo helper 層、不動 ORM relationship，比 PR #37 改動風險小。PR #38 的 `model_copy(update=...)` 對未來 schema `frozen=True` 較安全；本 session 的 repo-層 collect 對 N+1 控制更直接（map 在 list path 一次共用）。三條 frontend 顯示行為等價。
+
 ### 已完成
 
-- M4 demo flow：MR 詳情、領料 receive form、退料 dropdown、wizard review 區全顯 SKU+name+unit，現場工程師可直接讀料件 + 不需要對 UUID
+- M4 demo flow：MR 詳情、領料 receive form、退料 dropdown、wizard review 區全顯 SKU+name+unit
 - Backend regression test 14 個全綠，6 條 read paths 全覆蓋
-- M5 baseline 不變（M4 已 100%）；本 PR 是 follow-up nice-to-have polish
+- 三條 approach 之一已 push 到 `claude/nice-brown-Qg9KM`，劉老師可選
 
 ### 待辦（不阻塞）
 
-- M5 規劃（最高優先）：M4 完整 demo flow 已通，可開始 M5 RAG + 現場 mobile UI 設計
-- F1-F6 follow-up（小修，皆 0.5-1h）
+- **劉老師抉擇**：PR #37 / PR #38 / 本 session branch (`claude/nice-brown-Qg9KM`)，3 選 1 merge 後 close 其他 2 條
+- M5 規劃（最高優先）：M4 完整 demo flow 已通
+- F2-F6 follow-up
 - WMOM-20260513-02 demo orchestrator simulator 接合（A10 follow-up）
 
 ### 建議下次 session 工作
 
-1. **M5 規劃**：讀 `docs/product/ROADMAP.md` M5 章節決定第一個 issue（RAG knowledge entry 或 mobile UI 主框架）
-2. **F2 / F3 任選**：F2 用 `func.count` 改 list 計數 / F3 `list_warehouses` 移出 router raw SQL — 都是 1h 內小修
-3. **WMOM-20260513-02**：demo orchestrator 接 simulator（A10 後續）
+1. **不要再做 WMOM-20260518-01 第 4 條 PR** — 等劉老師選
+2. **M5 規劃**：讀 `docs/product/ROADMAP.md` M5 章節決定第一個 issue
+3. **F2 / F3 任選**：F2 用 `func.count` 改 list 計數 / F3 `list_warehouses` 移出 router raw SQL — 都是 1h 內小修
+
+### Daily worker 流程改善建議
+
+未來 session 應在 Claim phase 多一步：
+- **`mcp__github__list_pull_requests` 看是否有同 issue 已 open 的 PR**
+- 若有 open PR for 同 issue → 跳過該 issue 挑下一個
+
+這次因為 ISSUES.md WMOM-20260518-01 仍 `Status: open`（PR #37/#38 還沒 merge），daily worker 仍合理認為可以做，但實際上同 issue 已 in-flight — 多做第 3 個浪費 reviewer 時間。
+
+---
+
+## 7. 提交給劉老師的訊息
+
+> 早班兩條 session（07:57 / 08:56 UTC）各自為 WMOM-20260518-01 開了 PR #37 / #38；
+> 我（20:00 UTC daily worker）開工前沒檢查 GitHub PR 狀態就動工，做完後才發現有並行。
+> 為避免再開第 3 個 PR 製造 noise，commit 已 push 到 `claude/nice-brown-Qg9KM` (`33dc3fe`) 保留作為第 3 條 approach 參考；**未開 PR**。
+> 請從 #37 / #38 / `claude/nice-brown-Qg9KM` 三選一 merge，close 其他 2 條。
+> 三條 approach 比較表見上方 §6。
 
 ---

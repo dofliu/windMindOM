@@ -14,12 +14,12 @@
 | Status | Count |
 |--------|------|
 | open | 19 |
-| in_progress | 0 |
+| in_progress | 1 |
 | blocked | 0 |
-| done | 36 |
+| done | 35 |
 | **total (active)** | **55** |
 
-最後更新：2026-05-19（**WMOM-20260518-01 MR item SKU/name/unit join done — M4 demo polish 細節收官**）。今日（autonomous daily worker session, 5/19 20:00）依 5/18 inventory frontend handoff 推薦清單挑 WMOM-20260518-01（A6 follow-up nice-to-have，concrete scope）。Domain `MaterialRequestItem` 加 3 個 `Optional[str]` denormalized read-model 欄位；Repository `_fetch_item_info_map` 一次 IN 查詢 batch fetch sku/name/unit；7 條 read path（create / get / get_by_business_key / list / list_for_work_order / transition / dispatch_request）皆 populate；Schema 同 3 欄；Frontend detail modal items table 從 4 欄改 6 欄 grid（SKU | name | qty | actual | unit | stock_kind），receive form label / return dropdown / wizard step 3 review 同步顯 SKU+name+unit；fallback `it.item_sku ?? …{uuid8}` 維持與 return dropdown 8-char 一致。14 個新 regression test 全綠：domain 2 + 6 read paths + dispatch + multi-items 配對 + schema 序列化（含 None）+ helper edge case（empty list / empty items）。**672 backend tests pass, 1 xfailed, 3 failed**（與 main baseline 完全一致：3 個 pre-existing numpy 2.x precision drift）— zero regression；frontend tsc 0 error, vite build 917.06 kB (+0.5 kB)。Code-reviewer 1 must-fix + 4 should-fix + 1 nice-to-have 全採納（單 commit）。M4 polish 收一個小尾，現場工程師 demo 終於看到「人話料件」而非 UUID tail。下次候選：M5 規劃 / F2-F6 follow-up / WMOM-20260513-02 demo orchestrator simulator 接合。詳見 `work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md`。
+最後更新：2026-05-19（**WMOM-20260518-01 三條 PR 並行 — 等劉老師三選一 merge**）。今日（autonomous daily worker session, 5/19 20:00）開工沒檢查 GitHub PR 狀態就動 WMOM-20260518-01，做完後才發現早班兩條 session 已分別開了 PR #37 和 PR #38。為避免再開第 3 個 PR，本 session commit `33dc3fe` 已 push 到 `claude/nice-brown-Qg9KM` 作為第 3 條 approach 留存，**未開 PR**。三條 approach 比較：PR #37 走 ORM `viewonly` relationship（7 tests）；PR #38 走 router `_enrich_items` + `model_copy`（9 tests）；本 session 走 Repository `_fetch_item_info_map` batch fetch（14 tests）。劉老師需從 3 條三選一 merge 後 close 其他 2 條，本 issue 才能標 done。下次 session 候選：等劉老師決定 + **不要做 WMOM-20260518-01 第 4 條 PR** / M5 規劃 / F2-F6 follow-up。詳細比較 + 流程改善建議在 `work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md` §6-7。
 
 ## 早期統計 snapshot
 
@@ -1947,7 +1947,7 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 ### WMOM-20260518-01 — MR detail modal 料件表加 SKU+name 顯示（A6 follow-up）
 
-- **Status**: done（2026-05-19, branch `claude/issue-WMOM-20260518-01-2026-05-19`）
+- **Status**: in_progress（**2026-05-19 三條 PR 並行，劉老師三選一 merge 後再標 done**）
 - **Milestone**: M4 後續 / M5 demo polish
 - **Priority**: medium（demo 給現場工程師看更友善；不阻塞 M4 收官）
 - **Estimate**: 0.5 工作天
@@ -1963,16 +1963,14 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - tsc clean / vite build / backend zero regression
 - **Depends on**: WMOM-20260509-06（done）
 - **Blocks**: -
-- **完成紀錄**：
-  Domain `MaterialRequestItem` 加 3 個 `Optional[str]` denormalized 欄位（read-model），
-  repository 新增 `_fetch_item_info_map` 一次 IN 查詢 batch 帶回 sku/name/unit；
-  7 條 read path（create / get / get_by_business_key / list / list_for_work_order /
-  transition / dispatch_request）皆已 populate。Frontend detail modal items table 改 6
-  欄 grid（SKU | name | qty | actual | unit | stock_kind），receive form label / return
-  dropdown / wizard step 3 review 同步顯 SKU+name+unit。14 個 regression test 全綠
-  (672 backend tests pass, zero regression)；frontend tsc 0 error, vite build 917 kB
-  (+0.5 kB)。Code-reviewer 1 must-fix + 4 should-fix + 1 nice-to-have 全採納。
-  詳見 `work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md`。
+- **In-flight PR / branch 狀況（2026-05-19）**：
+  | 來源 | 分支 | 作法 | Tests |
+  |------|------|------|-------|
+  | PR #37（07:57 UTC） | `claude/issue-WMOM-20260518-01-2026-05-19` | ORM `viewonly` relationship + `lazy="joined"` | 7 |
+  | PR #38（08:56 UTC） | `claude/nice-brown-kJDox` | Router 層 `_enrich_items` + `model_copy(update=...)` | 9 |
+  | branch（20:00 UTC，未開 PR） | `claude/nice-brown-Qg9KM` | Repository `_fetch_item_info_map` batch fetch + `_to_domain` kwarg | 14 |
+  劉老師三選一 merge，close 其他 2 條後本 issue 標 done。
+  詳細比較 + 流程改善建議：`work-logs/2026-05/2026-05-19-mr-item-sku-name-join.md` §6-7。
 
 ---
 
