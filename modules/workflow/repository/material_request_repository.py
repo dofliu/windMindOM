@@ -465,7 +465,14 @@ class MaterialRequestRepository:
 
         with self._sessionmaker() as sess:
             try:
-                mr_orm = sess.get(MaterialRequestORM, str(request_id))
+                # F1 review must-fix #1：with_for_update 鎖 MR row，與 dispatch_request
+                # 對齊。PostgreSQL 部署時並發 dispatch + add_return 不會 deadlock 或撞
+                # stale read；SQLite WAL 已序列化所有寫入此處 no-op。
+                mr_orm = sess.execute(
+                    select(MaterialRequestORM)
+                    .where(MaterialRequestORM.id == str(request_id))
+                    .with_for_update()
+                ).scalar_one_or_none()
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
 
@@ -490,15 +497,26 @@ class MaterialRequestRepository:
                 sess.add(ret_orm)
 
                 # ── Ledger 沖銷（WMOM-20260509-F1） ─────────────────────
-                # 1. 找對應 MR line item（取第一筆，locked_unit_cost 同 MR 內一致）
-                mr_item_orm = sess.execute(
-                    select(MaterialRequestItemORM)
-                    .where(
+                # 1. 找對應 MR line item。
+                #    F1 review should-fix #2：MR 可有多筆 line items 同 item_id 不同
+                #    stock_kind（如同 SKU 一筆 NEW 一筆 USED），此處取第一筆。dispatch
+                #    時所有 line items 共用同一個 inventory.unit_cost snapshot，
+                #    locked_unit_cost 一致金額計算正確；source_item_id 在此邊界 case
+                #    指向第一筆而非精確 stock_kind 對應 line item（已知限制，影響稽核
+                #    追蹤但不影響月報數字；ops 多筆同 SKU 場景罕見）。
+                line_items = sess.execute(
+                    select(MaterialRequestItemORM).where(
                         MaterialRequestItemORM.request_id == str(request_id),
                         MaterialRequestItemORM.item_id == str(item_id),
                     )
-                    .limit(1)
-                ).scalar_one_or_none()
+                ).scalars().all()
+                if len(line_items) > 1:
+                    _logger.debug(
+                        "add_return: MR %s has %d line items for item %s "
+                        "(differing stock_kinds); using first for source_item_id",
+                        request_id, len(line_items), item_id,
+                    )
+                mr_item_orm = line_items[0] if line_items else None
 
                 dispatch_entry: CostLedgerEntryORM | None = None
                 if mr_item_orm is not None:
@@ -517,31 +535,47 @@ class MaterialRequestRepository:
                     dispatch_entry = sess.execute(ledger_stmt).scalar_one_or_none()
 
                 if dispatch_entry is not None:
-                    # 3. 取 locked_unit_cost，fallback 到當前 inventory unit_cost
-                    unit_cost = (
-                        Decimal(str(dispatch_entry.locked_unit_cost))
-                        if dispatch_entry.locked_unit_cost is not None
-                        else Decimal(str(inv_orm.unit_cost))
-                    )
-                    offset_amount = -(Decimal(qty) * unit_cost)
-                    insert_in_session(
-                        sess,
-                        CostLedgerEntry(
-                            farm_id=mr_orm.farm_id,
-                            category=CostLedgerCategory.MATERIAL,
-                            amount=offset_amount,
-                            source_event_id=request_id,
-                            source_item_id=UUID(mr_item_orm.id),  # type: ignore[union-attr]
-                            locked_unit_cost=unit_cost,
-                            source_type=CostLedgerSourceType.MATERIAL_REQUEST,
-                            status=CostLedgerStatus(dispatch_entry.status),
-                            actor_id=returned_by,
-                            note=(
-                                f"退料 reason={reason.value} return_id={ret_id} qty={qty}"
+                    # F1 review must-fix #3：actual_qty=0 CONFIRMED 後退料防呆。
+                    # wo_finish 用 actual_qty=0 confirm dispatch entry → amount=0；
+                    # 此時再 add_return 會產生負金額 entry 拖月報入負區（會計錯誤：
+                    # 既然 actual=0 表示沒實際用，不可能再有「沖銷」事件）。
+                    # 此情境理論上 ops 不應發生（actual_qty=0 代表全部料件原封不動，
+                    # 應已在 wo_finish 前全數透過 add_return 退完），守此邊界避免
+                    # demo 客戶看到負月報。
+                    if (
+                        dispatch_entry.status == CostLedgerStatus.CONFIRMED.value
+                        and Decimal(str(dispatch_entry.amount or 0)) == Decimal("0")
+                    ):
+                        _logger.warning(
+                            "add_return: dispatch entry %s is CONFIRMED with amount=0 "
+                            "(actual_qty=0); skipping ledger offset to avoid negative "
+                            "net cost (MR %s item %s qty %d)",
+                            dispatch_entry.id, request_id, item_id, qty,
+                        )
+                    else:
+                        # 3. 取 locked_unit_cost，fallback 到當前 inventory unit_cost
+                        unit_cost = (
+                            Decimal(str(dispatch_entry.locked_unit_cost))
+                            if dispatch_entry.locked_unit_cost is not None
+                            else Decimal(str(inv_orm.unit_cost))
+                        )
+                        offset_amount = -(Decimal(qty) * unit_cost)
+                        insert_in_session(
+                            sess,
+                            CostLedgerEntry(
+                                farm_id=mr_orm.farm_id,
+                                category=CostLedgerCategory.MATERIAL,
+                                amount=offset_amount,
+                                source_event_id=request_id,
+                                source_item_id=UUID(mr_item_orm.id),
+                                locked_unit_cost=unit_cost,
+                                source_type=CostLedgerSourceType.MATERIAL_REQUEST,
+                                status=CostLedgerStatus(dispatch_entry.status),
+                                actor_id=returned_by,
+                                note=f"退料 reason={reason.value} return_id={ret_id} qty={qty}",
+                                recorded_at=ret_now,
                             ),
-                            recorded_at=ret_now,
-                        ),
-                    )
+                        )
                 else:
                     # 向後相容：沒有 dispatch entry（test fixture / legacy）— skip ledger
                     _logger.warning(
@@ -563,7 +597,15 @@ class MaterialRequestRepository:
                     note=note,
                     returned_at=ensure_utc(ret_orm.returned_at) or _utc_now(),
                 )
+            except (LookupError, MaterialRequestRuleViolation, InsufficientStock):
+                sess.rollback()
+                raise
             except Exception:
+                # F1 review should-fix #1：對齊 dispatch_request 的 logging pattern
+                _logger.exception(
+                    "add_return MR %s item %s failed unexpectedly — rolling back",
+                    request_id, item_id,
+                )
                 sess.rollback()
                 raise
 

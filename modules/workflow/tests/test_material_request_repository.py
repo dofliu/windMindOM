@@ -470,6 +470,52 @@ def test_add_return_multiple_returns_accumulate(mr_repo, item, db_path):
     assert summary[CostLedgerCategory.MATERIAL] == D("3150.00")
 
 
+def test_add_return_skips_ledger_when_dispatch_zero_confirmed(mr_repo, item, db_path, caplog):
+    """F1 review must-fix #3：dispatch entry CONFIRMED amount=0（actual_qty=0）後退料 →
+    skip ledger 避免月報負成本（會計：actual=0 表示沒實際用，不可能再有沖銷事件）。"""
+    import logging
+    from decimal import Decimal as D
+
+    from modules.cost.repository import (
+        CostLedgerCategory,
+        CostLedgerSourceType,
+        CostLedgerStatus,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=5)
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    # 模擬 wo_finish 用 actual_qty=0 confirm（dispatch entry amount → 0, CONFIRMED）
+    ledger.confirm_entry(entries[0].id, new_amount=D("0.00"))
+
+    with caplog.at_level(logging.WARNING):
+        mr_repo.add_return(
+            request_id=mr.id,
+            item_id=item.id,
+            qty=2,
+            reason=ReturnReason.SURPLUS,
+            return_to_kind=StockKind.NEW,
+            returned_by=uuid4(),
+        )
+
+    # 只有 dispatch entry（amount=0），無新增退料 entry
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    assert len(entries) == 1
+    assert entries[0].amount == D("0.00")
+
+    # 月報淨值 = 0，不會掉到負區
+    summary = ledger.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.CONFIRMED
+    )
+    assert summary.get(CostLedgerCategory.MATERIAL, D("0")) == D("0.00")
+
+    # warning 已 log
+    assert any(
+        "CONFIRMED with amount=0" in rec.message for rec in caplog.records
+    )
+
+
 def test_add_return_without_dispatch_entry_logs_warning(mr_repo, inv_repo, item, db_path, caplog):
     """MR 沒走 atomic dispatch_request（直接 add_return）→ skip ledger，stock 仍加。"""
     import logging

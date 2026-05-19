@@ -211,6 +211,14 @@ class CostLedgerRepository:
 
         Note：actor_id 寫進 entry.actor_id（覆蓋 dispatch 時的 actor，因為 confirm 是
         新事件）；保留原 entry.id 不換。
+
+        ⚠ **不適用於退料負金額 entry**（WMOM-20260509-F1 後 review must-fix #2）：
+        此 method 的 ``new_amount >= 0`` guard 會 reject ``amount < 0`` 的 entry。
+        若未來 F1.1 需把 ESTIMATED 退料 entry 在 wo_finish 後 flip 為 CONFIRMED，
+        必須新做一個 ``confirm_return_entry(entry_id, actor_id=None)`` method 只翻
+        status 不重算 amount；或擴 ``confirm_entry`` 改 ``new_amount: Decimal | None``
+        為 None 時 status-only flip。當前 design 保持 dispatch entry confirm 語意
+        嚴格（會計做帳要求 actual_qty × locked_unit_cost 非負）。
         """
         if new_amount < 0:
             raise ValueError(f"new_amount must be >= 0 (got {new_amount})")

@@ -85,10 +85,10 @@ M STATUS.yaml                                                   last_updated / n
 - [x] Branch + work-log
 - [x] 改 `material_request_repository.add_return` 寫 ledger 沖銷
 - [x] 改 `cost_ledger_repository.find_for_mr_item` 過濾 amount >= 0
-- [x] 新測試（7 個：5 MR + 2 ledger）
-- [x] backend zero regression（baseline 512 → 520 passed +7 new +1 flaky pass / 1 xfailed / 3 pre-existing numpy drift）
+- [x] 新測試（**實際 8 個**：6 MR + 2 ledger，含 review must-fix #3 補的 zero_confirmed 邊界）
+- [x] backend zero regression（baseline 512 → 521 passed +8 new +1 flaky pass / 1 xfailed / 3 pre-existing numpy drift）
 - [x] e2e lifecycle 6/6 仍通過
-- [x] code-reviewer subagent（async）
+- [x] code-reviewer subagent（async）→ 3 must-fix + 5 should-fix + 4 nice-to-have；採納 3 must-fix + 3 should-fix + 1 nice-to-have（見 §5.4）
 - [x] STATUS.yaml + ISSUES.md（F1 → done, issue_stats 20→19 open / 35→36 done）
 - [x] commit + push（branch `claude/issue-WMOM-20260509-F1-2026-05-19` 已推到 origin）
 - [ ] PR open — GitHub MCP `create_pull_request` 回 403 forbidden（copilot user 無權限），請劉老師手動開 PR：https://github.com/dofliu/windMindOM/pull/new/claude/issue-WMOM-20260509-F1-2026-05-19
@@ -129,7 +129,25 @@ M STATUS.yaml                                                   last_updated / n
 
 ### 5.4 Code review
 
-Code-reviewer subagent async 跑（背景）；如有 must-fix 會 PR 開後第二 commit 採納。
+Code-reviewer subagent 回報 **3 must-fix + 5 should-fix + 4 nice-to-have**。第二 commit 採納：
+
+**Must-fix 全採納（3/3）**：
+1. ✅ `add_return` MR row 改用 `select(...).with_for_update()` 鎖（與 dispatch_request 對齊）— PostgreSQL 部署前的並發安全
+2. ✅ `confirm_entry` docstring 加 F1.1 follow-up 注意事項 — 「不適用退料負金額 entry，F1.1 需獨立 method」設計 contract 文件化
+3. ✅ `add_return` 加 guard：dispatch entry CONFIRMED 且 amount=0（actual_qty=0）時 skip ledger offset，避免月報負成本；加 regression test `test_add_return_skips_ledger_when_dispatch_zero_confirmed`
+
+**Should-fix 採納（3/5）**：
+- ✅ Should #1：`add_return` exception handler 加 `_logger.exception(...)`，對齊 `dispatch_request` pattern；同時細分 expected exceptions（LookupError / MaterialRequestRuleViolation / InsufficientStock）不重複 log
+- ✅ Should #2：MR 同 item_id 多 line items 邊界 case 改用 `.scalars().all()` + `_logger.debug(...)` 警示，code comment 完整說明已知限制
+- ✅ Should #5：work-log §4 checklist 更新實際數字（8 個測試而非 4 個，521 passed 而非 512）
+- ⏭ Should #3：`add_return` MR status docstring 說明 — work-log §2.5 已記錄，重複度高暫不重複
+- ⏭ Should #4：`FARM_ID = "changhua"` 常數抽出 — 純測試風格 refactor，後續 follow-up
+
+**Nice-to-have 採納（1/4）**：
+- ✅ Nice #2：移除 `note=(...)` 多餘括號，改 single-line f-string
+- ⏭ Nice #1：partial unique index — 防禦設計，列 PostgreSQL 遷移 backlog
+- ⏭ Nice #3：locked_unit_cost Decimal 精度斷言統一 — 風格非正確性問題
+- ⏭ Nice #4：F1.1 正式 issue — 已在 work-log §2.2 記錄，後續 follow-up 直接開 issue 即可
 
 ---
 
