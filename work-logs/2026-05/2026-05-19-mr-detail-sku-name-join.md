@@ -164,9 +164,29 @@ Code-reviewer subagent 已 launch 跑 staged diff，結果在 PR 開後第二 co
 - 35+ MR tests + 1 e2e lifecycle test 全 pass，無 regression
 - frontend build clean
 
+### ⚠️ 重要 — 平行 session 衝突
+
+開工後 push 階段才發現本 issue **已有 2 個平行 session 在處理**，已開 PR：
+
+- **PR #37**（branch `claude/issue-WMOM-20260518-01-2026-05-19`）：approach A — domain pollution +
+  ORM `viewonly` + `lazy="joined"` relationship；7 個 test；零 must-fix（reviewer Approve）
+- **PR #38**（branch `claude/nice-brown-kJDox`）：approach B — router enrichment + batch
+  IN-query + builder helper（與本 session 設計幾乎一樣）；9 個 test；3 must-fix + 3 should-fix + 2 nice-to-have 全採納
+
+**本 session 的差異點 / 額外價值**：
+1. `None` vs `{}` 語意分離（code-reviewer must-fix #1）— PR #38 沒明確區分這兩個語意
+2. `fetch_item_metadata` 加 optional `farm_id` filter（multi-farm 防禦）— PR #38 沒做
+3. `tuple[str | None, str | None, str | None]` 嚴格型別 — PR #38 用 `tuple[str, str, str]`
+4. `TYPE_CHECKING` 真型別 + 移除 schemas 模組底部 E402 import — PR #38 router 也用 TYPE_CHECKING
+5. Frontend layout：unit 合併進 qty 後（5 欄）vs PR #38 獨立 6 欄 — 各有取捨
+
+**處理方式**：
+- Push 到 session-assigned branch `claude/nice-brown-82wwA` 保留工作成果
+- **不開第 3 個 PR**（避免污染 issue tracker）— 劉老師可在 #37 / #38 / 本 branch 三選一
+- 建議劉老師參考本 session 的 must-fix #1（None vs {} 語意）、farm_id filter 與 str | None 型別，整合進選定的 PR
+
 ### 待辦（不阻塞）
-- Code-reviewer 結果讀取 + 採納 must-fix（如有）
-- PR 由本 session push 後若 gh CLI 不可用，劉老師人工開
+- 劉老師決定採用哪個 PR（#37 / #38 / 本 branch），其他 close
 
 ### 建議下次 session 工作
 
