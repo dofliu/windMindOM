@@ -90,7 +90,7 @@ def client_and_items(tmp_path):
         stock_new=50,
     )
 
-    yield client, bearing.id, oil.id
+    yield client, bearing.id, oil.id, db_path
 
     set_repository_factory(None)
     set_signoff_factories(None, None)
@@ -110,7 +110,7 @@ def _create_mr(client: TestClient, items: list[dict]) -> dict:
 
 
 def test_create_response_carries_sku_name_unit(client_and_items):
-    client, bearing_id, oil_id = client_and_items
+    client, bearing_id, oil_id, _ = client_and_items
     body = _create_mr(
         client,
         [
@@ -128,7 +128,7 @@ def test_create_response_carries_sku_name_unit(client_and_items):
 
 
 def test_get_detail_response_enriched(client_and_items):
-    client, bearing_id, _ = client_and_items
+    client, bearing_id, _, _ = client_and_items
     created = _create_mr(client, [{"item_id": str(bearing_id), "estimated_qty": 3}])
 
     resp = client.get(
@@ -144,7 +144,7 @@ def test_get_detail_response_enriched(client_and_items):
 
 
 def test_list_response_enriched(client_and_items):
-    client, bearing_id, oil_id = client_and_items
+    client, bearing_id, oil_id, _ = client_and_items
     _create_mr(client, [{"item_id": str(bearing_id), "estimated_qty": 1}])
     _create_mr(client, [{"item_id": str(oil_id), "estimated_qty": 2}])
 
@@ -162,18 +162,17 @@ def test_list_response_enriched(client_and_items):
             assert it["unit"] is not None
 
 
-def test_missing_inventory_item_falls_back_to_none(client_and_items, tmp_path):
+def test_missing_inventory_item_falls_back_to_none(client_and_items):
     """如果 MR.items 引用的 InventoryItem 不存在（被刪 / migration 漏）— enrich 不應 500。"""
-    client, bearing_id, _ = client_and_items
+    client, bearing_id, _, db_path = client_and_items
 
     created = _create_mr(client, [{"item_id": str(bearing_id), "estimated_qty": 1}])
 
     # 直接從 DB 刪掉那筆 InventoryItem，模擬 join 失敗
     from modules.workflow.repository import InventoryItemORM
     from sqlalchemy.orm import sessionmaker as _sm
-    db_path = str(tmp_path / "wind_farm.db")
     inv_repo = get_inventory_repository(db_path)
-    SessionLocal = _sm(inv_repo._engine, future=True)
+    SessionLocal = _sm(inv_repo.engine, future=True)
     with SessionLocal() as sess:
         orm = sess.get(InventoryItemORM, str(bearing_id))
         assert orm is not None
@@ -193,10 +192,9 @@ def test_missing_inventory_item_falls_back_to_none(client_and_items, tmp_path):
     assert body["items"][0]["item_id"] == str(bearing_id)
 
 
-def test_repository_batch_fetch_dedupes(client_and_items, tmp_path):
+def test_repository_batch_fetch_dedupes(client_and_items):
     """``get_items_by_ids`` 跨 farm DB 多 id 一次查回。"""
-    _, bearing_id, oil_id = client_and_items
-    db_path = str(tmp_path / "wind_farm.db")
+    _, bearing_id, oil_id, db_path = client_and_items
     inv_repo = get_inventory_repository(db_path)
 
     by_id = inv_repo.get_items_by_ids([bearing_id, oil_id])
@@ -211,3 +209,25 @@ def test_repository_batch_fetch_dedupes(client_and_items, tmp_path):
     missing = uuid4()
     out = inv_repo.get_items_by_ids([missing])
     assert out == {}
+
+
+def test_state_transition_response_keeps_enrichment(client_and_items):
+    """state-transition endpoint（此處用 submit_for_approval）的 response 也要帶 SKU/name/unit。
+
+    Regression for review #8：8 個 call site 都改走 ``_build_mr_response`` 後，
+    state-transition path 不能漏 enrich（否則 frontend 在 transition 後 refresh 會閃白 SKU）。
+    """
+    client, bearing_id, _, _ = client_and_items
+    created = _create_mr(client, [{"item_id": str(bearing_id), "estimated_qty": 2}])
+
+    resp = client.post(
+        f"/api/workflow/material-requests/{created['id']}/submit-for-approval",
+        params={"farm_id": "changhua"},
+        json={"actor_id": str(uuid4())},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "awaiting_approval"
+    assert body["items"][0]["sku"] == "GBR-001"
+    assert body["items"][0]["name"] == "Gearbox bearing"
+    assert body["items"][0]["unit"] == "個"

@@ -696,12 +696,18 @@ const MaterialRequestDetailModal: React.FC<Props> = ({
                         value={returnItemId}
                         options={[
                           { value: '', label: ui('— Select item —', '— 選擇項目 —') },
-                          ...mr.items.map(it => ({
-                            value: it.item_id,
-                            label: it.sku
-                              ? `${it.sku} · ${it.name ?? ''} · ${ui('est.', '預估')} ${it.estimated_qty}${it.unit ? ` ${it.unit}` : ''}`
-                              : `${it.item_id.slice(-8)} · ${ui('est.', '預估')} ${it.estimated_qty}`,
-                          })),
+                          ...mr.items.map(it => {
+                            const head = it.sku
+                              ? [it.sku, it.name].filter(Boolean).join(' · ')
+                              : `…${it.item_id.slice(-8)}`;
+                            const tail =
+                              `${ui('est.', '預估')} ${it.estimated_qty}` +
+                              (it.unit ? ` ${it.unit}` : '');
+                            return {
+                              value: it.item_id,
+                              label: `${head} · ${tail}`,
+                            };
+                          }),
                         ]}
                         onChange={setReturnItemId}
                         ariaLabel={ui('Item to return', '退料項目')}

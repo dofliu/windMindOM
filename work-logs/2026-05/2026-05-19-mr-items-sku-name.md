@@ -49,7 +49,7 @@
 
 ### 2.5 frontend 顯示
 
-`MaterialRequestDetailModal` items table 既有 columns: `料件 / 估計 / 實際 / 狀態`。改為：`SKU / 名稱 / 估計 / 實際 / 單位`（5 欄）。
+`MaterialRequestDetailModal` items table 既有 columns: `料件 / 估計 / 實際 / 狀態`。改為：`SKU / 名稱 / 預估 / 實領 / 單位 / 庫存類型`（6 欄；保留 stock_kind 列方便看「領新 / 領舊 / 領維修中」）。
 
 Wizard step 3 review 已從 picker 帶 SKU/name 顯示 — **不動**（picker subset 已展示 SKU + name 給 reviewer 看）。實際真正的 readability 痛點在 detail modal，不在 wizard。
 
@@ -64,7 +64,7 @@ M modules/workflow/schemas/material_request_schemas.py     MaterialRequestItemRe
 M modules/workflow/repository/inventory_repository.py      加 get_items_by_ids batch helper
 M modules/workflow/routers/material_request_router.py      _build_mr_response helper + 替換 8 個 model_validate
 M frontend/services/materialService.ts                     MaterialRequestItem type 加 sku/name/unit Optional
-M frontend/components/workflow/MaterialRequestDetailModal.tsx  items table 5 欄 layout
+M frontend/components/workflow/MaterialRequestDetailModal.tsx  items table 6 欄 layout
 ```
 
 ### 3.2 新增
@@ -119,7 +119,24 @@ M frontend/components/workflow/MaterialRequestDetailModal.tsx  items table 5 欄
 
 ### 5.3 Code review
 
-Code-reviewer subagent async 跑（subagent ID 已記錄）；如有 must-fix，本 session 第二輪 commit 採納並補 regression test。
+Code-reviewer subagent 回報 **4 must-fix + 6 should-fix + 2 nice-to-have**。本 session 第二輪 commit 採納：
+
+**Must-fix 全採納（4/4）**：
+1. ✅ #1/#2 — Test fixture `tmp_path` 雙重 resolve（雖然 pytest 同 test 內快取讓 path 一致，第一輪 5 個 test 也都通過，但模式仍 fragile） → 改 fixture 直接 yield `db_path` 給 test，移除 test 函式自己接 `tmp_path`
+2. ✅ #3 — Test 存取 `inv_repo._engine` private 屬性 → 在 `InventoryRepository` 加 `engine` public property（與新增的 `MaterialRequestRepository.engine` 對稱），test 改用 `inv_repo.engine`
+3. ✅ #4 — `submit_for_approval` `mr_repo.get(material_request_id)` 沒 None guard，極端 race 會 `model_validate(None)` AttributeError → 加 None guard 回 404
+
+**Should-fix 採納（5/6）**：
+- ✅ #5 — `inventory` 重複 import block 合併
+- ✅ #7 — work-log §2.5 / §3.1 「5 欄」→ 「6 欄」改正（漏記 stock_kind 列）
+- ✅ #8 — 加 state-transition regression test（`test_state_transition_response_keeps_enrichment`：submit_for_approval 後驗 items[0].sku 仍 enriched）
+- ✅ #9 — Return form select option label `name` 為 null 時不再產生 `"GBR-001 ·  · est. 2 個"`（兩個 · 中間空字串）；改用 `[sku, name].filter(Boolean).join(' · ')`
+- ✅ #10 — work-log TODO checklist 全部 mark done（commit 前完成）
+- ⏭ #6 — `_build_mr_response` 的 `mr: MaterialRequest` 型別標註：#4 fix 後 caller 都保證非 None，型別維持 non-optional（不需改）
+
+**Nice-to-have（0/2 採納）**：
+- ⏭ #11 — `_build_mr_response` / `_build_mr_responses` 抽共用 `_enrich_item` helper：日後加第 4 欄再抽（YAGNI）
+- ⏭ #12 — InventoryRepository.engine property — 本輪 must-fix #3 已順手補上（達到對稱），nice-to-have #12 等於同時解決
 
 ### 5.4 Build / test 驗證
 

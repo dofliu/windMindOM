@@ -146,6 +146,13 @@ def apply_stock_delta_in_session(
 class InventoryRepository:
     """SQLAlchemy 2.0 repository for inventory_items + warehouses + adjustment_log。"""
 
+    @property
+    def engine(self) -> Engine:
+        """Read-only engine accessor — 與 ``MaterialRequestRepository.engine`` 對稱，
+        給 router / test 共用同 farm DB engine 構新 session 而不用碰 private ``_engine``。
+        """
+        return self._engine
+
     def __init__(self, engine: Engine):
         self._engine = engine
         self._sessionmaker = sessionmaker(engine, expire_on_commit=False, future=True)

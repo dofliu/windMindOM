@@ -18,10 +18,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from modules.workflow.domain import InvalidTransition
 from modules.workflow.domain.inventory import (
+    MaterialRequest,
     MaterialRequestStatus,
     StockKind,
 )
-from modules.workflow.domain.inventory import MaterialRequest
 from modules.workflow.repository import (
     InsufficientStock,
     InventoryRepository,
@@ -320,6 +320,13 @@ async def submit_for_approval(
         )
 
     mr = mr_repo.get(material_request_id)
+    if mr is None:
+        # Defensive — submit + backlink 都成功後若 MR 被另一個 session 刪除（極端 race），
+        # 回 404 而非讓 `_build_mr_response` 在 `model_validate(None)` 出 AttributeError。
+        raise HTTPException(
+            status_code=404,
+            detail=f"material_request {material_request_id} not found",
+        )
     return _build_mr_response(mr_repo, mr)
 
 
