@@ -433,13 +433,35 @@ class MaterialRequestRepository:
         returned_by: UUID,
         note: str | None = None,
     ) -> MaterialReturn:
-        """建 MaterialReturn 記錄 + 同 transaction 加回 stock。
+        """建 MaterialReturn 記錄 + 同 transaction 加回 stock + 寫 ledger 沖銷。
 
-        ⚠ 不寫 ledger 沖銷（A5 cost ledger 整合再做 — 用 wo_finish hook 算 actual_qty
-           差異一次到位較精確）。本 method 只動 stock + log。
+        WMOM-20260509-F1：退料同時寫一筆負金額 ledger entry 沖銷原 dispatch 成本，
+        避免 ``summary_by_category(status=CONFIRMED)`` 月報材料成本偏高。
+
+        Ledger 沖銷規則：
+        - amount = ``-(qty × locked_unit_cost)``，locked_unit_cost 取自原 dispatch entry
+          （snapshot 對稱會計做帳）；若原 entry 無 locked_unit_cost（向後相容）
+          fallback 用當前 inventory ``unit_cost``
+        - status 與原 dispatch entry 同步（CONFIRMED 退料即 CONFIRMED、ESTIMATED 退料
+          即 ESTIMATED）
+        - 找不到 dispatch entry（如 MR 未走 atomic dispatch_request path）→ skip
+          ledger 寫入並 log warning，stock + MaterialReturn 仍照常 commit
+
+        ``find_for_mr_item`` 需 filter ``amount >= 0`` 避開退料負 entry（已在
+        cost_ledger_repository 配套修正）。
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
+
+        # Lazy import 破循環依賴（同 dispatch_request 的 pattern）
+        from modules.cost.repository.cost_ledger import (
+            CostLedgerCategory,
+            CostLedgerEntry,
+            CostLedgerEntryORM,
+            CostLedgerSourceType,
+            CostLedgerStatus,
+            insert_in_session,
+        )
 
         with self._sessionmaker() as sess:
             try:
@@ -447,12 +469,13 @@ class MaterialRequestRepository:
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
 
-                # 加回 stock（atomic）
-                apply_stock_delta_in_session(
+                # 加回 stock（atomic）— 回傳 inv_orm 給 fallback 用
+                inv_orm = apply_stock_delta_in_session(
                     sess, item_id=item_id, kind=return_to_kind, delta=+qty
                 )
 
                 ret_id = uuid4()
+                ret_now = _utc_now()
                 ret_orm = MaterialReturnORM(
                     id=str(ret_id),
                     request_id=str(request_id),
@@ -462,9 +485,71 @@ class MaterialRequestRepository:
                     return_to_kind=return_to_kind.value,
                     returned_by=str(returned_by),
                     note=note,
-                    returned_at=_utc_now(),
+                    returned_at=ret_now,
                 )
                 sess.add(ret_orm)
+
+                # ── Ledger 沖銷（WMOM-20260509-F1） ─────────────────────
+                # 1. 找對應 MR line item（取第一筆，locked_unit_cost 同 MR 內一致）
+                mr_item_orm = sess.execute(
+                    select(MaterialRequestItemORM)
+                    .where(
+                        MaterialRequestItemORM.request_id == str(request_id),
+                        MaterialRequestItemORM.item_id == str(item_id),
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+
+                dispatch_entry: CostLedgerEntryORM | None = None
+                if mr_item_orm is not None:
+                    # 2. 找原 dispatch ledger entry（amount >= 0 排除已寫入的退料 entry）
+                    ledger_stmt = (
+                        select(CostLedgerEntryORM)
+                        .where(
+                            CostLedgerEntryORM.source_event_id == str(request_id),
+                            CostLedgerEntryORM.source_item_id == str(mr_item_orm.id),
+                            CostLedgerEntryORM.source_type
+                            == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                            CostLedgerEntryORM.amount >= 0,
+                        )
+                        .limit(1)
+                    )
+                    dispatch_entry = sess.execute(ledger_stmt).scalar_one_or_none()
+
+                if dispatch_entry is not None:
+                    # 3. 取 locked_unit_cost，fallback 到當前 inventory unit_cost
+                    unit_cost = (
+                        Decimal(str(dispatch_entry.locked_unit_cost))
+                        if dispatch_entry.locked_unit_cost is not None
+                        else Decimal(str(inv_orm.unit_cost))
+                    )
+                    offset_amount = -(Decimal(qty) * unit_cost)
+                    insert_in_session(
+                        sess,
+                        CostLedgerEntry(
+                            farm_id=mr_orm.farm_id,
+                            category=CostLedgerCategory.MATERIAL,
+                            amount=offset_amount,
+                            source_event_id=request_id,
+                            source_item_id=UUID(mr_item_orm.id),  # type: ignore[union-attr]
+                            locked_unit_cost=unit_cost,
+                            source_type=CostLedgerSourceType.MATERIAL_REQUEST,
+                            status=CostLedgerStatus(dispatch_entry.status),
+                            actor_id=returned_by,
+                            note=(
+                                f"退料 reason={reason.value} return_id={ret_id} qty={qty}"
+                            ),
+                            recorded_at=ret_now,
+                        ),
+                    )
+                else:
+                    # 向後相容：沒有 dispatch entry（test fixture / legacy）— skip ledger
+                    _logger.warning(
+                        "add_return: no dispatch ledger entry for MR %s item %s — "
+                        "skipping ledger offset (stock + return log still committed)",
+                        request_id, item_id,
+                    )
+
                 sess.commit()
                 sess.refresh(ret_orm)
                 return MaterialReturn(

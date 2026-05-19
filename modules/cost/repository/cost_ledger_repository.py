@@ -129,13 +129,19 @@ class CostLedgerRepository:
     def find_for_mr_item(
         self, material_request_id: UUID, item_id: UUID
     ) -> CostLedgerEntry | None:
-        """精確找 MR 某個 line item 對應的 ledger entry（A5 confirm flow 用）。"""
+        """精確找 MR 某個 line item 對應的 dispatch ledger entry（A5 confirm flow 用）。
+
+        WMOM-20260509-F1：filter ``amount >= 0`` 排除退料負金額 entry，避免
+        當 MR 同 line item 已有退料時 ``scalar_one_or_none`` raise MultipleResultsFound。
+        Dispatch entry 即使被 confirm 成 amount=0（actual_qty=0 case）仍 ≥ 0 可被選中。
+        """
         with self._sessionmaker() as sess:
             stmt = select(CostLedgerEntryORM).where(
                 CostLedgerEntryORM.source_event_id == str(material_request_id),
                 CostLedgerEntryORM.source_item_id == str(item_id),
                 CostLedgerEntryORM.source_type
                 == CostLedgerSourceType.MATERIAL_REQUEST.value,
+                CostLedgerEntryORM.amount >= 0,
             )
             orm = sess.execute(stmt).scalar_one_or_none()
             return self._to_domain(orm) if orm else None

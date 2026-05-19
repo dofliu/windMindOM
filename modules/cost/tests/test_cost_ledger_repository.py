@@ -144,6 +144,39 @@ def test_find_for_mr_item_not_found(repo):
     assert repo.find_for_mr_item(uuid4(), uuid4()) is None
 
 
+def test_find_for_mr_item_skips_return_entries(repo):
+    """WMOM-20260509-F1：filter amount >= 0 排除退料負金額 entry，避免 MultipleResultsFound。"""
+    mr_id = uuid4()
+    item_id = uuid4()
+    # 原 dispatch entry
+    _insert_entry(
+        repo, source_event_id=mr_id, source_item_id=item_id, amount=Decimal("450.00"),
+    )
+    # 退料負 entry（同 source_event_id + source_item_id）
+    _insert_entry(
+        repo, source_event_id=mr_id, source_item_id=item_id, amount=Decimal("-180.00"),
+    )
+
+    found = repo.find_for_mr_item(mr_id, item_id)
+    assert found is not None
+    # 應取到 dispatch entry（amount > 0），不是退料
+    assert found.amount == Decimal("450.00")
+
+
+def test_find_for_mr_item_zero_amount_dispatch_still_matched(repo):
+    """Edge case：dispatch entry 經 wo_finish confirm 後 amount=0（actual_qty=0）
+    仍可被 find_for_mr_item 找到（amount >= 0 包含 0）。"""
+    mr_id = uuid4()
+    item_id = uuid4()
+    _insert_entry(
+        repo, source_event_id=mr_id, source_item_id=item_id, amount=Decimal("0.00"),
+        status=CostLedgerStatus.CONFIRMED,
+    )
+    found = repo.find_for_mr_item(mr_id, item_id)
+    assert found is not None
+    assert found.amount == Decimal("0.00")
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # list_for_subject
 # ─────────────────────────────────────────────────────────────────────────

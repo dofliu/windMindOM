@@ -293,3 +293,214 @@ def test_add_return_unknown_request(mr_repo, item):
             return_to_kind=StockKind.NEW,
             returned_by=uuid4(),
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# WMOM-20260509-F1：add_return 寫 ledger 沖銷 entry
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _dispatch_mr(mr_repo, item, qty: int):
+    """Helper：建 MR + submit + approve + dispatch（atomic 雙寫），回 MR 物件。"""
+    mr = mr_repo.create(
+        farm_id="changhua", requester_id=uuid4(),
+        items=[(item.id, qty, StockKind.NEW)],
+    )
+    mr_repo.transition(mr.id, "submit_for_approval")
+    mr_repo.transition(mr.id, "approve_all")
+    mr_repo.dispatch_request(mr.id)
+    return mr_repo.get(mr.id)
+
+
+def test_add_return_writes_ledger_offset(mr_repo, inv_repo, item, db_path):
+    """退料應 insert 一筆負金額 ledger entry：amount = -(qty × locked_unit_cost)。"""
+    from modules.cost.repository import (
+        CostLedgerCategory,
+        CostLedgerSourceType,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=5)  # dispatch 5 × 450 = 2250 estimated entry
+    mr_repo.add_return(
+        request_id=mr.id,
+        item_id=item.id,
+        qty=2,
+        reason=ReturnReason.SURPLUS,
+        return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    # 應有 2 筆：原 dispatch entry (+2250) + 退料 entry (-900)
+    assert len(entries) == 2
+    amounts = sorted(e.amount for e in entries)
+    assert amounts[0] == Decimal("-900.00")  # -(2 × 450)
+    assert amounts[1] == Decimal("2250.00")  # 5 × 450
+
+    return_entry = next(e for e in entries if e.amount < 0)
+    assert return_entry.category is CostLedgerCategory.MATERIAL
+    assert return_entry.source_type is CostLedgerSourceType.MATERIAL_REQUEST
+    assert return_entry.locked_unit_cost == Decimal("450.0000")
+    assert return_entry.note is not None and "退料" in return_entry.note
+
+
+def test_add_return_ledger_status_matches_original(mr_repo, item, db_path):
+    """退料 entry status 應對齊原 dispatch entry：原 ESTIMATED → 退 ESTIMATED。"""
+    from modules.cost.repository import (
+        CostLedgerSourceType,
+        CostLedgerStatus,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=3)
+    # 原 entry 仍是 ESTIMATED（沒走 wo_finish hook）
+    mr_repo.add_return(
+        request_id=mr.id,
+        item_id=item.id,
+        qty=1,
+        reason=ReturnReason.WRONG_PART,
+        return_to_kind=StockKind.USED,
+        returned_by=uuid4(),
+    )
+
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    return_entry = next(e for e in entries if e.amount < 0)
+    assert return_entry.status is CostLedgerStatus.ESTIMATED
+
+
+def test_add_return_ledger_status_matches_confirmed_original(mr_repo, item, db_path):
+    """原 dispatch entry 已 CONFIRMED 後退料 → 退料 entry 也立即 CONFIRMED（給月報用）。"""
+    from modules.cost.repository import (
+        CostLedgerSourceType,
+        CostLedgerStatus,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=4)
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    dispatch_entry = entries[0]
+    # 模擬 wo_finish hook flip dispatch entry → CONFIRMED
+    ledger.confirm_entry(dispatch_entry.id, new_amount=Decimal("1800.00"))
+
+    mr_repo.add_return(
+        request_id=mr.id,
+        item_id=item.id,
+        qty=1,
+        reason=ReturnReason.SURPLUS,
+        return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    return_entry = next(e for e in entries if e.amount < 0)
+    assert return_entry.status is CostLedgerStatus.CONFIRMED
+
+
+def test_add_return_summary_by_category_reflects_net_cost(mr_repo, item, db_path):
+    """退料後 summary_by_category(status=CONFIRMED) 月報應反映淨值（不再偏高）。"""
+    from decimal import Decimal as D
+
+    from modules.cost.repository import (
+        CostLedgerCategory,
+        CostLedgerSourceType,
+        CostLedgerStatus,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=5)  # 5 × 450 = 2250
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    ledger.confirm_entry(entries[0].id, new_amount=D("2250.00"))  # CONFIRMED 2250
+
+    mr_repo.add_return(
+        request_id=mr.id,
+        item_id=item.id,
+        qty=2,
+        reason=ReturnReason.SURPLUS,
+        return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+
+    summary = ledger.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.CONFIRMED
+    )
+    # 2250 - 900 = 1350（淨成本）
+    assert summary[CostLedgerCategory.MATERIAL] == D("1350.00")
+
+
+def test_add_return_multiple_returns_accumulate(mr_repo, item, db_path):
+    """同一 MR 多次退料 → 各自一筆 ledger entry，疊加正確。"""
+    from decimal import Decimal as D
+
+    from modules.cost.repository import (
+        CostLedgerCategory,
+        CostLedgerSourceType,
+        CostLedgerStatus,
+        get_cost_ledger_repository,
+    )
+
+    mr = _dispatch_mr(mr_repo, item, qty=10)
+    ledger = get_cost_ledger_repository(db_path)
+
+    # 兩次退料：1 + 2 = 3 件
+    mr_repo.add_return(
+        request_id=mr.id, item_id=item.id, qty=1,
+        reason=ReturnReason.SURPLUS, return_to_kind=StockKind.NEW,
+        returned_by=uuid4(),
+    )
+    mr_repo.add_return(
+        request_id=mr.id, item_id=item.id, qty=2,
+        reason=ReturnReason.WRONG_PART, return_to_kind=StockKind.USED,
+        returned_by=uuid4(),
+    )
+
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    # 1 dispatch + 2 returns = 3 entries
+    assert len(entries) == 3
+    return_total = sum(e.amount for e in entries if e.amount < 0)
+    assert return_total == D("-1350.00")  # -(1+2) × 450
+
+    summary = ledger.summary_by_category(
+        farm_id="changhua", status=CostLedgerStatus.ESTIMATED
+    )
+    # dispatch 4500 estimated - 1350 return estimated = 3150
+    assert summary[CostLedgerCategory.MATERIAL] == D("3150.00")
+
+
+def test_add_return_without_dispatch_entry_logs_warning(mr_repo, inv_repo, item, db_path, caplog):
+    """MR 沒走 atomic dispatch_request（直接 add_return）→ skip ledger，stock 仍加。"""
+    import logging
+
+    from modules.cost.repository import (
+        CostLedgerSourceType,
+        get_cost_ledger_repository,
+    )
+
+    # 不 dispatch — 直接 add_return（向後相容：legacy test fixture 場景）
+    mr = mr_repo.create(
+        farm_id="changhua", requester_id=uuid4(),
+        items=[(item.id, 1, StockKind.NEW)],
+    )
+    before = inv_repo.get_item(item.id).stock_new
+
+    with caplog.at_level(logging.WARNING):
+        mr_repo.add_return(
+            request_id=mr.id,
+            item_id=item.id,
+            qty=1,
+            reason=ReturnReason.SURPLUS,
+            return_to_kind=StockKind.NEW,
+            returned_by=uuid4(),
+        )
+
+    # stock 仍加（不 break add_return 主流程）
+    assert inv_repo.get_item(item.id).stock_new == before + 1
+    # 無 ledger entry
+    ledger = get_cost_ledger_repository(db_path)
+    entries = ledger.list_for_subject(mr.id, CostLedgerSourceType.MATERIAL_REQUEST)
+    assert entries == []
+    # warning 已 log
+    assert any("no dispatch ledger entry" in rec.message for rec in caplog.records)

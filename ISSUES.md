@@ -1335,7 +1335,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F1 — `add_return` 寫 ledger 沖銷
 
-- **Status**: open
+- **Status**: done（2026-05-19, branch `claude/issue-WMOM-20260509-F1-2026-05-19`）
 - **Milestone**: M4 後續（不阻塞 frontend）
 - **Priority**: medium（demo 給客戶看月報時會被發現偏高）
 - **Estimate**: 0.5 工作天
@@ -1345,6 +1345,11 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 加新 ledger entry：`category=material, source_type=material_request, source_event_id=mr.id, source_item_id=item.id, amount=-(qty × locked_unit_cost), note="退料 reason=..."`
   - 或改 update 既有 confirmed entry 的 amount（會喪失退料 audit trail，較不推薦）
   - 建議走「新 entry with negative amount」更乾淨
+- **完成內容**：
+  - `MaterialRequestRepository.add_return` 同 transaction 內 lookup 原 dispatch entry → insert 負金額沖銷 entry（locked_unit_cost snapshot 對稱、status 同步）；找不到 dispatch entry 向後相容 skip ledger
+  - `CostLedgerRepository.find_for_mr_item` filter `amount >= 0` 避免 MultipleResultsFound
+  - 加 7 個 regression test：dispatch + 退料完整 lifecycle / status 同步（estimated + confirmed 兩種） / summary_by_category 淨值 / 多次退料疊加 / 向後相容 warning / find_for_mr_item 過濾退料 entry 含 actual_qty=0 邊界
+- **驗證**：backend 520 passed + 1 xfailed + 3 pre-existing numpy drift（zero regression vs baseline 512）；e2e lifecycle 6/6 通過
 - **Reference**: code review subagent 報告 Should-fix #2
 
 ---
