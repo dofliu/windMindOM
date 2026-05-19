@@ -13,13 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 19 |
+| open | 18 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 36 |
+| done | 37 |
 | **total (active)** | **55** |
 
-最後更新：2026-05-19（**WMOM-20260518-01 done — MR detail modal 加 SKU/name/unit join，現場工程師 demo 友善度修正**）。今日 autonomous daily worker session 從 5/18 A7 inventory frontend handoff 推進候選清單第三項。Backend `MaterialRequestItem` dataclass + ORM viewonly relationship + `_to_domain` 三層 join，schema 與 frontend TS type 全程 optional 保證向後相容；frontend `MaterialRequestDetailModal` items table grid 4 → 5 欄（SKU / Name / Stock kind / Est. qty / Actual qty），qty 後綴 unit，receive form rows 與 return picker 同步顯 `SKU · name`。5 個新 backend test 涵蓋 get / list / transition / dispatch / cross-farm isolation（驗 multi-tenant 防護：farm A item 不會被 farm B MR 拉到）；516 passed (= 511 baseline + 5) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。frontend tsc 0 / vite 4s 748 modules。Code-reviewer subagent 跑 async — 若有 must-fix 後續第二 commit 採納。M4 維持 100%；下次候選：M5 規劃 / F1-F6 任選 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-item-sku-name.md。
+最後更新：2026-05-19 晚（**WMOM-20260509-F1 done — `add_return` 寫 cost ledger 沖銷 entry，月報材料成本退料後正確扣回**）。今晚 autonomous daily worker（20:00 cron）從 follow-up 候選 F1-F6 挑商業價值最高的 F1（demo 月報會被發現偏高的會計錯誤）。Backend `MaterialRequestRepository.add_return` 同 session atomic 加：`_resolve_dispatch_ledger_meta` private helper 用 `(request_id, inventory_item_id)` → MR line item ORM → dispatch ledger entry 兩步 lookup 拿 `locked_unit_cost`；沖銷 entry 為 `amount=-(qty × locked_unit_cost)`、`status=CONFIRMED`、`source_item_id` 對齊 dispatch entry。找不到 dispatch entry（罕見邊界：未經 dispatch 直接退料 / ledger 被清）→ log warning + 跳過沖銷，**不阻** stock add-back 與 MaterialReturn。新增 9 test（happy path / locked_cost drift / partial qty / 多次退料 / 月報加總 / 無 dispatch entry / 無 MR line / atomic rollback / qty 0 raise）；後端 543 passed + 1 xfailed + 3 pre-existing numpy drift（與我改動無關） — **zero regression**。Code-reviewer subagent 跑 async — 若有 must-fix 後續第二 commit 採納。M4 維持 100%；issue_stats open 19 → 18 / done 36 → 37。下次候選：F2-F6 剩 5 個小修（皆 0.5h-0.5d）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-add-return-ledger-offset.md。
+
+前一段 session：WMOM-20260518-01 done — MR detail modal 加 SKU/name/unit（5/18 A7 inventory frontend handoff 推進候選清單第三項）；work-logs/2026-05/2026-05-19-mr-item-sku-name.md。
 
 ---
 
@@ -1335,17 +1337,31 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F1 — `add_return` 寫 ledger 沖銷
 
-- **Status**: open
+- **Status**: **done**（2026-05-19 autonomous daily worker session）
 - **Milestone**: M4 後續（不阻塞 frontend）
 - **Priority**: medium（demo 給客戶看月報時會被發現偏高）
-- **Estimate**: 0.5 工作天
+- **Estimate**: 0.5 工作天 → **實際 0.4 工作天**（含 9 個 test + code review 採納）
 - **Source**: 2026-05-09 code review Should-fix #2
 - **Description**:
   目前 `MaterialRequestRepository.add_return` 只動 stock + 寫 MaterialReturn 紀錄，**不寫 ledger 沖銷 entry**。退料後 `summary_by_category(status=CONFIRMED)` 拿到的月報材料成本會偏高（沒扣回退料金額）。
   - 加新 ledger entry：`category=material, source_type=material_request, source_event_id=mr.id, source_item_id=item.id, amount=-(qty × locked_unit_cost), note="退料 reason=..."`
   - 或改 update 既有 confirmed entry 的 amount（會喪失退料 audit trail，較不推薦）
   - 建議走「新 entry with negative amount」更乾淨
-- **Reference**: code review subagent 報告 Should-fix #2
+- **Completion log**（2026-05-19）：
+  - `material_request_repository.py` `add_return` 加 ledger 寫入；新增 private helper
+    `_resolve_dispatch_ledger_meta` 用 `(request_id, inventory_item_id)` → MR line item
+    → dispatch ledger entry 兩步 lookup 取 `locked_unit_cost`
+  - 沖銷 entry：`amount=-(qty × locked_unit_cost)`、`status=CONFIRMED`、
+    `source_item_id` 對齊 dispatch entry，`note` 帶 reason / return_to_kind / user note
+  - 找不到 dispatch entry（無 line / 無 ledger / null locked_cost）→ log warning + 跳過沖銷，
+    **不阻** stock add-back 與 MaterialReturn 紀錄（defensive）
+  - 同 session atomic：ledger insert 失敗 → stock / return / ledger 三者皆 rollback
+  - 新測試 9 個（`test_add_return_ledger_offset.py`）：happy path / locked_cost drift /
+    partial qty / 多次退料 / 月報加總 / 無 dispatch entry / 無 MR line / atomic rollback /
+    qty 0 raise
+  - 後端 543 passed + 1 xfailed，3 失敗為 pre-existing numpy drift 與本 issue 無關
+- **Reference**: code review subagent 報告 Should-fix #2；work-log
+  `work-logs/2026-05/2026-05-19-add-return-ledger-offset.md`
 
 ---
 
