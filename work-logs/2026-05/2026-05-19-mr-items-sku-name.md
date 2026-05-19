@@ -151,8 +151,18 @@ Code-reviewer subagent 回報 **4 must-fix + 6 should-fix + 2 nice-to-have**。�
 
 ## 6. 下次接手指南
 
+> ⚠ **分支名衝突 — 兩個並行 session 同一天做了 WMOM-20260518-01**：
+> - **v1**（branch `claude/issue-WMOM-20260518-01-2026-05-19`，commit `68361b1`）：另一個 session 用 **ORM `viewonly` + `lazy="joined"` relationship** 自動補值；同時改 `MaterialRequestItem` domain dataclass 加 3 optional metadata 欄位
+> - **v2**（branch `claude/issue-WMOM-20260518-01-2026-05-19-v2`，本 session）：**router 層 batch fetch** 不污染 domain；加 `InventoryRepository.get_items_by_ids` + `_build_mr_response` helper
+>
+> 兩個 approach 目標一致但 trade-off 不同：
+> - **v1 優點**：ORM relationship 自動 join，repository 端不用 caller 顯式 batch fetch；缺點：domain dataclass 被加 denormalized 欄位（pure domain 不再 pure），ORM lazy=joined 對 list endpoint 200 MR × 3 items 可能 N+1（看 SQLAlchemy 處理）
+> - **v2 優點**：domain 保持 pure，router 層批次 fetch（200 MR 只發 1 query），ledger / dispatch / pure dataclass test fixture 完全不受影響；缺點：8 個 router call site 必須改用 helper
+>
+> **建議劉老師擇一 merge 或合併兩者長處**。本 session 不主動 push v2 PR，避免重複 PR 流量。
+
 ### 已完成
-- WMOM-20260518-01 backend + frontend 全收
+- WMOM-20260518-01 backend + frontend 全收（v2 approach）
 - M4 follow-up 一條收尾（M4 milestone 仍 100%；不影響 issue_stats 開放清單但 A6 review Should-fix #4 兌現）
 
 ### 待辦（不阻塞）
