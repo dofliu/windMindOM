@@ -4,7 +4,7 @@ category: wind_energy
 progress: 100
 status: active
 last_updated: "2026-05-19"
-next_milestone: "**WMOM-20260518-01 done — MR items table 加 SKU+name+unit 顯示**：今日（autonomous daily worker, 5/19 20:00）認領 A6 review 留下的 follow-up。Backend `MaterialRequestItemResponse` 加 sku/name/unit Optional 欄位 + `MaterialRequestRepository.resolve_item_metadata` 一次 batch IN 查 `inventory_items` join。Router 三個 pure helper（`_enrich_items` 用 pydantic v2 `model_copy(update=...)` 避 mutate / `_build_mr_response` / `_build_mr_list_response`）替換 9 個 call site。Frontend：`MaterialRequestDetailModal` items table 4 欄變 6 欄（SKU | Name | Stock kind | Est | Actual | Unit；fallback 仍顯示 truncated UUID 但 title 帶完整 ID）；receive form 與 returns dropdown label 都改用 SKU·name；wizard step 3 review 加 name 與 unit。新增 9 test（repo 3 + router CRUD 3 + transition smoke 2 + data drift 1）。Backend 526 passed (+9 new) + 1 xfailed + 3 pre-existing numpy drift + 1 flaky concurrency — zero regression；Frontend tsc 0 / vite build 3.57s, 748 modules, 917.15 kB。Code-reviewer 找 3 must-fix + 3 should-fix + 2 nice-to-have，**全採納**（model_copy 換 mutate / docstring 註 transaction 邊界 / 補 transition smoke test / sqlite3 import 移頂 + 註 SQLite-only / grid SKU 欄 1fr → 1.2fr / 空 list 早 return / 移除 wizard 多餘 null guard）。M4 milestone 維持 100%（本 issue 為 follow-up nice-to-have）；issue_stats open 20 → 19 / done 35 → 36。下次候選：M5 規劃（RAG knowledge + demo orchestrator UI）/ F1-F6 follow-up（5 個 0.5h 小修可一次清掉）/ WMOM-20260513-02 demo orchestrator simulator 接合。詳細 handoff 在 work-logs/2026-05/2026-05-19-mr-item-sku-name.md。"
+next_milestone: "**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**：今日（autonomous daily worker, 5/19 20:00）從 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫（stock + MaterialReturn）升級為三寫（+ ledger offset entry）。Offset entry 設計：`amount=-(qty × locked_unit_cost from dispatch entry)`，`status=CONFIRMED + confirmed_at=now`（退料是 actual cash flow），`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 多筆 collision。新加 `_lookup_offset_unit_cost(sess, request_id, item_id, return_to_kind) -> Decimal | None` static method：先找 dispatch ledger entry 取 locked_unit_cost（會計一致性 — dispatch 後漲價也用鎖定值）→ fallback 查當前 inventory.unit_cost → 都沒則 warning + skip ledger（stock + MaterialReturn 仍寫）。Cross-kind return（dispatch NEW → return USED 試裝後歸二手）docstring + test 涵蓋。17 個新 test（happy path 3 + 月報視角 3 含 mid-state confirmed=-450 + wo hook 互動 1 + fallback 3 + multi 2 + atomic 1 + cross-kind 1 + cross-cutting 2 + N#1）。Backend 551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 找 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard：dispatch 2 件 + actual=1 confirm + 退 2 件 → confirmed=-300 負值漏洞，F1 scope 不加 guard 改 docstring 警示）。M4 milestone 維持 100%；issue_stats open 19 → 19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36 → 37。下次候選：WMOM-20260519-01（F1 follow-up，0.5-1d）/ F2-F5 一次清掉（4 個 0.5h）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md."
 technologies:
   - FastAPI
   - React
@@ -49,7 +49,7 @@ milestones:
     name: "Workflow Part 2（Inventory）+ Reporting"
     target_month: "2026-08"
     status: completed
-    progress: 100  # A1-A10 全 done + 4 frontend（reports / approval / material / inventory）全收；F1-F6 follow-up + WMOM-20260518-01 為 nice-to-have，不影響 M4 完成度
+    progress: 100  # A1-A10 全 done + 4 frontend（reports / approval / material / inventory）全收；F1-F6 follow-up + WMOM-20260518-01 + WMOM-20260509-F1 為 nice-to-have，不影響 M4 完成度
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 19  # -1 (WMOM-20260518-01 done) = 19 net
+  open: 19  # WMOM-20260509-F1 done (-1) + WMOM-20260519-01 new (+1) = 19 net
   in_progress: 0
   blocked: 0
-  done: 36  # +1: WMOM-20260518-01 done (2026-05-19, autonomous daily worker)
+  done: 37  # +1: WMOM-20260509-F1 done (2026-05-19 autonomous daily worker, 含 follow-up issue WMOM-20260519-01)
 
 inherited_baseline:
   source: digiWindTurbine
