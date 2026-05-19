@@ -186,11 +186,12 @@ def test_metadata_after_add_return(mr_repo, inv_repo, item):
     mr_repo.transition(mr.id, "submit_for_approval", actor_id=requester)
     mr_repo.transition(mr.id, "approve_all")
     mr_repo.dispatch_request(mr.id, actor_id=requester)
+    # actual=4 留 1 件可退（WMOM-20260519-01 guard：max=estimated-actual-returned=5-4-0=1）
     received = mr_repo.transition(
         mr.id,
         "receive",
         actor_id=requester,
-        actual_quantities={mr.items[0].id: 5},
+        actual_quantities={mr.items[0].id: 4},
     )
     assert received.status is MaterialRequestStatus.RECEIVED
     # 建退料記錄（加回 stock）

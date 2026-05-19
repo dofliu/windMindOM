@@ -499,12 +499,16 @@ class MaterialRequestRepository:
         - dispatch entry 的 ``locked_unit_cost`` 為 None（向後相容老 entries）→ fallback
           查當前 inventory ``unit_cost``
 
-        ⚠ 會計邊界（caller 責任）：
-        - 本 method 沒驗證 ``qty <= (dispatched_qty - already_returned_qty - actual_consumed)``。
-          若退料 qty 超過實際派出未消耗的量（例如 wo finish ``actual_qty=1`` 但退料 2 件），
-          月報 ``summary_by_category(CONFIRMED)`` 視角會出現負值材料成本。
-        - Future work：WMOM-20260519-F1-followup 評估是否要在 domain 層加 guard 或在
-          UI/router 層擋。本 F1 改動只負責「退料 → 寫沖銷 entry」的會計動作。
+        會計邊界 guard（WMOM-20260519-01，F1 follow-up）：
+        - ``_assert_return_within_physical_ceiling`` 驗證
+          ``qty <= physical_ceiling - already_returned``
+        - ``physical_ceiling``: 每條 MR line 取 ``actual_qty``（receive 後填入），
+          若 ``actual_qty IS NULL``（pre-receive：DRAFT / DISPATCHED）取 ``estimated_qty``；
+          跨 stock_kind 聚合 by (request_id, item_id) 以支援 cross-kind return
+          （dispatch NEW → return USED）。
+        - 違反則 raise ``MaterialRequestRuleViolation`` → router 422，避免月報出現負值
+          材料成本（estimated=2 + receive actual=1 + 退 2 件 → confirmed=-300 漏洞）。
+        - Guard 在 stock 寫入前執行；MR row ``SELECT FOR UPDATE`` 序列化並發 callers。
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
@@ -521,9 +525,25 @@ class MaterialRequestRepository:
 
         with self._sessionmaker() as sess:
             try:
-                mr_orm = sess.get(MaterialRequestORM, str(request_id))
+                # SELECT FOR UPDATE on MR row — 序列化 concurrent add_return callers，
+                # 避免 guard read-then-write race（兩 caller 各自讀 already_returned=0
+                # 同時 pass guard → 共寫 2N 件超量）
+                mr_orm = sess.execute(
+                    select(MaterialRequestORM)
+                    .where(MaterialRequestORM.id == str(request_id))
+                    .with_for_update()
+                ).scalar_one_or_none()
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
+
+                # Domain guard（WMOM-20260519-01）— 必須在 stock 寫入前執行，
+                # 違反則 raise MaterialRequestRuleViolation，rollback 不寫任何側效果
+                self._assert_return_within_physical_ceiling(
+                    sess,
+                    request_id=request_id,
+                    item_id=item_id,
+                    qty=qty,
+                )
 
                 # 加回 stock（atomic）
                 apply_stock_delta_in_session(
@@ -665,6 +685,84 @@ class MaterialRequestRepository:
             return Decimal(str(inv_orm.unit_cost))
 
         return None
+
+    @staticmethod
+    def _assert_return_within_physical_ceiling(
+        sess: Session,
+        *,
+        request_id: UUID,
+        item_id: UUID,
+        qty: int,
+    ) -> None:
+        """超量退料 domain guard（WMOM-20260519-01）。
+
+        驗證 ``qty <= max_returnable``，其中：
+
+        - ``physical_ceiling`` = ``sum(line_ceiling)`` for (request_id, item_id)，
+          **跨 stock_kind 聚合**。每條 line 的 ceiling：
+            - ``actual_qty IS NOT NULL``（receive 已執行）→ ``actual_qty``
+              ＝「簽收時的實收量」（physical 上限，因為只能退回實際拿到的）
+            - ``actual_qty IS NULL``（DRAFT / SUBMITTED / APPROVED / DISPATCHED
+              pre-receive）→ ``estimated_qty``
+              ＝「dispatch 出去的量」（physical 上限，受 inventory 扣減量限制）
+        - ``already_returned`` = ``sum(MaterialReturn.qty)`` for (request_id,
+          item_id)，**跨 return_to_kind 聚合**
+        - ``max_returnable = physical_ceiling - already_returned``
+
+        跨 stock_kind / return_to_kind 聚合支援 cross-kind return：dispatch NEW 5
+        → return USED 5（試裝後歸二手）— guard 不誤殺此合法場景。
+
+        重要 semantic（review must-fix #1 修正）：
+        ``actual_qty`` 寫入時機是 ``receive`` transition（簽收）而**非** ``mark_used``
+        （工單完工）。所以「actual」語意是「收到多少」不是「用了多少」。本 guard
+        正確 model 為：簽收後可退量等同 actual_qty；簽收前可退量等同 estimated_qty。
+
+        Note: ``actual_qty > estimated_qty`` 在 ``_guard_receive`` 未擋（data
+        corruption 風險）。本 guard 採信 actual_qty 原值；上限校驗應在
+        ``_guard_receive`` 補（future follow-up issue）。
+
+        若 ``item_id`` 不在 MR 內 → raise（避免 phantom inventory：退從未派出的料）。
+
+        Raises:
+            MaterialRequestRuleViolation: qty 超過可退量，或 item_id 不在 MR 中
+        """
+        # 1. MR items（取得 estimated + actual）
+        mr_items = sess.execute(
+            select(MaterialRequestItemORM).where(
+                MaterialRequestItemORM.request_id == str(request_id),
+                MaterialRequestItemORM.item_id == str(item_id),
+            )
+        ).scalars().all()
+        if not mr_items:
+            raise MaterialRequestRuleViolation(
+                f"料件 {item_id} 不在 MR {request_id} 中，無法退料"
+                f"（該料件從未在此 MR 中派出）"
+            )
+        # Per-line ceiling: actual_qty if set (receive happened) else estimated_qty
+        line_ceilings = [
+            (it.actual_qty if it.actual_qty is not None else it.estimated_qty)
+            for it in mr_items
+        ]
+        physical_ceiling = sum(line_ceilings)
+        any_received = any(it.actual_qty is not None for it in mr_items)
+
+        # 2. 已退量（跨 return_to_kind 聚合）
+        already_returned = sess.execute(
+            select(func.coalesce(func.sum(MaterialReturnORM.qty), 0)).where(
+                MaterialReturnORM.request_id == str(request_id),
+                MaterialReturnORM.item_id == str(item_id),
+            )
+        ).scalar_one()
+        already_returned_int = int(already_returned or 0)
+
+        max_returnable = physical_ceiling - already_returned_int
+        if qty > max_returnable:
+            ceiling_source = "簽收量" if any_received else "派出量"
+            raise MaterialRequestRuleViolation(
+                f"退料數量 {qty} 件超過可退上限 {max_returnable} 件"
+                f"（{ceiling_source}={physical_ceiling}，已退={already_returned_int}，"
+                f"MR={request_id}，料件={item_id}）"
+            )
 
     # ──────────────────────────────────────────────────────────────────
     # Business key 自動編號（同 work_order pattern）

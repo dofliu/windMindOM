@@ -253,7 +253,9 @@ def test_set_signoff_chain_id(mr_repo, item):
 
 
 def test_add_return_increments_stock(mr_repo, inv_repo, item):
-    mr = mr_repo.create(farm_id="f", requester_id=uuid4(), items=[(item.id, 1, StockKind.NEW)])
+    # estimated_qty=3 預留空間：退 2 件 ≤ 3 件已派；WMOM-20260519-01 guard 之後
+    # 不允許 estimated=1 / return=2（超量），需用合理場景測 cross-kind 退料。
+    mr = mr_repo.create(farm_id="f", requester_id=uuid4(), items=[(item.id, 3, StockKind.NEW)])
     initial_stock = inv_repo.get_item(item.id).stock_used
     ret = mr_repo.add_return(
         request_id=mr.id,

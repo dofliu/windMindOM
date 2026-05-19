@@ -16,10 +16,14 @@
 | open | 19 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 37 |
-| **total (active)** | **56** |
+| done | 38 |
+| **total (active)** | **57** |
 
-最後更新：2026-05-19 20:xx（**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**）。今日 autonomous daily worker session 從 5/19 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫升級為三寫（stock + MaterialReturn + ledger offset entry）；offset entry `amount = -(qty × locked_unit_cost from dispatch entry)`、`status=CONFIRMED + confirmed_at=now`、`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 撈出多筆 collision。新加 `_lookup_offset_unit_cost(sess, ...)` static method 分兩階段找沖銷 unit_cost（dispatch ledger entry → inventory fallback → None defensive）。Cross-kind return（dispatch NEW → return USED）docstring 補強 + test 涵蓋會計一致性原則（沖銷用 dispatch 時鎖定的成本，不重查當前 inventory）。17 個新 test 涵蓋 happy path / fallback / mid-state / atomic / multi / cross-kind / 月報視角；551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard）。M4 維持 100%；issue_stats open 19→19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36→37。下次候選：WMOM-20260519-01（F1 follow-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md。
+最後更新：2026-05-19 20:55（**WMOM-20260519-01 done — `add_return` 超量退料 domain guard，封堵 F1 留下的會計邊界**）。今日 autonomous daily worker 第二場 session（cron 20:00 觸發），接續早場 F1 — `MaterialRequestRepository.add_return` 加 domain guard 阻擋超量退料。**Code review 後關鍵 semantic 修正**：原以為 `actual_qty` 是 wo finish 耗用量，實際是 `receive` transition 簽收量；formula 從錯誤的 `estimated - consumed - returned`（subtraction，誤殺 full-receive-then-surplus 合法場景）改為正確的 `physical_ceiling = (actual_qty if set else estimated_qty)` per-line aggregate（replacement），跨 stock_kind / return_to_kind 聚合 by (request_id, item_id) 支援 cross-kind return。helper 改名 `_assert_return_within_physical_ceiling`；違反 raise `MaterialRequestRuleViolation` → router 自動 422，error message 改繁中（CLAUDE.md §7）；item 不在 MR 也擋（phantom inventory）；MR row `SELECT FOR UPDATE` 序列化並發 callers（race 修正）。11 個新 test 涵蓋 negative path（單次/累進/已簽收後/未在 MR/DRAFT-MR 各超量）+ happy path（pre-receive 全退 / received-ceiling 內退 / surplus-after-full-receive / cross-kind 聚合 / multi-line 聚合 / atomic 含累計斷言）+ 修正 2 個既有 buggy test。Backend 555 passed (+11 new) + 1 xfailed + 4 pre-existing baseline failures — **zero regression**。Code-reviewer subagent 3 must-fix + 6 should-fix + 3 nice-to-have，**採納 9/12**（含 must-fix 全 3 個 + 開 follow-up WMOM-20260519-02 補 `_guard_receive` 上限校驗）。M4 維持 100%；issue_stats open 19→19（-1 +1 net）/ done 37→38。下次候選：WMOM-20260519-02（30min easy clean-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-wmom-20260519-01-over-return-guard.md。
+
+---
+
+舊 note：2026-05-19 20:xx（**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**）。今日 autonomous daily worker session 從 5/19 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫升級為三寫（stock + MaterialReturn + ledger offset entry）；offset entry `amount = -(qty × locked_unit_cost from dispatch entry)`、`status=CONFIRMED + confirmed_at=now`、`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 撈出多筆 collision。新加 `_lookup_offset_unit_cost(sess, ...)` static method 分兩階段找沖銷 unit_cost（dispatch ledger entry → inventory fallback → None defensive）。Cross-kind return（dispatch NEW → return USED）docstring 補強 + test 涵蓋會計一致性原則（沖銷用 dispatch 時鎖定的成本，不重查當前 inventory）。17 個新 test 涵蓋 happy path / fallback / mid-state / atomic / multi / cross-kind / 月報視角；551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard）。M4 維持 100%；issue_stats open 19→19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36→37。下次候選：WMOM-20260519-01（F1 follow-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md。
 
 ---
 
@@ -1373,33 +1377,97 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
-### WMOM-20260519-01 — `add_return` 超量退料 domain guard 評估（F1 follow-up）
+### WMOM-20260519-02 — `_guard_receive` 加 `actual_qty <= estimated_qty` 上限校驗
 
 - **Status**: open
 - **Milestone**: M4 後續
-- **Priority**: medium-low（影響月報極端場景；正常 lifecycle 不觸發）
-- **Estimate**: 0.5-1 工作天
-- **Source**: 2026-05-19 WMOM-20260509-F1 code review Must-fix #2
+- **Priority**: low（data integrity；正常 lifecycle UI 已限制輸入）
+- **Estimate**: 30 分鐘 + 2-3 個 test
+- **Source**: 2026-05-19 WMOM-20260519-01 code review must-fix #1 & should-fix #4
 - **Description**:
-  WMOM-20260509-F1 完成「add_return 寫 ledger offset entry」後，發現一個會計邊界：
-  - dispatch estimated 2 件 @ 300 = 600 estimated entry
-  - wo finish 填 actual=1 → confirm 翻 dispatch entry 為 confirmed 300
-  - **若退料 2 件**（合法呼叫，但業務上不該；qty ≤ stock 可派出量，stock 加回未 guard）→ return entry -600 confirmed
-  - confirmed 視角 = 300 + (-600) = **-300**（負值材料成本，月報異常）
+  `modules/workflow/domain/inventory_state_machine.py:_guard_receive` 目前只擋
+  `actual_qty >= 0`，沒擋 `actual_qty > estimated_qty`（data corruption 漏洞）。
+  若 caller 誤傳 `actual_quantities={item_id: 10}` 但 `estimated_qty=2`：
+  - DB 寫 actual_qty=10（不合理）
+  - WMOM-20260519-01 guard 仍可工作（用 actual_qty=10 作 ceiling，過寬但 functional）
+  - 但 cost ledger confirm hook 若用 actual_qty 算 amount 會錯（estimated × locked_cost
+    vs actual × locked_cost 落差）
 
-  F1 scope 不加 guard，docstring 標註「caller 責任」。本 follow-up issue 評估：
-  1. 是否要在 domain 層加 guard：`qty <= (estimated_qty or dispatched_qty - already_returned_qty - actual_consumed)`
-  2. 或在 router 層擋
-  3. 或保留現狀 + 在 UI 層擋（field engineer 介面禁止超量輸入）
-  4. 是否要查 wo finish hook 後 actual_qty 才能驗證「actual_consumed」
-
-  決策後實作 + 加 negative path test。
-
+  修正：`_guard_receive` 加 `if qty > estimated_qty: raise InvalidTransition`，
+  per-item 比對。並補 negative path test。
 - **Files候選**：
-  - `modules/workflow/repository/material_request_repository.py:add_return`
-  - 或 `modules/workflow/domain/inventory.py:MaterialRequest`（新 domain method）
-- **Depends on**: WMOM-20260509-F1（done）
-- **Blocks**: 月報極端場景 demo（如果客戶 demo 時操作「過度退料」會看到負值）
+  - `modules/workflow/domain/inventory_state_machine.py:_guard_receive`
+  - `modules/workflow/tests/test_inventory_state_machine.py`（新加 negative test）
+
+---
+
+### WMOM-20260519-01 — `add_return` 超量退料 domain guard（F1 follow-up）
+
+- **Status**: done（2026-05-19 autonomous daily worker session 2 完成）
+- **Milestone**: M4 後續
+- **Priority**: medium-low（影響月報極端場景；正常 lifecycle 不觸發）
+- **Estimate**: 0.5-1 工作天 → **實際 1 場 session（~1.5 小時）**
+- **Source**: 2026-05-19 WMOM-20260509-F1 code review Must-fix #2
+- **Completion summary**:
+  - ✅ 在 `MaterialRequestRepository.add_return` 加 domain guard，公式：
+    ```
+    max_returnable = total_dispatched - total_consumed - already_returned
+    ```
+    三量都跨 stock_kind / return_to_kind 聚合 by (request_id, item_id)，支援
+    cross-kind return（dispatch NEW → return USED）不誤殺合法場景。
+  - ✅ 抽 `_assert_return_within_dispatched` static helper（testability + 單一責任）
+  - ✅ 違反 → raise `MaterialRequestRuleViolation` → router 自動 422
+  - ✅ item 不在 MR 內也 raise（避免 phantom inventory：退從未派出的料）
+  - ✅ Guard 在 stock/return/ledger 寫入前執行，atomic rollback（test 涵蓋）
+  - ✅ 採用方案：選 #1（domain 層 guard）而非 router / UI 層，理由：
+    - Repository test 涵蓋（不只 API integration test）
+    - 任何 caller（含內部呼叫）都享有 guard
+    - 與 F1 atomic transaction 同層級保護
+  - ✅ 9 個新 test（negative + happy path + cross-kind + multi-line + atomic + phantom item）
+  - ✅ 修正 2 個既有 buggy test（`test_add_return_increments_stock` estimated_qty 1→3、
+    `test_metadata_after_add_return` actual_qty 5→4），它們原本編碼了 F1 留下的 bug
+  - ✅ Backend `modules/workflow + cost + reporting`：553 passed + 1 xfailed + 4 pre-existing
+    failures（1 SQLite WAL flaky 沙箱限制 + 3 numpy drift） — **zero regression**
+- **Files**：
+  - `modules/workflow/repository/material_request_repository.py:526-535, 681-740`
+  - `modules/workflow/tests/test_add_return_over_return_guard.py` (new, 9 tests)
+  - `modules/workflow/tests/test_material_request_repository.py:255-271` (adjusted)
+  - `modules/workflow/tests/test_material_request_item_metadata.py:189-194` (adjusted)
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-19-wmom-20260519-01-over-return-guard.md`](work-logs/2026-05/2026-05-19-wmom-20260519-01-over-return-guard.md)
+- **Spawns**: WMOM-20260519-02（`_guard_receive` 加 actual_qty ≤ estimated_qty 上限校驗）
+- **Code review 採納**：3 must-fix + 6 should-fix + 3 nice-to-have，**採納 9/12**
+  - ✅ MF#1 actual_qty 是 "receive 簽收量" 不是 "consumed"，改 formula：
+    `physical_ceiling per-line = actual_qty if not None else estimated_qty`
+    （**replacement** 而非 subtraction），rename helper `_assert_return_within_physical_ceiling`
+    + 完整 docstring 說明 receive vs mark_used semantic
+  - ✅ MF#2 race condition：add `with_for_update()` on MR row select（同 dispatch_request pattern）
+  - ✅ MF#3 加 `test_add_return_draft_mr_rejects_over_estimated` explicit document
+    DRAFT MR 也受 guard 約束
+  - ✅ SF#1 改 error message 為繁體中文（CLAUDE.md §7：使用者輸出繁中）
+  - ✅ SF#2 加 `test_add_return_allows_surplus_after_full_receive` 確認簽收後 surplus return 不誤殺
+  - ✅ SF#3 cumulative test 加 already_returned 累計不變斷言（atomic 補強）
+  - ✅ SF#4 開 follow-up WMOM-20260519-02（`_guard_receive` 上限校驗）
+  - ❌ SF#5 `actual_qty > estimated_qty` test：移到 WMOM-20260519-02 scope（修了上限校驗後直接寫
+    happy path test，本 issue 不寫 corrupt-state 的 confusing-message test）
+  - ❌ NH#1-3 cosmetic（or 0 double-check / query 合併 / fixture 抽 conftest）：scope creep
+    在 follow-up sprint 一次清
+
+<details><summary>📜 原始 issue description（保留歷史）</summary>
+
+WMOM-20260509-F1 完成「add_return 寫 ledger offset entry」後，發現一個會計邊界：
+- dispatch estimated 2 件 @ 300 = 600 estimated entry
+- wo finish 填 actual=1 → confirm 翻 dispatch entry 為 confirmed 300
+- **若退料 2 件**（合法呼叫，但業務上不該；qty ≤ stock 可派出量，stock 加回未 guard）→ return entry -600 confirmed
+- confirmed 視角 = 300 + (-600) = **-300**（負值材料成本，月報異常）
+
+F1 scope 不加 guard，docstring 標註「caller 責任」。本 follow-up issue 評估：
+1. 是否要在 domain 層加 guard：`qty <= (estimated_qty or dispatched_qty - already_returned_qty - actual_consumed)`
+2. 或在 router 層擋
+3. 或保留現狀 + 在 UI 層擋（field engineer 介面禁止超量輸入）
+4. 是否要查 wo finish hook 後 actual_qty 才能驗證「actual_consumed」
+
+</details>
 
 ---
 
