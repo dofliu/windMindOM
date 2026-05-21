@@ -91,24 +91,36 @@ def _create_item(inv_repo, warehouse, **overrides):
 
 
 def test_f2_list_items_uses_sql_count_not_python_len(inv_repo, warehouse):
-    """F2：list_items 的 count_stmt 走 ``SELECT count(*)``，不把所有 id 撈回 Python。"""
-    from sqlalchemy import func, select
-    from modules.workflow.repository.inventory_orm import InventoryItemORM
+    """F2：list_items 真的執行 ``SELECT count(*)`` SQL，不再 fetch 所有 row 進 Python。
 
-    # 建 5 個 item（資料量無關，重點是 SQL shape）
+    review should-fix #2：原版只驗 SQL pattern 等價性，不能擋日後改回 ``len()``。
+    這版用 ``event.listen("before_cursor_execute")`` 攔 production code 真實
+    送出的 SQL，斷言至少有一句 ``count(``。
+    """
+    from sqlalchemy import event
+
     for i in range(5):
         _create_item(inv_repo, warehouse, sku=f"SKU-{i:03d}")
 
-    # 直接驗證實作走 func.count；inspect 出來的 SQL 應含 "count("
-    base = select(InventoryItemORM).where(InventoryItemORM.farm_id == "changhua")
-    count_stmt = select(func.count()).select_from(base.subquery())
-    sql = str(count_stmt.compile(compile_kwargs={"literal_binds": True}))
-    assert "count(" in sql.lower(), f"expected SQL count(), got: {sql}"
+    executed_sql: list[str] = []
 
-    # 同時行為驗證：total 正確
-    items, total = inv_repo.list_items(farm_id="changhua")
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        executed_sql.append(statement)
+
+    event.listen(inv_repo._engine, "before_cursor_execute", _record)
+    try:
+        items, total = inv_repo.list_items(farm_id="changhua")
+    finally:
+        event.remove(inv_repo._engine, "before_cursor_execute", _record)
+
     assert total == 5
     assert len(items) == 5
+
+    count_sqls = [s for s in executed_sql if "count(" in s.lower()]
+    assert count_sqls, (
+        f"expected production code to emit SQL count(*), only saw:\n"
+        + "\n".join(executed_sql)
+    )
 
 
 def test_f2_list_items_count_with_below_safety_filter(inv_repo, warehouse):
@@ -177,7 +189,7 @@ def test_f3_repo_list_warehouses_empty(inv_repo):
 
 def test_f4_resolve_returns_500_when_farm_registry_unavailable(monkeypatch):
     """F4：FarmRegistry import 失敗 → HTTPException 500（與舊行為一致）。"""
-    import shared.farm_registry_provider as provider
+    import modules.monitoring.server.farm_registry_provider as provider
     from fastapi import HTTPException
 
     # 模擬 import 失敗：清 singleton + 把 monitoring 路徑塞個爛 module
@@ -192,15 +204,22 @@ def test_f4_resolve_returns_500_when_farm_registry_unavailable(monkeypatch):
 
 
 def test_f4_resolve_returns_404_when_farm_not_found(monkeypatch):
-    """F4：FarmRegistry 查不到該 farm → HTTPException 404。"""
-    import shared.farm_registry_provider as provider
+    """F4：FarmRegistry.get_farm(farm_id) 回 None → HTTPException 404。
+
+    注意：真實 ``FarmRegistry.get_farm_db_path()`` 永遠回 Path，靠 ``get_farm()``
+    回 None 判斷 farm 是否存在（review should-fix #1）。
+    """
+    import modules.monitoring.server.farm_registry_provider as provider
     from fastapi import HTTPException
 
     provider.reset_farm_registry()
 
     class FakeRegistry:
+        def get_farm(self, farm_id: str):
+            return None  # 模擬找不到該 farm
+
         def get_farm_db_path(self, farm_id: str):
-            return None  # 模擬找不到
+            return Path(f"/tmp/{farm_id}/wind_farm.db")  # 真實 FarmRegistry 一律回 Path
 
     # 不戳 monitoring；直接塞 fake 進 singleton（保持 lazy-init 邏輯不變更）
     provider._farm_registry = FakeRegistry()
@@ -215,7 +234,7 @@ def test_f4_resolve_returns_404_when_farm_not_found(monkeypatch):
 
 def test_f4_reset_clears_singleton():
     """F4：reset_farm_registry() 把 lazy singleton 設回 None。"""
-    import shared.farm_registry_provider as provider
+    import modules.monitoring.server.farm_registry_provider as provider
 
     class FakeRegistry:
         def get_farm_db_path(self, farm_id: str):
@@ -228,9 +247,12 @@ def test_f4_reset_clears_singleton():
 
 def test_f4_resolve_returns_str_path_when_found():
     """F4：query 命中 → 回 str(path)（向後相容既有 caller 的 type 期待）。"""
-    import shared.farm_registry_provider as provider
+    import modules.monitoring.server.farm_registry_provider as provider
 
     class FakeRegistry:
+        def get_farm(self, farm_id: str):
+            return object()  # 任何 non-None 物件代表 farm 存在
+
         def get_farm_db_path(self, farm_id: str):
             return Path("/tmp/farm.db")  # 故意回 Path，驗證 str() 轉換
 
@@ -314,6 +336,115 @@ def test_f5_schema_accepts_optional_actor_id():
         # actor_id 不傳
     )
     assert req.actor_id is None
+
+
+def test_f5_migration_converts_old_notnull_db_to_nullable(tmp_path):
+    """F5 must-fix #2：既有 DB 帶 ``actor_id NOT NULL`` 的舊 schema，第二次 open
+    觸發 idempotent migration，欄位變 nullable + 既有 rows 不丟。
+    """
+    import sqlite3
+
+    from modules.workflow.repository.work_order_repository import (
+        clear_engine_cache_for_test,
+    )
+
+    db_path = tmp_path / "legacy.db"
+    # 模擬舊 schema（actor_id NOT NULL）
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE inventory_items (
+            id VARCHAR(36) PRIMARY KEY,
+            sku TEXT, name TEXT, description TEXT, unit TEXT,
+            farm_id TEXT, warehouse_id TEXT,
+            stock_new INTEGER, stock_used INTEGER, stock_repairing INTEGER,
+            safety_stock INTEGER, unit_cost NUMERIC,
+            last_received_at DATETIME, last_used_at DATETIME,
+            created_at DATETIME, updated_at DATETIME
+        );
+        CREATE TABLE inventory_adjustment_log (
+            id VARCHAR(36) PRIMARY KEY NOT NULL,
+            item_id VARCHAR(36) NOT NULL,
+            delta_kind VARCHAR(16) NOT NULL,
+            delta INTEGER NOT NULL,
+            reason VARCHAR(256) NOT NULL,
+            actor_id VARCHAR(36) NOT NULL,  -- 舊 schema：NOT NULL
+            note TEXT,
+            occurred_at DATETIME NOT NULL
+        );
+        INSERT INTO inventory_adjustment_log
+            VALUES ('11111111-1111-1111-1111-111111111111',
+                    '22222222-2222-2222-2222-222222222222',
+                    'new', 5, '盤盈',
+                    '33333333-3333-3333-3333-333333333333',
+                    NULL, '2026-05-20T10:00:00+00:00');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    # 驗 pre-migration：actor_id 為 NOT NULL
+    conn = sqlite3.connect(db_path)
+    info = conn.execute("PRAGMA table_info(inventory_adjustment_log)").fetchall()
+    actor_col = next(row for row in info if row[1] == "actor_id")
+    assert actor_col[3] == 1, "pre-migration: expected NOT NULL"
+    conn.close()
+
+    # Open repo → 應自動跑 migration
+    clear_engine_cache_for_test()
+    repo = get_inventory_repository(str(db_path))
+    assert repo is not None
+
+    # 驗 post-migration：actor_id 已是 nullable + 舊 row 仍在
+    conn = sqlite3.connect(db_path)
+    info = conn.execute("PRAGMA table_info(inventory_adjustment_log)").fetchall()
+    actor_col = next(row for row in info if row[1] == "actor_id")
+    assert actor_col[3] == 0, f"post-migration: expected nullable, got notnull={actor_col[3]}"
+
+    # 既有資料完整保留
+    rows = conn.execute(
+        "SELECT id, actor_id, reason FROM inventory_adjustment_log"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "11111111-1111-1111-1111-111111111111"
+    assert rows[0][1] == "33333333-3333-3333-3333-333333333333"
+    assert rows[0][2] == "盤盈"
+
+    # 現在可以插入 actor_id=NULL（不會 IntegrityError）
+    conn.execute(
+        "INSERT INTO inventory_adjustment_log "
+        "(id, item_id, delta_kind, delta, reason, actor_id, occurred_at) "
+        "VALUES (?, ?, 'new', 1, 'system auto', NULL, ?)",
+        (
+            "44444444-4444-4444-4444-444444444444",
+            "22222222-2222-2222-2222-222222222222",
+            "2026-05-21T10:00:00+00:00",
+        ),
+    )
+    conn.commit()
+    null_rows = conn.execute(
+        "SELECT id FROM inventory_adjustment_log WHERE actor_id IS NULL"
+    ).fetchall()
+    assert len(null_rows) == 1
+    conn.close()
+    clear_engine_cache_for_test()
+
+
+def test_f5_migration_idempotent_on_already_nullable(tmp_path):
+    """F5 must-fix #2：對已是 nullable 的 DB（新建 / 第二次 open）migration 是 no-op。"""
+    from modules.workflow.repository.work_order_repository import (
+        clear_engine_cache_for_test,
+    )
+
+    clear_engine_cache_for_test()
+    db_path = str(tmp_path / "fresh.db")
+    # 第一次 open：create_all 直接建 nullable schema + migration no-op
+    repo1 = get_inventory_repository(db_path)
+    # 第二次 open（再 trigger 一次 migration）：仍應 no-op，不 raise
+    clear_engine_cache_for_test()
+    repo2 = get_inventory_repository(db_path)
+    assert repo1 is not None and repo2 is not None
+    clear_engine_cache_for_test()
 
 
 def test_f5_response_schema_accepts_none_actor():

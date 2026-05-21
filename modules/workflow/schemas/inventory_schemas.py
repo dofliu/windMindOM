@@ -100,7 +100,14 @@ class AdjustInventoryRequest(BaseModel):
     delta_kind: StockKind
     delta: int
     reason: str = Field(min_length=1, max_length=256)
-    actor_id: Optional[UUID] = None
+    actor_id: Optional[UUID] = Field(
+        default=None,
+        description=(
+            "庫管員 UUID；人員操作時必填。None 僅用於系統自動觸發（如未來"
+            " dispatch hook 直接 adjust）。前端 form 一律帶 actor_id；本欄"
+            "Optional 是給後端未來 system-triggered 路徑用。"
+        ),
+    )
     note: Optional[str] = Field(default=None, max_length=2000)
 
 

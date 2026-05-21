@@ -24,7 +24,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 
-from shared.farm_registry_provider import (
+from modules.monitoring.server.farm_registry_provider import (
     reset_farm_registry,
     resolve_farm_db_path,
 )
@@ -68,7 +68,12 @@ def set_inventory_factory(
     """注入 factory：``factory(farm_id) -> InventoryRepository``。
 
     None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 shared
-    FarmRegistry lazy singleton（F4：4 router 共用 ``shared.farm_registry_provider``）。
+    FarmRegistry lazy singleton（F4：4 router 共用
+    ``modules.monitoring.server.farm_registry_provider``）。
+
+    ⚠ 注意：``factory=None`` 時呼叫的 ``reset_farm_registry()`` 是全域操作，
+    會同時清掉其他 3 個 router（material_request / approval / cost_ledger）共用的
+    FarmRegistry singleton（must-fix #3 文件化）。
     """
     global _inventory_factory
     _inventory_factory = factory

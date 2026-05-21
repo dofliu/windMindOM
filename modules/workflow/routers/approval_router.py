@@ -25,7 +25,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
-from shared.farm_registry_provider import (
+from modules.monitoring.server.farm_registry_provider import (
     reset_farm_registry,
     resolve_farm_db_path,
 )
@@ -82,8 +82,13 @@ def set_signoff_factories(
 ) -> None:
     """注入 factory：``signoff(farm_id)`` + ``work_order(farm_id)`` + ``material_request(farm_id)``。
 
-    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
-    singleton 避免 test 間殘留（review fix #1）。
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 shared
+    FarmRegistry lazy singleton 避免 test 間殘留（F4：4 router 共用
+    ``modules.monitoring.server.farm_registry_provider``；review fix #1）。
+
+    ⚠ 注意：3 個 factory 全 None 時呼叫的 ``reset_farm_registry()`` 是全域操作，
+    會同時清掉其他 3 個 router（inventory / material_request / cost_ledger）共用的
+    FarmRegistry singleton（must-fix #3 文件化）。
 
     ``material_request`` 為新加（WMOM-20260509-03），給 MATERIAL_REQUEST chain 簽核
     最後一階完成時自動觸發 dispatch_request 用。預設 None → 走預設 factory。

@@ -20,7 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, create_engine, event as sa_event, func, select
+from sqlalchemy import Engine, create_engine, event as sa_event, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -81,8 +81,79 @@ def get_inventory_repository(db_path: str) -> "InventoryRepository":
     with _ENGINE_LOCK:
         if abs_path not in _SCHEMA_INITIALIZED:
             Base.metadata.create_all(engine)
+            _migrate_actor_id_nullable_sqlite(engine)
             _SCHEMA_INITIALIZED.add(abs_path)
     return InventoryRepository(engine)
+
+
+def _migrate_actor_id_nullable_sqlite(engine: Engine) -> None:
+    """F5 idempotent migration — 把舊 DB 的 ``inventory_adjustment_log.actor_id``
+    從 NOT NULL 改為 nullable（給未來 dispatch hook 自動 adjust 用）。
+
+    SQLite 不支援 ``ALTER COLUMN ... DROP NOT NULL``，正規 pattern 是「建新表 →
+    複製資料 → 刪舊表 → rename」。本函式 idempotent：
+
+    1. ``PRAGMA table_info`` 查 actor_id 的 ``notnull`` 旗標
+    2. 若已 nullable（notnull=0）/ 表還沒建 → no-op 直接返回
+    3. 否則執行 batch migration（在 transaction 內，半路失敗會 rollback）
+
+    背景：F5（WMOM-20260509-F5）把 domain / schema 的 ``actor_id`` 改 Optional，
+    但 ``create_all()`` 對既存表不會 ALTER COLUMN；舊 DB 上塞 ``actor_id=None``
+    會炸 ``IntegrityError`` (review must-fix #2)。
+    """
+    if engine.dialect.name != "sqlite":
+        # PostgreSQL 部署走 Alembic 正規 migration（M6 部署前處理；F6）
+        return
+    with engine.begin() as conn:
+        info = conn.execute(
+            text("PRAGMA table_info(inventory_adjustment_log)")
+        ).fetchall()
+        if not info:
+            return  # 表還沒建
+        actor_col = next((row for row in info if row[1] == "actor_id"), None)
+        if actor_col is None or actor_col[3] == 0:
+            return  # 欄位不存在 / 已 nullable（idempotent）
+
+        # SQLite batch migration：建新表 + 複製 + 刪舊 + rename
+        conn.execute(
+            text(
+                """
+                CREATE TABLE inventory_adjustment_log__migrate_new (
+                    id VARCHAR(36) PRIMARY KEY NOT NULL,
+                    item_id VARCHAR(36) NOT NULL REFERENCES inventory_items(id),
+                    delta_kind VARCHAR(16) NOT NULL,
+                    delta INTEGER NOT NULL,
+                    reason VARCHAR(256) NOT NULL,
+                    actor_id VARCHAR(36),
+                    note TEXT,
+                    occurred_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO inventory_adjustment_log__migrate_new
+                SELECT id, item_id, delta_kind, delta, reason, actor_id, note, occurred_at
+                FROM inventory_adjustment_log
+                """
+            )
+        )
+        # 保留舊 index（item_id）
+        conn.execute(text("DROP TABLE inventory_adjustment_log"))
+        conn.execute(
+            text(
+                "ALTER TABLE inventory_adjustment_log__migrate_new "
+                "RENAME TO inventory_adjustment_log"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_inventory_adjustment_log_item_id "
+                "ON inventory_adjustment_log(item_id)"
+            )
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────

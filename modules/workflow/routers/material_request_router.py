@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from fastapi import APIRouter, HTTPException, Query
 
-from shared.farm_registry_provider import (
+from modules.monitoring.server.farm_registry_provider import (
     reset_farm_registry,
     resolve_farm_db_path,
 )
@@ -74,7 +74,12 @@ def set_material_request_factories(
     """注入兩個 factory：``mr(farm_id)`` + ``signoff(farm_id)``。
 
     None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 shared
-    FarmRegistry lazy singleton 避免 test 間殘留（F4：4 router 共用 ``shared.farm_registry_provider``）。
+    FarmRegistry lazy singleton 避免 test 間殘留（F4：4 router 共用
+    ``modules.monitoring.server.farm_registry_provider``）。
+
+    ⚠ 注意：兩個 factory 都 None 時呼叫的 ``reset_farm_registry()`` 是全域操作，
+    會同時清掉其他 3 個 router（inventory / approval / cost_ledger）共用的
+    FarmRegistry singleton（must-fix #3 文件化）。
     """
     global _mr_factory, _signoff_factory_for_mr
     _mr_factory = mr

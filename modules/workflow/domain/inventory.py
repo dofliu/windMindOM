@@ -272,7 +272,9 @@ class InventoryAdjustmentLog:
     delta_kind: StockKind                     # 異動哪個 stock 欄位
     delta: int                                # 正值 = 加、負值 = 扣（不限正負）
     reason: str                               # 必填：「歸還良品」/「盤盈」/「客戶換貨」等
-    id: UUID = field(default_factory=uuid4)
+    # F5：保留原欄位概念順序（actor_id 為業務語意關鍵，仍排在 id 前）；
+    # 改成 default None 即可（兩個有預設值的欄位排列順序自由）。
     actor_id: UUID | None = None              # 庫管員身分；None = 系統自動觸發
+    id: UUID = field(default_factory=uuid4)
     note: str | None = None
     occurred_at: datetime = field(default_factory=_utc_now)
