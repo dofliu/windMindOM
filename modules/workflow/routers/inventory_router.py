@@ -43,6 +43,10 @@ from modules.workflow.schemas.inventory_schemas import (
     WarehouseListResponse,
     WarehouseResponse,
 )
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 
 
 _logger = logging.getLogger(__name__)
@@ -64,38 +68,19 @@ def set_inventory_factory(
     """注入 factory：``factory(farm_id) -> InventoryRepository``。
 
     None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
-    singleton。
+    singleton。WMOM-20260509-F4 後 singleton 抽到 ``shared.farm_registry_provider``，
+    所有 routers 共用。
     """
-    global _inventory_factory, _FARM_REGISTRY
+    global _inventory_factory
     _inventory_factory = factory
     if factory is None:
-        _FARM_REGISTRY = None
-
-
-_FARM_REGISTRY = None
-
-
-def _resolve_farm_db_path(farm_id: str) -> str:
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        try:
-            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="FarmRegistry not available; call set_inventory_factory() to inject",
-            )
-        _FARM_REGISTRY = FarmRegistry()
-    db_path = _FARM_REGISTRY.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(status_code=404, detail=f"Farm not found: {farm_id}")
-    return str(db_path)
+        reset_farm_registry()
 
 
 def _get_repo(farm_id: str) -> InventoryRepository:
     if _inventory_factory is not None:
         return _inventory_factory(farm_id)
-    return get_inventory_repository(_resolve_farm_db_path(farm_id))
+    return get_inventory_repository(resolve_farm_db_path(farm_id))
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -123,22 +108,15 @@ async def create_warehouse(req: CreateWarehouseRequest) -> WarehouseResponse:
 async def list_warehouses(
     farm_id: str = Query(..., min_length=1),
 ) -> WarehouseListResponse:
-    """List 該 farm 所有倉。
-    （走 raw SQL，不另開 list_warehouses repo method 因 caller 用量低）
+    """List 該 farm 所有倉（``is_default`` 在前 + name ASC）。
+
+    F3：raw SQL 已收進 ``InventoryRepository.list_warehouses``，本 endpoint 不再
+    碰 ORM / session。
     """
-    from sqlalchemy import select
-
-    from modules.workflow.repository.inventory_orm import WarehouseORM
-
     repo = _get_repo(farm_id)
-    with repo._sessionmaker() as sess:
-        stmt = select(WarehouseORM).where(WarehouseORM.farm_id == farm_id).order_by(
-            WarehouseORM.is_default.desc(), WarehouseORM.name
-        )
-        ws = sess.execute(stmt).scalars().all()
-        return WarehouseListResponse(
-            items=[WarehouseResponse.model_validate(repo._warehouse_to_domain(w)) for w in ws]
-        )
+    return WarehouseListResponse(
+        items=[WarehouseResponse.model_validate(w) for w in repo.list_warehouses(farm_id)]
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -53,6 +53,10 @@ from modules.workflow.schemas import (
     SignoffChainResponse,
     SignoffStepResponse,
 )
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow-approval"])
@@ -84,18 +88,19 @@ def set_signoff_factories(
     最後一階完成時自動觸發 dispatch_request 用。預設 None → 走預設 factory。
     """
     global _signoff_factory, _work_order_factory_for_approval
-    global _material_request_factory_for_approval, _FARM_REGISTRY
+    global _material_request_factory_for_approval
     _signoff_factory = signoff
     _work_order_factory_for_approval = work_order
     _material_request_factory_for_approval = material_request
     if signoff is None and work_order is None and material_request is None:
-        _FARM_REGISTRY = None
+        # WMOM-20260509-F4：共用 singleton 在 shared.farm_registry_provider
+        reset_farm_registry()
 
 
 def _get_signoff_repo(farm_id: str) -> SignoffRepository:
     if _signoff_factory is not None:
         return _signoff_factory(farm_id)
-    db_path = _resolve_farm_db_path(farm_id)
+    db_path = resolve_farm_db_path(farm_id)
     return get_signoff_repository(db_path)
 
 
@@ -111,36 +116,15 @@ def get_signoff_repo_for_farm(farm_id: str) -> SignoffRepository:
 def _get_work_order_repo(farm_id: str) -> WorkOrderRepository:
     if _work_order_factory_for_approval is not None:
         return _work_order_factory_for_approval(farm_id)
-    db_path = _resolve_farm_db_path(farm_id)
+    db_path = resolve_farm_db_path(farm_id)
     return get_work_order_repo(db_path)
 
 
 def _get_material_request_repo(farm_id: str) -> MaterialRequestRepository:
     if _material_request_factory_for_approval is not None:
         return _material_request_factory_for_approval(farm_id)
-    db_path = _resolve_farm_db_path(farm_id)
+    db_path = resolve_farm_db_path(farm_id)
     return get_material_request_repository(db_path)
-
-
-_FARM_REGISTRY = None
-
-
-def _resolve_farm_db_path(farm_id: str) -> str:
-    """共用 lazy singleton — 同 work_order_router 但避免循環 import。"""
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        try:
-            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="FarmRegistry not available; call set_signoff_factories() to inject",
-            )
-        _FARM_REGISTRY = FarmRegistry()
-    db_path = _FARM_REGISTRY.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(status_code=404, detail=f"Farm not found: {farm_id}")
-    return str(db_path)
 
 
 # ─────────────────────────────────────────────────────────────────────────

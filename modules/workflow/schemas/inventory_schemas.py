@@ -93,13 +93,13 @@ class AdjustInventoryRequest(BaseModel):
     - ``delta_kind``: NEW / USED / REPAIRING — 異動哪個 stock 欄位
     - ``delta``: 正值 = 加、負值 = 扣（不限正負；扣到負數會 422）
     - ``reason``: 必填，給 audit log 用（例「歸還良品」/「盤盈」）
-    - ``actor_id``: 庫管員身分
+    - ``actor_id``: 庫管員身分；可省略（WMOM-20260509-F5：系統 adjust 不必假裝有人簽）
     """
 
     delta_kind: StockKind
     delta: int
     reason: str = Field(min_length=1, max_length=256)
-    actor_id: UUID
+    actor_id: Optional[UUID] = None
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -163,7 +163,8 @@ class AdjustmentLogResponse(BaseModel):
     delta_kind: StockKind
     delta: int
     reason: str
-    actor_id: UUID
+    # WMOM-20260509-F5：actor_id 可為 None（系統 adjust，無真人簽）
+    actor_id: Optional[UUID] = None
     note: Optional[str] = None
     occurred_at: datetime
 
