@@ -15,8 +15,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Callable
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 from modules.cost.repository import (
     CostLedgerCategory,
     CostLedgerRepository,
@@ -48,36 +52,21 @@ _ledger_factory: Callable[[str], CostLedgerRepository] | None = None
 def set_cost_ledger_factory(
     factory: Callable[[str], CostLedgerRepository] | None,
 ) -> None:
-    global _ledger_factory, _FARM_REGISTRY
+    """注入 factory：``factory(farm_id) -> CostLedgerRepository``。
+
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 shared
+    FarmRegistry lazy singleton（F4：4 router 共用 ``shared.farm_registry_provider``）。
+    """
+    global _ledger_factory
     _ledger_factory = factory
     if factory is None:
-        _FARM_REGISTRY = None
-
-
-_FARM_REGISTRY = None
-
-
-def _resolve_farm_db_path(farm_id: str) -> str:
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        try:
-            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="FarmRegistry not available; call set_cost_ledger_factory() to inject",
-            )
-        _FARM_REGISTRY = FarmRegistry()
-    db_path = _FARM_REGISTRY.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(status_code=404, detail=f"Farm not found: {farm_id}")
-    return str(db_path)
+        reset_farm_registry()
 
 
 def _get_repo(farm_id: str) -> CostLedgerRepository:
     if _ledger_factory is not None:
         return _ledger_factory(farm_id)
-    return get_cost_ledger_repository(_resolve_farm_db_path(farm_id))
+    return get_cost_ledger_repository(resolve_farm_db_path(farm_id))
 
 
 # ─────────────────────────────────────────────────────────────────────────

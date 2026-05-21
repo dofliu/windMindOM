@@ -13,13 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 19 |
+| open | 15 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 37 |
+| done | 41 |
 | **total (active)** | **56** |
 
-最後更新：2026-05-19 20:xx（**WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**）。今日 autonomous daily worker session 從 5/19 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫升級為三寫（stock + MaterialReturn + ledger offset entry）；offset entry `amount = -(qty × locked_unit_cost from dispatch entry)`、`status=CONFIRMED + confirmed_at=now`、`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 撈出多筆 collision。新加 `_lookup_offset_unit_cost(sess, ...)` static method 分兩階段找沖銷 unit_cost（dispatch ledger entry → inventory fallback → None defensive）。Cross-kind return（dispatch NEW → return USED）docstring 補強 + test 涵蓋會計一致性原則（沖銷用 dispatch 時鎖定的成本，不重查當前 inventory）。17 個新 test 涵蓋 happy path / fallback / mid-state / atomic / multi / cross-kind / 月報視角；551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard）。M4 維持 100%；issue_stats open 19→19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36→37。下次候選：WMOM-20260519-01（F1 follow-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md。
+最後更新：2026-05-21 20:xx（**WMOM-20260509-F2/F3/F4/F5 done — M4 backend follow-up 4 個小修一次清掉**）。今日 autonomous daily worker session 從 5/19 F1 handoff 推進 F2-F5 cleanup bundle，把 M4 backend code-review follow-up open 數從 5 砍到 1（只剩 F6 PostgreSQL row-lock integration test 留到 M6 部署前處理）。**F2**：`inventory_repository.list_items` + `material_request_repository.list` 的 count 從 `len(scalars().all())` 改為 `select(func.count()).select_from(base.subquery())` — 不再把所有 id 撈回 Python，filter 透過 subquery 維持等價。**F3**：`InventoryRepository.list_warehouses(farm_id) -> list[Warehouse]` 新 method，`inventory_router.list_warehouses` 從直接戳 ORM 改為 call repo method，恢復封裝。**F4**：`shared/farm_registry_provider.py` 新 module 包 `resolve_farm_db_path(farm_id) -> str` + `reset_farm_registry()`，4 個 router（`inventory_router` / `material_request_router` / `approval_router` / `cost_ledger_router`）刪掉各自的 `_FARM_REGISTRY` global + `_resolve_farm_db_path` 改 call shared；`set_*_factory(None)` 流程改 call `reset_farm_registry()` 清 singleton。**F5**：`InventoryAdjustmentLog.actor_id: UUID` → `UUID | None = None` 給未來 dispatch hook 自動 adjust 用，連動 ORM column nullable / `repo.adjust()` 簽名 / `AdjustInventoryRequest` + `AdjustmentLogResponse` schema / frontend `inventoryService.AdjustmentLogResponse.actor_id` type + `InventoryDetailDrawer` UI fallback「系統」label。16 個新 test 涵蓋 F2 SQL shape + F3 repo unit + F4 shared module（resolve / 500 / 404 / reset 4 case）+ F5 domain / repo / schema / round-trip。Backend 561 passed (+16 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Frontend tsc clean + vite build 5.46s 917.19 kB（vs baseline 917.15 kB +0.04 kB，F5 fallback 顯示加 1 行）。M4 維持 100%；issue_stats open 19 → 15（F2/F3/F4/F5 done -4）/ done 37 → 41。下次候選：WMOM-20260519-01（F1 follow-up 超量退料 domain guard，0.5-1d）/ M5 規劃（讀 ROADMAP M5 章節決定第一個 issue）/ WMOM-20260513-02 demo orchestrator simulator（2-3d）/ F6（M6 部署前再做）。詳細 handoff 在 work-logs/2026-05/2026-05-21-f2-f5-cleanup.md。
+
+舊紀錄（2026-05-19 20:xx **WMOM-20260509-F1 done — `add_return` 寫 ledger offset entry，修月報退料偏高會計漏洞**）。今日 autonomous daily worker session 從 5/19 mr-item-sku-name handoff 推進 F1-F6 候選中商業價值最高的 F1。`MaterialRequestRepository.add_return()` 從 atomic 二寫升級為三寫（stock + MaterialReturn + ledger offset entry）；offset entry `amount = -(qty × locked_unit_cost from dispatch entry)`、`status=CONFIRMED + confirmed_at=now`、`source_item_id=MaterialReturn.id` 區隔 dispatch entry 的 mr_item.id 避開 wo finish hook `find_for_mr_item` 撈出多筆 collision。新加 `_lookup_offset_unit_cost(sess, ...)` static method 分兩階段找沖銷 unit_cost（dispatch ledger entry → inventory fallback → None defensive）。Cross-kind return（dispatch NEW → return USED）docstring 補強 + test 涵蓋會計一致性原則（沖銷用 dispatch 時鎖定的成本，不重查當前 inventory）。17 個新 test 涵蓋 happy path / fallback / mid-state / atomic / multi / cross-kind / 月報視角；551 passed (+17 new) + 1 xfailed + 3 pre-existing numpy drift — **zero regression**。Code-reviewer subagent 跑出 4 must-fix + 4 should-fix + 3 nice-to-have，**採納 10/11**（含 must-fix #2 開 follow-up issue WMOM-20260519-01 評估超量退料 domain guard）。M4 維持 100%；issue_stats open 19→19（F1 done -1 + WMOM-20260519-01 new +1）/ done 36→37。下次候選：WMOM-20260519-01（F1 follow-up）/ F2-F5 一次清掉 / M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-19-f1-add-return-ledger-offset.md。
 
 ---
 
@@ -1405,63 +1407,76 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F2 — `list_items` / `list` 用 `func.count` 而非 Python `len`
 
-- **Status**: open
+- **Status**: done（2026-05-21 完成 — autonomous daily worker F2-F5 bundle）
 - **Milestone**: M4 後續
 - **Priority**: low（資料量 < 1000 不影響）
-- **Estimate**: 0.5 小時
+- **Estimate**: 0.5 小時 → 實際 ~10 分鐘
 - **Source**: 2026-05-09 code review Should-fix #1
-- **Description**:
-  `inventory_repository.list_items` 與 `material_request_repository.list` 用
-  `total = len(sess.execute(count_stmt).scalars().all())` 把所有 id 撈回 Python 才算 `len`。應改為 SQL-side count：
-  ```python
-  from sqlalchemy import func, select
-  count_stmt = select(func.count()).select_from(base.subquery())
-  total = sess.execute(count_stmt).scalar_one()
-  ```
+- **Completion summary**:
+  - ✅ 兩處（`inventory_repository.py:273-274` 與 `material_request_repository.py:233-234`）統一改為 `select(func.count()).select_from(base.subquery())`，count 走 SQL-side、不再 fetch 所有 id 進 Python
+  - ✅ 用 `base.subquery()` wrap 保留既有 WHERE filter（farm_id / warehouse_id / below_safety_only / status），行為等價
+  - ✅ 新加 3 個 test（`test_f2_list_items_uses_sql_count_not_python_len` 驗 SQL shape；`test_f2_list_items_count_with_below_safety_filter`、`test_f2_mr_list_count_with_status_filter` 驗 filter 等價）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-21-f2-f5-cleanup.md`](work-logs/2026-05/2026-05-21-f2-f5-cleanup.md)
 - **Files**：
-  - `modules/workflow/repository/inventory_repository.py:273`
-  - `modules/workflow/repository/material_request_repository.py:218`
+  - `modules/workflow/repository/inventory_repository.py:273`（已完成）
+  - `modules/workflow/repository/material_request_repository.py:218`（已完成）
 
 ---
 
 ### WMOM-20260509-F3 — `list_warehouses` 加 repo method（移出 router raw SQL）
 
-- **Status**: open
+- **Status**: done（2026-05-21 完成 — autonomous daily worker F2-F5 bundle）
 - **Milestone**: M4 後續
 - **Priority**: low（cosmetic）
-- **Estimate**: 0.5 小時
+- **Estimate**: 0.5 小時 → 實際 ~10 分鐘
 - **Source**: 2026-05-09 code review Should-fix #4
-- **Description**:
-  `inventory_router.list_warehouses` 直接用 `repo._sessionmaker()` query ORM，違反 repository 封裝。應在 `InventoryRepository` 加 `list_warehouses(farm_id) -> list[Warehouse]`，router 改用該 method。
+- **Completion summary**:
+  - ✅ `InventoryRepository.list_warehouses(farm_id: str) -> list[Warehouse]` 新 method（ordering `is_default DESC, name ASC` 與既有 router 行為一致）
+  - ✅ `inventory_router.list_warehouses` 刪掉 lazy import + raw ORM SQL，改為一行 `repo.list_warehouses(farm_id)` call
+  - ✅ 3 個 test：default-first ordering / farm_id 隔離 / 空 list fallback
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-21-f2-f5-cleanup.md`](work-logs/2026-05/2026-05-21-f2-f5-cleanup.md)
 
 ---
 
 ### WMOM-20260509-F4 — `_FARM_REGISTRY` lazy singleton 抽 shared
 
-- **Status**: open
+- **Status**: done（2026-05-21 完成 — autonomous daily worker F2-F5 bundle）
 - **Milestone**: M4 後續
 - **Priority**: low（cosmetic refactor）
-- **Estimate**: 1 小時
+- **Estimate**: 1 小時 → 實際 ~25 分鐘
 - **Source**: 2026-05-09 code review Should-fix #5
-- **Description**:
-  4 個 routers 各自重複 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path`：
-  - `inventory_router.py:75`
-  - `material_request_router.py:77`
-  - `approval_router.py:125`
-  - `cost_ledger_router.py:57`
-  抽成 `shared/farm_registry_provider.py` 一個共用 singleton。
+- **Completion summary**:
+  - ✅ 新 `shared/farm_registry_provider.py` module 包：
+    - `resolve_farm_db_path(farm_id: str) -> str` — lazy import + lazy init + 500/404 error mapping
+    - `reset_farm_registry()` — 給 test / `set_*_factory(None)` 流程清 singleton 用
+  - ✅ 4 個 router 全部切換：`inventory_router` / `material_request_router` / `approval_router` / `cost_ledger_router` 刪除各自的 `_FARM_REGISTRY` global + `_resolve_farm_db_path()`，全部改 call `resolve_farm_db_path` + `reset_farm_registry`
+  - ✅ `cost_ledger_router` 同時清掉 unused `HTTPException` import
+  - ✅ 4 個 shared module test：500 ImportError 路徑 / 404 not-found / reset 清 singleton / Path → str 轉換
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-21-f2-f5-cleanup.md`](work-logs/2026-05/2026-05-21-f2-f5-cleanup.md)
 
 ---
 
 ### WMOM-20260509-F5 — `InventoryAdjustmentLog.actor_id` 改 Optional
 
-- **Status**: open
+- **Status**: done（2026-05-21 完成 — autonomous daily worker F2-F5 bundle）
 - **Milestone**: M4 後續
 - **Priority**: low
-- **Estimate**: 15 分鐘
+- **Estimate**: 15 分鐘 → 實際 ~20 分鐘（含 frontend type + UI fallback display）
 - **Source**: 2026-05-09 code review Nice-to-have #1
-- **Description**:
-  目前 `actor_id: UUID` 必填。如果未來有系統自動 adjust（如 dispatch hook 直接呼叫 adjust）會被迫塞 fake UUID。改 Optional + 文件化。
+- **Completion summary**:
+  - ✅ domain `InventoryAdjustmentLog.actor_id` 從 `UUID` 必填改為 `UUID | None = None`（field 順序調整為 default-after-required 合法 dataclass layout）
+  - ✅ ORM `InventoryAdjustmentLogORM.actor_id`：`Mapped[str]` → `Mapped[Optional[str]]` + `nullable=True`
+  - ✅ Repo `adjust(item_id, ..., actor_id=None, note=None)` 簽名加 default + `str(actor_id) if actor_id is not None else None`
+  - ✅ Repo `_log_to_domain`：`UUID(orm.actor_id) if orm.actor_id else None`
+  - ✅ Schema `AdjustInventoryRequest.actor_id` → `Optional[UUID] = None`；`AdjustmentLogResponse.actor_id` → `Optional[UUID] = None`
+  - ✅ Frontend `inventoryService.AdjustmentLogResponse.actor_id` → `string | null`；`InventoryDetailDrawer` UI 顯 `…{last8}` 或 fallback「系統」/`system` label
+  - ✅ 6 個 test：domain accept None / repo.adjust 不傳 actor / 傳 actor_id 仍 ok / 寫入 None → DB → 讀回 round-trip / schema accept None / response 序列化 None ok
+  - ⚠ **migration note**：本專案目前 SQLite + `Base.metadata.create_all`，新表建出來 nullable=True 沒問題；既有 dev DB rows 仍是 NOT NULL 寫入，schema 改 Optional 序列化仍 OK（讀出來都是非 None）。M5/M6 真正生產走 alembic 時再加 migration script
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-21-f2-f5-cleanup.md`](work-logs/2026-05/2026-05-21-f2-f5-cleanup.md)
 
 ---
 

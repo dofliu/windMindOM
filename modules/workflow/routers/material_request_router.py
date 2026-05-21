@@ -20,6 +20,10 @@ if TYPE_CHECKING:
 
 from fastapi import APIRouter, HTTPException, Query
 
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 from modules.workflow.domain import InvalidTransition
 from modules.workflow.domain.inventory import (
     MaterialRequestStatus,
@@ -69,46 +73,26 @@ def set_material_request_factories(
 ) -> None:
     """注入兩個 factory：``mr(farm_id)`` + ``signoff(farm_id)``。
 
-    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
-    singleton 避免 test 間殘留。
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 shared
+    FarmRegistry lazy singleton 避免 test 間殘留（F4：4 router 共用 ``shared.farm_registry_provider``）。
     """
-    global _mr_factory, _signoff_factory_for_mr, _FARM_REGISTRY
+    global _mr_factory, _signoff_factory_for_mr
     _mr_factory = mr
     _signoff_factory_for_mr = signoff
     if mr is None and signoff is None:
-        _FARM_REGISTRY = None
-
-
-_FARM_REGISTRY = None
-
-
-def _resolve_farm_db_path(farm_id: str) -> str:
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        try:
-            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="FarmRegistry not available; call set_material_request_factories() to inject",
-            )
-        _FARM_REGISTRY = FarmRegistry()
-    db_path = _FARM_REGISTRY.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(status_code=404, detail=f"Farm not found: {farm_id}")
-    return str(db_path)
+        reset_farm_registry()
 
 
 def _get_mr_repo(farm_id: str) -> MaterialRequestRepository:
     if _mr_factory is not None:
         return _mr_factory(farm_id)
-    return get_material_request_repository(_resolve_farm_db_path(farm_id))
+    return get_material_request_repository(resolve_farm_db_path(farm_id))
 
 
 def _get_signoff_repo(farm_id: str) -> SignoffRepository:
     if _signoff_factory_for_mr is not None:
         return _signoff_factory_for_mr(farm_id)
-    return get_signoff_repository(_resolve_farm_db_path(farm_id))
+    return get_signoff_repository(resolve_farm_db_path(farm_id))
 
 
 # ─────────────────────────────────────────────────────────────────────────

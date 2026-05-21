@@ -469,7 +469,8 @@ const AuditRow: React.FC<AuditRowProps> = ({ log, lang }) => {
           fontFamily: 'JetBrains Mono, monospace',
         }}
       >
-        {ui('Actor', '操作者')} …{log.actor_id.slice(-8)}
+        {ui('Actor', '操作者')}{' '}
+        {log.actor_id ? `…${log.actor_id.slice(-8)}` : ui('system', '系統')}
       </div>
     </div>
   );

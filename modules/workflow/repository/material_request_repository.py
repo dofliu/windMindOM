@@ -230,8 +230,9 @@ class MaterialRequestRepository:
             if status is not None:
                 base = base.where(MaterialRequestORM.status == status.value)
 
-            count_stmt = base.with_only_columns(MaterialRequestORM.id)
-            total = len(sess.execute(count_stmt).scalars().all())
+            # SQL-side count（F2）：用 func.count() + subquery，不把所有 id 撈回 Python
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = sess.execute(count_stmt).scalar_one()
 
             paged = (
                 base.order_by(MaterialRequestORM.created_at.desc())

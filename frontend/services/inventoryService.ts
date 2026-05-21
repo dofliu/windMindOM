@@ -116,7 +116,8 @@ export interface AdjustmentLogResponse {
   delta_kind: StockKind;
   delta: number;
   reason: string;
-  actor_id: string;
+  /** F5：``actor_id = null`` 表系統自動觸發；UI 顯示「系統」label。 */
+  actor_id: string | null;
   note: string | null;
   occurred_at: string;
 }

@@ -100,7 +100,8 @@ class InventoryAdjustmentLogORM(Base):
     delta_kind: Mapped[str] = mapped_column(String(16))           # new / used / repairing
     delta: Mapped[int] = mapped_column(Integer)                   # signed
     reason: Mapped[str] = mapped_column(String(256))
-    actor_id: Mapped[str] = mapped_column(String(36))
+    # F5：actor_id nullable — None 表系統自動觸發（如未來 dispatch hook 直接 adjust）。
+    actor_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

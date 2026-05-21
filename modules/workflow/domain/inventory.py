@@ -263,13 +263,16 @@ class InventoryAdjustmentLog:
 
     每次 ``POST /api/workflow/inventory/{item_id}/adjust`` 必須寫此 log。
     歸還 / 報廢 / 盤盈虧都走這條 path（不用另開 entity）。
+
+    ``actor_id`` 為 ``None`` 表示系統自動觸發（如未來 dispatch hook 直接 adjust）；
+    人員觸發必填庫管員 ID（F5：原 ``UUID`` 必填 → ``UUID | None`` 以支援系統來源）。
     """
 
     item_id: UUID
     delta_kind: StockKind                     # 異動哪個 stock 欄位
     delta: int                                # 正值 = 加、負值 = 扣（不限正負）
     reason: str                               # 必填：「歸還良品」/「盤盈」/「客戶換貨」等
-    actor_id: UUID                            # 庫管員身分
     id: UUID = field(default_factory=uuid4)
+    actor_id: UUID | None = None              # 庫管員身分；None = 系統自動觸發
     note: str | None = None
     occurred_at: datetime = field(default_factory=_utc_now)

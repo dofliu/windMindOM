@@ -20,7 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, create_engine, event as sa_event, select
+from sqlalchemy import Engine, create_engine, event as sa_event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -194,6 +194,23 @@ class InventoryRepository:
             orm = sess.execute(stmt).scalar_one_or_none()
             return self._warehouse_to_domain(orm) if orm else None
 
+    def list_warehouses(self, farm_id: str) -> list[Warehouse]:
+        """List 該 farm 所有倉（F3 — 取代 router 內 raw SQL，維持封裝）。
+
+        Ordering：``is_default DESC, name ASC``（與 ``inventory_router.list_warehouses``
+        既有行為一致；預設倉排首位給 UI 預選用）。
+        """
+        with self._sessionmaker() as sess:
+            stmt = (
+                select(WarehouseORM)
+                .where(WarehouseORM.farm_id == farm_id)
+                .order_by(WarehouseORM.is_default.desc(), WarehouseORM.name)
+            )
+            return [
+                self._warehouse_to_domain(orm)
+                for orm in sess.execute(stmt).scalars().all()
+            ]
+
     # ── Inventory item CRUD ─────────────────────────────────────────────
 
     def create_item(
@@ -270,8 +287,9 @@ class InventoryRepository:
                     InventoryItemORM.stock_new + InventoryItemORM.stock_used
                     < InventoryItemORM.safety_stock
                 )
-            count_stmt = base.with_only_columns(InventoryItemORM.id)
-            total = len(sess.execute(count_stmt).scalars().all())
+            # SQL-side count（F2）：用 func.count() + subquery，不把所有 id 撈回 Python
+            count_stmt = select(func.count()).select_from(base.subquery())
+            total = sess.execute(count_stmt).scalar_one()
             paged = base.order_by(InventoryItemORM.sku).limit(limit).offset(offset)
             items = [
                 self._item_to_domain(orm)
@@ -325,13 +343,15 @@ class InventoryRepository:
         delta_kind: StockKind,
         delta: int,
         reason: str,
-        actor_id: UUID,
+        actor_id: UUID | None = None,
         note: str | None = None,
     ) -> tuple[InventoryItem, InventoryAdjustmentLog]:
         """手動異動 stock + 同 transaction 寫 audit log。
 
         - ``delta`` 可正可負；不可使 stock 變負 → ``InsufficientStock``
         - ``reason`` 必填 non-empty
+        - ``actor_id``：人員觸發必填庫管員 ID；``None`` = 系統自動觸發
+          （F5 — 給未來 dispatch hook 自動 adjust 用，不再強塞 fake UUID）
         """
         if not (reason or "").strip():
             raise StockAdjustmentError("adjust requires non-empty reason")
@@ -349,7 +369,7 @@ class InventoryRepository:
                     delta_kind=delta_kind.value,
                     delta=delta,
                     reason=reason.strip(),
-                    actor_id=str(actor_id),
+                    actor_id=str(actor_id) if actor_id is not None else None,
                     note=note,
                     occurred_at=_utc_now(),
                 )
@@ -422,7 +442,7 @@ class InventoryRepository:
             delta_kind=StockKind(orm.delta_kind),
             delta=orm.delta,
             reason=orm.reason,
-            actor_id=UUID(orm.actor_id),
+            actor_id=UUID(orm.actor_id) if orm.actor_id else None,
             note=orm.note,
             occurred_at=ensure_utc(orm.occurred_at) or _utc_now(),
         )
