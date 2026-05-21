@@ -36,20 +36,26 @@ from modules.workflow.repository.work_order_repository import (
 )
 
 
+# TEST-9（review fix）：對齊既有 test 慣例（test_material_request_repository.py）—
+# 共享 ``db_path`` fixture + ``mr_repo`` 依賴 ``inv_repo`` 確保 schema 先初始化、
+# 不在同檔內重複 clear_engine_cache。
+
+
 @pytest.fixture
-def inv_repo(tmp_path) -> InventoryRepository:
+def db_path(tmp_path) -> str:
+    return str(tmp_path / "wind_farm.db")
+
+
+@pytest.fixture
+def inv_repo(db_path) -> InventoryRepository:
     clear_engine_cache_for_test()
-    db_path = str(tmp_path / "wind_farm.db")
     yield get_inventory_repository(db_path)
     clear_engine_cache_for_test()
 
 
 @pytest.fixture
-def mr_repo(tmp_path) -> MaterialRequestRepository:
-    clear_engine_cache_for_test()
-    db_path = str(tmp_path / "wind_farm.db")
-    yield get_material_request_repository(db_path)
-    clear_engine_cache_for_test()
+def mr_repo(db_path, inv_repo) -> MaterialRequestRepository:
+    return get_material_request_repository(db_path)
 
 
 @pytest.fixture
@@ -245,3 +251,31 @@ def test_f5_mixed_actor_none_and_uuid(inv_repo, warehouse):
 
     assert by_reason["dispatch"] == human_actor
     assert by_reason["system rollback"] is None
+
+
+def test_f5_7_empty_string_actor_crashes_fast(inv_repo, db_path, warehouse):
+    """F5-7（review fix）：若 DB 出現意外空字串 actor_id（外部 raw SQL 灌入），
+    ``_log_to_domain`` 應 ``UUID("")`` raise 而非 silently 回 None — crash-fast。
+
+    模擬：先 adjust 一次寫好 row，再直接 update DB 把 actor_id 改成空字串 ""，
+    然後 ``list_adjustments`` 應該炸（保證資料損壞不被 mask）。
+
+    SQLite-only test — 直接 sqlite3 connection 改 row（PG 走 F6 PG migration 後另測）。
+    """
+    import sqlite3
+
+    item = _seed_items(inv_repo, warehouse, count=1)[0]
+    inv_repo.adjust(
+        item.id, delta_kind=StockKind.NEW, delta=+5,
+        reason="seed", actor_id=uuid4(),
+    )
+
+    # 直接灌空字串模擬資料損壞（tmp_path 內 SQLite，安全）
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE inventory_adjustment_log SET actor_id = '' WHERE reason = 'seed'"
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError):
+        inv_repo.list_adjustments(item.id)

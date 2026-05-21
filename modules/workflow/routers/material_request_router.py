@@ -80,7 +80,10 @@ def set_material_request_factories(
     global _mr_factory, _signoff_factory_for_mr
     _mr_factory = mr
     _signoff_factory_for_mr = signoff
-    if mr is None and signoff is None:
+    # F4-1（review fix）：任一 factory 改為 None → reset 共用 singleton。
+    # 與 inventory_router / cost_ledger_router 對齊「set_*_factory(None) 就 reset」語義；
+    # 避免半 reset 造成測試殘留。
+    if mr is None or signoff is None:
         reset_farm_registry()
 
 

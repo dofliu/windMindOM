@@ -92,8 +92,10 @@ def set_signoff_factories(
     _signoff_factory = signoff
     _work_order_factory_for_approval = work_order
     _material_request_factory_for_approval = material_request
-    if signoff is None and work_order is None and material_request is None:
-        # WMOM-20260509-F4：共用 singleton 在 shared.farm_registry_provider
+    # F4-1（review fix）：任一 factory 改為 None → reset 共用 singleton。
+    # 與 inventory_router / cost_ledger_router 對齊「set_*_factory(None) 就 reset」語義；
+    # 避免半 reset（只清 factory 不清 registry cache）造成測試殘留。
+    if signoff is None or work_order is None or material_request is None:
         reset_farm_registry()
 
 

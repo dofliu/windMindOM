@@ -52,7 +52,12 @@ _ledger_factory: Callable[[str], CostLedgerRepository] | None = None
 def set_cost_ledger_factory(
     factory: Callable[[str], CostLedgerRepository] | None,
 ) -> None:
-    """WMOM-20260509-F4：共用 singleton 抽到 ``shared.farm_registry_provider``。"""
+    """注入 factory：``factory(farm_id) -> CostLedgerRepository``。
+
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清 lazy
+    singleton 避免 test 間殘留。WMOM-20260509-F4 後 singleton 抽到
+    ``shared.farm_registry_provider``，所有 routers 共用。
+    """
     global _ledger_factory
     _ledger_factory = factory
     if factory is None:

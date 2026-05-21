@@ -438,8 +438,10 @@ class InventoryRepository:
             delta_kind=StockKind(orm.delta_kind),
             delta=orm.delta,
             reason=orm.reason,
-            # WMOM-20260509-F5：actor_id 可為 NULL（系統 adjust）
-            actor_id=UUID(orm.actor_id) if orm.actor_id else None,
+            # WMOM-20260509-F5：actor_id 可為 NULL（系統 adjust）。
+            # F5-7（review fix）：用 ``is not None`` 而非 truthy；若 DB 出現意外
+            # 空字串應 crash-fast（UUID("") raise ValueError）而非 silently 回 None。
+            actor_id=UUID(orm.actor_id) if orm.actor_id is not None else None,
             note=orm.note,
             occurred_at=ensure_utc(orm.occurred_at) or _utc_now(),
         )

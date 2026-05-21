@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sys
 import types
-from typing import Any
+from typing import Any, Generator
 
 import pytest
 from fastapi import HTTPException
@@ -34,14 +34,24 @@ class _FakeFarmRegistry:
 
 
 @pytest.fixture(autouse=True)
-def _patch_farm_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """每個 test 重置 lazy singleton + 注入 fake FarmRegistry 進 modules.monitoring.server.farm_registry。"""
+def _patch_farm_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    """每個 test 前後都重置 lazy singleton + 注入 fake FarmRegistry。
+
+    F4-2（review fix）：加 yield + teardown reset — ``_FARM_REGISTRY`` 是 module-level
+    全域變數，``monkeypatch`` 只還原 ``sys.modules``，不會清 ``_FARM_REGISTRY`` cache。
+    若不在 teardown reset，最後一個 test 結束後 ``_FARM_REGISTRY`` 仍指向 ``_FakeFarmRegistry``
+    instance，後續其他 test file 直接呼叫 ``get_farm_registry()`` 會跳過 init 拿到殘留。
+    """
     farm_registry_provider.reset_farm_registry()
     _FakeFarmRegistry.init_calls = 0
 
     fake_module = types.ModuleType("modules.monitoring.server.farm_registry")
     fake_module.FarmRegistry = _FakeFarmRegistry  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "modules.monitoring.server.farm_registry", fake_module)
+    yield
+    farm_registry_provider.reset_farm_registry()
 
 
 def test_get_farm_registry_lazy_init_only_once() -> None:
