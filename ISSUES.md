@@ -16,10 +16,12 @@
 | open | 15 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 41 |
-| **total (active)** | **56** |
+| done | 42 |
+| **total (active)** | **57** |
 
-最後更新：2026-05-21 20:xx（**WMOM-20260509-F2/F3/F4/F5 全 done — 4 個 follow-up cleanup 一次清掉**）。今日 autonomous daily worker session 從 5/19 F1 handoff 推進 F2-F5 一次清掉路線（4 個 0.5h-1h 低風險小修，零 design 決策、純結構整理）。F2：`InventoryRepository.list_items` / `MaterialRequestRepository.list` 從 Python `len(scalars().all())` 改 SQL `func.count() + base.subquery()`，避免大表把所有 id 撈進 Python；F3：`InventoryRepository.list_warehouses(farm_id)` 新加 method，inventory_router endpoint 從 raw SQL（直接用 `repo._sessionmaker()` query ORM）改用 repo method 兩行收尾；F4：4 個 routers（inventory / material_request / approval / cost_ledger）原本各自重複 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path` 抽到新檔 `shared/farm_registry_provider.py`，提供 `get_farm_registry()` / `resolve_farm_db_path()` / `reset_farm_registry()`（lazy import + cached + threading.Lock + 404/500 error mapping）；F5：`InventoryAdjustmentLog.actor_id` 從 `UUID` 改 `UUID | None`（系統 adjust path 不必塞 fake UUID），連動改 ORM nullable / schema Optional / `_log_to_domain` 加 None 分支。15 個新 test（F4 helper 5 + F2/F3/F5 followup 10）全綠，backend 全 baseline **zero regression**（566 passed + 1 xfailed + 3 pre-existing numpy drift）。Follow-up note：實作中發現 `work_order_router.py` + `reporting_router.py` 也有相似 pattern 但不在 F4 scope；後續可一併收。M4 維持 100%；issue_stats open 19→15（F2/F3/F4/F5 done -4）/ done 37→41。下次候選：WMOM-20260519-01（F1 超量退料 domain guard）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / F4 後續清 work_order + reporting routers。詳細 handoff 在 work-logs/2026-05/2026-05-21-f2-f5-cleanup-batch.md。
+最後更新：2026-05-22 20:xx（**WMOM-20260522-01 done — F4 follow-up 收尾**）。今日 autonomous daily worker session 從 5/21 F2-F5 cleanup batch handoff 推進「F4 後續清 work_order + reporting routers」路線，single-session 0.5-1h refactor。改動：`modules/workflow/routers/work_order_router.py`（main repo factory + finish hook db path resolver 兩處）+ `modules/reporting/routers/reporting_router.py`（ledger + work_order 兩個 factory），全改用 5/21 已抽出的 `shared/farm_registry_provider`（`get_farm_registry()` / `resolve_farm_db_path()` / `reset_farm_registry()`）。Finish hook 的「失敗安靜跳過」語義保留：用 `get_farm_registry()` + 直接 `registry.get_farm_db_path()` 接 None，不走 `resolve_farm_db_path()` 的 404 raise 分支；HTTPException(500)（registry 載入失敗）也接住後回 None。13 個新 test（work_order F4 collapse 7 + reporting F4 collapse 6）全綠。Backend baseline **zero regression**（568 passed = 554 baseline + 13 new + 1 flaky concurrency 過 / 1 xfailed / 4 pre-existing：1 flaky concurrency + 3 numpy drift）。Code-reviewer 找 1 must-fix（fixture teardown 漏 set_repository_factory(None)）採納；3 should-fix + 2 nice-to-have 為跨 6 routers 一致性議題或 reviewer 誤判，skip 並記 work-log §5.4。**F4 戰場完整收完，所有 6 個 routers（inventory / material_request / approval / cost_ledger / work_order / reporting）共用同 pattern。** M4 維持 100%；issue_stats open 維持 15 / done 41→42。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需劉老師決策）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md。
+
+舊紀錄（2026-05-21）：**WMOM-20260509-F2/F3/F4/F5 全 done — 4 個 follow-up cleanup 一次清掉**。今日 autonomous daily worker session 從 5/19 F1 handoff 推進 F2-F5 一次清掉路線（4 個 0.5h-1h 低風險小修，零 design 決策、純結構整理）。F2：`InventoryRepository.list_items` / `MaterialRequestRepository.list` 從 Python `len(scalars().all())` 改 SQL `func.count() + base.subquery()`，避免大表把所有 id 撈進 Python；F3：`InventoryRepository.list_warehouses(farm_id)` 新加 method，inventory_router endpoint 從 raw SQL（直接用 `repo._sessionmaker()` query ORM）改用 repo method 兩行收尾；F4：4 個 routers（inventory / material_request / approval / cost_ledger）原本各自重複 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path` 抽到新檔 `shared/farm_registry_provider.py`，提供 `get_farm_registry()` / `resolve_farm_db_path()` / `reset_farm_registry()`（lazy import + cached + threading.Lock + 404/500 error mapping）；F5：`InventoryAdjustmentLog.actor_id` 從 `UUID` 改 `UUID | None`（系統 adjust path 不必塞 fake UUID），連動改 ORM nullable / schema Optional / `_log_to_domain` 加 None 分支。15 個新 test（F4 helper 5 + F2/F3/F5 followup 10）全綠，backend 全 baseline **zero regression**（566 passed + 1 xfailed + 3 pre-existing numpy drift）。Follow-up note：實作中發現 `work_order_router.py` + `reporting_router.py` 也有相似 pattern 但不在 F4 scope；後續可一併收。M4 維持 100%；issue_stats open 19→15（F2/F3/F4/F5 done -4）/ done 37→41。下次候選：WMOM-20260519-01（F1 超量退料 domain guard）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / F4 後續清 work_order + reporting routers。詳細 handoff 在 work-logs/2026-05/2026-05-21-f2-f5-cleanup-batch.md。
 
 ---
 
@@ -1483,6 +1485,32 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 起 docker postgres 跑 integration test
   - 兩 client 同時 dispatch 同 item，驗第二個被 block 直到第一個 commit/rollback
   - test 在 CI（GitHub Actions）上跑
+
+### WMOM-20260522-01 — F4 follow-up：work_order + reporting routers 收尾
+
+- **Status**: done（2026-05-22 完成；branch `claude/blissful-turing-Pa3u8`）
+- **Milestone**: M4 follow-up（5/21 F4 cleanup batch 漏網之魚）
+- **Priority**: low（zero behavior change refactor）
+- **Estimate**: 0.5-1 工作天
+- **Source**: 2026-05-21 F2-F5 cleanup batch handoff doc — 實作中發現 `work_order_router.py` + `reporting/routers/reporting_router.py` 也有相似 `_FARM_REGISTRY` lazy singleton pattern 但不在原 F4 scope；列為 follow-up
+- **Description**:
+  - 5/21 WMOM-20260509-F4 已把 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path` 抽到 `shared/farm_registry_provider.py`，並把 4 個 routers（inventory / material_request / approval / cost_ledger）migrate 過去。
+  - **本 issue 收剩下 2 個**：`modules/workflow/routers/work_order_router.py` + `modules/reporting/routers/reporting_router.py`。完成後所有 6 個 router 共用同一份 helper。
+  - **scope**：純結構整理（zero behavior change），不動商業邏輯。
+- **Implementation notes**:
+  - `work_order_router` 有兩個 registry 使用點：
+    1. main `_default_repository_factory` → 改用 `resolve_farm_db_path()`
+    2. `_resolve_db_path_for_finish_hook` → 失敗時要安靜跳過（不能用會 raise 的 `resolve_farm_db_path`），改成 `get_farm_registry()` + `registry.get_farm_db_path()` 直接接 None
+  - `reporting_router` 兩個 factories（ledger + wo）模式同 cost_ledger_router；setter 改用 `reset_farm_registry()`
+  - 新 test 7 個（work_order F4 collapse 4 + reporting F4 collapse 3）
+- **DoD**:
+  - [x] work_order_router.py main factory 改 shared
+  - [x] work_order_router.py finish hook 改 shared（保留 silent-skip 語義）
+  - [x] reporting_router.py 兩個 factory 改 shared
+  - [x] modules/workflow/tests/test_work_order_router_f4.py + modules/reporting/tests/test_reporting_router_f4.py 加 13 regression test
+  - [x] zero regression vs 554 baseline（568 passed = 554 + 13 + 1 flaky 過）
+  - [x] code-reviewer subagent + 採納 must-fix（fixture teardown 漏 set_repository_factory(None)）
+  - [ ] PR + merge（branch `claude/blissful-turing-Pa3u8`；sandbox 無 gh CLI，等劉老師人工開）
 
 ---
 
