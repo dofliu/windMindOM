@@ -269,7 +269,9 @@ class InventoryAdjustmentLog:
     delta_kind: StockKind                     # 異動哪個 stock 欄位
     delta: int                                # 正值 = 加、負值 = 扣（不限正負）
     reason: str                               # 必填：「歸還良品」/「盤盈」/「客戶換貨」等
-    actor_id: UUID                            # 庫管員身分
+    # WMOM-20260509-F5：actor_id 改 Optional — 給系統自動 adjust（如 hook、scheduler）
+    # 用，不必塞 fake UUID 假裝有人簽。手動 endpoint 仍會傳 UUID（schema 預期 caller 提供）。
+    actor_id: UUID | None = None              # 庫管員身分；系統 adjust 為 None
     id: UUID = field(default_factory=uuid4)
     note: str | None = None
     occurred_at: datetime = field(default_factory=_utc_now)
