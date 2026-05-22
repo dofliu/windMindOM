@@ -16,10 +16,10 @@
 | open | 15 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 41 |
-| **total (active)** | **56** |
+| done | 42 |
+| **total (active)** | **57** |
 
-最後更新：2026-05-21 20:xx（**WMOM-20260509-F2/F3/F4/F5 全 done — 4 個 follow-up cleanup 一次清掉**）。今日 autonomous daily worker session 從 5/19 F1 handoff 推進 F2-F5 一次清掉路線（4 個 0.5h-1h 低風險小修，零 design 決策、純結構整理）。F2：`InventoryRepository.list_items` / `MaterialRequestRepository.list` 從 Python `len(scalars().all())` 改 SQL `func.count() + base.subquery()`，避免大表把所有 id 撈進 Python；F3：`InventoryRepository.list_warehouses(farm_id)` 新加 method，inventory_router endpoint 從 raw SQL（直接用 `repo._sessionmaker()` query ORM）改用 repo method 兩行收尾；F4：4 個 routers（inventory / material_request / approval / cost_ledger）原本各自重複 `_FARM_REGISTRY` lazy singleton + `_resolve_farm_db_path` 抽到新檔 `shared/farm_registry_provider.py`，提供 `get_farm_registry()` / `resolve_farm_db_path()` / `reset_farm_registry()`（lazy import + cached + threading.Lock + 404/500 error mapping）；F5：`InventoryAdjustmentLog.actor_id` 從 `UUID` 改 `UUID | None`（系統 adjust path 不必塞 fake UUID），連動改 ORM nullable / schema Optional / `_log_to_domain` 加 None 分支。15 個新 test（F4 helper 5 + F2/F3/F5 followup 10）全綠，backend 全 baseline **zero regression**（566 passed + 1 xfailed + 3 pre-existing numpy drift）。Follow-up note：實作中發現 `work_order_router.py` + `reporting_router.py` 也有相似 pattern 但不在 F4 scope；後續可一併收。M4 維持 100%；issue_stats open 19→15（F2/F3/F4/F5 done -4）/ done 37→41。下次候選：WMOM-20260519-01（F1 超量退料 domain guard）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / F4 後續清 work_order + reporting routers。詳細 handoff 在 work-logs/2026-05/2026-05-21-f2-f5-cleanup-batch.md。
+最後更新：2026-05-22 20:xx（**WMOM-20260522-01 done — F4 收尾，work_order + reporting 兩個 router 也改用 shared FARM_REGISTRY**）。今日 autonomous daily worker session 接 5/21 F4 batch 的 follow-up note：F4 當時 scope 只列 4 個 routers，實作中發現 `work_order_router.py` + `reporting/routers/reporting_router.py` 也有相同 lazy singleton pattern（helper 名分別為 `_get_default_farm_registry` / `_resolve_farm_db_path`），本 issue 補完。`work_order_router._default_repository_factory` 從 try/except + 404/500 mapping 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；`_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫，finish hook 失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾。`reporting_router` 兩個 setter `set_ledger_factory(None)` / `set_work_order_factory(None)` 各自呼叫 `reset_farm_registry()`；`set_availability_provider` 不該動 farm registry（已加 regression test 守住）。10 個新 test（5 work_order + 5 reporting，含 N1 production code path 驗證）全綠。Backend baseline zero regression（715 passed + 1 xfailed + 3 pre-existing numpy drift；環境 flaky concurrency dispatch test 偶爾 fail 與本 PR 無關）。Code review 1 must（`__builtins__` patch 改 monkeypatch shared function）+ 2 should + 1 nice 全採納；should-1（HTTPException coupling 全 6 router 統一，需擴大 scope 到 F4 batch）本 PR 不擴大。issue_stats open 15 / done 41→42 / total 56→57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / WMOM-20260504-13 cost frontend AbortController（小工）。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md。
 
 ---
 
@@ -1483,6 +1483,43 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 起 docker postgres 跑 integration test
   - 兩 client 同時 dispatch 同 item，驗第二個被 block 直到第一個 commit/rollback
   - test 在 CI（GitHub Actions）上跑
+
+---
+
+### WMOM-20260522-01 — F4 follow-up：`work_order_router` + `reporting_router` 也改用 shared FARM_REGISTRY
+
+- **Status**: done（2026-05-22 完成；branch `claude/issue-WMOM-20260522-01-2026-05-22`）
+- **Milestone**: M4 後續（F4 收尾）
+- **Priority**: low（cosmetic refactor，純結構整理）
+- **Estimate**: 0.5-1 小時 → **實際 ~1 小時**
+- **Owner**: Claude（session 2026-05-22 autonomous daily worker）
+- **Source**: WMOM-20260509-F4 follow-up note（2026-05-21 cleanup batch 實作時發現）
+- **Completion summary**:
+  - ✅ `work_order_router.py`：刪 `_FARM_REGISTRY` global + `_get_default_farm_registry()` 函式；
+    `_default_repository_factory` 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；
+    `_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫 — finish hook
+    失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾；
+    `set_repository_factory(None)` 改呼叫 `reset_farm_registry()`
+  - ✅ `reporting_router.py`：刪 `_FARM_REGISTRY` global + `_resolve_farm_db_path()` 函式；
+    `_get_ledger_repo` / `_get_wo_repo` 直接呼叫 shared；`set_ledger_factory(None)` /
+    `set_work_order_factory(None)` 各自呼叫 `reset_farm_registry()`（與 4 個 F4 routers 對齊）；
+    `set_availability_provider` **不** reset（與 farm 解析無關，已加 regression test 守住）
+  - ✅ 10 個新 regression test（5 work_order + 5 reporting）：
+    - setter None → shared singleton 被清
+    - router 不再有 local `_FARM_REGISTRY` global（防止後續再加回 local cache）
+    - finish hook 在 shared raise HTTPException(500) / 404 時安靜返回 None
+    - finish hook override 仍優先於 shared lookup
+    - reporting `set_availability_provider` 不動 shared registry
+    - reporting `_get_ledger_repo` / `_get_wo_repo` 在 factory=None 真的走 shared 路徑（N1）
+  - ✅ Backend baseline zero regression：715 passed + 1 xfailed + 3 pre-existing numpy drift（與 main 一致）；
+    2 deselected = 環境 flaky concurrency dispatch tests（main baseline 也偶爾 fail，與本 PR 無關）
+  - ✅ Code review 1 must + 2 should + 1 nice：採納 must（`__builtins__` patch 改 monkeypatch shared
+    function）+ should-2（teardown 不重複 reset）+ nice-1（加 N1 test 驗 production code path）；
+    should-1（HTTPException coupling 全 6 router 統一，shared 改 exception 需擴大 scope 到 F4 batch
+    — 本 PR 不擴大）
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md`](work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md)
+  - WMOM-20260509-F4 follow-up note
 
 ---
 

@@ -40,6 +40,10 @@ from modules.reporting.services.kpi_calculator import (
     compute_monthly_report_data,
 )
 from modules.reporting.services.monthly_report import render_html, render_pdf
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -54,21 +58,29 @@ router = APIRouter(prefix="/api/reporting", tags=["reporting"])
 _ledger_factory: Optional[Callable[[str], CostLedgerRepository]] = None
 _wo_factory: Optional[Callable[[str], WorkOrderRepository]] = None
 _availability_provider: Optional[AvailabilityProvider] = None
-_FARM_REGISTRY = None
 
 
 def set_ledger_factory(factory: Optional[Callable[[str], CostLedgerRepository]]) -> None:
-    global _ledger_factory, _FARM_REGISTRY
+    """注入 cost ledger repository factory。
+
+    WMOM-20260522-01：``None`` 同時呼叫 ``reset_farm_registry()`` 清 shared
+    singleton，避免 test 間殘留（與 4 個 workflow / cost routers 行為對齊）。
+    """
+    global _ledger_factory
     _ledger_factory = factory
     if factory is None:
-        _FARM_REGISTRY = None
+        reset_farm_registry()
 
 
 def set_work_order_factory(factory: Optional[Callable[[str], WorkOrderRepository]]) -> None:
-    global _wo_factory, _FARM_REGISTRY
+    """注入 work order repository factory。
+
+    WMOM-20260522-01：``None`` 同時呼叫 ``reset_farm_registry()`` 清 shared singleton。
+    """
+    global _wo_factory
     _wo_factory = factory
     if factory is None:
-        _FARM_REGISTRY = None
+        reset_farm_registry()
 
 
 def set_availability_provider(provider: Optional[AvailabilityProvider]) -> None:
@@ -77,36 +89,16 @@ def set_availability_provider(provider: Optional[AvailabilityProvider]) -> None:
     _availability_provider = provider
 
 
-def _resolve_farm_db_path(farm_id: str) -> str:
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        try:
-            from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "FarmRegistry not available; call set_ledger_factory()/"
-                    "set_work_order_factory() to inject"
-                ),
-            ) from exc
-        _FARM_REGISTRY = FarmRegistry()
-    db_path = _FARM_REGISTRY.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(status_code=404, detail=f"Farm not found: {farm_id}")
-    return str(db_path)
-
-
 def _get_ledger_repo(farm_id: str) -> CostLedgerRepository:
     if _ledger_factory is not None:
         return _ledger_factory(farm_id)
-    return get_cost_ledger_repository(_resolve_farm_db_path(farm_id))
+    return get_cost_ledger_repository(resolve_farm_db_path(farm_id))
 
 
 def _get_wo_repo(farm_id: str) -> WorkOrderRepository:
     if _wo_factory is not None:
         return _wo_factory(farm_id)
-    return get_work_order_repository(_resolve_farm_db_path(farm_id))
+    return get_work_order_repository(resolve_farm_db_path(farm_id))
 
 
 # Review fix (must-fix #3)：farm_id 被嵌入 Content-Disposition header 之前

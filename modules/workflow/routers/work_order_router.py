@@ -46,6 +46,10 @@ from modules.workflow.schemas import (
     WorkOrderListResponse,
     WorkOrderResponse,
 )
+from shared.farm_registry_provider import (
+    reset_farm_registry,
+    resolve_farm_db_path,
+)
 
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
@@ -70,13 +74,14 @@ def set_repository_factory(
 ) -> None:
     """注入 repository factory：``factory(farm_id) -> WorkOrderRepository``。
 
-    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時清掉
-    `_FARM_REGISTRY` lazy singleton 避免 test 間殘留（review fix #1）。
+    None → 走預設（從 monitoring FarmRegistry 拿 farm DB path），同時呼叫
+    ``shared.farm_registry_provider.reset_farm_registry()`` 清 process-wide
+    singleton 避免 test 間殘留（review fix #1；WMOM-20260522-01 改用共用 helper）。
     """
-    global _repository_factory, _FARM_REGISTRY
+    global _repository_factory
     _repository_factory = factory
     if factory is None:
-        _FARM_REGISTRY = None
+        reset_farm_registry()
 
 
 def set_finish_hook_db_path(
@@ -104,35 +109,13 @@ def clear_finish_hook_db_paths() -> None:
     _finish_hook_db_path_overrides.clear()
 
 
-# fix #3：FarmRegistry singleton（避免每個 API call 重 init + 開新 sqlite connection）
-_FARM_REGISTRY = None
-
-
-def _get_default_farm_registry():
-    """Lazy singleton — module 第一次需要時 init 一次。"""
-    global _FARM_REGISTRY
-    if _FARM_REGISTRY is None:
-        from modules.monitoring.server.farm_registry import FarmRegistry  # type: ignore
-
-        _FARM_REGISTRY = FarmRegistry()
-    return _FARM_REGISTRY
-
-
 def _default_repository_factory(farm_id: str) -> WorkOrderRepository:
-    """預設工廠：從 monitoring 的 FarmRegistry 取 farm DB path（singleton 共用）。"""
-    try:
-        reg = _get_default_farm_registry()
-    except ImportError:
-        raise HTTPException(
-            status_code=500,
-            detail="FarmRegistry not available; call set_repository_factory() to inject",
-        )
-    db_path = reg.get_farm_db_path(farm_id)
-    if db_path is None:
-        raise HTTPException(
-            status_code=404, detail=f"Farm not found: {farm_id}"
-        )
-    return get_repository(str(db_path))
+    """預設工廠：透過 shared helper 取 farm DB path（process-wide singleton 共用）。
+
+    WMOM-20260522-01（F4 follow-up）：原本內嵌的 lazy singleton + 404/500 mapping
+    已抽到 ``shared.farm_registry_provider``，本函式只剩 path → repository 一步。
+    """
+    return get_repository(resolve_farm_db_path(farm_id))
 
 
 def _get_repo(farm_id: str) -> WorkOrderRepository:
@@ -151,21 +134,23 @@ def _resolve_db_path_for_finish_hook(farm_id: str) -> str | None:
     Lookup order (review fix #2 multi-farm safe)：
     1. Per-farm override `_finish_hook_db_path_overrides[farm_id]`
     2. Fallback override `_finish_hook_db_path_overrides["*"]`（test 用）
-    3. FarmRegistry（生產）
+    3. shared ``resolve_farm_db_path`` → FarmRegistry（生產）
     4. None — caller 安靜跳過 hook
 
     Returns ``None`` when DB path can't be resolved.
+
+    WMOM-20260522-01：原本內嵌的 lazy singleton 改走 shared helper；
+    shared 對 ImportError（FarmRegistry not available）與 farm not found 都 raise
+    ``HTTPException``，一個 catch 兩種 — finish hook 失敗安靜 skip 不阻擋工單收尾。
     """
     if farm_id in _finish_hook_db_path_overrides:
         return _finish_hook_db_path_overrides[farm_id]
     if "*" in _finish_hook_db_path_overrides:
         return _finish_hook_db_path_overrides["*"]
     try:
-        reg = _get_default_farm_registry()
-    except (ImportError, HTTPException):
+        return resolve_farm_db_path(farm_id)
+    except HTTPException:
         return None
-    db_path = reg.get_farm_db_path(farm_id)
-    return str(db_path) if db_path is not None else None
 
 
 def _confirm_material_ledger_for_finished_wo(wo_id: UUID, farm_id: str) -> None:
