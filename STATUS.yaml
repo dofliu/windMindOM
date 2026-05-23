@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-22"
-next_milestone: "**WMOM-20260522-01 done — F4 收尾，work_order + reporting 兩個 router 也改用 shared FARM_REGISTRY**：今日（autonomous daily worker, 5/22 20:00）接 5/21 F4 batch 的 follow-up note。F4 當時 scope 只列 4 個 routers（inventory / material_request / approval / cost_ledger），實作中發現 `modules/workflow/routers/work_order_router.py`（helper 名 `_get_default_farm_registry`，額外用在 finish hook 的 db_path 解析）+ `modules/reporting/routers/reporting_router.py`（helper 名 `_resolve_farm_db_path`）也有相同 lazy singleton pattern；本 issue 補完 F4 收尾。`work_order_router._default_repository_factory` 從 try/except ImportError + 404/500 mapping 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；`_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫，finish hook 失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾；`set_repository_factory(None)` 改呼叫 `reset_farm_registry()`。`reporting_router` 兩個 setter（`set_ledger_factory(None)` / `set_work_order_factory(None)`）各自呼叫 `reset_farm_registry()`（與 4 個 F4 routers 對齊），`set_availability_provider` 不該動 farm registry（與 farm 解析無關，已加 regression test 守住）。10 個新 regression test 全綠（5 work_order + 5 reporting）：setter None reset shared / router 不再有 local global / finish hook 在 shared raise HTTPException(500) 或 404 時安靜 None / override 優先於 shared / availability setter 不動 shared / reporting `_get_ledger_repo` / `_get_wo_repo` factory=None 真的走 shared（N1）。Backend baseline **zero regression**（715 passed + 1 xfailed + 3 pre-existing numpy drift；2 deselected = 環境 flaky concurrency dispatch test）。Code review 1 must（`__builtins__` patch 改 monkeypatch shared function）+ 2 should + 1 nice 全採納；should-1（HTTPException coupling 全 6 router 統一，shared 改 exception 需擴大 scope 到 F4 batch）本 PR 不擴大。M4 milestone 維持 100%；issue_stats open 15 / done 41→42 / total 56→57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策 — 不適合 solo session）/ M5 規劃（先讀 ROADMAP M5 章節決定第一個 issue）/ WMOM-20260513-02 demo orchestrator simulator（2-3d 跨 session）/ WMOM-20260504-13 cost frontend AbortController（0.25d 小工，single-session 友善）。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md."
+last_updated: "2026-05-23"
+next_milestone: "**WMOM-20260504-13 done — Cost 系列 fetch 加 AbortController 防 race**：今日（autonomous daily worker, 5/23 20:00）做 5/22 handoff 推薦的 0.25d frontend-only 小工。問題源於 WMOM-20260504-10 code-reviewer finding #5：`useCostData.useAsync.run` 沒有 abort 機制，React 18 Strict Mode dev 雙觸發 `useEffect([dataset])` 或使用者快速切 dataset 時，慢 fetch 後回會蓋掉新 dataset 結果（stale-overwrites-fresh race）。修法三道防線：(1) `useRef<AbortController>` 追蹤最新 in-flight request，下一筆 run 前先 abort 上一筆；(2) `signal.aborted` 早退即使舊 fetch 已 resolve 也不 setData；(3) `controllerRef.current === controller` loading guard 確保只有最新 request 結束 loading。另：`isAbortError` 接 DOMException + Error 兩種、`reset()` 也 abort + 清 loading、unmount cleanup abort。`costService.ts` 的 `postJSON` + `costApi`×4 加 optional `AbortSignal` 透傳給 fetch。純擴充，CostPage 4 panel + dataset effect 完全相容。Verify：tsc 0 errors + vite build 748 modules / 4.58s 0 errors；backend 未動（zero regression，frontend only）。frontend 無測試框架（無 vitest/jest），為 0.25d 小工不引入整套 harness — race 邏輯以 timeline 推導驗證；建議另開 issue 一次導入 vitest+RTL 再補 regression test。Code review 1 must + 1 should + 1 nice：should（isAbortError 補 DOMException）採納；must（reset 與 in-flight run 交錯疑 loading 殘留）經 timeline 推導判定**非真 bug**（reset 已 unconditional setLoading(false)；await resolve 到 finally 之間 microtask 不可被外部 callback 插入；reviewer 自己也走回頭路確認），不採納其 hacky dead-controller 寫法，改加註解文件化。M4 milestone 維持 100%；issue_stats open 15→14 / done 42→43 / total 57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需劉老師 walkthrough — 不適合 solo session）/ M5 規劃（讀 ROADMAP M5 章節）/ WMOM-20260513-02 demo orchestrator simulator（2-3d 跨 session）/ WMOM-20260504-12 frontend 記憶體成長（0.5-1d low priority）。詳細 handoff 在 work-logs/2026-05/2026-05-23-cost-abortcontroller.md."
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 15
+  open: 14
   in_progress: 0
   blocked: 0
-  done: 42  # +1: WMOM-20260522-01 F4 follow-up (2026-05-22 autonomous daily worker)
+  done: 43  # +1: WMOM-20260504-13 cost AbortController (2026-05-23 autonomous daily worker)
 
 inherited_baseline:
   source: digiWindTurbine

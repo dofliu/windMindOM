@@ -13,11 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
+| open | 14 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 42 |
+| done | 43 |
 | **total (active)** | **57** |
+
+最後更新：2026-05-23 20:xx（**WMOM-20260504-13 done — Cost 系列 fetch 加 AbortController 防 race**）。今日 autonomous daily worker session 做 5/22 handoff 推薦的 0.25d frontend-only 小工：`useCostData.useAsync.run` 原本沒有 abort 機制，React 18 Strict Mode dev 雙觸發 `useEffect([dataset])` 或使用者快速切 dataset 時，慢 fetch 後回會蓋掉新 dataset 結果（stale-overwrites-fresh race）。修法三道防線：(1) `useRef<AbortController>` 追蹤最新 in-flight request 並在下一筆 run 前 abort 上一筆；(2) `signal.aborted` 早退即使舊 fetch 已 resolve 也不 setData；(3) `controllerRef.current === controller` loading guard。另加 `isAbortError`（DOMException + Error）、`reset()` abort + 清 loading、unmount cleanup；`costService.postJSON` + `costApi`×4 加 optional `AbortSignal` 透傳。純擴充，CostPage 4 panel + dataset effect 完全相容。Verify：tsc 0 errors + vite build 748 modules / 4.58s 0 errors；backend frontend-only zero regression。Code review 1 must + 1 should + 1 nice：should（isAbortError 補 DOMException）採納；must（reset×in-flight run loading 殘留）以 timeline 推導判定非真 bug 不採納 hacky 修法、改加註解。frontend 無測試框架故未加自動化 regression test（建議另開 issue 導入 vitest+RTL）。issue_stats open 15→14 / done 42→43 / total 57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator。詳細 handoff 在 work-logs/2026-05/2026-05-23-cost-abortcontroller.md。
+
+---
 
 最後更新：2026-05-22 20:xx（**WMOM-20260522-01 done — F4 收尾，work_order + reporting 兩個 router 也改用 shared FARM_REGISTRY**）。今日 autonomous daily worker session 接 5/21 F4 batch 的 follow-up note：F4 當時 scope 只列 4 個 routers，實作中發現 `work_order_router.py` + `reporting/routers/reporting_router.py` 也有相同 lazy singleton pattern（helper 名分別為 `_get_default_farm_registry` / `_resolve_farm_db_path`），本 issue 補完。`work_order_router._default_repository_factory` 從 try/except + 404/500 mapping 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；`_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫，finish hook 失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾。`reporting_router` 兩個 setter `set_ledger_factory(None)` / `set_work_order_factory(None)` 各自呼叫 `reset_farm_registry()`；`set_availability_provider` 不該動 farm registry（已加 regression test 守住）。10 個新 test（5 work_order + 5 reporting，含 N1 production code path 驗證）全綠。Backend baseline zero regression（715 passed + 1 xfailed + 3 pre-existing numpy drift；環境 flaky concurrency dispatch test 偶爾 fail 與本 PR 無關）。Code review 1 must（`__builtins__` patch 改 monkeypatch shared function）+ 2 should + 1 nice 全採納；should-1（HTTPException coupling 全 6 router 統一，需擴大 scope 到 F4 batch）本 PR 不擴大。issue_stats open 15 / done 41→42 / total 56→57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / WMOM-20260504-13 cost frontend AbortController（小工）。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md。
 
@@ -521,26 +525,30 @@
 
 ### WMOM-20260504-13 — Cost 系列 fetch 加 AbortController 防 race
 
-- **Status**: open
+- **Status**: done（2026-05-23 完成 — autonomous daily worker）
 - **Milestone**: M5 / M6（不阻塞 demo）
 - **Priority**: low
-- **Estimate**: 0.25 工作天
+- **Estimate**: 0.25 工作天 → **實際 ~0.25d**（frontend only）
+- **Owner**: Claude (session 2026-05-23)
+- **Branch**: `claude/issue-WMOM-20260504-13-2026-05-23`
 - **Source**: code-reviewer 對 WMOM-10 的 finding #5（2026-05-04）
-- **問題**:
-  - `useCostData` 的 `useAsync.run` 沒有 abort 機制
-  - React 18 Strict Mode dev 環境會 mount→unmount→mount，`useEffect([dataset])` 觸發兩次 fetch
-  - 若慢 fetch 比快 fetch 後回，會用舊 dataset 結果蓋新 dataset 結果（race）
-  - 用戶手動快速切 dataset 也會撞到同樣問題
-- **驗收**:
-  - 在 dev mode 切 dataset 5 次，最終顯示的 forecast 一定對應最後一次選的 dataset
-  - 取消舊 fetch 不會 throw 進 error state
-- **建議實作**:
-  - `useAsync.run` 內建立 `AbortController`，next run 前 abort 上一個
-  - fetch 受 AbortError 時不視為 error（直接 return）
+- **Completion summary**:
+  - ✅ `frontend/services/costService.ts`：`postJSON` + `costApi`×4（forecast/lcoe/monteCarlo/varFluct）加 optional `AbortSignal` 參數透傳給 `fetch`（純擴充，不帶 signal 的呼叫行為不變）
+  - ✅ `frontend/hooks/useCostData.ts`：`useAsync.run` 三道防線消除 race：
+    1. `useRef<AbortController>` 追蹤最新 in-flight request，下一筆 run 前先 `abort()` 上一筆
+    2. `signal.aborted` 早退 → 即使舊 fetch 已 resolve 也不 `setData` 蓋掉新結果
+    3. `controllerRef.current === controller` loading guard → 只有最新 request 結束 loading
+  - ✅ `isAbortError` 接 `DOMException` + `Error`（瀏覽器原生 / polyfill 兩種）；`reset()` 也 abort + 清 loading；`useEffect` cleanup 在 unmount abort 仍 in-flight 的 request
+  - ✅ Verify：`tsc --noEmit` 0 errors + `vite build` 748 modules / 4.58s / 0 errors；backend 未動（zero regression）
+  - ✅ Code review 1 must + 1 should + 1 nice：should（isAbortError 補 DOMException）採納；must（reset 與 in-flight run 交錯疑 loading 殘留）以 timeline 推導判定**非真 bug**（reset 已 unconditional setLoading(false)；await resolve→finally 之間 microtask 不可插入外部 callback），不採納 hacky dead-controller，改加註解文件化
+- **驗收**（劉老師本機 dev 手動）:
+  - dev mode 切 dataset 5 次，最終顯示的 forecast 對應最後一次選的 dataset ✅（邏輯保證）
+  - 取消舊 fetch 不會 throw 進 error state ✅（isAbortError + signal.aborted 早退）
+- **已知限制**: frontend 無測試框架（無 vitest/jest），未加自動化 regression test — 為 0.25d 小工不引入整套 harness；建議另開 issue 一次導入 vitest+RTL
 - **Reference**:
-  - `frontend/hooks/useCostData.ts`
-  - `frontend/services/costService.ts:postJSON`
-  - 本 review: WMOM-10 code-reviewer report finding #5
+  - [`frontend/hooks/useCostData.ts`](frontend/hooks/useCostData.ts)
+  - [`frontend/services/costService.ts`](frontend/services/costService.ts)
+  - [`work-logs/2026-05/2026-05-23-cost-abortcontroller.md`](work-logs/2026-05/2026-05-23-cost-abortcontroller.md)（session 紀錄）
 
 ---
 
