@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
+| open | 14 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 42 |
+| done | 43 |
 | **total (active)** | **57** |
 
-最後更新：2026-05-22 20:xx（**WMOM-20260522-01 done — F4 收尾，work_order + reporting 兩個 router 也改用 shared FARM_REGISTRY**）。今日 autonomous daily worker session 接 5/21 F4 batch 的 follow-up note：F4 當時 scope 只列 4 個 routers，實作中發現 `work_order_router.py` + `reporting/routers/reporting_router.py` 也有相同 lazy singleton pattern（helper 名分別為 `_get_default_farm_registry` / `_resolve_farm_db_path`），本 issue 補完。`work_order_router._default_repository_factory` 從 try/except + 404/500 mapping 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；`_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫，finish hook 失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾。`reporting_router` 兩個 setter `set_ledger_factory(None)` / `set_work_order_factory(None)` 各自呼叫 `reset_farm_registry()`；`set_availability_provider` 不該動 farm registry（已加 regression test 守住）。10 個新 test（5 work_order + 5 reporting，含 N1 production code path 驗證）全綠。Backend baseline zero regression（715 passed + 1 xfailed + 3 pre-existing numpy drift；環境 flaky concurrency dispatch test 偶爾 fail 與本 PR 無關）。Code review 1 must（`__builtins__` patch 改 monkeypatch shared function）+ 2 should + 1 nice 全採納；should-1（HTTPException coupling 全 6 router 統一，需擴大 scope 到 F4 batch）本 PR 不擴大。issue_stats open 15 / done 41→42 / total 56→57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / WMOM-20260504-13 cost frontend AbortController（小工）。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md。
+最後更新：2026-05-23 20:xx（**WMOM-20260504-13 done — Cost 系列 fetch 加 AbortController 防 React 18 Strict Mode race**）。今日 autonomous daily worker session 接 5/22 handoff 推薦的 single-session 小工（0.25d 估）。原 reviewer finding（WMOM-10 #5）：`useCostData.useAsync.run` 沒 abort 機制 → React 18+ Strict Mode dev mount→unmount→mount 觸發兩次 fetch，慢 fetch 後回會用舊 dataset 結果蓋新 dataset；用戶手動快速切 dataset 也撞同樣 race。解法走原生 AbortController：`costService.postJSON` 加第 3 參 `signal?: AbortSignal` 傳給 fetch；`costApi.{forecast,lcoe,monteCarlo,varFluct}` 各加第 2 參 `opts?: { signal? }`；`useAsync` 用 `useRef<AbortController | null>` 持有當前 controller，每次 run abort 上一輪並建新的，catch 內 `isAbortError(e) || signal.aborted` 走靜默 return（不寫 error state、不關 loading，由新一輪接管），finally 用 `controllerRef.current === controller && !aborted` guard 才動 loading（防止新一輪剛 setLoading(true) 被 stale finally 蓋），useEffect cleanup unmount 時 abort in-flight。code-reviewer 1 must（unmount 路徑 loading leak 注釋說明）+ 2 should（**reset() 也要 abort in-flight** — 真實 UX bug：dataset 切換時 CostPage 對非 forecast panel 呼叫 reset，若有 in-flight 會用舊結果蓋掉剛清空視覺 / useCallback fn dep 穩定性說明）+ 3 nice（postJSON @throws JSDoc / signal.aborted 防禦性 check 註解 / isAbortError code===20 legacy 說明）**全採納**。frontend 無 vitest 設施（package.json 無 test script）→ 驗證走 `npx tsc --noEmit` clean + `npx vite build` clean（917 kB / 265 kB gzip，與 main 一致）；backend zero regression（564 passed + 1 xfailed，deselect 5 個 pre-existing env-flaky 與本 PR 完全無關 = 純 frontend 改動）。issue_stats open 15→14 / done 42→43 / total 57 不變。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策 — 不適合 solo session）/ M5 規劃（讀 ROADMAP M5 章節決定第一個 issue）/ WMOM-20260513-02 demo orchestrator simulator（2-3d 跨 session）/ WMOM-20260504-12 frontend 長期記憶體成長觀察。詳細 handoff 在 work-logs/2026-05/2026-05-23-cost-abort-controller.md。
 
 ---
 
@@ -521,11 +521,28 @@
 
 ### WMOM-20260504-13 — Cost 系列 fetch 加 AbortController 防 race
 
-- **Status**: open
+- **Status**: done（2026-05-23 完成）
 - **Milestone**: M5 / M6（不阻塞 demo）
 - **Priority**: low
-- **Estimate**: 0.25 工作天
+- **Estimate**: 0.25 工作天 → **實際 ~0.2 工作天**（含 code-reviewer 採納全部 must/should/nice）
+- **Owner**: Claude (session 2026-05-23, autonomous daily worker)
 - **Source**: code-reviewer 對 WMOM-10 的 finding #5（2026-05-04）
+- **Completion summary**:
+  - ✅ `frontend/services/costService.ts`：`postJSON` 加 `signal?: AbortSignal`，4 個 `costApi.*` 各加 `opts?: { signal? }`；JSDoc 標 `@throws DOMException`（不攔截 AbortError）
+  - ✅ `frontend/hooks/useCostData.ts`：`useAsync` 加 `useRef<AbortController | null>`，run 開頭 abort 上一輪並建新 controller；catch 內 `isAbortError(e) || signal.aborted` 靜默 return；finally 用 `controllerRef.current === controller && !aborted` guard 才動 loading；unmount cleanup abort in-flight + 設 ref=null；`reset()` 也 abort（防止「reset 清空 → 慢 fetch 後回又寫回 stale 結果」UX bug）
+  - ✅ `npx tsc --noEmit` clean、`npx vite build` clean（917 kB / 265 kB gzip）；backend zero regression（564 passed + 1 xfailed，deselect 5 env-flaky 與本 PR 無關）
+  - ✅ Code review 採納：1 must（unmount 路徑 loading leak 注釋）+ 2 should（reset() 也 abort / useCallback fn dep 穩定性註解）+ 3 nice（postJSON JSDoc / signal.aborted 防禦註解 / isAbortError code===20 legacy 註解）全收
+- **驗收結果**:
+  - ✅ dev mode 切 dataset N 次最終顯示對應最後一次（每次 run 都 abort 上一輪 + finally guard）
+  - ✅ 取消舊 fetch 不會 throw 進 error state（catch 內 isAbortError 靜默 return）
+- **Follow-up**: 無；單一 commit 收尾
+- **Reference**:
+  - [`frontend/hooks/useCostData.ts`](frontend/hooks/useCostData.ts)
+  - [`frontend/services/costService.ts`](frontend/services/costService.ts)
+  - [`work-logs/2026-05/2026-05-23-cost-abort-controller.md`](work-logs/2026-05/2026-05-23-cost-abort-controller.md)
+
+<details><summary>📜 原始 issue description（保留歷史）</summary>
+
 - **問題**:
   - `useCostData` 的 `useAsync.run` 沒有 abort 機制
   - React 18 Strict Mode dev 環境會 mount→unmount→mount，`useEffect([dataset])` 觸發兩次 fetch
@@ -541,6 +558,8 @@
   - `frontend/hooks/useCostData.ts`
   - `frontend/services/costService.ts:postJSON`
   - 本 review: WMOM-10 code-reviewer report finding #5
+
+</details>
 
 ---
 

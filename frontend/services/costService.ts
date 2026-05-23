@@ -152,11 +152,30 @@ export interface VarFluctResponse {
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────
 
-async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
+/**
+ * Optional per-call options. 目前只有 signal（給 AbortController 用，WMOM-20260504-13）。
+ */
+export interface CostApiOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * POST JSON helper. 不攔截 fetch 被 abort 時拋出的 DOMException(AbortError) —
+ * 呼叫方（useCostData）負責用 isAbortError() 分辨並靜默吸收。
+ *
+ * @throws {Error} non-2xx response 時拋出 `POST {path} failed: {detail}`
+ * @throws {DOMException} signal 被 abort 時 fetch 自己拋出 AbortError（不轉型）
+ */
+async function postJSON<TReq, TResp>(
+  path: string,
+  body: TReq,
+  signal?: AbortSignal,
+): Promise<TResp> {
   const resp = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
   if (!resp.ok) {
     let detail = `HTTP ${resp.status}`;
@@ -172,15 +191,15 @@ async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
 }
 
 export const costApi = {
-  forecast: (req: CostForecastRequest = {}) =>
-    postJSON<CostForecastRequest, CostForecastResponse>('/api/cost/forecast', req),
+  forecast: (req: CostForecastRequest = {}, opts: CostApiOptions = {}) =>
+    postJSON<CostForecastRequest, CostForecastResponse>('/api/cost/forecast', req, opts.signal),
 
-  lcoe: (req: LCOERequest = {}) =>
-    postJSON<LCOERequest, LCOEResponse>('/api/cost/lcoe', req),
+  lcoe: (req: LCOERequest = {}, opts: CostApiOptions = {}) =>
+    postJSON<LCOERequest, LCOEResponse>('/api/cost/lcoe', req, opts.signal),
 
-  monteCarlo: (req: MonteCarloRequest = {}) =>
-    postJSON<MonteCarloRequest, MonteCarloResponse>('/api/cost/monte-carlo', req),
+  monteCarlo: (req: MonteCarloRequest = {}, opts: CostApiOptions = {}) =>
+    postJSON<MonteCarloRequest, MonteCarloResponse>('/api/cost/monte-carlo', req, opts.signal),
 
-  varFluct: (req: VarFluctRequest = {}) =>
-    postJSON<VarFluctRequest, VarFluctResponse>('/api/cost/var-fluct', req),
+  varFluct: (req: VarFluctRequest = {}, opts: CostApiOptions = {}) =>
+    postJSON<VarFluctRequest, VarFluctResponse>('/api/cost/var-fluct', req, opts.signal),
 };
