@@ -152,11 +152,16 @@ export interface VarFluctResponse {
 
 // ─── Fetch helpers ────────────────────────────────────────────────────────
 
-async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
+async function postJSON<TReq, TResp>(
+  path: string,
+  body: TReq,
+  signal?: AbortSignal,
+): Promise<TResp> {
   const resp = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
   if (!resp.ok) {
     let detail = `HTTP ${resp.status}`;
@@ -172,15 +177,15 @@ async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
 }
 
 export const costApi = {
-  forecast: (req: CostForecastRequest = {}) =>
-    postJSON<CostForecastRequest, CostForecastResponse>('/api/cost/forecast', req),
+  forecast: (req: CostForecastRequest = {}, signal?: AbortSignal) =>
+    postJSON<CostForecastRequest, CostForecastResponse>('/api/cost/forecast', req, signal),
 
-  lcoe: (req: LCOERequest = {}) =>
-    postJSON<LCOERequest, LCOEResponse>('/api/cost/lcoe', req),
+  lcoe: (req: LCOERequest = {}, signal?: AbortSignal) =>
+    postJSON<LCOERequest, LCOEResponse>('/api/cost/lcoe', req, signal),
 
-  monteCarlo: (req: MonteCarloRequest = {}) =>
-    postJSON<MonteCarloRequest, MonteCarloResponse>('/api/cost/monte-carlo', req),
+  monteCarlo: (req: MonteCarloRequest = {}, signal?: AbortSignal) =>
+    postJSON<MonteCarloRequest, MonteCarloResponse>('/api/cost/monte-carlo', req, signal),
 
-  varFluct: (req: VarFluctRequest = {}) =>
-    postJSON<VarFluctRequest, VarFluctResponse>('/api/cost/var-fluct', req),
+  varFluct: (req: VarFluctRequest = {}, signal?: AbortSignal) =>
+    postJSON<VarFluctRequest, VarFluctResponse>('/api/cost/var-fluct', req, signal),
 };
