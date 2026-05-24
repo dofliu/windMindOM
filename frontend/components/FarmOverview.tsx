@@ -286,11 +286,41 @@ const TUR_STATE_SHORT: Record<number, string> = {
   9: 'NSTP',
 };
 
-const TCard: React.FC<{
+interface TurbineCardProps {
   t: TurbineData;
   onClick: () => void;
   tr: (en: string, zh: string) => string;
-}> = ({ t, onClick, tr }) => {
+  lang: 'en' | 'zh';
+}
+
+/**
+ * React.memo 比較器：只比對卡片實際渲染的欄位 + lang。
+ *
+ * onClick / tr 每次父層 render 都是新 reference，但刻意不納入比較：
+ *   - onClick 閉包捕捉的 turbine 物件即使過期，App 端 `liveTurbine` 仍以 id 反查
+ *     最新資料，導航結果正確。
+ *   - tr 是 lang 的純函式，故只需比 lang；同語言下舊 tr 輸出完全相同。
+ * 效果：父層因非資料因素 re-render（檢視模式切換 / 健康輪詢 / modal 開關）時，
+ * 資料未變的風機卡片可跳過 re-render，省去 14 張 SVG 重繪。
+ */
+function turbineCardEqual(prev: TurbineCardProps, next: TurbineCardProps): boolean {
+  if (prev.lang !== next.lang) return false;
+  const a = prev.t;
+  const b = next.t;
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.status === b.status &&
+    a.turState === b.turState &&
+    a.powerOutput === b.powerOutput &&
+    a.windSpeed === b.windSpeed &&
+    a.rotorSpeed === b.rotorSpeed &&
+    a.temperature === b.temperature &&
+    a.history === b.history
+  );
+}
+
+const TCard: React.FC<TurbineCardProps> = React.memo(({ t, onClick, tr }) => {
   const { C } = useTheme();
   const tone = turbineStatusTone(t.status);
   const strokeColor =
@@ -378,15 +408,24 @@ const TCard: React.FC<{
       </div>
     </Card>
   );
-};
+}, turbineCardEqual);
 
 // ─── Compact tile (summary view) ───────────────────────────────
 
-const CompactTile: React.FC<{
-  t: TurbineData;
-  onClick: () => void;
-  tr: (en: string, zh: string) => string;
-}> = ({ t, onClick, tr }) => {
+function compactTileEqual(prev: TurbineCardProps, next: TurbineCardProps): boolean {
+  if (prev.lang !== next.lang) return false;
+  const a = prev.t;
+  const b = next.t;
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.status === b.status &&
+    a.powerOutput === b.powerOutput &&
+    a.windSpeed === b.windSpeed
+  );
+}
+
+const CompactTile: React.FC<TurbineCardProps> = React.memo(({ t, onClick, tr }) => {
   const { C } = useTheme();
   const tone = turbineStatusTone(t.status);
   const strokeColor =
@@ -432,7 +471,7 @@ const CompactTile: React.FC<{
       )}
     </Card>
   );
-};
+}, compactTileEqual);
 
 // ─── Table view ────────────────────────────────────────────────
 
@@ -664,7 +703,7 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
           }}
         >
           {turbines.map(t => (
-            <TCard key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} />
+            <TCard key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} lang={lang} />
           ))}
         </div>
       )}
@@ -678,7 +717,7 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
           }}
         >
           {turbines.map(t => (
-            <CompactTile key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} />
+            <CompactTile key={t.id} t={t} onClick={() => onSelectTurbine(t)} tr={tr} lang={lang} />
           ))}
         </div>
       )}

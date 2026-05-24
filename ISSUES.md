@@ -13,11 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 14 |
-| in_progress | 0 |
+| open | 13 |
+| in_progress | 1 |
 | blocked | 0 |
 | done | 43 |
 | **total (active)** | **57** |
+
+最後更新：2026-05-24 20:xx（**WMOM-20260504-12 in_progress — Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**）。今日 autonomous daily worker session 做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況走 FarmOverview 的 TCard/CompactTile + 自寫 SVG（非 Recharts，suspect #3 不適用）。**真因 suspect #4**：`useRealtimeData` 的 `ws.onclose` 無條件重連；unmount cleanup 的 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積，每條每次 push 都呼叫 setTurbines；React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。修法：`disposed` 旗標貫穿所有 WS handler + poll；cleanup 設 disposed=true + 先解除 ws 四 handler 再 close()（雙保險）+ 清 timer/interval；initial fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + areEqual（只比渲染欄位 + lang prop），父層非資料因素 re-render 時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 為 lang 純函式、theme 走 context 不受影響）。Verify：tsc 0 + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale 判定非 bug，App.tsx:143-146 以 id 反查）+ 2 should（onerror disposed guard 採納 / compactTileEqual turState 不採納）+ 1 nice（history reference 比較判定非 bug 不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats open 14→13 / in_progress 0→1 / done 43 / total 57。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md。
+
+---
 
 最後更新：2026-05-23 20:xx（**WMOM-20260504-13 done — Cost 系列 fetch 加 AbortController 防 race**）。今日 autonomous daily worker session 做 5/22 handoff 推薦的 0.25d frontend-only 小工：`useCostData.useAsync.run` 原本沒有 abort 機制，React 18 Strict Mode dev 雙觸發 `useEffect([dataset])` 或使用者快速切 dataset 時，慢 fetch 後回會蓋掉新 dataset 結果（stale-overwrites-fresh race）。修法三道防線：(1) `useRef<AbortController>` 追蹤最新 in-flight request 並在下一筆 run 前 abort 上一筆；(2) `signal.aborted` 早退即使舊 fetch 已 resolve 也不 setData；(3) `controllerRef.current === controller` loading guard。另加 `isAbortError`（DOMException + Error）、`reset()` abort + 清 loading、unmount cleanup；`costService.postJSON` + `costApi`×4 加 optional `AbortSignal` 透傳。純擴充，CostPage 4 panel + dataset effect 完全相容。Verify：tsc 0 errors + vite build 748 modules / 4.58s 0 errors；backend frontend-only zero regression。Code review 1 must + 1 should + 1 nice：should（isAbortError 補 DOMException）採納；must（reset×in-flight run loading 殘留）以 timeline 推導判定非真 bug 不採納 hacky 修法、改加註解。frontend 無測試框架故未加自動化 regression test（建議另開 issue 導入 vitest+RTL）。issue_stats open 15→14 / done 42→43 / total 57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator。詳細 handoff 在 work-logs/2026-05/2026-05-23-cost-abortcontroller.md。
 
@@ -592,11 +596,25 @@
 
 ### WMOM-20260504-12 — Frontend 長時間執行記憶體成長（觀察）
 
-- **Status**: open
+- **Status**: in_progress（2026-05-24 — autonomous daily worker：root cause WS 殭屍重連洩漏已根治 + 卡片 React.memo；待劉老師 24h 記憶體驗收後 close）
 - **Milestone**: M5 / M6（不阻塞 demo，可選優化）
-- **Priority**: low
+- **Priority**: low → **medium**（進場發現含真 bug：WS 殭屍重連 leak）
 - **Estimate**: 0.5-1 工作天
-- **Source**: 劉老師 2026-05-04 跑長時間測試 →「記憶體不足、refresh 後就好」
+- **Owner**: Claude (session 2026-05-24)
+- **Branch**: `claude/upbeat-davinci-348BY`
+- **Progress（2026-05-24）**:
+  - ✅ **真因 = suspect #4：WS 殭屍重連洩漏**。`useRealtimeData` 的 `ws.onclose` 無條件 `setTimeout(connect, 3000)`；unmount cleanup 呼叫 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積（每條每次 push 都呼叫 setTurbines）。React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。**修法**：`disposed` 旗標貫穿 connect/onopen/onmessage/onclose/onerror/poll；cleanup 設 disposed=true + 先解除 ws 四個 handler 再 close() + 清 timer/interval；initial REST fetch 加 cancelled guard。
+  - ✅ **suspect #1：卡片 React.memo**。`FarmOverview` 的 `TCard` / `CompactTile` 加 `React.memo` + 自訂 `areEqual`（只比渲染欄位 + 新增 `lang` prop），父層因非資料因素 re-render（檢視模式切換 / 健康輪詢 / modal）時跳過 14 張 SVG 重繪。onClick/tr 刻意排除（onClick stale 由 App `liveTurbine` 以 id 反查保證；tr 為 lang 純函式；theme 走 context 不受 memo 影響）。
+  - ⏭️ **suspect #2（selective setState）不做** — 已被卡片層 areEqual 取代（per-card 比較更直接）。
+  - ⏭️ **suspect #3（Recharts leak）不適用 overview** — overview sparkline 走自寫 SVG（`ui/Charts.tsx`），非 Recharts；只 HistoryPage 用 recharts，若該頁長跑有 leak 另開 issue。
+  - ⏭️ **suspect #5（升級/pin recharts）** 不在本 PR scope。
+  - **Verify**: tsc 0 errors + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale，判定非 bug）+ 2 should（onerror disposed guard 採納；compactTileEqual turState 不採納）+ 1 nice（history reference 比較，判定非 bug）。
+  - **註**：issue 描述的元件名 `MiniTrendChart`/`TurbineCard` 在 5/07 UI 改版（WMOM-20260507-01）後已不存在，實際目標改為 `TCard`/`CompactTile`。
+- **待 close 條件**: 劉老師本機 dev 長跑驗收 — (1) Strict Mode 來回切頁不再累積多條 `[WS] Connected`，WS 連線數穩定為 1；(2) 24h 連續執行記憶體成長 < 50%。
+- **Reference**:
+  - [`frontend/hooks/useRealtimeData.ts`](frontend/hooks/useRealtimeData.ts)（WS 生命週期修復）
+  - [`frontend/components/FarmOverview.tsx`](frontend/components/FarmOverview.tsx)（TCard/CompactTile React.memo）
+  - [`work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md`](work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md)（session 紀錄）
 - **觀察結果**:
   - **Backend 儲存有 bug — 見 [WMOM-20260505-01](#wmom-20260505-01--snapshots-表失控419-gb-sqlite-hotfix)**：原本以為 `storage.py` 4 層 tiered retention 正常運作；2026-05-05 發現 turbine_snapshots 沒清 → 失控膨脹
   - **前端跑數小時記憶體成長** = 典型 React SPA 長時間運行 GC 跟不上問題，與資料儲存無關，refresh 即重置

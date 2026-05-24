@@ -232,28 +232,42 @@ export const useRealtimeData = () => {
 
   // Initial REST fetch
   useEffect(() => {
+    let cancelled = false;
     fetch(`${API_BASE}/api/turbines`)
       .then(res => res.json())
       .then((data: ApiTurbineReading[]) => {
-        setTurbines(data.map(apiToTurbineData));
+        if (!cancelled) setTurbines(data.map(apiToTurbineData));
       })
       .catch(err => {
         console.warn('[useRealtimeData] Initial fetch failed, will retry via WebSocket:', err.message);
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // WebSocket connection
   useEffect(() => {
+    // disposed 標記 effect 是否已卸載。關鍵：ws.close() 會非同步觸發 onclose，
+    // 若 onclose 無條件 setTimeout(connect) 重連，卸載後仍會排程一條重連，產生
+    // 沒有人清理的「殭屍 WebSocket」；React 18 Strict Mode dev 的 mount→unmount→mount
+    // 雙觸發會讓殭屍持續累積（每條都在每次 push 呼叫 setTurbines），即觀察到的
+    // dev 環境記憶體 / CPU 緩慢成長。disposed guard + 卸載時解除 handler 即根治。
+    let disposed = false;
+
     function connect() {
+      if (disposed) return;
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (disposed) return;
         console.log('[WS] Connected to', WS_URL);
         ws.send('ping');
       };
 
       ws.onmessage = (event) => {
+        if (disposed) return;
         try {
           const data: ApiTurbineReading[] = JSON.parse(event.data);
           setTurbines(data.map(apiToTurbineData));
@@ -263,11 +277,13 @@ export const useRealtimeData = () => {
       };
 
       ws.onclose = () => {
+        if (disposed) return; // 卸載後不再重連，避免殭屍 WebSocket
         console.log('[WS] Disconnected, reconnecting in 3s...');
         reconnectTimerRef.current = setTimeout(connect, 3000);
       };
 
       ws.onerror = () => {
+        if (disposed) return;
         ws.close();
       };
     }
@@ -276,20 +292,34 @@ export const useRealtimeData = () => {
 
     // Also poll REST as fallback every 5s
     const pollInterval = setInterval(() => {
+      if (disposed) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
         fetch(`${API_BASE}/api/turbines`)
           .then(res => res.json())
           .then((data: ApiTurbineReading[]) => {
-            setTurbines(data.map(apiToTurbineData));
+            if (!disposed) setTurbines(data.map(apiToTurbineData));
           })
           .catch(() => {});
       }
     }, 5000);
 
     return () => {
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      disposed = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       clearInterval(pollInterval);
+      const ws = wsRef.current;
+      if (ws) {
+        // 先解除 handler 再 close：避免 close() 觸發的 onclose 重新排程重連
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close();
+        wsRef.current = null;
+      }
     };
   }, []);
 
