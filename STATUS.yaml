@@ -4,7 +4,7 @@ category: wind_energy
 progress: 100
 status: active
 last_updated: "2026-05-24"
-next_milestone: "**WMOM-20260504-12 進度（in_progress）— Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**：今日（autonomous daily worker, 5/24 20:00）做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況 overview 走 FarmOverview 的 TCard/CompactTile + 自寫 SVG sparkline（非 Recharts，故 suspect #3 不適用）。**真因（suspect #4）**：`useRealtimeData` 的 `ws.onclose` 無條件 `setTimeout(connect,3000)` 重連；而 unmount cleanup 呼叫 `ws.close()` 會非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積（每條都在每次 push 呼叫 setTurbines）；React 18 Strict Mode dev 雙觸發立刻引爆 → 即劉老師回報的 dev 記憶體成長。修法：加 `disposed` 旗標貫穿 connect/onopen/onmessage/onclose/onerror/poll；cleanup 設 disposed=true + 先解除 ws 四個 handler 再 close()（雙保險）+ 清 timer/interval；initial REST fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + 自訂 areEqual（只比渲染欄位 + lang prop），父層因非資料因素 re-render（檢視模式/健康輪詢/modal）時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 由 lang 純函式保證、theme 走 context 不受 memo 影響）。Verify：tsc 0 errors + vite build 748 modules / ~3.4s 0 errors；backend 完全未動（zero regression，frontend only）。Code review 1 must（onClick stale，判定非 bug — App.tsx:143-146 以 id 反查）+ 2 should（onerror 加 disposed guard 採納；compactTileEqual 補 turState 不採納 — 不渲染該欄位）+ 1 nice（history reference 比較，判定 reviewer 誤判情境、不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats 不變 open 14 / done 43 / total 57。M4 維持 100%。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃（RAG 需架構決策）/ WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md."
+next_milestone: "**WMOM-20260524-01 done — Frontend 測試基礎設施（vitest + RTL）+ 回補 race-condition regression test**：今日（autonomous daily worker, 5/24 20:00）做連續 3 次 handoff 推薦的「新 issue 候選」。前端原本完全無測試框架，導致 5/23（useCostData AbortController race）+ 5/24（useRealtimeData WS 殭屍重連 leak）兩次修復都無法補自動化 regression。本 session 導入 vitest@^3 + jsdom@^29 + @testing-library/react@^16（+ @testing-library/dom），建 frontend/vitest.config.ts（與 vite.config.ts 分離；jsdom env / include **/*.test.{ts,tsx} / setupFiles / restoreMocks）+ vitest.setup.ts（afterEach RTL cleanup，explicit import 不依賴 globals 故不動 tsconfig）+ package.json scripts（test=vitest run / test:watch）。**回補兩個近期 race-condition fix 的 regression**：useRealtimeData.test.ts（FakeWebSocket + fake timer，test1 鎖「卸載後解除 4 handler 再 close、模擬 emitClose + 推進 10s 仍只有 1 條 WS（殭屍重連回歸即 fail）」、test2 反向保證「掛載中斷線 3s 後重連未被 disposed guard 誤殺」）；useCostData.test.ts（vi.mock costApi + 可控 deferred，test1 驗「run(A)→run(B) 後 B abort A 的 controller、先 resolve B 再 resolve A → data 始終 B（stale 不蓋 fresh）」、test2 驗「A reject DOMException('AbortError') → error 仍 null」）。Verify：npx vitest run 4 passed / npx tsc --noEmit 0 errors（含測試檔）/ npx vite build 748 modules 0 errors（測試檔正確排除於 bundle 外，module 數同 baseline）；backend 未動 zero backend regression（開工 baseline 566 passed / 1 xfailed / 3 pre-existing numpy BLAS drift，非 regression）。Code review 採納記於 PR。issue_stats done 43→44 / total 57→58（新建即完成，open 不變 13；WMOM-20260504-12 仍 in_progress 待劉老師 24h 記憶體長跑驗收，本次新增 useRealtimeData.test.ts 已替其修法上自動化守門）。M4 維持 100%。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃（RAG 需架構決策 + 外部依賴）/ WMOM-20260513-02 demo orchestrator（2-3d 跨 session）/ 元件層測試擴充（FarmOverview memo / CostPage panel，接續本 infra）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-test-infra.md."
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 14
-  in_progress: 0
+  open: 13
+  in_progress: 1
   blocked: 0
-  done: 43  # +1: WMOM-20260504-13 cost AbortController (2026-05-23 autonomous daily worker)
+  done: 44  # +1: WMOM-20260524-01 frontend test infra vitest+RTL (2026-05-24 autonomous daily worker)
 
 inherited_baseline:
   source: digiWindTurbine
