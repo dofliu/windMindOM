@@ -49,10 +49,10 @@ describe('useCostData / useAsync — AbortController race 防護', () => {
 
     // run A（慢）→ run B（快），B 會先 abort A 的 controller
     await act(async () => {
-      void result.current.forecast.run({ dataset: 'A' } as never);
+      void result.current.forecast.run({ dataset: 'A' });
     });
     await act(async () => {
-      void result.current.forecast.run({ dataset: 'B' } as never);
+      void result.current.forecast.run({ dataset: 'B' });
     });
 
     expect(calls).toHaveLength(2);
@@ -104,7 +104,7 @@ describe('useCostData / useAsync — AbortController race 防護', () => {
     await act(async () => {
       void result.current.forecast.run(); // 第二筆 in-flight
     });
-    act(() => {
+    await act(async () => {
       result.current.forecast.reset();
     });
 

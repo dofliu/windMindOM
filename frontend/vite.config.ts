@@ -1,7 +1,6 @@
-/// <reference types="vitest/config" />
 import path from 'path';
 import { loadEnv } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
@@ -41,13 +40,13 @@ export default defineConfig(({ mode }) => {
         }
       },
       // Vitest 設定：jsdom 環境 + 全域 API（describe/it/expect）+ jest-dom matcher。
-      // 只收 frontend 自己的 *.test.ts(x)，排除 node_modules / dist。
+      // exclude 以 configDefaults.exclude 延伸（含 **/node_modules/** 等巢狀排除），再補 dist。
       test: {
         globals: true,
         environment: 'jsdom',
         setupFiles: ['./test/setup.ts'],
         include: ['**/*.{test,spec}.{ts,tsx}'],
-        exclude: ['node_modules/**', 'dist/**'],
+        exclude: [...configDefaults.exclude, 'dist/**'],
         css: false,
       },
     };

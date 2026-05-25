@@ -80,7 +80,20 @@ npm install --prefix frontend -D vitest jsdom @testing-library/react @testing-li
 
 ## 5. Code review 採納
 
-（見下方 §5.1，待 code-reviewer subagent 回報後補。）
+用 code-reviewer subagent 對 staged diff review：1 must-fix + 5 should-fix + 2 nice-to-have，**全部採納**。
+
+| 級別 | 議題 | 處置 |
+|------|------|------|
+| Must-fix | `useCostData.test.ts` reset() 的 `act()` 為 sync 未 await，後接 3 個斷言（升版可能 flaky） | **採納** — 改 `await act(async () => {...})` |
+| Should-fix | `useRealtimeData.test.ts` 6 處 sync `act()` 未 await | **採納** — test fn 改 async，全部改 `await act(async () => {...})` |
+| Should-fix | `vite.config.ts` triple-slash `/// <reference vitest/config>` 與 import 重複 | **採納** — 刪 triple-slash（import 已帶型別） |
+| Should-fix | `exclude` 完全覆蓋 vitest `defaultExclude`（單星 `node_modules/**` 無法 match 巢狀） | **採納** — 改 `[...configDefaults.exclude, 'dist/**']` |
+| Should-fix | `test/setup.ts` 手動 `cleanup()` 與 RTL 16 globals:true auto-cleanup 重複 + docstring 誤導 | **採納** — 移除手動 cleanup，改正確說明（RTL auto-clean） |
+| Should-fix | `FakeWebSocket.close()` 同步觸發 onclose 與真實異步行為不符（reviewer 自承非當前 bug） | **採納（文件化）** — 加註「同步為刻意簡化，要驗的是 null-before-close 順序，同步/異步不影響斷言」 |
+| Nice | `run({dataset:'A'} as never)` 不必要的型別逃逸（`DatasetName = string`，本就合法） | **採納** — 移除 `as never` |
+| Nice | `Handler` 型別名稱涵蓋不完整（onmessage 另宣告） | **採納** — 改名 `VoidHandler` |
+
+Re-verify（採納後）：vitest 6 pass / tsc 0 / vite build 0，全綠。
 
 ---
 

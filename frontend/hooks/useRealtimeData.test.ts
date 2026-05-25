@@ -14,7 +14,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useRealtimeData } from './useRealtimeData';
 import { TurbineStatus } from '../types';
 
-type Handler = ((event?: unknown) => void) | null;
+type VoidHandler = ((event?: unknown) => void) | null;
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -25,10 +25,10 @@ class FakeWebSocket {
 
   url: string;
   readyState = FakeWebSocket.CONNECTING;
-  onopen: Handler = null;
+  onopen: VoidHandler = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: Handler = null;
-  onerror: Handler = null;
+  onclose: VoidHandler = null;
+  onerror: VoidHandler = null;
   sent: string[] = [];
 
   constructor(url: string) {
@@ -40,8 +40,9 @@ class FakeWebSocket {
     this.sent.push(data);
   }
 
-  // 真實 WebSocket.close() 會（若 handler 仍掛著）非同步觸發 onclose。
-  // hook 的正確 cleanup 會在 close() 前先把 onclose 設 null，故這裡不會重排重連。
+  // 真實 WebSocket.close() 會（若 handler 仍掛著）非同步觸發 onclose；這裡同步觸發為
+  // 刻意簡化。本測試要驗的是 hook cleanup「先把 onclose 設 null、再 close()」的順序——
+  // handler 已為 null 時 close() 不會重排重連，同步/非同步不影響這個斷言。
   close(): void {
     this.readyState = FakeWebSocket.CLOSED;
     if (this.onclose) this.onclose();
@@ -74,7 +75,7 @@ afterEach(() => {
 });
 
 describe('useRealtimeData — WebSocket 殭屍重連根治', () => {
-  it('卸載後不再排程重連、不再建立新 WebSocket', () => {
+  it('卸載後不再排程重連、不再建立新 WebSocket', async () => {
     vi.useFakeTimers();
     const { unmount } = renderHook(() => useRealtimeData());
     expect(FakeWebSocket.instances).toHaveLength(1);
@@ -82,41 +83,41 @@ describe('useRealtimeData — WebSocket 殭屍重連根治', () => {
     unmount();
 
     // 推進超過重連間隔（3s）與 poll（5s）：若有殭屍重連，instances 會增加
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(10_000);
     });
 
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
-  it('連線中斷（仍掛載）時，3 秒後自動重連', () => {
+  it('連線中斷（仍掛載）時，3 秒後自動重連', async () => {
     vi.useFakeTimers();
     renderHook(() => useRealtimeData());
     const ws = FakeWebSocket.instances[0];
 
-    act(() => {
+    await act(async () => {
       ws.simulateOpen();
     });
     // 模擬 server 主動斷線（非卸載）：直接觸發 hook 的 onclose handler
-    act(() => {
+    await act(async () => {
       ws.onclose?.();
     });
     expect(FakeWebSocket.instances).toHaveLength(1);
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(3000);
     });
     expect(FakeWebSocket.instances).toHaveLength(2); // 重連建立新 WS
   });
 
-  it('收到 WS 訊息會解析並更新 turbines', () => {
+  it('收到 WS 訊息會解析並更新 turbines', async () => {
     const { result } = renderHook(() => useRealtimeData());
     const ws = FakeWebSocket.instances[0];
 
-    act(() => {
+    await act(async () => {
       ws.simulateOpen();
     });
-    act(() => {
+    await act(async () => {
       ws.simulateMessage([
         {
           name: 'WT01',
