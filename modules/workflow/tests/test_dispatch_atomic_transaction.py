@@ -446,3 +446,117 @@ def test_concurrent_dispatch_one_loses_when_stock_short(repos):
     # 最終 stock = 5 - 4 = 1
     assert inv_repo.get_item(item.id).stock_new == 1
     assert _count_ledger_entries(mr_repo) == 1
+
+
+def test_dispatch_no_lost_update_under_forced_interleave(repos):
+    """**WMOM-20260525-01 regression**：用 barrier 強制兩 thread 在「各自讀到 stock
+    之後、任一方 commit 之前」交會，逼出 lost-update window。
+
+    *舊（deferred）行為*：兩 thread 的 ``BEGIN`` 不取鎖、``SELECT`` 也不取鎖 → 兩邊
+    都讀到 stock=10、都抵達 barrier → 放行後各自寫回 → 後寫者覆蓋前者 → 庫存只扣
+    一筆但 ledger 兩筆（``stock_new`` 變 7 或 6 而非 3）。本 test 會抓到。
+
+    *新（``BEGIN IMMEDIATE``）行為*：第二個 thread 在交易起手即卡在 RESERVED lock，
+    根本到不了 barrier；第一個 thread 的 ``barrier.wait`` 逾時（``BrokenBarrierError``）
+    後獨自 commit 放鎖，第二個 thread 才接續、讀到最新 stock=7 再扣 4 → 最終 stock=3。
+
+    故本 test 在修復前必失敗、修復後必過，且不依賴 thread 排程運氣。
+    """
+    import modules.cost.repository.cost_ledger as _cost_ledger_mod
+
+    inv_repo, mr_repo = repos
+    wh = inv_repo.create_warehouse(farm_id="f", name="W", is_default=True)
+    item = inv_repo.create_item(
+        sku="A", name="a", description="a", unit="piece",
+        farm_id="f", warehouse_id=wh.id, unit_cost=Decimal("100.00"),
+        stock_new=10,
+    )
+    mr1 = mr_repo.create(farm_id="f", requester_id=uuid4(), items=[(item.id, 3, StockKind.NEW)])
+    mr2 = mr_repo.create(farm_id="f", requester_id=uuid4(), items=[(item.id, 4, StockKind.NEW)])
+    for mr in (mr1, mr2):
+        mr_repo.transition(mr.id, "submit_for_approval")
+        mr_repo.transition(mr.id, "approve_all")
+
+    # barrier 設在 stock 讀取（apply_stock_delta）之後、commit 之前的 ledger insert，
+    # 強制兩 thread 在 lost-update window 內交會。逾時後放行讓修復路徑不會 deadlock。
+    barrier = threading.Barrier(2)
+    real_insert = _cost_ledger_mod.insert_in_session
+
+    def _insert_with_barrier(sess, entry):
+        try:
+            barrier.wait(timeout=2.0)
+        except threading.BrokenBarrierError:
+            pass
+        return real_insert(sess, entry)
+
+    errors: list[Exception] = []
+
+    def _do_dispatch(mr_id):
+        try:
+            mr_repo.dispatch_request(mr_id)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    with patch.object(_cost_ledger_mod, "insert_in_session", _insert_with_barrier):
+        t1 = threading.Thread(target=_do_dispatch, args=(mr1.id,))
+        t2 = threading.Thread(target=_do_dispatch, args=(mr2.id,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+
+    # join 逾時不丟例外，故先確認兩 thread 確實結束 — 否則後面 assert 讀到的是
+    # 部分 commit 的中間值、errors 也可能尚未 append（假性通過）。
+    assert not t1.is_alive(), "t1 未在逾時內結束 — 疑似 deadlock"
+    assert not t2.is_alive(), "t2 未在逾時內結束 — 疑似 deadlock"
+    assert errors == [], f"unexpected errors: {errors}"
+    # 無 lost update：10 - 3 - 4 = 3（舊行為會是 6 或 7）
+    assert inv_repo.get_item(item.id).stock_new == 3
+    assert _count_ledger_entries(mr_repo) == 2
+
+
+def test_read_transactions_not_serialized(repos):
+    """**WMOM-20260525-01 must-fix regression**：純讀交易維持 ``BEGIN DEFERRED``，
+    兩個並發讀可同時持有交易、互不阻塞。
+
+    修復的 scope guard：``BEGIN IMMEDIATE`` 只套在 read-modify-write 寫路徑
+    （``immediate_transaction()``）；若誤把「全交易」都升級成 ``BEGIN IMMEDIATE``，純讀
+    （reporting 長查詢 / list / dashboard）也會取 RESERVED write lock → 互相序列化、
+    一個長讀可卡住所有寫。
+
+    本 test 開兩個只讀的 session，各自先觸發一次 SELECT（→ begin）再於 barrier 等對方。
+    *正確（deferred 讀）*：兩讀都不取 write lock → 都抵達 barrier → ``reached == 2``。
+    *回歸（讀也 IMMEDIATE）*：第二個 begin 卡在 RESERVED lock，busy_timeout(5s) 後 raise
+    `OperationalError` → 到不了 barrier → barrier(8s) 逾時 → ``reached < 2`` → 失敗。
+    """
+    inv_repo, mr_repo = repos
+    wh = inv_repo.create_warehouse(farm_id="f", name="W", is_default=True)
+    inv_repo.create_item(
+        sku="A", name="a", description="a", unit="piece",
+        farm_id="f", warehouse_id=wh.id, unit_cost=Decimal("100.00"), stock_new=5,
+    )
+
+    barrier = threading.Barrier(2, timeout=8.0)
+    reached: list[bool] = []
+    errors: list[Exception] = []
+
+    def _read_and_hold():
+        try:
+            with mr_repo._sessionmaker() as sess:
+                # 觸發 begin（純讀）
+                sess.execute(select(CostLedgerEntryORM)).scalars().all()
+                barrier.wait()  # 交易開著等對方 — deferred 讀不互鎖才能兩邊都到
+                reached.append(True)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    t1 = threading.Thread(target=_read_and_hold)
+    t2 = threading.Thread(target=_read_and_hold)
+    t1.start()
+    t2.start()
+    t1.join(timeout=15)
+    t2.join(timeout=15)
+
+    assert not t1.is_alive() and not t2.is_alive(), "讀 thread 未結束 — 疑似被序列化卡死"
+    assert errors == [], f"並發讀不該出錯（被序列化才會 lock timeout）: {errors}"
+    assert len(reached) == 2, "兩個並發讀未能同時持有交易 — 純讀疑似被升級成 BEGIN IMMEDIATE"

@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -82,12 +83,67 @@ def _set_sqlite_pragmas(dbapi_conn, _record) -> None:
 
     與 monitoring/server/sqlite_utils.open_sqlite 行為一致；workflow 第一個開 connection
     時也會把 DB 切到 WAL（與 monitoring 並存的 raw sqlite3 共用 WAL journal）。
+
+    另外把 pysqlite 切到 autocommit（``isolation_level = None``），關閉它預設的隱式
+    ``BEGIN``，改由下方 ``_emit_begin`` event 統一發 BEGIN（WMOM-20260525-01）。autocommit
+    是讓 ``_emit_begin`` 能自選 ``BEGIN IMMEDIATE`` / ``BEGIN`` 的必要條件 —— 否則 pysqlite
+    會自己先發 ``BEGIN`` 造成 "transaction within a transaction"。
     """
+    # 必須在 autocommit 下跑 PRAGMA：journal_mode=WAL 不可在交易內切換。
+    dbapi_conn.isolation_level = None
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA busy_timeout=5000")
     cur.execute("PRAGMA synchronous=NORMAL")
     cur.close()
+
+
+# 每個 thread 的「本次交易是否需要 write lock」旗標；由 ``immediate_transaction()``
+# context manager 設定，``_emit_begin`` event 讀取。預設 False → 純讀交易用 BEGIN
+# DEFERRED，在 WAL 下與其他讀/寫並發（不被序列化）。
+_txn_local = threading.local()
+
+
+def _emit_begin(conn) -> None:
+    """SQLAlchemy begin event — 每筆交易起手發 BEGIN；read-modify-write 寫路徑用
+    ``BEGIN IMMEDIATE``，其餘（含純讀）用預設 ``BEGIN``（deferred）（WMOM-20260525-01）。
+
+    **修的 bug**：pysqlite 預設 ``BEGIN DEFERRED`` 只在第一個寫入語句才取鎖，``SELECT``
+    （含 SQLite 上其實是 no-op 的 ``with_for_update()``）完全不取鎖。兩個並發 dispatch
+    會各自讀到同一份舊 ``stock`` 再各自寫回 → lost update：庫存只扣到一筆，但 ledger
+    卻寫了兩筆 → 庫存/帳務不一致（``test_concurrent_dispatch_same_item_serialized_correctly``
+    間歇性 stock=6 而非 3 即此症）。
+
+    **為何用 thread-local 旗標而非全交易 IMMEDIATE**：本 engine 被 work_order / inventory /
+    material_request / signoff / cost_ledger / reporting 全部共用。若每筆交易（含 reporting
+    長查詢、list、dashboard 等純讀）都 ``BEGIN IMMEDIATE`` 取 RESERVED write lock，會把本來在
+    WAL 下可並發的讀也序列化（一個長讀可卡住所有寫）。故只有真正 read-modify-write 的
+    stock 異動（dispatch_request / add_return / InventoryRepository.adjust）透過
+    ``immediate_transaction()`` 把旗標設 True，在交易起手即取 write lock 序列化；純讀維持
+    BEGIN DEFERRED 的 WAL snapshot read，互不阻塞。begin event 與發起交易同 thread 同步執行，
+    故 thread-local 取值正確。
+
+    PostgreSQL 部署時改由 ``with_for_update()`` 真做 row-lock，不需本 listener。
+    """
+    if getattr(_txn_local, "immediate", False):
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
+    else:
+        conn.exec_driver_sql("BEGIN")
+
+
+@contextmanager
+def immediate_transaction():
+    """標記接下來在本 thread 開的交易要用 ``BEGIN IMMEDIATE``（取 RESERVED write lock）。
+
+    用在 read-modify-write 寫路徑（stock 異動）外層，包住 ``with sessionmaker() as sess``。
+    巢狀呼叫安全（保存並還原前一個值）。
+    """
+    prev = getattr(_txn_local, "immediate", False)
+    _txn_local.immediate = True
+    try:
+        yield
+    finally:
+        _txn_local.immediate = prev
 
 
 def _get_engine(db_path: str) -> Engine:
@@ -106,6 +162,7 @@ def _get_engine(db_path: str) -> Engine:
                 connect_args={"check_same_thread": False, "timeout": 5.0},
             )
             sa_event.listen(eng, "connect", _set_sqlite_pragmas)
+            sa_event.listen(eng, "begin", _emit_begin)
             _ENGINE_CACHE[abs_path] = eng
         return eng
 

@@ -16,8 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 43 |
-| **total (active)** | **57** |
+| done | 44 |
+| **total (active)** | **58** |
+
+最後更新：2026-05-25 20:xx（**WMOM-20260525-01 done — 並發 dispatch lost-update race 根治：BEGIN IMMEDIATE 從未真的接上**）。今日 autonomous daily worker session：開工 baseline 的「flaky」並發 test `test_concurrent_dispatch_same_item_serialized_correctly` 進場 root-cause 後發現**不是 flaky 而是真 bug**（單跑 ~2/3 fail，失敗時無 exception 但 stock=6 而非 3，扣 3 那筆 lost、ledger 卻 2 筆 → 庫存/帳務不一致）→ priority tree step 1。**真因**：全 workflow/cost 共用的 `work_order_repository._get_engine` SQLite engine 用 pysqlite 預設 `BEGIN DEFERRED`，SELECT 不取鎖（`with_for_update()` 在 SQLite 是 no-op），兩 thread 並發 dispatch 各讀舊 stock 再各自寫回 → lost update。程式碼註解一直假設「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」但**從未真的接上**。**修法**（scoped）：connect event 設 `isolation_level=None`（autocommit、關 pysqlite 隱式 BEGIN）+ `begin` event 讀 thread-local 旗標 — 只有 read-modify-write stock 寫路徑（dispatch_request / add_return / InventoryRepository.adjust，外層包新增的 `immediate_transaction()`）發 `BEGIN IMMEDIATE` 取 RESERVED write lock 序列化；其餘含 reporting / list / dashboard 純讀維持 `BEGIN`（deferred）WAL snapshot read 不互鎖（code review must-fix：避免全交易序列化把純讀也卡住）。monitoring 走獨立 raw sqlite3 不受影響。2 個 deterministic regression test（lost-update barrier 強制 + read-not-serialized 守 scope），皆實測修前必失敗修後必過。Code review 1 must（scope 太寬已重做）+ 2 should（is_alive guard 採納 / OperationalError 覆蓋記 follow-up）+ 1 nice（MR business_key COUNT→MAX 記 follow-up）。Verify：`pytest {workflow,cost,reporting}` 568 passed / 1 xfailed / 3 pre-existing numpy drift；廣域 `workflow+monitoring+root` ×2 = 614 passed 0 failed。issue_stats done 43→44 / total 57→58；open 13 / in_progress 1（WMOM-20260504-12）不變。詳細 handoff 在 work-logs/2026-05/2026-05-25-dispatch-lost-update-fix.md。
+
+---
 
 最後更新：2026-05-24 20:xx（**WMOM-20260504-12 in_progress — Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**）。今日 autonomous daily worker session 做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況走 FarmOverview 的 TCard/CompactTile + 自寫 SVG（非 Recharts，suspect #3 不適用）。**真因 suspect #4**：`useRealtimeData` 的 `ws.onclose` 無條件重連；unmount cleanup 的 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積，每條每次 push 都呼叫 setTurbines；React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。修法：`disposed` 旗標貫穿所有 WS handler + poll；cleanup 設 disposed=true + 先解除 ws 四 handler 再 close()（雙保險）+ 清 timer/interval；initial fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + areEqual（只比渲染欄位 + lang prop），父層非資料因素 re-render 時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 為 lang 純函式、theme 走 context 不受影響）。Verify：tsc 0 + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale 判定非 bug，App.tsx:143-146 以 id 反查）+ 2 should（onerror disposed guard 採納 / compactTileEqual turState 不採納）+ 1 nice（history reference 比較判定非 bug 不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats open 14→13 / in_progress 0→1 / done 43 / total 57。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md。
 
@@ -553,6 +557,35 @@
   - [`frontend/hooks/useCostData.ts`](frontend/hooks/useCostData.ts)
   - [`frontend/services/costService.ts`](frontend/services/costService.ts)
   - [`work-logs/2026-05/2026-05-23-cost-abortcontroller.md`](work-logs/2026-05/2026-05-23-cost-abortcontroller.md)（session 紀錄）
+
+---
+
+### WMOM-20260525-01 — 並發 dispatch lost-update race（BEGIN IMMEDIATE 從未真的接上）
+
+- **Status**: done（2026-05-25 完成 — autonomous daily worker）
+- **Milestone**: M4 follow-up（hotfix — 資料一致性 bug，不在原規劃 issue 內）
+- **Priority**: high（並發下庫存少扣 / ledger 多寫 → 庫存與帳務不一致）
+- **Estimate**: 0.5 工作天 → **實際 ~0.5d**（backend）
+- **Owner**: Claude (session 2026-05-25)
+- **Branch**: `claude/upbeat-davinci-s9Juu`
+- **Trigger**: 開工 baseline 的 `test_concurrent_dispatch_same_item_serialized_correctly` 之前被 handoff 當「環境性 flaky」；進場 root-cause 發現是**真 bug**（單跑 ~2/3 fail，失敗時無 exception 但 `stock_new=6` 而非 3 — 扣 3 那筆整個 lost，ledger 卻 2 筆）。
+- **Root cause**:
+  - 全 workflow/cost repository（work_order / inventory / material_request / signoff / cost_ledger / reporting）共用 `work_order_repository._get_engine()` 建立的 SQLite engine
+  - engine 用 pysqlite 預設 `BEGIN DEFERRED`：`BEGIN` 只在第一個寫入語句才取鎖，**SELECT 完全不取鎖**（`with_for_update()` 在 SQLite 是 no-op）
+  - 兩 thread 並發 `dispatch_request()`：T1/T2 各自 deferred BEGIN + SELECT 都讀到舊 stock → 各自記憶體扣帳 → commit 後寫者覆蓋前者 → lost update；但兩 thread 各寫一筆 ledger → 庫存 1 筆扣、帳務 2 筆 → **不一致**
+  - `apply_stock_delta_in_session` 與測試 docstring 都假設「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但程式**從未把 BEGIN IMMEDIATE 接上**（沒設 `isolation_level`、沒有 `begin` event listener）
+- **Completion summary**:
+  - ✅ `work_order_repository._set_sqlite_pragmas`：connect event 加 `dbapi_conn.isolation_level = None`（autocommit，關 pysqlite 隱式 BEGIN，讓 begin event 能自選模式；PRAGMA 必須在 autocommit 下跑）
+  - ✅ `work_order_repository._emit_begin`（begin event）+ `immediate_transaction()` context manager：**scoped** — 只有 read-modify-write stock 寫路徑（`dispatch_request` / `add_return` / `InventoryRepository.adjust`）發 `BEGIN IMMEDIATE` 取 RESERVED write lock 序列化；其餘含 reporting / list / dashboard 純讀維持 `BEGIN`（deferred）→ WAL snapshot read 不互鎖（code review must-fix：避免全交易序列化把純讀也卡住）
+  - ✅ monitoring 走獨立 raw sqlite3（`sqlite_utils.open_sqlite`）不受影響
+  - ✅ `inventory_repository.apply_stock_delta_in_session` docstring 更正（指向 caller 外層 `immediate_transaction()`）
+  - ✅ 2 個 deterministic regression test：`test_dispatch_no_lost_update_under_forced_interleave`（barrier 強制 lost-update window，修前 stock=7、修後 stock=3）+ `test_read_transactions_not_serialized`（守 must-fix scope：純讀不被升 IMMEDIATE，否則第二讀 busy_timeout 失敗）；皆實測修前必失敗、修後必過
+  - ✅ Verify：`pytest {workflow,cost,reporting}` = 568 passed / 1 xfailed / 3 pre-existing numpy drift（穩定、與 SQLite 無關）；廣域 `workflow+monitoring+root` ×2 = 614 passed / 0 failed
+  - ✅ Code review：1 must（scope 太寬，已重做為 thread-local 旗標 scoped IMMEDIATE）+ 2 should（is_alive guard 採納 / OperationalError 覆蓋記 follow-up）+ 1 nice（MR _next_business_key COUNT→MAX 記 follow-up）
+- **Reference**:
+  - [`modules/workflow/repository/work_order_repository.py`](modules/workflow/repository/work_order_repository.py)（`_emit_begin` + `immediate_transaction` + connect event）
+  - [`modules/workflow/tests/test_dispatch_atomic_transaction.py`](modules/workflow/tests/test_dispatch_atomic_transaction.py)（lost-update + read-not-serialized 兩 regression test）
+  - [`work-logs/2026-05/2026-05-25-dispatch-lost-update-fix.md`](work-logs/2026-05/2026-05-25-dispatch-lost-update-fix.md)（session 紀錄 + follow-up issue 建議）
 
 ---
 

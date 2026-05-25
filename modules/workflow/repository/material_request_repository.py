@@ -66,6 +66,7 @@ from .work_order_repository import (
     _SCHEMA_INITIALIZED,
     _farm_id_short,
     _get_engine,
+    immediate_transaction,
 )
 
 _logger = logging.getLogger(__name__)
@@ -383,7 +384,9 @@ class MaterialRequestRepository:
             insert_in_session,
         )
 
-        with self._sessionmaker() as sess:
+        # read-modify-write stock → 交易起手即取 RESERVED write lock，序列化並發 dispatch
+        # 防 lost update（WMOM-20260525-01）。
+        with immediate_transaction(), self._sessionmaker() as sess:
             try:
                 # ── Step 1: lock + load MR ─────────────────────────────
                 stmt = (
@@ -520,7 +523,8 @@ class MaterialRequestRepository:
             insert_in_session,
         )
 
-        with self._sessionmaker() as sess:
+        # read-modify-write stock（加回）→ 取 RESERVED write lock 序列化（WMOM-20260525-01）。
+        with immediate_transaction(), self._sessionmaker() as sess:
             try:
                 mr_orm = sess.get(MaterialRequestORM, str(request_id))
                 if mr_orm is None:

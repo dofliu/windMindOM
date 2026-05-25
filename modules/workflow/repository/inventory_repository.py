@@ -39,7 +39,12 @@ from .inventory_orm import (
     WarehouseORM,
 )
 from .orm_models import Base
-from .work_order_repository import _get_engine, _ENGINE_LOCK, _SCHEMA_INITIALIZED
+from .work_order_repository import (
+    _get_engine,
+    _ENGINE_LOCK,
+    _SCHEMA_INITIALIZED,
+    immediate_transaction,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -101,11 +106,13 @@ def apply_stock_delta_in_session(
     """在現有 session 內 lock 該 item + 異動 stock。**不 commit**，caller 控 transaction。
 
     delta 可正可負；扣帳（負 delta）若 stock 不足 raise ``InsufficientStock``。
-    SQLite 上 ``with_for_update()`` 是 no-op（SQLite 沒 row-level lock），但 SQLite
-    的 BEGIN IMMEDIATE + WAL + busy_timeout 會把寫入序列化（足夠 atomic）。
+    SQLite 上 ``with_for_update()`` 是 no-op（SQLite 沒 row-level lock）。並發 read-modify-write
+    的序列化**靠 caller 在外層包 ``immediate_transaction()``**（讓交易以 ``BEGIN IMMEDIATE``
+    起手取 RESERVED write lock）+ WAL + busy_timeout，杜絕兩個並發異動各自讀舊 stock 的
+    lost-update（WMOM-20260525-01）。dispatch_request / add_return / adjust 皆已如此包覆。
 
     PostgreSQL 部署時 ``with_for_update()`` 會發 SELECT ... FOR UPDATE 真做 row-lock，
-    並行 dispatch 時第二個 request 會等第一個 commit/rollback。
+    並行時第二個 request 會等第一個 commit/rollback。
     """
     stmt = select(InventoryItemORM).where(InventoryItemORM.id == str(item_id))
     if use_for_update:
@@ -351,7 +358,8 @@ class InventoryRepository:
         """
         if not (reason or "").strip():
             raise StockAdjustmentError("adjust requires non-empty reason")
-        with self._sessionmaker() as sess:
+        # read-modify-write stock → 取 RESERVED write lock 序列化並發 adjust（WMOM-20260525-01）。
+        with immediate_transaction(), self._sessionmaker() as sess:
             try:
                 # 同 session lock + 異動
                 inv_orm = apply_stock_delta_in_session(
