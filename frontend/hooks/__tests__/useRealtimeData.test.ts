@@ -79,9 +79,11 @@ describe('useRealtimeData WebSocket 生命週期', () => {
     // jsdom 無原生 WebSocket；注入替身。
     vi.stubGlobal('WebSocket', MockWebSocket);
     // 初始 REST fetch + poll fallback 都打 fetch，給一個空陣列。
+    // json 用同步回傳（hook 的 .then(res => res.json()) 會自動包 Promise），
+    // 避免額外 microtask tick 讓 flush 順序隱性依賴 act() 深度。
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ json: async () => [] }),
+      vi.fn().mockResolvedValue({ json: () => [] }),
     );
   });
 
@@ -127,6 +129,10 @@ describe('useRealtimeData WebSocket 生命週期', () => {
   });
 
   it('unmount 後即使殘留的 onclose 被觸發也不重連（disposed guard）', () => {
+    // 註：原始 bug 在 React StrictMode dev 的 mount→unmount→remount 雙觸發下累積殭屍。
+    // vitest 預設不啟動 StrictMode double-invoke，故本測試改以「擷取 onclose closure →
+    // unmount → 手動觸發」模擬殭屍 onclose 後到。守護目標是 disposed guard 的語意
+    // （unmount 後 onclose 不得重連），與雙觸發路徑語意等價；非疏漏而是刻意取捨。
     const { unmount } = renderHook(() => useRealtimeData());
     const ws = MockWebSocket.instances[0];
 

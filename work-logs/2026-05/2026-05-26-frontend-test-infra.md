@@ -36,14 +36,15 @@
   （各 test 檔顯式 `import { describe, it, expect } from 'vitest'`，tsconfig 不需加
   `vitest/globals` types 即可通過 `tsc --noEmit`）。
 
-### 2.2 兩個 hook 的回歸測試（10 tests 全綠）
+### 2.2 兩個 hook 的回歸測試（11 tests 全綠）
 
-`frontend/hooks/__tests__/useCostData.test.ts`（5 tests）：
+`frontend/hooks/__tests__/useCostData.test.ts`（6 tests）：
 - happy path：run 成功寫進 data、清 loading/error
-- **race（核心）**：deferred promise 讓較舊 run 後 resolve，驗證不蓋掉較新結果
+- **race（核心）**：deferred promise 讓較舊 run 後 resolve，驗證不蓋掉較新結果 + loading 結束
 - AbortError 不寫進 error state
 - 一般 Error 寫進 error state 並結束 loading
-- reset 清空 data/error
+- reset 清空已完成 run 的 data/error
+- **reset 中止 in-flight request（review SF#1 補）**：deferred，驗 signal.aborted 早退不寫 data
 
 `frontend/hooks/__tests__/useRealtimeData.test.ts`（5 tests）：
 - mount 建立單一 WS 連線
@@ -62,7 +63,7 @@ WebSocket + fetch。**踩雷**：`waitFor` 在 fake timer 下會卡死（內部�
 
 ## 3. Verify（zero regression）
 
-- `npx vitest run` → **10 passed / 2 files**
+- `npx vitest run` → **11 passed / 2 files**
 - `npx tsc --noEmit` → **0 errors**（含新 test 檔 + vitest.config.ts）
 - `npx vite build` → **748 modules / 0 errors / ~3.7s**（模組數與導入測試前一致 → 測試檔與設定未進 bundle，production 零影響）
 - backend：**未動任何 backend 檔**。`python -m pytest modules/{workflow,cost,reporting}/tests/`
@@ -78,7 +79,21 @@ WebSocket + fetch。**踩雷**：`waitFor` 在 fake timer 下會卡死（內部�
 
 ## 4. Code review
 
-跑 `code-reviewer` subagent 對 staged diff。結果見 PR 描述 / 下方補記（採納情形）。
+跑 `code-reviewer` subagent 對 staged diff：**0 must-fix / 4 should-fix / 4 nice-to-have**。
+採納 4 個 should-fix 全部 + 3 個 nice-to-have（#5/#6/#7），跳過 #8（複合情境，兩條路徑已各自有測試）。
+
+| # | 級別 | 內容 | 處置 |
+|---|---|---|---|
+| 1 | should | `reset` 測試名稱聲稱「中止 in-flight」但 reset 時已無 in-flight（abort 是 no-op，未測到該路徑）| **採納**：拆成兩個 test — 「reset 清空已完成 run」+ 新增「reset 中止 in-flight request（deferred，驗 signal.aborted 早退 + finally guard 不重設 loading）」|
+| 2 | should | race 測試用 sync `act()` 啟動 async `run()` → RTL act warning | **採納**：改 `await act(async () => {...})` |
+| 3 | should | race 測試結束未斷言 `loading === false`（finally guard 未守）| **採納**：補斷言 |
+| 4 | should | reset 測試用 `waitFor` 等同步 state（誤用 + 慢）| **採納**：改 `act()` 內直接斷言，移除 `waitFor` import |
+| 5 | nice | disposed guard 測試未跑真實 StrictMode 雙觸發 | **採納**：加註解說明是刻意取捨（語意等價）|
+| 6 | nice | fetch mock `json: async () => []` 多一個 microtask tick | **採納**：改 `json: () => []` |
+| 7 | nice | vitest.config `include` 全域；未來 component 測試需 setupFiles | **採納**：加 TODO 註解 |
+| 8 | nice | 未覆蓋「race + fn 真的拋 AbortError」複合情境 | **不採納**：兩條路徑（signal.aborted / catch AbortError）已各自有 test，整體 guard 完整 |
+
+採納後重跑：**vitest 11 passed**（useCostData 5→6）/ `tsc --noEmit` 0 errors。無 act warning。
 
 ---
 
