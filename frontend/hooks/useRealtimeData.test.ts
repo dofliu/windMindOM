@@ -42,8 +42,12 @@ class MockWebSocket {
   }
 }
 
+// 只結算 microtask（初始 REST fetch 的 fetch().then(json).then(setTurbines) 鏈需數個
+// tick）。fake timers 下不能用 setTimeout flush（會卡住，timer 不會自己前進）。
 function flushMicrotasks(): Promise<void> {
   return act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
     await Promise.resolve();
   });
 }
@@ -95,12 +99,18 @@ describe('useRealtimeData WS 生命週期', () => {
       MockWebSocket.instances[0].onclose?.();
     });
 
-    // 重連 timer 尚未到期 → 仍只有一條。
+    // onclose 不立即重連（應排程一條 3s 後的 timer），故當下仍只有一條。
     expect(MockWebSocket.instances).toHaveLength(1);
 
-    // 過 3 秒 → 應建立第二條連線。
+    // 差 1ms 不到 3 秒 → 重連 timer 尚未觸發。
     act(() => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(2999);
+    });
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    // 補滿到 3 秒 → 應建立第二條連線。
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
     expect(MockWebSocket.instances).toHaveLength(2);
   });

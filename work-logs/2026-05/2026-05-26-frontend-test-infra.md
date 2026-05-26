@@ -83,7 +83,17 @@ M STATUS.yaml                             last_updated / next_milestone
 
 ## 6. Code review 採納
 
-（見 commit / PR；本次以 code-reviewer subagent 對 staged diff review。）
+code-reviewer subagent 對 staged diff（vs main）review：**0 must-fix / 2 should-fix / 3 nice-to-have，verdict Approve**。
+
+| 級別 | 議題 | 處置 |
+|------|------|------|
+| Should-fix | `vi.restoreAllMocks()` 對 `vi.mock()` factory 的 vi.fn 無效，清理實際靠 beforeEach | **採納** — 改用 `vitest.config` 的 `mockReset: true` 統一清理，移除 useCostData 的 beforeEach/afterEach |
+| Should-fix | 重連測試「timer 未到期仍一條」有註解無斷言（若改成 `setTimeout(connect,0)` 測試仍過） | **採納** — onclose 後立即 assert 仍 1 條 + 推進 2999ms assert 仍 1 條 + 補 1ms assert 變 2 條，精確鎖住 3s 邊界 |
+| Nice | `flushMicrotasks` 單一 microtask tick 不足以結算 fetch().then().then() 鏈 | **採納** — 改 3 ticks + 註解 fake timers 下不可用 setTimeout flush |
+| Nice | 缺 `fn()` 拋真實錯誤的 error path test（`isAbortError` 非 abort 分支未覆蓋） | **採納** — 新增 `mockRejectedValueOnce(Error('API 500'))` → assert error state（測試數 4→5） |
+| Nice | `globals:true` 但 tsconfig types 無 `vitest/globals` | **不採納** — 測試一律顯式 import，tsc 0 errors；加 `vitest/globals` 到 app tsconfig 會污染整個 app 型別空間，比現狀更糟 |
+
+採納後重跑：vitest **5 passed** / tsc 0 errors / vite build 748 modules 0 errors。
 
 ---
 

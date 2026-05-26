@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCostData } from './useCostData';
 import { costApi, type CostForecastResponse } from '../services/costService';
@@ -37,15 +37,8 @@ function deferred<T>(): Deferred<T> {
 const RESP_A = { __tag: 'A' } as unknown as CostForecastResponse;
 const RESP_B = { __tag: 'B' } as unknown as CostForecastResponse;
 
+// mock reset 由 vitest.config 的 mockReset:true 統一處理（每個 test 前自動清）。
 describe('useCostData AbortController 防 race', () => {
-  beforeEach(() => {
-    vi.mocked(costApi.forecast).mockReset();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('舊 request 後到也不蓋掉新結果', async () => {
     const first = deferred<CostForecastResponse>();
     const second = deferred<CostForecastResponse>();
@@ -107,6 +100,21 @@ describe('useCostData AbortController 防 race', () => {
       pending.resolve(RESP_A);
       await Promise.resolve();
     });
+    expect(result.current.forecast.data).toBeNull();
+  });
+
+  it('fn() 拋出真實錯誤（非 abort）時寫入 error state', async () => {
+    vi.mocked(costApi.forecast).mockRejectedValueOnce(new Error('API 500'));
+
+    const { result } = renderHook(() => useCostData());
+
+    await act(async () => {
+      await result.current.forecast.run({ dataset: 'a' });
+    });
+
+    // 真實錯誤的 name 不是 'AbortError' → isAbortError 為 false → 應寫進 error state。
+    expect(result.current.forecast.error).toBe('API 500');
+    expect(result.current.forecast.loading).toBe(false);
     expect(result.current.forecast.data).toBeNull();
   });
 });
