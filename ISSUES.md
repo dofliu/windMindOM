@@ -16,8 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 43 |
-| **total (active)** | **57** |
+| done | 44 |
+| **total (active)** | **58** |
+
+最後更新：2026-05-26 20:xx（**WMOM-20260526-01 done — Frontend 測試基礎設施（vitest + RTL）導入 + 兩 hook 回歸測試**）。今日 autonomous daily worker session 做前 3 次 wrap-up（5/19 / 5/22 / 5/23）重複推薦的「導入 vitest+RTL」技術債 — 唯一無設計歧義、完全 autonomous、單 session 可完工的工（M4 已 100%；WMOM-20260504-12 等劉老師本機長跑驗收非我可推進；WMOM-20260519-01 退料 guard 需劉老師決定會計語意）。**框架**：`vitest@^3` + `jsdom` + `@testing-library/react@^16`，獨立 `vitest.config.ts`（不併進 vite.config.ts → production build 零變動），`globals:false`（tsconfig 不需加 types）。**測試**：`useCostData.test.ts` 6 tests 守 WMOM-20260504-13 AbortController 防 race（核心 race 測試用 deferred promise 讓舊 run 後 resolve 驗不蓋新結果）；`useRealtimeData.test.ts` 5 tests 守 WMOM-20260504-12 WS 殭屍重連洩漏（核心 disposed guard 測試：擷取 onclose → unmount → 觸發殭屍 onclose → advance timer → 仍單一連線）。踩雷：`waitFor` 在 fake timer 下卡死 → 改 act() 內同步斷言。**Code review** 0 must / 4 should / 4 nice：4 should 全採納（最重要 SF#1：原 reset 測試名稱聲稱守 in-flight 中止但實際無 in-flight → 拆出 deferred 版真正測到該路徑）+ 3 nice 採納。**Verify**：vitest 11 passed / tsc 0 / vite build 748 modules 0 errors（與導入前一致）/ backend frontend-only zero regression。觀察到技術債：requirements.txt 未列 test deps、numpy 未 pin 致 cost pinned 測試 float drift（建議另開小 issue）。issue_stats open 13 / in_progress 1 / done 43→44 / total 57→58。詳細 handoff 在 work-logs/2026-05/2026-05-26-frontend-test-infra.md。
+
+---
 
 最後更新：2026-05-24 20:xx（**WMOM-20260504-12 in_progress — Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**）。今日 autonomous daily worker session 做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況走 FarmOverview 的 TCard/CompactTile + 自寫 SVG（非 Recharts，suspect #3 不適用）。**真因 suspect #4**：`useRealtimeData` 的 `ws.onclose` 無條件重連；unmount cleanup 的 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積，每條每次 push 都呼叫 setTurbines；React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。修法：`disposed` 旗標貫穿所有 WS handler + poll；cleanup 設 disposed=true + 先解除 ws 四 handler 再 close()（雙保險）+ 清 timer/interval；initial fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + areEqual（只比渲染欄位 + lang prop），父層非資料因素 re-render 時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 為 lang 純函式、theme 走 context 不受影響）。Verify：tsc 0 + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale 判定非 bug，App.tsx:143-146 以 id 反查）+ 2 should（onerror disposed guard 採納 / compactTileEqual turState 不採納）+ 1 nice（history reference 比較判定非 bug 不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats open 14→13 / in_progress 0→1 / done 43 / total 57。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md。
 
@@ -2036,6 +2040,46 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 #### Blocks
 - 無（M5 demo polish）
+
+---
+
+### WMOM-20260526-01 — Frontend 測試基礎設施（vitest + RTL）導入 + 兩 hook 回歸測試
+
+- **Status**: done（2026-05-26 完成 — autonomous daily worker）
+- **Milestone**: M4 後續 / 工程基礎設施
+- **Priority**: medium（不阻塞 demo，但是前 3 次 wrap-up 重複推薦的技術債）
+- **Estimate**: 0.5 工作天 → **實際 ~0.5d**（frontend only）
+- **Owner**: Claude（session 2026-05-26）
+- **Branch**: `claude/upbeat-davinci-aDiqG`
+- **Source**: 5/19 / 5/22 / 5/23 wrap-up 重複留的「建議另開 issue 導入 vitest+RTL」
+- **Completion summary**:
+  - ✅ 框架就位：`frontend/package.json` 加 `test` / `test:watch` script + devDeps
+    （`vitest@^3` / `jsdom` / `@testing-library/react@^16` / `@testing-library/dom`，版本 pin 進
+    `package-lock.json`）
+  - ✅ `frontend/vitest.config.ts`（新）**刻意獨立於 vite.config.ts** → `vite build` 仍只讀
+    vite.config.ts，production build 零變動；`globals: false` 讓 tsconfig 不需加
+    `vitest/globals` types
+  - ✅ `useCostData.test.ts`（5 tests）守 WMOM-20260504-13 AbortController 防 race：
+    happy path / **race（舊 run 後到不蓋新結果）** / AbortError 不進 error / 一般 Error 進 error / reset 清空
+  - ✅ `useRealtimeData.test.ts`（5 tests）守 WMOM-20260504-12 WS 殭屍重連洩漏：
+    單一連線 / message 映射 / unmount 解除四 handler + close / **disposed guard（殭屍 onclose 不重連）** / 正常 3s 重連
+  - ✅ Verify：`vitest run` 11 passed；`tsc --noEmit` 0 errors；`vite build` 748 modules / 0 errors
+    （模組數與導入前一致 = 測試檔/設定未進 bundle）；backend frontend-only zero regression
+  - ✅ Code review（code-reviewer subagent）0 must / 4 should / 4 nice：4 should 全採納
+    （SF#1 拆出「reset 中止 in-flight」deferred 測試[原測試名稱聲稱守該路徑但 reset 時已無
+    in-flight，abort 為 no-op]、SF#2 race 改 `await act(async)` 去 RTL warning、SF#3 補 race
+    後 `loading===false` 斷言、SF#4 移除誤用 `waitFor`）+ 3 nice 採納（disposed StrictMode
+    取捨註解 / fetch mock 去多餘 microtask / config setupFiles TODO）；#8 不採納（兩路徑各自有 test）
+- **後續技術債（本 PR 觀察到，未做）**：
+  1. `requirements.txt` 未列 test deps（pytest / sqlalchemy / pandas / httpx / reportlab / openpyxl /
+     aiosqlite 需手動補裝）→ 建議補 `requirements-dev.txt`
+  2. numpy 等未 pin 版本 → cost pinned-number 測試 `!=` 嚴格比對對 patch 版本敏感（最後一位 float drift）
+     → 建議 pin numpy 或改 `math.isclose`
+- **Reference**:
+  - [`frontend/vitest.config.ts`](frontend/vitest.config.ts)
+  - [`frontend/hooks/__tests__/useCostData.test.ts`](frontend/hooks/__tests__/useCostData.test.ts)
+  - [`frontend/hooks/__tests__/useRealtimeData.test.ts`](frontend/hooks/__tests__/useRealtimeData.test.ts)
+  - [`work-logs/2026-05/2026-05-26-frontend-test-infra.md`](work-logs/2026-05/2026-05-26-frontend-test-infra.md)
 
 ---
 
