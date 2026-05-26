@@ -16,8 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 43 |
-| **total (active)** | **57** |
+| done | 44 |
+| **total (active)** | **58** |
+
+最後更新：2026-05-26 20:xx（**WMOM-20260526-01 done — 前端測試基礎設施（vitest + RTL）+ 回補 2 支 regression test**）。今日 autonomous daily worker session 接 5/23、5/24 兩次 handoff 都明寫的「frontend 無測試框架，建議另開 issue 導入 vitest+RTL」缺口（新開 WMOM-20260526-01）。導入 vitest 2.1.9 + jsdom + @testing-library/react；回補兩支高價值 regression test 鎖住前兩次 session 的修復：(1) `useRealtimeData.test.ts` 用受控 MockWebSocket 驗 WMOM-20260504-12 的 WS 殭屍重連——unmount 後快轉 30s 不再建立新 WebSocket（instances 維持 1），且掛載期間 server 關閉後 3s 仍正常重連（instances 變 2）；(2) `useCostData.test.ts` 用 vi.mock costService + deferred promise 驗 WMOM-20260504-13 的 AbortController race——舊 request 後 resolve 不蓋掉新結果、reset() 清空 data + 結束 loading。**設計取捨**：vitest.config 刻意不掛 @vitejs/plugin-react——vitest 2.1.9 硬依賴 vite 5、app 用 vite 6，掛 plugin 引入兩份 vite 型別衝突（tsc TS2769）；測試皆 .ts 無 JSX，esbuild 直接轉即可（已評估三斜線 reference / npm dedupe 皆不可行）。**mutation test 驗測試有抓 regression 能力**：暫時把 useRealtimeData 還原成舊 bug → unmount 測試如預期 fail，再 git 還原。Verify：vitest 4 passed / tsc 0 errors / vite build 748 modules 0 errors；backend 未動 zero regression。issue_stats done 43→44 / total 57→58（open 13 / in_progress 1 不變）。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 元件層 .tsx 測試擴充（需升級 vitest 至支援 vite 6）。詳細 handoff 在 work-logs/2026-05/2026-05-26-frontend-test-infra.md。
+
+---
 
 最後更新：2026-05-24 20:xx（**WMOM-20260504-12 in_progress — Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**）。今日 autonomous daily worker session 做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況走 FarmOverview 的 TCard/CompactTile + 自寫 SVG（非 Recharts，suspect #3 不適用）。**真因 suspect #4**：`useRealtimeData` 的 `ws.onclose` 無條件重連；unmount cleanup 的 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積，每條每次 push 都呼叫 setTurbines；React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。修法：`disposed` 旗標貫穿所有 WS handler + poll；cleanup 設 disposed=true + 先解除 ws 四 handler 再 close()（雙保險）+ 清 timer/interval；initial fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + areEqual（只比渲染欄位 + lang prop），父層非資料因素 re-render 時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 為 lang 純函式、theme 走 context 不受影響）。Verify：tsc 0 + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale 判定非 bug，App.tsx:143-146 以 id 反查）+ 2 should（onerror disposed guard 採納 / compactTileEqual turState 不採納）+ 1 nice（history reference 比較判定非 bug 不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats open 14→13 / in_progress 0→1 / done 43 / total 57。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md。
 
@@ -2036,6 +2040,36 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 #### Blocks
 - 無（M5 demo polish）
+
+---
+
+### WMOM-20260526-01 — 前端測試基礎設施（vitest + RTL）+ 回補 regression test
+
+- **Status**: done（2026-05-26 完成 — autonomous daily worker）
+- **Milestone**: M4 後續 / M5（不阻塞主線，但 unblock 後續所有前端 regression test）
+- **Priority**: medium（前兩次修復都因無測試框架而欠 regression test，技術債）
+- **Estimate**: 0.5 工作天 → **實際 ~0.5d**（frontend only）
+- **Owner**: Claude (session 2026-05-26)
+- **Branch**: `claude/upbeat-davinci-LPk4a`
+- **Source**: 2026-05-23（WMOM-20260504-13）+ 2026-05-24（WMOM-20260504-12）兩次 session 結尾皆建議「另開 issue 一次導入 vitest+RTL，回補 regression test」
+- **Completion summary**:
+  - ✅ 導入 `vitest@^2.1.9` + `jsdom@^25` + `@testing-library/react@^16` + `@testing-library/dom@^10`（devDeps）
+  - ✅ `frontend/vitest.config.ts`：`environment: 'jsdom'` + `globals: true`（RTL auto-cleanup）+ `include: ['**/*.test.{ts,tsx}']`
+  - ✅ `frontend/package.json` scripts：`test`（vitest run）+ `test:watch`（vitest）
+  - ✅ `frontend/hooks/useRealtimeData.test.ts`（2 tests）— 鎖住 WMOM-20260504-12 WS 殭屍重連修復：受控 `MockWebSocket`（close() 同步觸發 onclose）；unmount 後快轉 30s 不再建立新 WebSocket（instances=1）；掛載期間 server 關閉後 3s 正常重連（instances=2）
+  - ✅ `frontend/hooks/useCostData.test.ts`（2 tests）— 鎖住 WMOM-20260504-13 AbortController race 修復：`vi.mock` costService + deferred promise；舊 request 後 resolve 不蓋掉新結果（data 維持 RESP_B）+ loading/error 不被污染；reset() 清空 data + 結束 loading + abort 後到的 request 不寫回
+  - ✅ Verify：`vitest run` 4 passed / `tsc --noEmit` 0 errors / `vite build` 748 modules 0 errors；backend 未動 zero regression
+  - ✅ **Mutation test**：暫時把 `useRealtimeData.ts` 還原成舊 bug → unmount 測試如預期 fail（instances=2 vs 期望 1），證明測試有抓 regression 能力，再用 git 還原
+- **設計取捨**:
+  - vitest.config **不掛** `@vitejs/plugin-react`：vitest 2.1.9 硬依賴 vite 5、app 用 vite 6，掛 plugin 引入兩份 vite 型別衝突（`tsc` TS2769）；測試皆 .ts 無 JSX，esbuild 直接轉即可。已評估替代方案（`defineConfig` from vite + 三斜線 reference → overload 不認 test；`npm dedupe` → vitest peer 鎖 vite 5 無法 dedupe）皆不可行。
+  - **未來若加 .tsx 元件渲染測試**：需升級 vitest 至支援 vite 6 的版本（或把 app 降到單一 vite）並掛回 react plugin。
+- **Files**:
+  - [`frontend/vitest.config.ts`](frontend/vitest.config.ts)
+  - [`frontend/hooks/useRealtimeData.test.ts`](frontend/hooks/useRealtimeData.test.ts)
+  - [`frontend/hooks/useCostData.test.ts`](frontend/hooks/useCostData.test.ts)
+  - [`work-logs/2026-05/2026-05-26-frontend-test-infra.md`](work-logs/2026-05/2026-05-26-frontend-test-infra.md)
+- **Depends on**: -
+- **Blocks**: 後續前端 regression test（元件層 .tsx 測試、WMOM-20260504-12 areEqual stale-render test）
 
 ---
 
