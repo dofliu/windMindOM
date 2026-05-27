@@ -36,6 +36,7 @@ from modules.cost.schemas.cost_schemas import (  # noqa: E402
     MonteCarloResponse,
     VarFluctResponse,
 )
+from modules.cost.tests.pin_tolerance import pin_approx  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -119,9 +120,9 @@ def test_cost_result_to_response_pydantic_roundtrip(k13_cost_result):
     resp = CostForecastResponse(**resp_dict)
 
     # 數字應與 baseline 一致
-    assert resp.availability_time == 0.9401732630646628
-    assert resp.total_effort == 67964410.8982218
-    assert resp.cost_per_kwh == 0.036948752282382154
+    assert resp.availability_time == pin_approx(0.9401732630646628)
+    assert resp.total_effort == pin_approx(67964410.8982218)
+    assert resp.cost_per_kwh == pin_approx(0.036948752282382154)
 
     # 4 季 breakdown 都在
     assert set(resp.seasonal.keys()) == {"winter", "spring", "summer", "autumn"}
@@ -142,7 +143,7 @@ def test_lcoe_result_to_response(k13_cost_result):
         annual_energy_mwh=annual_energy,
     )
     resp = LCOEResponse(**lcoe_result_to_response(lcoe))
-    assert resp.lcoe == 72.94042482488679  # 黃金數字
+    assert resp.lcoe == pin_approx(72.94042482488679)  # 黃金數字
     assert resp.capex_total == 650000000.0
 
 
@@ -160,7 +161,7 @@ def test_mc_result_to_response_pydantic_roundtrip():
     resp = MonteCarloResponse(**mc_result_to_response(mc))
     assert resp.n_simulations == 50
     assert resp.seed == 42
-    assert resp.deterministic.availability_time == 0.9401732630646628
+    assert resp.deterministic.availability_time == pin_approx(0.9401732630646628)
     # Percentile order
     assert resp.percentiles.cost.p10 < resp.percentiles.cost.p50 < resp.percentiles.cost.p90
 
@@ -202,12 +203,12 @@ def test_loader_produces_pinned_baseline():
         fixed_costs=p.fixed_costs, poly_lookup=p.poly_lookup,
     )
     # 6 個 top-level metric 全 bit-perfect
-    assert result.availability_time == 0.9401732630646628
-    assert result.availability_energy == 0.9364235587596128
-    assert result.total_revenue_loss == 15202721.720482074
-    assert result.total_repair_cost == 52761689.17773973
-    assert result.total_effort == 67964410.8982218
-    assert result.cost_per_kwh == 0.036948752282382154
+    assert result.availability_time == pin_approx(0.9401732630646628)
+    assert result.availability_energy == pin_approx(0.9364235587596128)
+    assert result.total_revenue_loss == pin_approx(15202721.720482074)
+    assert result.total_repair_cost == pin_approx(52761689.17773973)
+    assert result.total_effort == pin_approx(67964410.8982218)
+    assert result.cost_per_kwh == pin_approx(0.036948752282382154)
 
 
 # ─────────────────────────────────────────────────────────────────────────

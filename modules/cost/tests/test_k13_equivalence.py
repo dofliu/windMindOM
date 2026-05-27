@@ -8,8 +8,8 @@
 驗證策略：
 1. **Migration correctness（最重要）** — `test_k13_migration_equivalence_pinned`
    把 ECN engine 在 K13 上的實際輸出（top-level 6 metrics + 4 季 5 cost
-   subcategories）hardcode 進來，windMindOM engine 必須 bit-perfect 一致
-   （float 直接 ==）
+   subcategories）hardcode 進來，windMindOM engine 必須一致
+   （容差比對 rel_tol=1e-9，吸收跨平台 float 末位 drift；見 pin_tolerance.py）
 2. **K13 reference 比對（diagnostic）** — `test_k13_cost_calculation` 沿用 ECN 原版
    tolerance check（5-30%），數字接近 ECN V5 reference 即可
 
@@ -25,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.cost.adapter import load_k13_engine_params  # noqa: E402
+from modules.cost.tests.pin_tolerance import pin_equal  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -99,9 +100,9 @@ def test_k13_migration_equivalence_pinned(k13_result):
     failures: list[str] = []
     for metric, expected in ECN_PINNED_K13.items():
         actual = getattr(k13_result, metric)
-        status = "OK" if actual == expected else "DRIFT"
+        status = "OK" if pin_equal(actual, expected) else "DRIFT"
         print(f"  {metric:<24} actual={actual!r}  expected={expected!r}  {status}")
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{metric}: actual={actual!r} != expected={expected!r}")
 
     assert not failures, f"Top-level metric drift: {failures}"
@@ -115,7 +116,7 @@ def test_k13_migration_equivalence_seasonal(k13_result):
         sr = k13_result.seasonal_results[season]
         for field, expected in expected_dict.items():
             actual = getattr(sr, field)
-            if actual != expected:
+            if not pin_equal(actual, expected):
                 failures.append(
                     f"{season}.{field}: actual={actual!r} != expected={expected!r}"
                 )

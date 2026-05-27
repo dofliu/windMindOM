@@ -1,0 +1,9 @@
+# windMindOM 開發 / 測試依賴
+# 用法：pip install -r requirements-dev.txt（會一併裝 runtime 依賴）
+#
+# 新 sandbox / CI 一鍵就緒，避免每次手動補裝 test deps（見 WMOM-20260527-01）。
+-r requirements.txt
+
+pytest>=8.0              # 測試框架
+pytest-asyncio>=0.23     # async repository / API 測試
+httpx>=0.27             # fastapi TestClient 後端（API 測試必需）

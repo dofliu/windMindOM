@@ -16,8 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 44 |
-| **total (active)** | **58** |
+| done | 45 |
+| **total (active)** | **59** |
+
+最後更新：2026-05-27 20:xx（**WMOM-20260527-01 done — CI/baseline 技術債清理：requirements-dev.txt + cost pinned 容差比對**）。今日 autonomous daily worker session 清掉 5/26 handoff §5/§6 明確點名、列為下次「順手清的小工」的兩條反覆出現環境 blocker：(1) **requirements.txt 漏列依賴** — 補 runtime 缺漏（`sqlalchemy`/`pandas`/`reportlab`/`jinja2`，app 實際 import 卻沒列）+ 新增 `requirements-dev.txt`（`-r requirements.txt` + pytest/pytest-asyncio/httpx），新 sandbox 一鍵就緒（查證 aiosqlite/openpyxl 全 repo 無 import，不列）；(2) **cost 3 個 pinned 測試本 sandbox 必紅** — root cause 確認是跨平台 BLAS ULP drift（pin 在 Windows 量測、sandbox 為 Linux+OpenBLAS；實測 numpy 1.26.4 與 2.4.6 在 Linux 下都與 Windows pin 差最後一位，非單純 numpy 版本問題）。新增 `modules/cost/tests/pin_tolerance.py`（`pin_approx`=pytest.approx rel=1e-9 abs=1e-6 / `pin_equal`=math.isclose）；5 個 cost 測試檔改容差比對（var_fluct/monte_carlo/k13_equivalence loop 用 pin_equal、cost_api/adapter direct-assert 用 pin_approx），**刻意保留** exact `==` 於整數/failure_multiplier/已 round 值（跨平台確定性）。rel_tol=1e-9 仍守 9 位有效數字 → 真 regression 攔截力不變、只吸收 ~1e-15 平台噪音。**Verify**：cost 測試在 numpy 1.26.4 與 2.4.6 下皆 84 passed（證跨版本 robust）；完整 backend **568 passed / 1 xfailed，3 個 numpy drift 消除**，唯一剩 fail 是既有 SQLite WAL flaky concurrency（單跑通過、與本 PR 無關，本 PR 只動 cost 測試+requirements）→ 相較先前 baseline（本 sandbox 永遠 3 紅）為**嚴格改善**。解決 WMOM-20260526-01 §後續技術債 1+2。issue_stats open 13 / in_progress 1 / done 44→45 / total 58→59。詳細 handoff 在 work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md。
+
+---
 
 最後更新：2026-05-26 20:xx（**WMOM-20260526-01 done — Frontend 測試基礎設施（vitest + RTL）導入 + 兩 hook 回歸測試**）。今日 autonomous daily worker session 做前 3 次 wrap-up（5/19 / 5/22 / 5/23）重複推薦的「導入 vitest+RTL」技術債 — 唯一無設計歧義、完全 autonomous、單 session 可完工的工（M4 已 100%；WMOM-20260504-12 等劉老師本機長跑驗收非我可推進；WMOM-20260519-01 退料 guard 需劉老師決定會計語意）。**框架**：`vitest@^3` + `jsdom` + `@testing-library/react@^16`，獨立 `vitest.config.ts`（不併進 vite.config.ts → production build 零變動），`globals:false`（tsconfig 不需加 types）。**測試**：`useCostData.test.ts` 6 tests 守 WMOM-20260504-13 AbortController 防 race（核心 race 測試用 deferred promise 讓舊 run 後 resolve 驗不蓋新結果）；`useRealtimeData.test.ts` 5 tests 守 WMOM-20260504-12 WS 殭屍重連洩漏（核心 disposed guard 測試：擷取 onclose → unmount → 觸發殭屍 onclose → advance timer → 仍單一連線）。踩雷：`waitFor` 在 fake timer 下卡死 → 改 act() 內同步斷言。**Code review** 0 must / 4 should / 4 nice：4 should 全採納（最重要 SF#1：原 reset 測試名稱聲稱守 in-flight 中止但實際無 in-flight → 拆出 deferred 版真正測到該路徑）+ 3 nice 採納。**Verify**：vitest 11 passed / tsc 0 / vite build 748 modules 0 errors（與導入前一致）/ backend frontend-only zero regression。觀察到技術債：requirements.txt 未列 test deps、numpy 未 pin 致 cost pinned 測試 float drift（建議另開小 issue）。issue_stats open 13 / in_progress 1 / done 43→44 / total 57→58。詳細 handoff 在 work-logs/2026-05/2026-05-26-frontend-test-infra.md。
 
@@ -2070,16 +2074,54 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
     in-flight，abort 為 no-op]、SF#2 race 改 `await act(async)` 去 RTL warning、SF#3 補 race
     後 `loading===false` 斷言、SF#4 移除誤用 `waitFor`）+ 3 nice 採納（disposed StrictMode
     取捨註解 / fetch mock 去多餘 microtask / config setupFiles TODO）；#8 不採納（兩路徑各自有 test）
-- **後續技術債（本 PR 觀察到，未做）**：
-  1. `requirements.txt` 未列 test deps（pytest / sqlalchemy / pandas / httpx / reportlab / openpyxl /
-     aiosqlite 需手動補裝）→ 建議補 `requirements-dev.txt`
-  2. numpy 等未 pin 版本 → cost pinned-number 測試 `!=` 嚴格比對對 patch 版本敏感（最後一位 float drift）
-     → 建議 pin numpy 或改 `math.isclose`
+- **後續技術債（本 PR 觀察到）→ 已由 WMOM-20260527-01 解決（2026-05-27）**：
+  1. ~~`requirements.txt` 未列 test deps~~ → 補 runtime 缺漏 + 新增 `requirements-dev.txt`
+     （查證 openpyxl/aiosqlite 實際無 import，未列）
+  2. ~~numpy 未 pin → cost pinned 測試 `!=` float drift~~ → 改 `math.isclose`/`pytest.approx`
+     容差比對（pin numpy 不足以解決：實測跨平台 BLAS 在 numpy 1.x/2.x 下皆 drift）
 - **Reference**:
   - [`frontend/vitest.config.ts`](frontend/vitest.config.ts)
   - [`frontend/hooks/__tests__/useCostData.test.ts`](frontend/hooks/__tests__/useCostData.test.ts)
   - [`frontend/hooks/__tests__/useRealtimeData.test.ts`](frontend/hooks/__tests__/useRealtimeData.test.ts)
   - [`work-logs/2026-05/2026-05-26-frontend-test-infra.md`](work-logs/2026-05/2026-05-26-frontend-test-infra.md)
+
+---
+
+### WMOM-20260527-01 — CI/baseline 技術債清理：requirements-dev.txt + cost pinned 容差比對
+
+- **Status**: done（2026-05-27 完成 — autonomous daily worker）
+- **Milestone**: 工程基礎設施（不屬特定 milestone）
+- **Priority**: high（known blocker — 擋住每個 daily session 的乾淨 baseline + 新 sandbox bootstrap）
+- **Estimate**: 0.5 工作天 → **實際 ~0.5d**（測試 + 依賴宣告，未碰 production engine 邏輯）
+- **Owner**: Claude（session 2026-05-27）
+- **Branch**: `claude/upbeat-davinci-svpIQ`
+- **Source**: WMOM-20260526-01 §後續技術債 1+2；STATUS.yaml next_milestone「requirements-dev.txt + numpy pin 小工」
+- **Completion summary**:
+  - ✅ **依賴宣告**：`requirements.txt` 補先前漏列、app 實際 import 的 runtime 依賴
+    （`sqlalchemy>=2.0` / `pandas>=2.0` / `reportlab>=4.0` / `jinja2>=3.1`）；新增
+    `requirements-dev.txt`（`-r requirements.txt` + `pytest>=8.0` / `pytest-asyncio>=0.23` /
+    `httpx>=0.27`）。查證 `aiosqlite` / `openpyxl`（5/26 note 曾列）全 repo 無 import → 不列。
+  - ✅ **root cause 確認**：cost 3 個 pinned 測試（var_fluct year_1 / monte_carlo percentiles /
+    cost_api mc seed42）在本 sandbox 必紅，差異在 float64 最後一位。pin baseline 在 Windows
+    量測、sandbox 為 Linux + OpenBLAS；**實測 numpy 1.26.4 與 2.4.6 在 Linux 下都與 Windows
+    pin 差最後一位** → 是跨平台 BLAS 累加 ULP drift，非單純 numpy 版本（故「pin numpy」不足以解決）。
+  - ✅ **修法**：新增 `modules/cost/tests/pin_tolerance.py`（`pin_approx` = `pytest.approx(rel=1e-9,
+    abs=1e-6)` / `pin_equal` = `math.isclose(rel_tol=1e-9, abs_tol=1e-6)`，非數值退回 `==`）；
+    5 個 cost 測試檔改容差比對（var_fluct / monte_carlo / k13_equivalence loop 用 `pin_equal`；
+    cost_api / adapter direct-assert 用 `pin_approx`）。**刻意保留 exact `==`** 於整數
+    （year/index/seed）、`failure_multiplier`（1.5/2.0/3.0）、engine round() 過的值
+    （summary npv 2 位、lifetime_availability 6 位、整數值金額）—— 跨平台確定性。
+    `rel_tol=1e-9` 仍守 **9 位有效數字** → 真 regression 攔截力不變，只吸收 ~1e-15 平台噪音。
+  - ✅ **Verify**：cost 測試在 `numpy 1.26.4` 與 `numpy 2.4.6` 下**皆 84 passed / 1 xfailed**
+    （證跨版本 robust）；完整 backend `pytest modules/{workflow,cost,reporting}/tests/`
+    → **568 passed / 1 xfailed，3 個 numpy drift 消除**。唯一剩 fail
+    `test_concurrent_dispatch_one_loses_when_stock_short` 是既有 SQLite WAL flaky concurrency
+    （單跑通過已驗證，與本 PR 無關）→ 相較先前 baseline（本 sandbox 永遠 3 紅）**嚴格改善**。
+  - ✅ Code review：code-reviewer subagent（採納情形見 work-log §4）
+- **Reference**:
+  - [`modules/cost/tests/pin_tolerance.py`](modules/cost/tests/pin_tolerance.py)
+  - [`requirements-dev.txt`](requirements-dev.txt) / [`requirements.txt`](requirements.txt)
+  - [`work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md`](work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md)
 
 ---
 

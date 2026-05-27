@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.cost.adapter import load_k13_engine_params  # noqa: E402
+from modules.cost.tests.pin_tolerance import pin_equal  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ def test_bathtub_default_curve():
     failures: list[str] = []
     for year, expected in ECN_PINNED_BATHTUB_DEFAULT_CURVE:
         actual = bathtub_multiplier(year, params)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"year {year}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Bathtub curve drift: {failures}"
 
@@ -159,7 +160,7 @@ def test_bathtub_edges():
     failures: list[str] = []
     for k, expected in ECN_PINNED_BATHTUB_EDGES.items():
         actual = actuals[k]
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{k}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Bathtub edge drift: {failures}"
 
@@ -200,7 +201,7 @@ def test_varfluct_year_1_pinned(vf_result):
     failures: list[str] = []
     for field, expected in ECN_PINNED_VARFLUCT_YEAR_1.items():
         actual = getattr(y1, field)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{field}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Year 1 drift: {failures}"
 
@@ -211,7 +212,7 @@ def test_varfluct_year_10_pinned(vf_result):
     failures: list[str] = []
     for field, expected in ECN_PINNED_VARFLUCT_YEAR_10.items():
         actual = getattr(y10, field)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{field}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Year 10 drift: {failures}"
 
@@ -222,7 +223,7 @@ def test_varfluct_year_20_pinned(vf_result):
     failures: list[str] = []
     for field, expected in ECN_PINNED_VARFLUCT_YEAR_20.items():
         actual = getattr(y20, field)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{field}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Year 20 drift: {failures}"
 
@@ -232,7 +233,7 @@ def test_varfluct_summary_pinned(vf_result):
     failures: list[str] = []
     for field, expected in ECN_PINNED_VARFLUCT_SUMMARY.items():
         actual = getattr(vf_result.summary, field)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{field}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Summary drift: {failures}"
 

@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.cost.adapter import load_k13_engine_params  # noqa: E402
+from modules.cost.tests.pin_tolerance import pin_equal  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ def test_mc_deterministic_pinned(mc_result):
     failures: list[str] = []
     for metric, expected in ECN_PINNED_MC_DETERMINISTIC.items():
         actual = getattr(det, metric)
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{metric}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Deterministic drift: {failures}"
 
@@ -119,7 +120,7 @@ def test_mc_percentiles_pinned(mc_result, percentiles):
     failures: list[str] = []
     for k, expected in ECN_PINNED_MC_PERCENTILES.items():
         actual = actuals[k]
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{k}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"Percentile drift: {failures}"
 
@@ -149,7 +150,7 @@ def test_mc_lcoe_pinned(mc_result, mc_params):
     failures: list[str] = []
     for k, expected in ECN_PINNED_LCOE.items():
         actual = actuals[k]
-        if actual != expected:
+        if not pin_equal(actual, expected):
             failures.append(f"{k}: actual={actual!r} != expected={expected!r}")
     assert not failures, f"LCOE drift: {failures}"
 
