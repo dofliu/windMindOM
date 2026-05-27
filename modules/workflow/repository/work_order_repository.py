@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, create_engine, event as sa_event, func, select
+from sqlalchemy import Connection, Engine, create_engine, event as sa_event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -94,7 +94,7 @@ def _set_sqlite_pragmas(dbapi_conn, _record) -> None:
     cur.close()
 
 
-def _begin_immediate(conn) -> None:
+def _begin_immediate(conn: Connection) -> None:
     """SQLAlchemy begin event — 每個 transaction 改用 ``BEGIN IMMEDIATE`` 起頭。
 
     pysqlite 預設 ``BEGIN DEFERRED``：寫鎖延後到 transaction 內**第一次寫**才取得。

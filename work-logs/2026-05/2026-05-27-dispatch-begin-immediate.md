@@ -93,17 +93,29 @@ WAL 仍允許並發讀，只序列化寫入 —— 符合 single-farm 單機部�
 
 ## 4. Code review
 
-跑 `code-reviewer` subagent 對 staged diff（背景執行）。本次 session 為保全工作（雲端
-ephemeral container 風險）先 commit/push 驗證完成的改動；review 回報後若有 must-fix
-以 follow-up commit 補上並更新本節。
+跑 `code-reviewer` subagent 對 staged diff：**0 must-fix / 4 should-fix / 2 nice-to-have，Approve**。
+（首次 push 為保全工作先送驗證完成的改動，review 回報後以 follow-up commit 採納。）
 
-**自評（review 回報前）**：
-- BEGIN IMMEDIATE 是 SQLAlchemy 官方 pysqlite serializable recipe，與 future engine 相容
-  （`conn.exec_driver_sql` 在 2.0 begin event 為正規用法）。
-- isolation_level=None 下 PRAGMA 仍生效已由「569 passed + WAL 並發行為正確」間接驗證。
-- blast radius：所有 workflow 寫入交易 BEGIN IMMEDIATE grab 寫鎖 up front；single-process
-  部署下測試全綠（workflow 全套 + e2e + physics 151 passed），busy_timeout=5s 吸收競爭，
-  無觀察到死鎖 / 餓死。
+reviewer 核心結論：BEGIN IMMEDIATE 是 SA 官方 pysqlite serializable recipe，在
+SA 2.0 + SQLite 3.45 + Py 3.11 實測正確；`isolation_level=None` 下 PRAGMA WAL/busy_timeout
+仍生效（autocommit 下反而更保證 WAL 切換能執行，因 WAL 要求非交易 context）；savepoint /
+`begin_nested()` 不受影響；blast radius 侷限在「寫入交易序列化」—— WAL 下 RESERVED lock
+**不阻斷並發讀**，read-heavy API 不會因此互相序列化，是預期行為非副作用擴大；lost-update
+超扣的會計/庫存影響判斷正確（雙寫 ledger + 庫存可歸負，Python guard 被繞過 → 嚴重帳面錯誤，
+本修法正確封閉）。
+
+### 4.1 採納情形
+
+| # | 級別 | 內容 | 處置 |
+|---|---|---|---|
+| 2 | should | regression test 用 `engine.connect()` 觸發 BEGIN IMMEDIATE 但未顯式 commit/rollback，依賴 close() 隱式回滾 | **採納**：加 `conn.rollback()` 顯式收交易 |
+| 3 | should | `_begin_immediate(conn)` 缺型別標註（CLAUDE.md §7 要求） | **採納**：`from sqlalchemy import Connection` + `conn: Connection` |
+| 4 | should | 測試內 `from sqlalchemy import event` local import 與頂端風格不一致 | **採納**：併入頂端 `from sqlalchemy import event, select` |
+| n2 | nice | regression test 未斷言 PRAGMA WAL/busy_timeout 仍生效 | **採納**：同支 test 加斷言 `journal_mode=WAL` + `busy_timeout=5000`（與 should-2 共用同一 connection，單支覆蓋全 engine 設定，對齊 monitoring `test_pragmas_applied`） |
+| 1 | should | busy_timeout 逾時拋 `OperationalError`（非 `InsufficientStock`），極端 CI 負載下理論上仍可能讓並發 test 紅；production 端會變 500 | **不採納（defer）**：dispatch <100ms vs timeout 5000ms，機率 ~0、本 sandbox 連跑 20/20 已驗確定性；production 改寫需新增 exception type + 動 dispatch 契約，屬擴大 scope，記為後續候選 issue（鎖競爭逾時的 retry-able 包裝），不綁進本 flaky 修復 PR |
+| n1 | nice | test import 私有名 `_begin_immediate`，refactor 易斷 | **不採納**：同 package test 直接 import 私有名為常見做法，加 alias/反射屬過度設計 |
+
+採納後重跑：dispatch 測試 15 passed、完整 backend **570 passed / 1 xfailed**，零邏輯影響。
 
 ---
 

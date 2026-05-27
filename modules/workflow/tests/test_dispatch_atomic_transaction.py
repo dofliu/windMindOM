@@ -17,7 +17,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -451,21 +451,26 @@ def test_concurrent_dispatch_one_loses_when_stock_short(repos):
 
 def test_engine_serializes_writes_with_begin_immediate(repos):
     """Regression（WMOM-20260527-02）— engine 必須關掉 pysqlite 自動 BEGIN
-    並改發 ``BEGIN IMMEDIATE`` 序列化寫入。
+    並改發 ``BEGIN IMMEDIATE`` 序列化寫入，且 WAL + busy_timeout PRAGMA 仍生效。
 
     上面兩支並發 test 靠 thread timing 驗端到端行為；本支直接斷言 driver 層設定，
-    若有人移掉 connect/begin listener（讓寫鎖退回 DEFERRED 延後取得），這支會立刻紅，
-    避免 ``test_concurrent_dispatch_one_loses_when_stock_short`` 又退化成 flaky lost-update。
+    若有人移掉 connect/begin listener（讓寫鎖退回 DEFERRED 延後取得）或拿掉
+    busy_timeout，這支會立刻紅，避免 ``test_concurrent_dispatch_one_loses_when_stock_short``
+    又退化成 flaky lost-update。
     """
-    from sqlalchemy import event
-
     _, mr_repo = repos
     engine = mr_repo._engine
-    # connect listener：pysqlite 自動 BEGIN 已關（isolation_level=None / autocommit）
+    # connect listener：pysqlite 自動 BEGIN 已關（isolation_level=None / autocommit），
+    # 且 WAL + busy_timeout PRAGMA 在 autocommit 下仍正確套用
     with engine.connect() as conn:
         raw = conn.connection.dbapi_connection
         assert raw.isolation_level is None, (
             f"isolation_level={raw.isolation_level!r}，預期 None（autocommit）"
         )
+        mode = conn.exec_driver_sql("PRAGMA journal_mode").fetchone()[0]
+        busy = conn.exec_driver_sql("PRAGMA busy_timeout").fetchone()[0]
+        assert mode.lower() == "wal", f"journal_mode={mode}，預期 WAL"
+        assert busy == 5000, f"busy_timeout={busy}，預期 5000"
+        conn.rollback()  # 顯式收掉 BEGIN IMMEDIATE 開的交易，不依賴 close() 隱式回滾
     # begin listener：改發 BEGIN IMMEDIATE 的 handler 已註冊在此 engine
     assert event.contains(engine, "begin", _begin_immediate)
