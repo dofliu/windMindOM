@@ -90,11 +90,24 @@ lifetime_availability round 6 位）、整數值金額（`capex_total=650000000.
 
 ## 4. Code review
 
-跑 `code-reviewer` subagent 對 staged diff。（結果見下節 §4.1，採納情形補完。）
+跑 `code-reviewer` subagent 對 staged diff：**0 must-fix / 4 should-fix / 1 nice-to-have，Approve**。
+reviewer 核心結論：tolerance 設計（rel_tol=1e-9 / abs_tol=1e-6）對金額/比率/LCOE 三類數字
+全部合理；bool 與 numpy float64 型別判斷無功能 bug；round() 後確定性假設安全
+（最小 rounding margin 5e-7 vs ULP 1.11e-16，比值 ~4500x，安全）；requirements 拆分正確。
 
-### 4.1 採納情形
+### 4.1 採納情形（全採納，皆為文件/語意清晰度，無邏輯變動）
 
-<!-- 待 review 完成後補 -->
+| # | 級別 | 內容 | 處置 |
+|---|---|---|---|
+| 1 | should | `pin_equal` 的 int/bool/numpy 型別判斷路徑未在 docstring 說明 | **採納**：`pin_equal` 加 Notes 說明三條型別邊界（Python int 走 isclose、numpy.int64 走 strict ==、bool 不建議用） |
+| 2 | should | loop 對 failure_multiplier/year 等精確值也套 pin_equal，與「保留 exact ==」意圖看似不一致 | **採納（集中式）**：module docstring 加「容差是 `==` 的 superset」設計取捨段，說明 loop 一律套容差安全、direct-assert 保留 == 是可讀性訊號，兩者並存刻意（比逐檔加註解更乾淨） |
+| 3 | should | cost_api（strict ==）與 var_fluct（pin_equal）對同批 summary 圓整值策略不同 | **採納**：同 #2 的 superset 段一併解釋 |
+| 4 | should | httpx 分類 + pytest-asyncio 相容性 | **採納（修正版）**：查證**全測試套件無任何 async test**（async 只在 FastAPI router，TestClient 同步驅動）→ `pytest-asyncio` 是我多裝的 dead weight，**直接移除**（而非加「預留」註解）；httpx 確認為測試專用（TestClient 後端，production 用 uvicorn 不需），保留在 dev 並改清楚註解 |
+| 5 | nice | `pin_approx` 回傳型別 `Any` | **採納**：docstring 註明「pytest 未正式 export ApproxBase 型別」 |
+
+採納後重跑 cost 測試：**84 passed / 1 xfailed**（docstring/註解變動，零邏輯影響）。
+移除 pytest-asyncio 後完整 backend 重跑 567 passed（差異僅 flaky concurrency 測試本次多跳一個，
+單跑 14 dispatch tests 全綠已驗證）。
 
 ---
 

@@ -14,6 +14,17 @@ k13_equivalence / cost_api / adapter）。原本一律用 `==` 嚴格比對，�
 任何真實的 ECN 計算 regression（漏項 / 公式錯 / 單位錯）量級都遠大於 1e-9，
 攔截能力不變；只吸收平台 float 噪音（~1e-15）。`abs_tol` 處理近零 pinned
 值（如 corrective_bop=0.0，此時 rel_tol 對 0 無效）。
+
+設計取捨（容差是嚴格相等的 superset）：
+容差比對對任何能通過嚴格 `==` 的值（整數 year/index、binary-exact 的
+failure_multiplier 1.5/2.0、engine round() 後的確定性值如 summary npv）也必然
+通過 —— 容差是 `==` 的 superset。因此：
+
+- loop-accumulate 測試（var_fluct / monte_carlo / k13_equivalence）對整批欄位
+  一律套 `pin_equal`，即使其中混有精確值也安全（不需逐欄位分流）。
+- direct-assert 測試（cost_api / adapter）對「已知跨平台確定性」的圓整 / 整數值
+  刻意保留嚴格 `==`，當成「此值精確、不靠容差」的可讀性訊號。兩種策略並存
+  是刻意的，不是不一致。
 """
 
 from __future__ import annotations
@@ -36,7 +47,8 @@ def pin_approx(expected: float) -> Any:
         expected: pinned ECN baseline 數值。
 
     Returns:
-        pytest.approx 物件（rel=PIN_REL_TOL, abs=PIN_ABS_TOL）。
+        pytest.approx 物件（rel=PIN_REL_TOL, abs=PIN_ABS_TOL）；
+        型別標 `Any` 因 pytest 未正式 export ApproxBase 型別。
     """
     return pytest.approx(expected, rel=PIN_REL_TOL, abs=PIN_ABS_TOL)
 
@@ -53,6 +65,16 @@ def pin_equal(actual: Any, expected: Any) -> bool:
 
     Returns:
         在容差內視為相等則 True。
+
+    Notes:
+        型別判斷邊界：
+        - Python int（如 year=1、min_year_index=3）被 isinstance 捕捉，走
+          math.isclose 路徑；因容差遠小於 1，對整數 identity 結果等同嚴格相等。
+        - numpy.float64 是 Python float 子類 → 走 math.isclose；numpy.int64 在
+          numpy 2.x 不是 Python int 子類 → 走 strict ==。兩條路徑對整數 identity
+          結果皆正確。
+        - bool 是 int 子類會走 math.isclose（結果正確），但語意上不該對 bool
+          欄位（如 is_fallback）用本函式 —— 那類請用 strict ==。
     """
     if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
         return math.isclose(
