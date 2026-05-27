@@ -1,0 +1,8 @@
+# windMindOM 開發 / 測試依賴
+# 用法：pip install -r requirements-dev.txt（會一併裝 runtime 依賴）
+#
+# 新 sandbox / CI 一鍵就緒，避免每次手動補裝 test deps（見 WMOM-20260527-01）。
+-r requirements.txt
+
+pytest>=8.0              # 測試框架
+httpx>=0.27             # fastapi/starlette TestClient 後端（測試專用；production 用 uvicorn 不需）

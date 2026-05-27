@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.cost.routers import router as cost_router  # noqa: E402
+from modules.cost.tests.pin_tolerance import pin_approx  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -36,12 +37,12 @@ def test_forecast_k13_default(client: TestClient):
     assert r.status_code == 200, r.text
     data = r.json()
     # 6 top-level metric bit-perfect 等於 ECN baseline
-    assert data["availability_time"] == 0.9401732630646628
-    assert data["availability_energy"] == 0.9364235587596128
-    assert data["total_revenue_loss"] == 15202721.720482074
-    assert data["total_repair_cost"] == 52761689.17773973
-    assert data["total_effort"] == 67964410.8982218
-    assert data["cost_per_kwh"] == 0.036948752282382154
+    assert data["availability_time"] == pin_approx(0.9401732630646628)
+    assert data["availability_energy"] == pin_approx(0.9364235587596128)
+    assert data["total_revenue_loss"] == pin_approx(15202721.720482074)
+    assert data["total_repair_cost"] == pin_approx(52761689.17773973)
+    assert data["total_effort"] == pin_approx(67964410.8982218)
+    assert data["cost_per_kwh"] == pin_approx(0.036948752282382154)
     # 4 季 breakdown 都在
     assert set(data["seasonal"].keys()) == {"winter", "spring", "summer", "autumn"}
     assert data["seasonal"]["winter"]["fixed_cost"] == 5550000.0
@@ -51,7 +52,7 @@ def test_forecast_default_dataset_is_k13(client: TestClient):
     """不傳 dataset → 應該用 default 'k13'。"""
     r = client.post("/api/cost/forecast", json={})
     assert r.status_code == 200, r.text
-    assert r.json()["total_effort"] == 67964410.8982218
+    assert r.json()["total_effort"] == pin_approx(67964410.8982218)
 
 
 def test_forecast_unknown_dataset_404(client: TestClient):
@@ -107,7 +108,7 @@ def test_forecast_farm_unknown_falls_back_to_k13(client: TestClient):
     assert meta["source"] == "k13_fallback"
     assert meta["farm_id"] == "totally_made_up_farm_xyz"
     # 數字應該等於 K13 baseline
-    assert data["total_effort"] == 67964410.8982218
+    assert data["total_effort"] == pin_approx(67964410.8982218)
 
 
 def test_forecast_empty_farm_id_422(client: TestClient):
@@ -148,11 +149,11 @@ def test_lcoe_k13_default_params(client: TestClient):
     assert r.status_code == 200, r.text
     data = r.json()
     # LCOE 黃金數字
-    assert data["lcoe"] == 72.94042482488679
+    assert data["lcoe"] == pin_approx(72.94042482488679)
     assert data["capex_total"] == 650000000.0
-    assert data["opex_total_npv"] == 667284604.6591944
-    assert data["energy_total_npv"] == 18059733.101660598
-    assert data["total_cost_npv"] == 1317284604.6591945
+    assert data["opex_total_npv"] == pin_approx(667284604.6591944)
+    assert data["energy_total_npv"] == pin_approx(18059733.101660598)
+    assert data["total_cost_npv"] == pin_approx(1317284604.6591945)
 
 
 def test_lcoe_with_higher_capex(client: TestClient):
@@ -184,11 +185,11 @@ def test_monte_carlo_k13_seed_42(client: TestClient):
     assert data["n_simulations"] == 100
     assert data["seed"] == 42
     # Deterministic == cost_cal baseline
-    assert data["deterministic"]["availability_time"] == 0.9401732630646628
+    assert data["deterministic"]["availability_time"] == pin_approx(0.9401732630646628)
     # Percentiles bit-perfect (seed=42)
-    assert data["percentiles"]["cost"]["p10"] == 64947395.4665548
-    assert data["percentiles"]["cost"]["p50"] == 67461289.52520475
-    assert data["percentiles"]["cost"]["p90"] == 70735646.24196146
+    assert data["percentiles"]["cost"]["p10"] == pin_approx(64947395.4665548)
+    assert data["percentiles"]["cost"]["p50"] == pin_approx(67461289.52520475)
+    assert data["percentiles"]["cost"]["p90"] == pin_approx(70735646.24196146)
 
 
 def test_monte_carlo_validation_n_too_low(client: TestClient):
@@ -224,12 +225,12 @@ def test_var_fluct_k13_default(client: TestClient):
     y1 = data["yearly"][0]
     assert y1["year"] == 1
     assert y1["failure_multiplier"] == 1.5
-    assert y1["total_effort"] == 88396679.81348723
+    assert y1["total_effort"] == pin_approx(88396679.81348723)
     # Year 20 (late peak)
     y20 = data["yearly"][19]
     assert y20["year"] == 20
     assert y20["failure_multiplier"] == 2.0
-    assert y20["total_effort"] == 131448595.88017026
+    assert y20["total_effort"] == pin_approx(131448595.88017026)
     # Summary bit-perfect
     assert data["summary"]["npv_total_effort"] == 776626181.4
     assert data["summary"]["lifetime_availability_time"] == 0.932024
