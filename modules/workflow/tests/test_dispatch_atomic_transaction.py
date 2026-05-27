@@ -40,6 +40,7 @@ from modules.workflow.repository import (
     get_material_request_repository,
 )
 from modules.workflow.repository.work_order_repository import (
+    _begin_immediate,
     clear_engine_cache_for_test,
 )
 
@@ -446,3 +447,25 @@ def test_concurrent_dispatch_one_loses_when_stock_short(repos):
     # 最終 stock = 5 - 4 = 1
     assert inv_repo.get_item(item.id).stock_new == 1
     assert _count_ledger_entries(mr_repo) == 1
+
+
+def test_engine_serializes_writes_with_begin_immediate(repos):
+    """Regression（WMOM-20260527-02）— engine 必須關掉 pysqlite 自動 BEGIN
+    並改發 ``BEGIN IMMEDIATE`` 序列化寫入。
+
+    上面兩支並發 test 靠 thread timing 驗端到端行為；本支直接斷言 driver 層設定，
+    若有人移掉 connect/begin listener（讓寫鎖退回 DEFERRED 延後取得），這支會立刻紅，
+    避免 ``test_concurrent_dispatch_one_loses_when_stock_short`` 又退化成 flaky lost-update。
+    """
+    from sqlalchemy import event
+
+    _, mr_repo = repos
+    engine = mr_repo._engine
+    # connect listener：pysqlite 自動 BEGIN 已關（isolation_level=None / autocommit）
+    with engine.connect() as conn:
+        raw = conn.connection.dbapi_connection
+        assert raw.isolation_level is None, (
+            f"isolation_level={raw.isolation_level!r}，預期 None（autocommit）"
+        )
+    # begin listener：改發 BEGIN IMMEDIATE 的 handler 已註冊在此 engine
+    assert event.contains(engine, "begin", _begin_immediate)

@@ -16,10 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 45 |
-| **total (active)** | **59** |
+| done | 46 |
+| **total (active)** | **60** |
 
-最後更新：2026-05-27 20:xx（**WMOM-20260527-01 done — CI/baseline 技術債清理：requirements-dev.txt + cost pinned 容差比對**）。今日 autonomous daily worker session 清掉 5/26 handoff §5/§6 明確點名、列為下次「順手清的小工」的兩條反覆出現環境 blocker：(1) **requirements.txt 漏列依賴** — 補 runtime 缺漏（`sqlalchemy`/`pandas`/`reportlab`/`jinja2`，app 實際 import 卻沒列）+ 新增 `requirements-dev.txt`（`-r requirements.txt` + pytest/pytest-asyncio/httpx），新 sandbox 一鍵就緒（查證 aiosqlite/openpyxl 全 repo 無 import，不列）；(2) **cost 3 個 pinned 測試本 sandbox 必紅** — root cause 確認是跨平台 BLAS ULP drift（pin 在 Windows 量測、sandbox 為 Linux+OpenBLAS；實測 numpy 1.26.4 與 2.4.6 在 Linux 下都與 Windows pin 差最後一位，非單純 numpy 版本問題）。新增 `modules/cost/tests/pin_tolerance.py`（`pin_approx`=pytest.approx rel=1e-9 abs=1e-6 / `pin_equal`=math.isclose）；5 個 cost 測試檔改容差比對（var_fluct/monte_carlo/k13_equivalence loop 用 pin_equal、cost_api/adapter direct-assert 用 pin_approx），**刻意保留** exact `==` 於整數/failure_multiplier/已 round 值（跨平台確定性）。rel_tol=1e-9 仍守 9 位有效數字 → 真 regression 攔截力不變、只吸收 ~1e-15 平台噪音。**Verify**：cost 測試在 numpy 1.26.4 與 2.4.6 下皆 84 passed（證跨版本 robust）；完整 backend **568 passed / 1 xfailed，3 個 numpy drift 消除**，唯一剩 fail 是既有 SQLite WAL flaky concurrency（單跑通過、與本 PR 無關，本 PR 只動 cost 測試+requirements）→ 相較先前 baseline（本 sandbox 永遠 3 紅）為**嚴格改善**。解決 WMOM-20260526-01 §後續技術債 1+2。issue_stats open 13 / in_progress 1 / done 44→45 / total 58→59。詳細 handoff 在 work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md。
+最後更新：2026-05-27 20:xx（**WMOM-20260527-02 done — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化**）。本日第二個 autonomous daily worker session（5/27-01 cost pinned 容差已 merge）。preflight 撞到 baseline 唯一剩的紅燈 `test_concurrent_dispatch_one_loses_when_stock_short`（連跑 5 次 3 pass / 2 fail，約 40% flaky）。**root cause**：`dispatch_request()` 對庫存做 read-modify-write（SELECT stock → 算 → UPDATE 扣），pysqlite 預設 `BEGIN DEFERRED` 把寫鎖延後到第一次 UPDATE 才取得，`with_for_update()` 在 SQLite 又是 no-op → 兩個並發 dispatch 各自 SELECT 到同一份 stock=5、各扣 4 都 commit → **lost update / 超扣**（兩個都成功，但庫存只夠一個）。`inventory_repository.py:105` docstring 與本檔 A2 acceptance 早已**聲稱**靠「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但 `_get_engine` 從未真的接上 —— 是文件聲稱卻未實作的 invariant。**修法**：在全 workflow repo 共用的 `_get_engine`（work_order/inventory/material_request/signoff）加 SQLAlchemy 官方 pysqlite serializable recipe —— connect listener 設 `isolation_level=None`（關掉 driver 自動 BEGIN）+ 新增 begin listener 發 `BEGIN IMMEDIATE`（transaction 一開始就 grab RESERVED 寫鎖，第二個並發交易被 busy_timeout 5s 擋到第一個 commit 後才放行，屆時讀到已扣減 stock → 正確 raise InsufficientStock；WAL 仍允許並發讀，只序列化寫入，符合 single-farm 單機正確性）。補 1 支直接斷言 driver 設定（isolation_level=None + begin listener 已註冊）的 regression test，防未來移掉 listener 又退回 flaky。**Verify**：該 flaky test 連跑 **20/20 pass**（改前約 60%）；完整 backend **569 passed / 1 xfailed 連跑 3 次確定性**；`tests/`（含 e2e + physics）**151 passed 零 regression**。與 WMOM-20260509-F6（PostgreSQL row-lock，M6）正交，本 PR 不碰 PG。issue_stats open 13 / in_progress 1 / done 45→46 / total 59→60。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md。
+
+---
+
+最後更新（前）：2026-05-27 20:xx（**WMOM-20260527-01 done — CI/baseline 技術債清理：requirements-dev.txt + cost pinned 容差比對**）。今日 autonomous daily worker session 清掉 5/26 handoff §5/§6 明確點名、列為下次「順手清的小工」的兩條反覆出現環境 blocker：(1) **requirements.txt 漏列依賴** — 補 runtime 缺漏（`sqlalchemy`/`pandas`/`reportlab`/`jinja2`，app 實際 import 卻沒列）+ 新增 `requirements-dev.txt`（`-r requirements.txt` + pytest/pytest-asyncio/httpx），新 sandbox 一鍵就緒（查證 aiosqlite/openpyxl 全 repo 無 import，不列）；(2) **cost 3 個 pinned 測試本 sandbox 必紅** — root cause 確認是跨平台 BLAS ULP drift（pin 在 Windows 量測、sandbox 為 Linux+OpenBLAS；實測 numpy 1.26.4 與 2.4.6 在 Linux 下都與 Windows pin 差最後一位，非單純 numpy 版本問題）。新增 `modules/cost/tests/pin_tolerance.py`（`pin_approx`=pytest.approx rel=1e-9 abs=1e-6 / `pin_equal`=math.isclose）；5 個 cost 測試檔改容差比對（var_fluct/monte_carlo/k13_equivalence loop 用 pin_equal、cost_api/adapter direct-assert 用 pin_approx），**刻意保留** exact `==` 於整數/failure_multiplier/已 round 值（跨平台確定性）。rel_tol=1e-9 仍守 9 位有效數字 → 真 regression 攔截力不變、只吸收 ~1e-15 平台噪音。**Verify**：cost 測試在 numpy 1.26.4 與 2.4.6 下皆 84 passed（證跨版本 robust）；完整 backend **568 passed / 1 xfailed，3 個 numpy drift 消除**，唯一剩 fail 是既有 SQLite WAL flaky concurrency（單跑通過、與本 PR 無關，本 PR 只動 cost 測試+requirements）→ 相較先前 baseline（本 sandbox 永遠 3 紅）為**嚴格改善**。解決 WMOM-20260526-01 §後續技術債 1+2。issue_stats open 13 / in_progress 1 / done 44→45 / total 58→59。詳細 handoff 在 work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md。
 
 ---
 
@@ -2122,6 +2126,51 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - [`modules/cost/tests/pin_tolerance.py`](modules/cost/tests/pin_tolerance.py)
   - [`requirements-dev.txt`](requirements-dev.txt) / [`requirements.txt`](requirements.txt)
   - [`work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md`](work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md)
+
+---
+
+### WMOM-20260527-02 — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化
+
+- **Status**: done（2026-05-27 完成 — autonomous daily worker，本日第二個 session）
+- **Milestone**: 工程基礎設施 / M4 正確性（不屬特定 milestone）
+- **Priority**: high（known blocker — baseline 唯一剩的 flaky 紅燈，污染每個 daily session preflight；同時是 single-farm 部署的庫存超扣正確性 bug）
+- **Estimate**: 0.5 工作天 → **實際 ~0.4d**
+- **Owner**: Claude（session 2026-05-27）
+- **Branch**: `claude/upbeat-davinci-2imrR`
+- **Source**: 開工 preflight — `test_concurrent_dispatch_one_loses_when_stock_short` 連跑 5 次 3 pass / 2 fail
+- **Root cause**:
+  - `dispatch_request()`（material_request_repository.py:355）對庫存做 read-modify-write：
+    `SELECT stock` → Python 端算 → `UPDATE` 扣減 + 寫 cost_ledger → commit。
+  - **`with_for_update()` 在 SQLite 是 no-op**；**pysqlite 預設 `BEGIN DEFERRED`**，寫鎖
+    （RESERVED lock）延後到 transaction 內第一次寫才取得。
+  - 兩個並發 dispatch 都先 SELECT 讀到同一份 `stock=5`、各扣 4 都通過 `≥0` 檢查、各自
+    UPDATE commit → **lost update / 超扣**（兩個都成功，但庫存只夠一個）。
+  - `inventory_repository.py:105` docstring + 本檔 A2 acceptance（line 1013）早已**聲稱**靠
+    「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但 `_get_engine` 從未真的接上 ——
+    文件聲稱卻未實作的 invariant。
+- **Completion summary**:
+  - ✅ **修法**：`modules/workflow/repository/work_order_repository.py`（全 workflow repo:
+    work_order / inventory / material_request / signoff 共用此單一 `_get_engine`）套 SQLAlchemy
+    官方 pysqlite serializable recipe —— connect listener `_set_sqlite_pragmas` 加
+    `dbapi_conn.isolation_level = None`（關掉 driver 自動 BEGIN，轉 autocommit，PRAGMA 仍生效）；
+    新增 begin listener `_begin_immediate` 發 `BEGIN IMMEDIATE`（transaction 一開始 grab
+    RESERVED 寫鎖）；`_get_engine` `sa_event.listen(eng, "begin", _begin_immediate)`。
+    效果：第二個並發交易的 BEGIN 被 busy_timeout(5s) 擋到第一個 commit/rollback 後放行，
+    屆時讀到已扣減的最新 stock → 正確 raise `InsufficientStock`。WAL 仍允許並發讀，只序列化寫入。
+  - ✅ **regression test**：`test_dispatch_atomic_transaction.py` 新增
+    `test_engine_serializes_writes_with_begin_immediate` —— 直接斷言 engine `isolation_level is None`
+    + begin listener `_begin_immediate` 已註冊（不依賴 thread timing），防未來移掉 listener 又退回 flaky。
+  - ✅ **Verify**：`test_concurrent_dispatch_one_loses_when_stock_short` 連跑 **20/20 pass**
+    （改前約 60%）；dispatch 測試檔 15 passed（+1）；完整 backend
+    `pytest modules/{workflow,cost,reporting}/tests/` → **569 passed / 1 xfailed 連跑 3 次確定性**；
+    `tests/`（含 e2e + physics）→ **151 passed 零 regression**。baseline 自此完全綠且確定性。
+  - ✅ Code review：code-reviewer subagent（採納情形見 work-log §4）
+- **與 WMOM-20260509-F6 的關係**：F6 是 M6 若選 PostgreSQL backend 才補的「真實
+  `SELECT FOR UPDATE` row-lock integration test」；本 issue 是 SQLite single-farm 路徑的
+  正確性 + 測試確定性，兩者正交，本 PR 不碰 PG。
+- **Reference**:
+  - [`modules/workflow/repository/work_order_repository.py`](modules/workflow/repository/work_order_repository.py)
+  - [`work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md`](work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md)
 
 ---
 

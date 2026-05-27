@@ -82,7 +82,11 @@ def _set_sqlite_pragmas(dbapi_conn, _record) -> None:
 
     與 monitoring/server/sqlite_utils.open_sqlite 行為一致；workflow 第一個開 connection
     時也會把 DB 切到 WAL（與 monitoring 並存的 raw sqlite3 共用 WAL journal）。
+
+    另把 pysqlite 的 isolation_level 設 None（autocommit）關掉 driver 自動發 BEGIN，
+    交由下方 ``_begin_immediate`` listener 改發 ``BEGIN IMMEDIATE`` — 見該函式 docstring。
     """
+    dbapi_conn.isolation_level = None  # 關掉 pysqlite 自動 BEGIN，交給 _begin_immediate
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA busy_timeout=5000")
@@ -90,11 +94,30 @@ def _set_sqlite_pragmas(dbapi_conn, _record) -> None:
     cur.close()
 
 
+def _begin_immediate(conn) -> None:
+    """SQLAlchemy begin event — 每個 transaction 改用 ``BEGIN IMMEDIATE`` 起頭。
+
+    pysqlite 預設 ``BEGIN DEFERRED``：寫鎖延後到 transaction 內**第一次寫**才取得。
+    這讓「先 SELECT 讀庫存 → 計算 → UPDATE 扣庫存」的 read-modify-write 在並發下會
+    lost update —— 兩個 ``dispatch_request`` 同時 SELECT 到同一份 stock，各自扣完都
+    commit，造成超扣（double-spend）。``with_for_update()`` 在 SQLite 是 no-op，擋不住。
+
+    改 ``BEGIN IMMEDIATE`` 後，transaction 一開始就取得 RESERVED 寫鎖：第二個並發
+    transaction 的 BEGIN 會被 busy_timeout（5s）擋住，等第一個 commit/rollback 後才放行，
+    屆時讀到的是已扣減的最新 stock → 正確 raise ``InsufficientStock``。WAL 仍允許並發讀，
+    只序列化寫入，符合 single-farm 單機部署的正確性需求。
+
+    （PostgreSQL 部署改用真實 ``SELECT FOR UPDATE`` row-lock，見 WMOM-20260509-F6。）
+    """
+    conn.exec_driver_sql("BEGIN IMMEDIATE")
+
+
 def _get_engine(db_path: str) -> Engine:
     """Cache engine per absolute db_path 避免每次 API call 重建。
 
-    第一次建 engine 時 attach connect listener 主動設 WAL + busy_timeout，避免
-    workflow standalone 場景下 DB 還在 DELETE journal mode 撞鎖。
+    第一次建 engine 時 attach connect listener 主動設 WAL + busy_timeout + autocommit，
+    並 attach begin listener 改發 ``BEGIN IMMEDIATE`` 序列化寫入（避免並發 read-modify-write
+    lost update），避免 workflow standalone 場景下 DB 還在 DELETE journal mode 撞鎖。
     """
     abs_path = str(Path(db_path).resolve())
     with _ENGINE_LOCK:
@@ -106,6 +129,7 @@ def _get_engine(db_path: str) -> Engine:
                 connect_args={"check_same_thread": False, "timeout": 5.0},
             )
             sa_event.listen(eng, "connect", _set_sqlite_pragmas)
+            sa_event.listen(eng, "begin", _begin_immediate)
             _ENGINE_CACHE[abs_path] = eng
         return eng
 
