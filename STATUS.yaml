@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-27"  # WMOM-20260527-02（本日第二 session）
-next_milestone: "**WMOM-20260527-02 done — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化**：本日第二個 autonomous daily worker session（5/27-01 cost pinned 容差已 merge）。preflight 撞到 5/27-01 修完後 baseline 唯一剩的紅燈 test_concurrent_dispatch_one_loses_when_stock_short（連跑 5 次 3 pass / 2 fail，約 40% flaky）。**root cause**：dispatch_request() 對庫存做 read-modify-write（SELECT stock → 算 → UPDATE 扣），pysqlite 預設 BEGIN DEFERRED 把寫鎖延後到第一次 UPDATE 才取得、with_for_update() 在 SQLite 又是 no-op → 兩個並發 dispatch 各 SELECT 到同一份 stock=5、各扣 4 都 commit → lost update / 超扣（兩個都成功但庫存只夠一個）。inventory_repository.py:105 docstring 與 A2 acceptance 早已聲稱靠『BEGIN IMMEDIATE + WAL + busy_timeout 序列化』但 _get_engine 從未真的接上 —— 文件聲稱卻未實作的 invariant。**修法**：全 workflow repo（work_order/inventory/material_request/signoff）共用的 _get_engine 套 SQLAlchemy 官方 pysqlite serializable recipe —— connect listener 設 isolation_level=None（關 driver 自動 BEGIN）+ 新增 begin listener 發 BEGIN IMMEDIATE（transaction 一開始 grab RESERVED 寫鎖，第二個並發交易被 busy_timeout 5s 擋到第一個 commit 後放行，屆時讀到已扣減 stock → 正確 raise InsufficientStock；WAL 仍允許並發讀，只序列化寫入，符合 single-farm 單機正確性）。補 1 支直接斷言 driver 設定（isolation_level=None + begin listener 已註冊）的 regression test 防退化。**Verify**：該 flaky test 連跑 20/20 pass（改前約 60%）；完整 backend 569 passed / 1 xfailed 連跑 3 次確定性；tests/（含 e2e + physics）151 passed 零 regression → baseline 自此完全綠且確定性。與 WMOM-20260509-F6（PostgreSQL row-lock，M6）正交，本 PR 不碰 PG。issue_stats open 13 / in_progress 1 / done 45→46 / total 59→60。M4 維持 100%。下次候選：WMOM-20260519-01（需劉老師會計語意決策）/ WMOM-20260513-02 demo orchestrator / 擴大元件層測試（CostPage / FarmOverview）/ A6 領料 + A7 庫存 frontend。詳細 handoff 在 work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md."
+last_updated: "2026-05-28"  # WMOM-20260528-01
+next_milestone: "**WMOM-20260528-01 done — 擴大 frontend 純 helper 測試覆蓋：statusUtils + reporting formatters**：今日 autonomous daily worker session。preflight backend baseline 570 passed / 1 xfailed 完全綠、無 blocker；決策樹前段（A10 / WMOM-20260510-01 / A6 / A7）全已完成，剩餘 candidate 中 WMOM-20260519-01 卡劉老師會計決策、WMOM-20260513-02 是 2-3 天大工含 product decision，故選 5/26+5/27 handoff 連續推薦的『擴大前端測試覆蓋』——零設計歧義、完全 autonomous、單 session 可完工。5/26 剛導入 vitest+RTL 但只測 2 個 hook；本 session 擴到純 helper 函式層（demo 直接給客戶看的 workflow 狀態 pill / 時間 / 報表金額顯示邏輯）。新增 2 測試檔：statusUtils.test.ts（33 tests，17 純函式：label/tone exhaustive + fmtDate/fmtDateTime Asia/Taipei +8 / null / 空字串 / 午夜邊界）+ formatters.test.ts（9 tests：fmtMoneyDecimal null/非數字/M/k/門檻/負值 + fmtPct）。exhaustive 來源用 service canonical *Values 常量（非手寫陣列）→ 新 enum 值漏進 label/tone 時 runtime undefined 立刻紅，杜絕假覆蓋。Code review 2 must / 2 should / 1 nice 全採納：MF#1 fmtDateTime hour12:false 改 hourCycle:'h23'（防部分 ICU 午夜輸出 24:00 + 配對前一日的跨平台 latent bug，補午夜邊界測試 + vitest.config env:{TZ:'UTC'}）；MF#2 負值格式 €-450.00 加『刻意設計』註解（不改 source 金額格式）；SF#1 補空字串 case；SF#2 補 999,999.99 門檻邊界；N#1 改引用 *Values 常量做真 exhaustiveness。Verify：vitest 53 passed（11 既有 + 42 新）/ tsc 0 / vite build 748 modules 0 errors（與導入前一致 = 測試未進 bundle）；backend 未動 zero regression。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。下次候選：WMOM-20260519-01（需劉老師會計語意決策）/ WMOM-20260513-02 demo orchestrator / 續擴 services 層 + 元件層 render test（FarmOverview HeroStats / CostPage DatasetMetaBadge）/ WMOM-20260509-F6 PostgreSQL row-lock。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-helper-tests.md."
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 46  # +1: WMOM-20260527-02 並發 dispatch BEGIN IMMEDIATE 序列化（修 flaky + 庫存超扣正確性）(2026-05-27 autonomous daily worker, 第二 session)
+  done: 47  # +1: WMOM-20260528-01 擴大 frontend 純 helper 測試覆蓋（statusUtils + reporting formatters，42 新 test + fmtDateTime hourCycle h23 修 ICU 午夜陷阱）(2026-05-28 autonomous daily worker)
 
 inherited_baseline:
   source: digiWindTurbine

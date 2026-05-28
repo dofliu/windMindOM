@@ -111,7 +111,9 @@ export function fmtDateTime(iso: string | null): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    // 用 hourCycle:'h23'（0-23）而非 hour12:false：部分 ICU 實作後者對午夜輸出 '24:00'
+    // 並配對前一日日期，h23 保證 00-23 且日期正確（跨平台一致）。
+    hourCycle: 'h23',
   }).formatToParts(d);
   const lookup = (k: string) => parts.find(p => p.type === k)?.value ?? '00';
   return `${lookup('year')}-${lookup('month')}-${lookup('day')} ${lookup('hour')}:${lookup('minute')}`;

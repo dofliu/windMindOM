@@ -11,6 +11,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
+    // 固定測試行程時區，避免日期/時間相關測試隨 CI 主機時區漂移
+    // （fmtDate/fmtDateTime 已用顯式 timeZone:'Asia/Taipei'，此為額外保險）。
+    env: { TZ: 'UTC' },
     // TODO: 未來加 component 測試（CostPage / FarmOverview 等）若要用
     // `@testing-library/jest-dom` 的 toBeInTheDocument 等 matcher，需補
     // `setupFiles: ['@testing-library/jest-dom/vitest']`。目前只測 hook，毋須。

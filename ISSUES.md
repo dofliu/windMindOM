@@ -16,10 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 46 |
-| **total (active)** | **60** |
+| done | 47 |
+| **total (active)** | **61** |
 
-最後更新：2026-05-27 20:xx（**WMOM-20260527-02 done — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化**）。本日第二個 autonomous daily worker session（5/27-01 cost pinned 容差已 merge）。preflight 撞到 baseline 唯一剩的紅燈 `test_concurrent_dispatch_one_loses_when_stock_short`（連跑 5 次 3 pass / 2 fail，約 40% flaky）。**root cause**：`dispatch_request()` 對庫存做 read-modify-write（SELECT stock → 算 → UPDATE 扣），pysqlite 預設 `BEGIN DEFERRED` 把寫鎖延後到第一次 UPDATE 才取得，`with_for_update()` 在 SQLite 又是 no-op → 兩個並發 dispatch 各自 SELECT 到同一份 stock=5、各扣 4 都 commit → **lost update / 超扣**（兩個都成功，但庫存只夠一個）。`inventory_repository.py:105` docstring 與本檔 A2 acceptance 早已**聲稱**靠「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但 `_get_engine` 從未真的接上 —— 是文件聲稱卻未實作的 invariant。**修法**：在全 workflow repo 共用的 `_get_engine`（work_order/inventory/material_request/signoff）加 SQLAlchemy 官方 pysqlite serializable recipe —— connect listener 設 `isolation_level=None`（關掉 driver 自動 BEGIN）+ 新增 begin listener 發 `BEGIN IMMEDIATE`（transaction 一開始就 grab RESERVED 寫鎖，第二個並發交易被 busy_timeout 5s 擋到第一個 commit 後才放行，屆時讀到已扣減 stock → 正確 raise InsufficientStock；WAL 仍允許並發讀，只序列化寫入，符合 single-farm 單機正確性）。補 1 支直接斷言 driver 設定（isolation_level=None + begin listener 已註冊）的 regression test，防未來移掉 listener 又退回 flaky。**Verify**：該 flaky test 連跑 **20/20 pass**（改前約 60%）；完整 backend **569 passed / 1 xfailed 連跑 3 次確定性**；`tests/`（含 e2e + physics）**151 passed 零 regression**。與 WMOM-20260509-F6（PostgreSQL row-lock，M6）正交，本 PR 不碰 PG。issue_stats open 13 / in_progress 1 / done 45→46 / total 59→60。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md。
+最後更新：2026-05-28 20:xx（**WMOM-20260528-01 done — 擴大 frontend 純 helper 測試覆蓋：statusUtils + reporting formatters**）。今日 autonomous daily worker session。preflight backend baseline 570 passed / 1 xfailed 完全綠、無 blocker；決策樹前段（A10 / WMOM-20260510-01 / A6 / A7）全已完成，剩餘 candidate 中 WMOM-20260519-01 卡劉老師會計決策、WMOM-20260513-02 是 2-3 天大工含 product decision，故選 5/26+5/27 handoff 連續推薦的「擴大前端測試覆蓋」——零設計歧義、完全 autonomous、單 session 可完工。5/26 剛導入 vitest+RTL 但只測 2 個 hook；本 session 擴到**純 helper 函式層**（demo 直接給客戶看的 workflow 狀態 pill / 時間 / 報表金額顯示邏輯）。新增 2 測試檔：`statusUtils.test.ts`（33 tests，17 純函式：label/tone exhaustive + fmtDate/fmtDateTime Asia/Taipei +8 / null / 空字串 / 午夜邊界）+ `formatters.test.ts`（9 tests：fmtMoneyDecimal null/非數字/M/k/門檻/負值 + fmtPct）。exhaustive 來源用 service canonical `*Values` 常量（非手寫陣列）→ 新 enum 值漏進 label/tone 時 runtime undefined 立刻紅，杜絕假覆蓋。**Code review** 2 must / 2 should / 1 nice 全採納：MF#1 fmtDateTime `hour12:false` 改 `hourCycle:'h23'`（防部分 ICU 午夜輸出 24:00 + 配對前一日的跨平台 latent bug，補午夜邊界測試 + vitest.config `env:{TZ:'UTC'}`）；MF#2 負值格式 `€-450.00` 加「刻意設計」註解（不改 source 金額格式）；SF#1 補空字串 case；SF#2 補 999,999.99 門檻邊界；N#1 改引用 `*Values` 常量做真 exhaustiveness。**Verify**：vitest 53 passed（11 既有 + 42 新）/ tsc 0 / vite build 748 modules 0 errors（與導入前一致 = 測試未進 bundle）；backend 未動（zero regression）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-helper-tests.md。
+
+---
+
+最後更新（前）：2026-05-27 20:xx（**WMOM-20260527-02 done — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化**）。本日第二個 autonomous daily worker session（5/27-01 cost pinned 容差已 merge）。preflight 撞到 baseline 唯一剩的紅燈 `test_concurrent_dispatch_one_loses_when_stock_short`（連跑 5 次 3 pass / 2 fail，約 40% flaky）。**root cause**：`dispatch_request()` 對庫存做 read-modify-write（SELECT stock → 算 → UPDATE 扣），pysqlite 預設 `BEGIN DEFERRED` 把寫鎖延後到第一次 UPDATE 才取得，`with_for_update()` 在 SQLite 又是 no-op → 兩個並發 dispatch 各自 SELECT 到同一份 stock=5、各扣 4 都 commit → **lost update / 超扣**（兩個都成功，但庫存只夠一個）。`inventory_repository.py:105` docstring 與本檔 A2 acceptance 早已**聲稱**靠「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但 `_get_engine` 從未真的接上 —— 是文件聲稱卻未實作的 invariant。**修法**：在全 workflow repo 共用的 `_get_engine`（work_order/inventory/material_request/signoff）加 SQLAlchemy 官方 pysqlite serializable recipe —— connect listener 設 `isolation_level=None`（關掉 driver 自動 BEGIN）+ 新增 begin listener 發 `BEGIN IMMEDIATE`（transaction 一開始就 grab RESERVED 寫鎖，第二個並發交易被 busy_timeout 5s 擋到第一個 commit 後才放行，屆時讀到已扣減 stock → 正確 raise InsufficientStock；WAL 仍允許並發讀，只序列化寫入，符合 single-farm 單機正確性）。補 1 支直接斷言 driver 設定（isolation_level=None + begin listener 已註冊）的 regression test，防未來移掉 listener 又退回 flaky。**Verify**：該 flaky test 連跑 **20/20 pass**（改前約 60%）；完整 backend **569 passed / 1 xfailed 連跑 3 次確定性**；`tests/`（含 e2e + physics）**151 passed 零 regression**。與 WMOM-20260509-F6（PostgreSQL row-lock，M6）正交，本 PR 不碰 PG。issue_stats open 13 / in_progress 1 / done 45→46 / total 59→60。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md。
 
 ---
 
@@ -2171,6 +2175,54 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 - **Reference**:
   - [`modules/workflow/repository/work_order_repository.py`](modules/workflow/repository/work_order_repository.py)
   - [`work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md`](work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md)
+
+---
+
+### WMOM-20260528-01 — 擴大 frontend 純 helper 測試覆蓋（statusUtils + reporting formatters）
+
+- **Status**: done（2026-05-28 完成 — autonomous daily worker）
+- **Milestone**: 工程基礎設施 / M4 後續（不阻塞 demo）
+- **Priority**: medium（延續 WMOM-20260526-01 vitest 基礎設施，擴大 demo-critical UI 顯示邏輯的回歸保護）
+- **Estimate**: 0.5 工作天 → **實際 ~0.4d**（frontend only）
+- **Owner**: Claude（session 2026-05-28）
+- **Branch**: `claude/upbeat-davinci-kvEi1`
+- **Source**: 5/26（WMOM-20260526-01）+ 5/27 handoff 連續推薦的「擴大 frontend 元件層測試」
+- **為何選此**：preflight backend baseline 570 passed / 1 xfailed 完全綠、無 blocker；決策樹前段
+  （A10 / WMOM-20260510-01 / A6 / A7）全已完成；剩餘 candidate 中 WMOM-20260519-01 卡劉老師
+  會計決策、WMOM-20260513-02 是 2-3 天大工含 product decision → 本工是唯一零設計歧義、完全
+  autonomous、單 session 可完工者。5/26 剛導入 vitest+RTL 但只測 2 個 hook。
+- **Completion summary**:
+  - ✅ `frontend/components/workflow/__tests__/statusUtils.test.ts`（33 tests）— 17 純函式：
+    label（10 個）+ tone（4 個）逐 enum 值斷言 + exhaustive loop；fmtDateTime / fmtDate
+    的 Asia/Taipei（+8）轉換 / 跨日 / 補零 / 午夜邊界 / null / 空字串 / 無效字串。
+    **exhaustive 來源用 service canonical `*Values` 常量**（非手寫陣列）→ 新 enum 值漏進
+    label/tone 時 runtime undefined 立刻紅，杜絕假覆蓋。守 WMOM-20260509-06 Must#1
+    （Asia/Taipei）+ should-fix #2（mrStatusTone 漸進色）。
+  - ✅ `frontend/components/reporting/__tests__/formatters.test.ts`（9 tests）— fmtMoneyDecimal
+    （null / undefined / 空字串 / 非數字 / 無限大 → `—`；< 1k / k / M 三段門檻 + 999,999.99
+    邊界；負值；number/string 兩型）+ fmtPct。守 WMOM-20260509-09 should-fix #1。
+  - ✅ **Code review** 2 must / 2 should / 1 nice **全採納**：
+    - MF#1 fmtDateTime `hour12:false` → `hourCycle:'h23'`（防部分 ICU 午夜輸出 24:00 + 配對
+      前一日的跨平台 latent bug）+ 補午夜邊界測試 + vitest.config `env:{TZ:'UTC'}`
+    - MF#2 負值格式 `€-450.00` 加「刻意設計」註解（不改 source 金額格式 — UI 設計決策 defer）
+    - SF#1 補空字串 `''` case；SF#2 補 999,999.99 門檻邊界；N#1 改引用 `*Values` 常量
+  - ✅ **Verify**：`vitest run` **53 passed / 4 files**（11 既有 + 42 新）；`tsc --noEmit` 0 errors；
+    `vite build` 748 modules 0 errors（與導入前一致 = 測試未進 production bundle）；
+    backend 未動（zero regression，baseline 570 passed / 1 xfailed）。
+  - ✅ source `statusUtils.ts` 的 `hourCycle:'h23'` 改動：既有正常時間 case 輸出不變，僅午夜
+    由「可能 24:00」收斂為保證 00:00 → 行為等價且更穩。
+- **下次可續擴**：services 層 query builder / type guard（純函式）；進階元件層 render test
+  （FarmOverview HeroStats 聚合 / CostPage DatasetMetaBadge），需 ThemeProvider wrapper +
+  fetch mock + vitest.config `setupFiles`（config 已留 TODO）。
+- **Files changed**:
+  - `+ frontend/components/workflow/__tests__/statusUtils.test.ts`（33 tests）
+  - `+ frontend/components/reporting/__tests__/formatters.test.ts`（9 tests）
+  - `M frontend/components/workflow/statusUtils.ts`（fmtDateTime hourCycle:'h23'）
+  - `M frontend/vitest.config.ts`（env:{TZ:'UTC'}）
+  - `+ work-logs/2026-05/2026-05-28-frontend-helper-tests.md`
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-28-frontend-helper-tests.md`](work-logs/2026-05/2026-05-28-frontend-helper-tests.md)
+  - WMOM-20260526-01（vitest 基礎設施）
 
 ---
 
