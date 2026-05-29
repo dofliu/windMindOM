@@ -51,7 +51,7 @@ Z72 手冊策略 example placeholder（M5-3 真實檔 ready 前用），對齊 �
 （semantic/512/50、bge-large-zh-v1.5/1024、hybrid/top_k 5/rerank bge-reranker-v2-m3）。
 供 loader 測試與本機 demo；真實檔由 RAG_Ultimate Phase 3 交付（🟡）。
 
-### `modules/knowledge/tests/test_strategy_loader.py`（+264 行，24 tests）
+### `modules/knowledge/tests/test_strategy_loader.py`（31 tests，含 review 後補的邊界 / IO / meta 測試）
 
 - example 契約檔存在 + 逐欄位鎖值（防誤改）
 - happy path + 預設值（overlap 0 / rerank False / meta None）+ from_yaml_str↔from_dict 等價
@@ -66,14 +66,31 @@ Z72 手冊策略 example placeholder（M5-3 真實檔 ready 前用），對齊 �
 | 項目 | 改前 | 改後 |
 |---|---|---|
 | backend `pytest modules/{workflow,cost,reporting}/tests/` | 570 passed / 1 xfailed | **570 passed / 1 xfailed**（未動既有） |
-| + `modules/knowledge/tests/` | （無） | **+24 passed** → 合計 594 passed / 1 xfailed |
+| + `modules/knowledge/tests/` | （無） | **+31 passed / 1 skipped** → 合計 601 passed / 1 skipped / 1 xfailed |
 | frontend | 59 passed | **未動**（純 backend 新增，零 frontend 變更） |
 
 ---
 
 ## 4. Code review
 
-跑 `code-reviewer` subagent 對 staged diff —— 處置見下方 commit 前更新。
+跑 `code-reviewer` subagent 兩輪對 diff review，**兩輪獨立都判 Needs revision** 且核心 must-fix 高度重疊
+（例外契約誠實性 + `pytest.raises(Exception)` 不鎖型別）。彙整處置：
+
+| 級別 | finding | 處置 |
+|---|---|---|
+| **must** | `rerank_model="   "` / `embedding.model=" "` 空白繞過非空驗證，延遲到 runtime 才爆 | **採納**：embedding/retrieval model 改用 `str_strip_whitespace=True` config，去空白後被 min_length / validator 擋；補 4 個邊界 test（空字串 + 純空白 × 兩欄位） |
+| **must** | `load_strategy` 的 OSError 路徑 raise 基底 `StrategyLoadError`，與 docstring「三子類精準分流」矛盾 | **採納**：新增 `StrategyReadError(StrategyLoadError)` 專表「有檔但讀不到」，docstring Raises 補上；加權限 denied test（root 環境 skip） |
+| **must** | 兩個 test 用 `pytest.raises(Exception)` 遮蓋實際型別，例外契約形同虛設 | **採納**：改 `pytest.raises(pydantic.ValidationError)` 並加註解說明「直接建構子拋 pydantic 原生例外、非應用層 StrategyValidationError」 |
+| **should** | `StrategyMeta` 套 `extra="forbid"` 與前向相容矛盾（RAG_Ultimate meta schema 演進快） | **採納**：meta 改 `extra="ignore"` + docstring 說明刻意與核心三段不同；加 test 驗未知 meta key 被忽略 |
+| **should** | `_STRICT` 命名誤導（私有常數 vs 共用設定） | **採納**：rename `_STRICT_CONFIG` + 新增 `_STRICT_STRIP_CONFIG` |
+| **should** | module docstring「不重新 embed」與 §3.5「SOP 文件自己 chunk+embed」矛盾 | **採納**：改寫 docstring 區分「手冊預計算交付 vs SOP 由 ingest 用同策略 embed」 |
+| **should** | `vector_store_file` 無格式驗證，M5-3 直接 `Path()` 有穿越風險 | **採納**：加 `pattern=^[A-Za-z0-9_\-.]+\.parquet$` 限純檔名 + test |
+| **should** | test `sys.path.insert` hack（建議改 pyproject pythonpath） | **不採納（本 session）**：repo 既有 9 個 test 檔全用此慣例，只改本檔反不一致；屬獨立 infra issue（pytest rootdir 設定）留待專門 session |
+| **nice** | utf-8-sig 容 BOM / example YAML 欄位順序 / 補 OSError test | **採納**：read 改 `utf-8-sig`、example 改 chunking→embedding→retrieval→meta、加 BOM 載入 test |
+| **nice** | schema_version 前向相容欄位 / `_minimal_dict` 改 fixture / `data: object` 型別 | **不採納**：schema_version 屬投機（meta.version 已在），fixture 現回傳新 dict 行為正確，`object` 對 isinstance guard 是最誠實型別 —— 皆留意但不動 |
+
+採納後重跑：knowledge 24→**31 passed / 1 skipped**（skip=root 繞過 chmod 的權限 test）、
+backend 合計 **601 passed / 1 skipped / 1 xfailed**，既有零 regression。
 
 ---
 

@@ -19,7 +19,7 @@
 | done | 50 |
 | **total (active)** | **64** |
 
-最後更新：2026-05-29 22:xx（**WMOM-20260529-03 done — M5-1 起跑：Knowledge RAG 策略檔載入器 strategy_loader.py**）。autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、git clean、無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。M1-M4 100% → 切入 **EPIC-M5（RAG + mobile UI）**，挑 M5-1 子目標中**唯一無設計歧義 + 零外部依賴 + 單 session 可完工**的地基塊：`strategy_loader.py`（strategy.yaml schema 已在 MVP_ARCHITECTURE §3.5 完整 spec；純 YAML 解析 + pydantic 驗證，**不需 ChromaDB / 不需 RAG_Ultimate 真實 artifact / 不需 embedding model**；是 ingest/retrieve/alert_handler 共用的「載入+查詢用同一組參數」契約地基）。knowledge module 此前只有空 `__init__.py`，此為 M5 第一次寫 code。**新增**：`strategy_loader.py`（例外階層 StrategyLoadError→FileNotFound/Parse/Validation；pydantic v2 schema ChunkingStrategy[overlap<size]/EmbeddingStrategy/RetrievalStrategy[rerank⇒需 rerank_model]/StrategyMeta/RagStrategy，全 `extra="forbid"` 嚴格契約；`load_strategy(path)` 主入口）+ `strategies/rag_strategy_z72_manual.example.yaml`（Z72 策略 placeholder，對齊 §3.5 範例值，M5-3 真實檔 ready 前用）+ `tests/test_strategy_loader.py`（24 tests：example 契約鎖值 / happy path+預設 / 嚴格 schema typo / 約束驗證 / 例外階層）。**Verify**：backend 570→**594 passed**（+24）/ 1 xfailed，既有零 regression；frontend 未動（純 backend）。**Code review**：code-reviewer subagent 處置見 work-log。issue_stats done 49→50 / total 63→64。下次接手：M5-1 續 `ingest.py`/`retrieve.py`（需 ChromaDB M5-2 依賴，要先加 requirements）或 `alert_handler.py` 純邏輯（query 構造，零新依賴）；真實 strategy+parquet 需 RAG_Ultimate Phase 3（🟡 等劉老師）。詳細 handoff 在 work-logs/2026-05/2026-05-29-knowledge-strategy-loader.md。
+最後更新：2026-05-29 22:xx（**WMOM-20260529-03 done — M5-1 起跑：Knowledge RAG 策略檔載入器 strategy_loader.py**）。autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、git clean、無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。M1-M4 100% → 切入 **EPIC-M5（RAG + mobile UI）**，挑 M5-1 子目標中**唯一無設計歧義 + 零外部依賴 + 單 session 可完工**的地基塊：`strategy_loader.py`（strategy.yaml schema 已在 MVP_ARCHITECTURE §3.5 完整 spec；純 YAML 解析 + pydantic 驗證，**不需 ChromaDB / 不需 RAG_Ultimate 真實 artifact / 不需 embedding model**；是 ingest/retrieve/alert_handler 共用的「載入+查詢用同一組參數」契約地基）。knowledge module 此前只有空 `__init__.py`，此為 M5 第一次寫 code。**新增**：`strategy_loader.py`（例外階層 StrategyLoadError→FileNotFound/Parse/Validation；pydantic v2 schema ChunkingStrategy[overlap<size]/EmbeddingStrategy/RetrievalStrategy[rerank⇒需 rerank_model]/StrategyMeta/RagStrategy，全 `extra="forbid"` 嚴格契約；`load_strategy(path)` 主入口）+ `strategies/rag_strategy_z72_manual.example.yaml`（Z72 策略 placeholder，對齊 §3.5 範例值，M5-3 真實檔 ready 前用）+ `tests/test_strategy_loader.py`（31 tests：example 契約鎖值 / happy path+預設 / 嚴格 schema typo / 約束驗證 / 例外階層 / 空白邊界 / BOM / 權限）。**Verify**：backend 570→**601 passed**（+31）/ 1 skipped / 1 xfailed，既有零 regression；frontend 未動（純 backend）。**Code review**：code-reviewer subagent 兩輪獨立都判 Needs revision（核心 must-fix 高度重疊）→ 採納 3 must + 6 should/nice（空白驗證 str_strip_whitespace / OSError 改 StrategyReadError 子類 / pytest.raises 改 pydantic.ValidationError / StrategyMeta 改 extra=ignore 前向相容 / docstring 修正 / vector_store_file pattern / utf-8-sig BOM），未採納 sys.path→pyproject（屬獨立 infra issue、改單檔反不一致）+ schema_version（投機）。issue_stats done 49→50 / total 63→64。下次接手：M5-1 續 `ingest.py`/`retrieve.py`（需 ChromaDB M5-2 依賴，要先加 requirements）或 `alert_handler.py` 純邏輯（query 構造，零新依賴）；真實 strategy+parquet 需 RAG_Ultimate Phase 3（🟡 等劉老師）。詳細 handoff 在 work-logs/2026-05/2026-05-29-knowledge-strategy-loader.md。
 
 ---
 
@@ -2258,9 +2258,12 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
     - `load_strategy(path)` 主入口 + `RagStrategy.from_dict` / `from_yaml_str` 類方法
   - ✅ `modules/knowledge/strategies/rag_strategy_z72_manual.example.yaml`：Z72 策略 example placeholder
     （對齊 §3.5 範例值；M5-3 真實檔由 RAG_Ultimate Phase 3 交付前先用此跑通契約）
-  - ✅ `modules/knowledge/tests/test_strategy_loader.py`：24 tests（example 契約鎖值 / happy path + 預設 /
-    嚴格 schema typo 擋 / 約束驗證 / 例外階層分流）
-  - ✅ **Verify**：backend 570 → **594 passed**（+24）/ 1 xfailed，既有零 regression；frontend 未動（純 backend）
+  - ✅ `modules/knowledge/tests/test_strategy_loader.py`：31 tests（example 契約鎖值 / happy path + 預設 /
+    嚴格 schema typo 擋 / 約束驗證 / 例外階層分流 / 空白邊界 / BOM / 權限）
+  - ✅ **Verify**：backend 570 → **601 passed**（+31）/ 1 skipped / 1 xfailed，既有零 regression；frontend 未動（純 backend）
+  - ✅ **Code review**（code-reviewer subagent 兩輪）：採納 3 must（空白驗證 / OSError→StrategyReadError 子類 /
+    pytest.raises 改精確型別）+ 6 should/nice（StrategyMeta extra=ignore 前向相容 / docstring 修正 /
+    vector_store_file pattern / utf-8-sig BOM / example 欄位順序），未採納 sys.path→pyproject（獨立 infra issue）+ schema_version（投機）
 - **下次接手**：M5-1 續 `ingest.py` / `retrieve.py`（需 ChromaDB M5-2 依賴，要先加 requirements）或
   `alert_handler.py` 純邏輯（警報事件 → 構造 query，零新依賴）；真實 strategy + parquet 需 RAG_Ultimate Phase 3（🟡）。
 - **Reference**:

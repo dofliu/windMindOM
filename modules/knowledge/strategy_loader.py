@@ -7,9 +7,11 @@
     2. *.parquet 向量檔        →  ingest/retrieve 模組載入（本模組不碰）
     3. 指定 embedding model    →  query 時用相同 model encode 問題
 
-**windMindOM 只負責「載入 + 查詢」，不重新 embed。** 本模組是這條契約的入口：
-把 RAG_Ultimate 交付的 ``strategy.yaml`` 解析成型別安全、已驗證的 :class:`RagStrategy`，
-供 ingest.py / retrieve.py / alert_handler.py 共用，確保「embed 與 query 用同一組參數」。
+**Z72 手冊向量由 RAG_Ultimate 預計算交付，windMindOM 不重新 embed 手冊。** 但客戶自有 SOP
+文件則由 ``ingest.py`` 讀此策略做 chunk + embed（補充知識庫，見 §3.5）—— 兩條路徑都必須用
+**同一份策略**，這正是本模組存在的理由：把 RAG_Ultimate 交付的 ``strategy.yaml`` 解析成型別安全、
+已驗證的 :class:`RagStrategy`，供 ingest.py / retrieve.py / alert_handler.py 共用，
+確保「灌庫 embed 與 query encode 用同一組參數」。
 
 設計原則：
 - **嚴格 schema**（``extra="forbid"``）— 策略檔是部署契約，key 打錯要在啟動時就炸，
@@ -50,18 +52,30 @@ class StrategyValidationError(StrategyLoadError):
     """策略檔語法正確但內容不符 schema（缺欄位 / 型別錯 / 違反約束）。"""
 
 
+class StrategyReadError(StrategyLoadError):
+    """策略檔存在但讀取失敗（如權限不足 / IO 錯誤）。
+
+    與 :class:`StrategyFileNotFoundError` 分開，讓上層能區分「沒這個檔」與「有檔但讀不到」。
+    """
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 策略 schema（pydantic v2）
 # ─────────────────────────────────────────────────────────────────────────
 
-_STRICT = ConfigDict(extra="forbid")
-"""所有子 model 共用：禁止未知 key，把策略檔 typo 在啟動時就擋下。"""
+_STRICT_CONFIG = ConfigDict(extra="forbid")
+"""核心計算契約三段（chunking / embedding / retrieval）共用：禁止未知 key，把策略檔 typo
+在啟動時就擋下。pydantic 在 class 定義時各自複製一份 config，互不影響。"""
+
+_STRICT_STRIP_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
+"""嚴格 + 字串前後去空白：用於含「必須非空」字串欄位的 model（embedding / retrieval），
+讓 ``"   "`` 去空白後變空字串，再被 ``min_length`` / validator 擋下，避免空白值延遲到 runtime 才爆。"""
 
 
 class ChunkingStrategy(BaseModel):
     """切塊策略 — RAG_Ultimate 怎麼把手冊切成 chunk，windMindOM 灌自有 SOP 時要用同一組。"""
 
-    model_config = _STRICT
+    model_config = _STRICT_CONFIG
 
     method: Literal["semantic", "fixed", "recursive"] = Field(
         description="切塊方法。semantic=語意邊界切；fixed=固定長度；recursive=遞迴分隔符"
@@ -82,16 +96,21 @@ class ChunkingStrategy(BaseModel):
 class EmbeddingStrategy(BaseModel):
     """嵌入策略 — query 端必須用「與灌庫時完全相同」的 model + dimension，否則向量空間對不上。"""
 
-    model_config = _STRICT
+    # str_strip_whitespace 先去空白再驗 min_length：擋掉 "   " 這種「看似有值、餵 loader 必爆」的 model 名
+    model_config = _STRICT_STRIP_CONFIG
 
-    model: str = Field(min_length=1, description="embedding model 名稱，例：BAAI/bge-large-zh-v1.5")
+    model: str = Field(
+        min_length=1,
+        description="embedding model 名稱，例：BAAI/bge-large-zh-v1.5",
+    )
     dimension: int = Field(gt=0, description="向量維度，須 > 0，且須與 model 實際輸出一致")
 
 
 class RetrievalStrategy(BaseModel):
     """檢索策略 — 警報 query 時 retrieve top-k 的演算法與參數，可在客戶端微調後重啟生效。"""
 
-    model_config = _STRICT
+    # str_strip_whitespace 讓 rerank_model="   " 去空白後變空字串，被下方 validator 擋下
+    model_config = _STRICT_STRIP_CONFIG
 
     algorithm: Literal["vector", "bm25", "hybrid_bm25_vector"] = Field(
         description="檢索演算法。vector=純向量；bm25=純關鍵字；hybrid_bm25_vector=混合"
@@ -104,7 +123,10 @@ class RetrievalStrategy(BaseModel):
 
     @model_validator(mode="after")
     def _rerank_needs_model(self) -> "RetrievalStrategy":
-        """開了 rerank 卻沒給 rerank_model 是無效設定，提早擋下。"""
+        """開了 rerank 卻沒給 rerank_model（None / 空字串 / 純空白）是無效設定，提早擋下。
+
+        純空白已由 ``str_strip_whitespace`` 在此之前去成空字串，故這裡只需檢查 falsy。
+        """
         if self.rerank and not self.rerank_model:
             raise ValueError("retrieval.rerank=True 時必須提供 retrieval.rerank_model")
         return self
@@ -115,15 +137,22 @@ class StrategyMeta(BaseModel):
 
     讓 windMindOM 前端 / settings 能顯示「現在載入的是哪份策略、對應哪個 OEM 機型、
     版本與向量檔」，也方便升級時比對。RAG_Ultimate 交付時建議帶上，但非必填以保留彈性。
+
+    **刻意用 ``extra="ignore"``（與核心三段的 ``extra="forbid"`` 不同）**：meta 是描述性欄位，
+    RAG_Ultimate 這條 research pipeline 的 meta schema 演進速度可能比 windMindOM 快（未來可能加
+    ``created_at`` / ``checksum`` 等）；對 meta 嚴格會讓無關緊要的新欄位觸發部署失敗，徒增協調成本。
     """
 
-    model_config = _STRICT
+    model_config = ConfigDict(extra="ignore")
 
     name: str | None = Field(default=None, description="策略檔人類可讀名稱")
     version: str | None = Field(default=None, description="策略版本，例：2026-05")
     oem_model: str | None = Field(default=None, description="對應 OEM 機型，例：Z72")
+    # 限簡單檔名（不含路徑分隔符），預防 M5-3 ingest/retrieve 直接 Path(value) 時的路徑穿越
     vector_store_file: str | None = Field(
-        default=None, description="對應的預計算向量檔名，例：z72_manual_v2026-05.parquet"
+        default=None,
+        pattern=r"^[A-Za-z0-9_\-.]+\.parquet$",
+        description="對應的預計算向量檔名（純檔名，例：z72_manual_v2026-05.parquet）",
     )
     source: str | None = Field(default=None, description="產出來源，例：RAG_Ultimate Phase 3")
 
@@ -134,7 +163,7 @@ class RagStrategy(BaseModel):
     這是 ingest / retrieve / alert_handler 共用的單一真實來源，確保灌庫與查詢一致。
     """
 
-    model_config = _STRICT
+    model_config = _STRICT_CONFIG
 
     chunking: ChunkingStrategy
     embedding: EmbeddingStrategy
@@ -206,6 +235,7 @@ def load_strategy(path: str | Path) -> RagStrategy:
 
     Raises:
         StrategyFileNotFoundError: 路徑不存在或不是檔案。
+        StrategyReadError: 檔案存在但讀取失敗（如權限不足 / IO 錯誤）。
         StrategyParseError: YAML 語法錯誤或頂層非 mapping。
         StrategyValidationError: 內容不符 schema。
     """
@@ -213,7 +243,8 @@ def load_strategy(path: str | Path) -> RagStrategy:
     if not file_path.is_file():
         raise StrategyFileNotFoundError(f"找不到策略檔：{file_path}")
     try:
-        text = file_path.read_text(encoding="utf-8")
+        # utf-8-sig 同時相容有 BOM（Windows 端產出常見）與無 BOM 的 UTF-8，避免 BOM 污染頂層 key
+        text = file_path.read_text(encoding="utf-8-sig")
     except OSError as exc:  # 權限 / IO 等讀檔失敗
-        raise StrategyLoadError(f"讀取策略檔失敗（{file_path}）：{exc}") from exc
+        raise StrategyReadError(f"讀取策略檔失敗（{file_path}）：{exc}") from exc
     return RagStrategy.from_yaml_str(text)

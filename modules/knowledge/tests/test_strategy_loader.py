@@ -10,9 +10,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
+import pydantic
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -25,6 +27,7 @@ from modules.knowledge.strategy_loader import (  # noqa: E402
     StrategyFileNotFoundError,
     StrategyLoadError,
     StrategyParseError,
+    StrategyReadError,
     StrategyValidationError,
     load_strategy,
 )
@@ -157,8 +160,12 @@ def test_overlap_must_be_less_than_size() -> None:
 
 
 def test_chunking_overlap_validator_direct() -> None:
-    """直接建構子 model 也擋 overlap >= size（不只透過頂層）。"""
-    with pytest.raises(Exception):  # pydantic ValidationError
+    """直接建構子 model 也擋 overlap >= size（不只透過頂層）。
+
+    注意：直接走建構子（繞過 from_dict 包裝層）拋的是 pydantic.ValidationError，
+    而非應用層的 StrategyValidationError —— 此測試鎖的是「最底層 validator 確實有效」。
+    """
+    with pytest.raises(pydantic.ValidationError):
         ChunkingStrategy(method="fixed", size=50, overlap=60)
 
 
@@ -188,8 +195,8 @@ def test_invalid_chunking_method_rejected() -> None:
 
 
 def test_rerank_true_requires_rerank_model() -> None:
-    """rerank=True 但沒給 rerank_model → 驗證失敗。"""
-    with pytest.raises(Exception):  # pydantic ValidationError
+    """rerank=True 但沒給 rerank_model → 驗證失敗（直接建構子拋 pydantic.ValidationError）。"""
+    with pytest.raises(pydantic.ValidationError):
         RetrievalStrategy(algorithm="vector", top_k=5, rerank=True)
 
 
@@ -197,6 +204,46 @@ def test_rerank_true_with_model_ok() -> None:
     """rerank=True 且有 rerank_model → 通過。"""
     r = RetrievalStrategy(algorithm="vector", top_k=5, rerank=True, rerank_model="rr")
     assert r.rerank_model == "rr"
+
+
+@pytest.mark.parametrize("bad_model", ["", "   "])
+def test_rerank_true_with_blank_model_rejected(bad_model: str) -> None:
+    """rerank=True 但 rerank_model 是空字串 / 純空白（去空白後為空）→ 驗證失敗。
+
+    純空白靠 str_strip_whitespace 先去成空字串，再被 _rerank_needs_model 擋下，
+    避免「看似有值」的無效設定延遲到 retrieve 才爆。
+    """
+    data = _minimal_dict()
+    data["retrieval"]["rerank"] = True
+    data["retrieval"]["rerank_model"] = bad_model
+    with pytest.raises(StrategyValidationError):
+        RagStrategy.from_dict(data)
+
+
+@pytest.mark.parametrize("bad_model", ["", "   "])
+def test_embedding_model_blank_rejected(bad_model: str) -> None:
+    """embedding.model 空字串 / 純空白 → 驗證失敗（min_length + str_strip_whitespace）。"""
+    data = _minimal_dict()
+    data["embedding"]["model"] = bad_model
+    with pytest.raises(StrategyValidationError):
+        RagStrategy.from_dict(data)
+
+
+def test_meta_ignores_unknown_keys() -> None:
+    """meta 是 extra=ignore（與核心三段不同）：RAG_Ultimate 未來加新 meta 欄位不應觸發部署失敗。"""
+    data = _minimal_dict()
+    data["meta"] = {"name": "x", "created_at": "2026-05-29", "checksum": "abc"}
+    strategy = RagStrategy.from_dict(data)
+    assert strategy.meta is not None
+    assert strategy.meta.name == "x"
+
+
+def test_meta_vector_store_file_must_be_parquet_filename() -> None:
+    """vector_store_file 限純檔名 .parquet，路徑穿越字串被擋（預防 ingest 端 Path 誤用）。"""
+    data = _minimal_dict()
+    data["meta"] = {"vector_store_file": "../../etc/passwd"}
+    with pytest.raises(StrategyValidationError):
+        RagStrategy.from_dict(data)
 
 
 def test_missing_required_section_rejected() -> None:
@@ -228,6 +275,39 @@ def test_directory_path_raises_not_found() -> None:
     """傳資料夾路徑（非檔案）→ StrategyFileNotFoundError。"""
     with pytest.raises(StrategyFileNotFoundError):
         load_strategy(MODULE_DIR / "strategies")
+
+
+def test_permission_denied_raises_read_error(tmp_path: Path) -> None:
+    """檔案存在但讀不到（權限）→ StrategyReadError（且為 StrategyLoadError 子類）。
+
+    部署環境（docker volume / NFS mount）權限問題是真實錯誤；root 跑測試可能繞過 chmod，
+    遇到時 skip 而非誤判。
+    """
+    f = tmp_path / "no_read.yaml"
+    f.write_text("chunking: {}\n", encoding="utf-8")
+    f.chmod(0o000)
+    try:
+        if os.access(f, os.R_OK):  # 例如 root 無視權限 → 此測試在該環境無意義
+            pytest.skip("目前使用者可繞過檔案權限（如 root），略過權限測試")
+        with pytest.raises(StrategyReadError):
+            load_strategy(f)
+    finally:
+        f.chmod(0o644)  # 還原以利 tmp_path 清理
+
+
+def test_utf8_bom_strategy_loads(tmp_path: Path) -> None:
+    """帶 UTF-8 BOM 的策略檔（Windows 端常見）能正常載入，BOM 不污染頂層 key。"""
+    f = tmp_path / "bom.yaml"
+    f.write_bytes(
+        b"\xef\xbb\xbf"
+        + (
+            "chunking:\n  method: fixed\n  size: 256\n"
+            "embedding:\n  model: m\n  dimension: 8\n"
+            "retrieval:\n  algorithm: vector\n  top_k: 1\n"
+        ).encode("utf-8")
+    )
+    strategy = load_strategy(f)
+    assert strategy.chunking.size == 256
 
 
 def test_invalid_yaml_raises_parse_error(tmp_path: Path) -> None:

@@ -4,13 +4,7 @@
 # windMindOM 只「載入 + 查詢」，不重新 embed —— query 端必須用與灌庫時相同的 embedding model。
 #
 # 此檔為 example placeholder（M5-3 真實檔 ready 前用），供 strategy_loader 測試與本機 demo。
-
-meta:
-  name: Z72 手冊 RAG 策略
-  version: "2026-05"
-  oem_model: Z72
-  vector_store_file: z72_manual_v2026-05.parquet
-  source: RAG_Ultimate Phase 3 (placeholder)
+# 欄位順序對齊 RagStrategy schema：chunking → embedding → retrieval → meta。
 
 chunking:
   method: semantic
@@ -26,3 +20,10 @@ retrieval:
   top_k: 5
   rerank: true
   rerank_model: bge-reranker-v2-m3
+
+meta:
+  name: Z72 手冊 RAG 策略
+  version: "2026-05"
+  oem_model: Z72
+  vector_store_file: z72_manual_v2026-05.parquet
+  source: RAG_Ultimate Phase 3 (placeholder)
