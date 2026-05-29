@@ -16,38 +16,61 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 48 |
-| **total (active)** | **62** |
+| done | 49 |
+| **total (active)** | **63** |
+
+最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
+
+---
 
 最後更新：2026-05-29 20:xx（**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策（退料 guard 會計語意 / demo orchestrator product decision / UI v2 設計交接書）或 M6 環境（F6 PostgreSQL）或物理模型（高風險）。延續 5/26→5/28 的「擴大 frontend 測試覆蓋」momentum，挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 `mockUsers.ts`（WMOM-20260510-01 Part B）—— `getCurrentActorId()` 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** `frontend/services/__tests__/mockUsers.test.ts`（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（含 roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3（falsy/合法/未知+大小寫敏感）+ getCurrentActorId 7（含**未知 id→安全 fallback Alice**、**Owner 不過濾**、**SSR guard 用 vi.stubGlobal 打到**）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal test；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名改資料前提 / expectedRoles 註解改正兩層保護 / UUID→PLACEHOLDER 命名；nice _typeGuard 限制註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md。
 
 ---
 
-最後更新（前）：2026-05-28 20:xx（**WMOM-20260528-01 done — Frontend 元件層回歸測試擴充：workflow statusUtils + reporting formatters 純函式**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 5/27-01 與 5/27-02 兩份 handoff 都列為候選的「擴大 frontend 元件層測試」（`vitest.config.ts` 亦留 TODO 指向此）—— 5/26 導入 vitest+RTL 後唯一無設計歧義、完全 autonomous、單 session 可完工的工。**切入點**：先測最高 ROI、零脆弱的**純函式層**——`statusUtils.ts`（16 個 exported 純函式，餵 workflow 全 4 tab 的 enum→label 雙語 / enum→tone / Asia/Taipei 日期格式化，封存 WMOM-20260509-06 Must-fix #1 時區修法）+ `reporting/formatters.ts`（`fmtMoneyDecimal`/`fmtPct`，WMOM-20260509-09 Should-fix #1 抽出的共用層）。**設計**：label/tone 用 service 匯出的 `*Values` runtime 陣列窮舉 + `Record<Enum,...>` 期望表（compile-time 窮舉：新增 enum 漏補期望值 tsc 立刻紅）；日期驗 `2026-01-15T18:30:00Z → 2026-01-16 02:30`（跨午夜進位證實套了 Asia/Taipei UTC+8、不隨 runner timezone 漂移）。**不動 vitest.config.ts**（純函式不需 jsdom matcher → 基礎設施零變動）。**Verify**：vitest 11→**39 passed**（+19 statusUtils +9 formatters）；tsc 0 errors；vite build 918.27 kB（測試檔未進 bundle、大小持平）；backend 未動 zero regression。**Code review**：2 must / 3 should / 2 nice → 全評估後採納（must#1 `fmtPct` NaN 查 caller 確認型別已擋、非真 bug，補鎖現況 test + 註解使契約顯性、不動 source；must#2 `fmtDateTime` 原樣回傳加註解；should 補 -1000 / 999_999.99 邊界 + lang fallback 雙重 cast）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md。
+---
+
+> 📁 更早的 session changelog 已封存到 [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)（避免本檔無限膨脹；完整 work-log 在 `work-logs/`）。
 
 ---
 
-最後更新（前）：2026-05-27 20:xx（**WMOM-20260527-02 done — 修復並發 dispatch flaky 測試：實作 BEGIN IMMEDIATE 寫入序列化**）。本日第二個 autonomous daily worker session（5/27-01 cost pinned 容差已 merge）。preflight 撞到 baseline 唯一剩的紅燈 `test_concurrent_dispatch_one_loses_when_stock_short`（連跑 5 次 3 pass / 2 fail，約 40% flaky）。**root cause**：`dispatch_request()` 對庫存做 read-modify-write（SELECT stock → 算 → UPDATE 扣），pysqlite 預設 `BEGIN DEFERRED` 把寫鎖延後到第一次 UPDATE 才取得，`with_for_update()` 在 SQLite 又是 no-op → 兩個並發 dispatch 各自 SELECT 到同一份 stock=5、各扣 4 都 commit → **lost update / 超扣**（兩個都成功，但庫存只夠一個）。`inventory_repository.py:105` docstring 與本檔 A2 acceptance 早已**聲稱**靠「BEGIN IMMEDIATE + WAL + busy_timeout 序列化」，但 `_get_engine` 從未真的接上 —— 是文件聲稱卻未實作的 invariant。**修法**：在全 workflow repo 共用的 `_get_engine`（work_order/inventory/material_request/signoff）加 SQLAlchemy 官方 pysqlite serializable recipe —— connect listener 設 `isolation_level=None`（關掉 driver 自動 BEGIN）+ 新增 begin listener 發 `BEGIN IMMEDIATE`（transaction 一開始就 grab RESERVED 寫鎖，第二個並發交易被 busy_timeout 5s 擋到第一個 commit 後才放行，屆時讀到已扣減 stock → 正確 raise InsufficientStock；WAL 仍允許並發讀，只序列化寫入，符合 single-farm 單機正確性）。補 1 支直接斷言 driver 設定（isolation_level=None + begin listener 已註冊）的 regression test，防未來移掉 listener 又退回 flaky。**Verify**：該 flaky test 連跑 **20/20 pass**（改前約 60%）；完整 backend **569 passed / 1 xfailed 連跑 3 次確定性**；`tests/`（含 e2e + physics）**151 passed 零 regression**。與 WMOM-20260509-F6（PostgreSQL row-lock，M6）正交，本 PR 不碰 PG。issue_stats open 13 / in_progress 1 / done 45→46 / total 59→60。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-27-dispatch-begin-immediate.md。
+## 🎯 未來大目標（M5 / M6 epics）
 
----
+> M1-M4 已 100%。以下是接下來的「大局目標」拆解，給 session 規劃用。
+> 詳細月度交付見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) Month 5 / Month 6。
+> 標 🔵 = autonomous-friendly（無設計歧義可自動接）；🟡 = 需劉老師決策 / 素材 / 現場。
 
-最後更新（前）：2026-05-27 20:xx（**WMOM-20260527-01 done — CI/baseline 技術債清理：requirements-dev.txt + cost pinned 容差比對**）。今日 autonomous daily worker session 清掉 5/26 handoff §5/§6 明確點名、列為下次「順手清的小工」的兩條反覆出現環境 blocker：(1) **requirements.txt 漏列依賴** — 補 runtime 缺漏（`sqlalchemy`/`pandas`/`reportlab`/`jinja2`，app 實際 import 卻沒列）+ 新增 `requirements-dev.txt`（`-r requirements.txt` + pytest/pytest-asyncio/httpx），新 sandbox 一鍵就緒（查證 aiosqlite/openpyxl 全 repo 無 import，不列）；(2) **cost 3 個 pinned 測試本 sandbox 必紅** — root cause 確認是跨平台 BLAS ULP drift（pin 在 Windows 量測、sandbox 為 Linux+OpenBLAS；實測 numpy 1.26.4 與 2.4.6 在 Linux 下都與 Windows pin 差最後一位，非單純 numpy 版本問題）。新增 `modules/cost/tests/pin_tolerance.py`（`pin_approx`=pytest.approx rel=1e-9 abs=1e-6 / `pin_equal`=math.isclose）；5 個 cost 測試檔改容差比對（var_fluct/monte_carlo/k13_equivalence loop 用 pin_equal、cost_api/adapter direct-assert 用 pin_approx），**刻意保留** exact `==` 於整數/failure_multiplier/已 round 值（跨平台確定性）。rel_tol=1e-9 仍守 9 位有效數字 → 真 regression 攔截力不變、只吸收 ~1e-15 平台噪音。**Verify**：cost 測試在 numpy 1.26.4 與 2.4.6 下皆 84 passed（證跨版本 robust）；完整 backend **568 passed / 1 xfailed，3 個 numpy drift 消除**，唯一剩 fail 是既有 SQLite WAL flaky concurrency（單跑通過、與本 PR 無關，本 PR 只動 cost 測試+requirements）→ 相較先前 baseline（本 sandbox 永遠 3 紅）為**嚴格改善**。解決 WMOM-20260526-01 §後續技術債 1+2。issue_stats open 13 / in_progress 1 / done 44→45 / total 58→59。詳細 handoff 在 work-logs/2026-05/2026-05-27-ci-baseline-pin-tolerance.md。
+### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）
 
----
+> 目標：警報跳出 → 30 秒內現場工程師手機看到「手冊對應段落 + 過去同類警報處置」。
+> Demo killer：「這比 LINE 群組問師傅快嗎？」
 
-最後更新：2026-05-26 20:xx（**WMOM-20260526-01 done — Frontend 測試基礎設施（vitest + RTL）導入 + 兩 hook 回歸測試**）。今日 autonomous daily worker session 做前 3 次 wrap-up（5/19 / 5/22 / 5/23）重複推薦的「導入 vitest+RTL」技術債 — 唯一無設計歧義、完全 autonomous、單 session 可完工的工（M4 已 100%；WMOM-20260504-12 等劉老師本機長跑驗收非我可推進；WMOM-20260519-01 退料 guard 需劉老師決定會計語意）。**框架**：`vitest@^3` + `jsdom` + `@testing-library/react@^16`，獨立 `vitest.config.ts`（不併進 vite.config.ts → production build 零變動），`globals:false`（tsconfig 不需加 types）。**測試**：`useCostData.test.ts` 6 tests 守 WMOM-20260504-13 AbortController 防 race（核心 race 測試用 deferred promise 讓舊 run 後 resolve 驗不蓋新結果）；`useRealtimeData.test.ts` 5 tests 守 WMOM-20260504-12 WS 殭屍重連洩漏（核心 disposed guard 測試：擷取 onclose → unmount → 觸發殭屍 onclose → advance timer → 仍單一連線）。踩雷：`waitFor` 在 fake timer 下卡死 → 改 act() 內同步斷言。**Code review** 0 must / 4 should / 4 nice：4 should 全採納（最重要 SF#1：原 reset 測試名稱聲稱守 in-flight 中止但實際無 in-flight → 拆出 deferred 版真正測到該路徑）+ 3 nice 採納。**Verify**：vitest 11 passed / tsc 0 / vite build 748 modules 0 errors（與導入前一致）/ backend frontend-only zero regression。觀察到技術債：requirements.txt 未列 test deps、numpy 未 pin 致 cost pinned 測試 float drift（建議另開小 issue）。issue_stats open 13 / in_progress 1 / done 43→44 / total 57→58。詳細 handoff 在 work-logs/2026-05/2026-05-26-frontend-test-infra.md。
+| # | Epic 子目標 | 類型 | 依賴 / 備註 |
+|---|---|---|---|
+| M5-1 | **Knowledge module 後端**：`ingest.py` / `retrieve.py` / `strategy_loader.py` / `alert_handler.py` | 🔵 | 平台只載入 + query，不重新 embed |
+| M5-2 | **ChromaDB 整合**（嵌入式、依 OEM 機型載入向量檔） | 🔵 | |
+| M5-3 | **RAG_Ultimate strategy 對接**：拿 Phase 3 的 `strategy.yaml` + `z72_manual.parquet` | 🟡 | 需 RAG_Ultimate Phase 3 產出；未 ready 用 baseline placeholder |
+| M5-4 | **灌 Z72 手冊 + 一年警報 csv** 跑通 ingest pipeline | 🟡 | 手冊已有 `docs/__Z72UserManual.pdf` |
+| M5-5 | **`/field/` mobile-first frontend**：alerts list / alert detail with RAG / my work orders / completion | 🔵 | 現場工程師 persona、PMF 關鍵 |
+| M5-6 | **Alert → RAG auto query**：警報事件觸發即 retrieve，前端顯示 top-3 chunks | 🔵 | 串 M5-1 + monitoring 告警 |
 
----
+### EPIC-M6 — 第一個運維廠商 PoC + 第一筆合約（2026-10）
 
-最後更新：2026-05-24 20:xx（**WMOM-20260504-12 in_progress — Frontend realtime 記憶體成長：WS 殭屍重連洩漏根治 + 卡片 React.memo**）。今日 autonomous daily worker session 做 5/23 handoff 推薦的 solo-friendly frontend 工。進場 root-cause 發現 issue 描述的元件名（MiniTrendChart/TurbineCard）在 5/07 UI 改版後已不存在，現況走 FarmOverview 的 TCard/CompactTile + 自寫 SVG（非 Recharts，suspect #3 不適用）。**真因 suspect #4**：`useRealtimeData` 的 `ws.onclose` 無條件重連；unmount cleanup 的 `ws.close()` 非同步觸發 onclose，在 cleanup 跑完後又排一條清不到的重連 timer → 殭屍 WebSocket 無限累積，每條每次 push 都呼叫 setTurbines；React 18 Strict Mode dev 雙觸發立刻引爆 = 劉老師回報的 dev 記憶體成長。修法：`disposed` 旗標貫穿所有 WS handler + poll；cleanup 設 disposed=true + 先解除 ws 四 handler 再 close()（雙保險）+ 清 timer/interval；initial fetch 加 cancelled guard。**suspect #1**：TCard/CompactTile 加 React.memo + areEqual（只比渲染欄位 + lang prop），父層非資料因素 re-render 時跳過 14 張 SVG 重繪；onClick/tr 刻意排除（onClick stale 由 App liveTurbine 以 id 反查保證、tr 為 lang 純函式、theme 走 context 不受影響）。Verify：tsc 0 + vite build 748 modules / ~3.4s / 0 errors；backend 未動 zero regression。Code review 1 must（onClick stale 判定非 bug，App.tsx:143-146 以 id 反查）+ 2 should（onerror disposed guard 採納 / compactTileEqual turState 不採納）+ 1 nice（history reference 比較判定非 bug 不採納）。issue 維持 in_progress（24h 記憶體 < 50% 驗收需劉老師本機長跑）；issue_stats open 14→13 / in_progress 0→1 / done 43 / total 57。下次候選：WMOM-20260519-01（需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator / 前端測試基礎設施（vitest+RTL）。詳細 handoff 在 work-logs/2026-05/2026-05-24-frontend-realtime-memory-fix.md。
+> Done criteria：客戶老闆說「下個月續用」+ 現場工程師 80% 警報走 RAG + 第一份月報沒被業主退件 + 收到合約金。
 
----
+| # | Epic 子目標 | 類型 | 依賴 / 備註 |
+|---|---|---|---|
+| M6-1 | **Friendly 運維廠商現場部署**（docker-compose 在客戶端跑起來） | 🟡 | 需客戶現場 |
+| M6-2 | **Z72 PLC 連線測試**（客戶端 OPC tunnel） | 🟡 | 需客戶 PLC |
+| M6-3 | **PostgreSQL backend 切換 + row-lock 驗證**（WMOM-20260509-F6） | 🔵 | 部署前；需 docker postgres |
+| M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login） | 🔵 | mock login 是 demo 用，production 需真 auth |
+| M6-5 | **培訓 + 第一個月運轉 + 收反饋** | 🟡 | 需客戶 |
+| M6-6 | **第一份自動月報交業主** | 🔵 | reporting module 已 ready，需真資料驗證 |
 
-最後更新：2026-05-23 20:xx（**WMOM-20260504-13 done — Cost 系列 fetch 加 AbortController 防 race**）。今日 autonomous daily worker session 做 5/22 handoff 推薦的 0.25d frontend-only 小工：`useCostData.useAsync.run` 原本沒有 abort 機制，React 18 Strict Mode dev 雙觸發 `useEffect([dataset])` 或使用者快速切 dataset 時，慢 fetch 後回會蓋掉新 dataset 結果（stale-overwrites-fresh race）。修法三道防線：(1) `useRef<AbortController>` 追蹤最新 in-flight request 並在下一筆 run 前 abort 上一筆；(2) `signal.aborted` 早退即使舊 fetch 已 resolve 也不 setData；(3) `controllerRef.current === controller` loading guard。另加 `isAbortError`（DOMException + Error）、`reset()` abort + 清 loading、unmount cleanup；`costService.postJSON` + `costApi`×4 加 optional `AbortSignal` 透傳。純擴充，CostPage 4 panel + dataset effect 完全相容。Verify：tsc 0 errors + vite build 748 modules / 4.58s 0 errors；backend frontend-only zero regression。Code review 1 must + 1 should + 1 nice：should（isAbortError 補 DOMException）採納；must（reset×in-flight run loading 殘留）以 timeline 推導判定非真 bug 不採納 hacky 修法、改加註解。frontend 無測試框架故未加自動化 regression test（建議另開 issue 導入 vitest+RTL）。issue_stats open 15→14 / done 42→43 / total 57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需劉老師 walkthrough）/ M5 規劃 / WMOM-20260513-02 demo orchestrator。詳細 handoff 在 work-logs/2026-05/2026-05-23-cost-abortcontroller.md。
+### 跨 milestone 持續工作
 
----
-
-最後更新：2026-05-22 20:xx（**WMOM-20260522-01 done — F4 收尾，work_order + reporting 兩個 router 也改用 shared FARM_REGISTRY**）。今日 autonomous daily worker session 接 5/21 F4 batch 的 follow-up note：F4 當時 scope 只列 4 個 routers，實作中發現 `work_order_router.py` + `reporting/routers/reporting_router.py` 也有相同 lazy singleton pattern（helper 名分別為 `_get_default_farm_registry` / `_resolve_farm_db_path`），本 issue 補完。`work_order_router._default_repository_factory` 從 try/except + 404/500 mapping 收成一行 `get_repository(resolve_farm_db_path(farm_id))`；`_resolve_db_path_for_finish_hook` 用 try/except HTTPException 包 shared 呼叫，finish hook 失敗（registry 不可用 / farm 不存在）安靜返回 None 不阻擋工單收尾。`reporting_router` 兩個 setter `set_ledger_factory(None)` / `set_work_order_factory(None)` 各自呼叫 `reset_farm_registry()`；`set_availability_provider` 不該動 farm registry（已加 regression test 守住）。10 個新 test（5 work_order + 5 reporting，含 N1 production code path 驗證）全綠。Backend baseline zero regression（715 passed + 1 xfailed + 3 pre-existing numpy drift；環境 flaky concurrency dispatch test 偶爾 fail 與本 PR 無關）。Code review 1 must（`__builtins__` patch 改 monkeypatch shared function）+ 2 should + 1 nice 全採納；should-1（HTTPException coupling 全 6 router 統一，需擴大 scope 到 F4 batch）本 PR 不擴大。issue_stats open 15 / done 41→42 / total 56→57。下次候選：WMOM-20260519-01（F1 超量退料 domain guard，需設計決策）/ M5 規劃 / WMOM-20260513-02 demo orchestrator simulator / WMOM-20260504-13 cost frontend AbortController（小工）。詳細 handoff 在 work-logs/2026-05/2026-05-22-f4-followup-work-order-reporting.md。
+- **WMOM-20260503-05** — Friendly 客戶接觸（infrastructure done，待劉老師 cold email + 約 demo）🟡
+- **測試覆蓋持續擴大**：component render 測試（需 jsdom setupFiles）、E2E lifecycle 強化 🔵
+- **物理模型強化**（學術深度，非商業 must-have）：WMOM-20260505-23~28 🔵
 
 ---
 
@@ -2181,6 +2204,38 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - [`work-logs/2026-05/2026-05-29-mockusers-identity-tests.md`](work-logs/2026-05/2026-05-29-mockusers-identity-tests.md)
 - **Depends on**: WMOM-20260526-01（done）/ WMOM-20260510-01 Part B（done — 被測 source）
 - **Blocks**: -
+
+---
+
+### WMOM-20260529-02 — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic + routine prompt
+
+- **Status**: done（2026-05-29 完成 — 劉老師交辦）
+- **Milestone**: 工程基礎設施 / 文件治理
+- **Priority**: medium（文件債清理，提升新 session / 其他 AI 工具接手效率）
+- **Estimate**: ~0.5 工作天
+- **Owner**: Claude（session 2026-05-29，劉老師交辦）
+- **Branch**: `claude/kind-faraday-CWVM3`
+- **Source**: 劉老師 2026-05-29 交辦「重新整理專案文件」4 點需求
+- **Completion summary**:
+  - ✅ **清過時 digiWT 重複檔**（root 殘留未隨 windMindOM 更新者）：
+    - `README.md` 重寫為 windMindOM（原標題還是 `# digiWindTurbine`、0 處提 WMOM）
+    - `AGENTS.md` / `GEMINI.md` 改為指向 `CLAUDE.md` 的薄 pointer（原為 digiWT 描述、port 8000）
+    - 刪 `project.md` / `idea.md`（digiWT 專案描述，被 PRODUCT_VISION 取代）
+    - 刪 `docs/daily_report.md`（停 2026-05-01）/ `docs/session_handoff.md`（停 2026-05-07，被 work-logs 每日 wrapup 取代）
+    - 刪 root `package-lock.json`（`{"name":"digiWindTurbine"}` 空殼 stray）/ `docs/product/pitch_deck_v0.4_todo_revise.pptx`（被 v0.8.1 取代且放錯層）
+    - `TODO.md` 刷新為 M5 現況（原停在 2026-05-05「本月 M1」）
+  - ✅ **移除外部專案 dump** `z72SCADA_New/`（13 tracked 檔，檔名帶 `(1)`/`(2)` 下載重複後綴，CLAUDE.md §12「不 fork 他 repo 程式」；M3 設計擷取已產出 `docs/design-notes/m3/`，raw dump 無用）+ 清 `.gitignore` 相關行
+  - ✅ **`docs/design/2026-05-07-ui-source/`** 只留 `WMOM 介面改版交接書.md`（設計決策紀錄），刪 .jsx/.html/promo 原型（UI 已實作，WMOM-20260507-01 done）
+  - ✅ **ISSUES.md 瘦身**：頂部累積 8 筆 session changelog → 抽最舊 7 筆到 `docs/legacy/issues_changelog_archive.md`、頂部只留最近 1-2 筆 + archive pointer
+  - ✅ **新增「🎯 未來大目標（M5/M6 epics）」區塊**（維持 ISSUES.md 為 bot 友善 single source，大目標清晰拆解：M5-1~6 RAG + mobile、M6-1~6 PoC + 合約，標 🔵 autonomous / 🟡 需劉老師）
+  - ✅ **routine prompt 更新**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff 而非 5/10）+ 更新 `docs/routines/daily-workflow.md` 過時處
+  - ✅ 清本機快取（`__pycache__`/`.pytest_cache`/`frontend/dist`，皆 gitignored、未進 repo）
+  - ✅ **Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）
+- **Decision（劉老師 2026-05-29 回覆 Q1-Q4）**：Q1 移除 z72SCADA_New / Q2 只留交接書.md / Q3 維持 ISSUES.md + 加 epic 區塊 / Q4 changelog 抽 archive 留最近 1-2 筆
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-29-docs-reorg.md`](work-logs/2026-05/2026-05-29-docs-reorg.md)
+  - [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)
+  - [`docs/routines/autonomous-daily-worker-prompt.md`](docs/routines/autonomous-daily-worker-prompt.md)
 
 ---
 

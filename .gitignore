@@ -14,8 +14,9 @@ venv/
 env/
 .env
 
-# Custom ignored directories
-z72SCADA_New/wind-backup/Z72_Data
+# node_modules（frontend 與 root 任何意外產生的）
+node_modules/
+frontend/dist/
 
 # Pitch deck builder
 tools/pitch_deck/node_modules/

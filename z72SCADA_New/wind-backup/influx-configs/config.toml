@@ -1,3 +1,0 @@
-# InfluxDB 2.x 設定
-[http]
-  flux-enabled = true

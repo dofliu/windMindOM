@@ -54,6 +54,10 @@
 | `package-lock.json` | 看似 stray；之後盤點是否屬於 frontend |
 | `z72SCADA_New/` | 既有未整理區，本 issue 不動 |
 
+> ⚠ **2026-05-29 更新（WMOM-20260529-02）**：上表為 migration 當時快照。其後文件整理已：
+> 重寫 `README.md`、`AGENTS.md`/`GEMINI.md` 改薄 pointer、刪除 `idea.md`/`project.md`/root `package-lock.json` 空殼、
+> 移除 `z72SCADA_New/`（外部專案 dump）。本表保留作歷史紀錄。
+
 ---
 
 ## 2. sys.path 注入策略（核心）
