@@ -1,0 +1,28 @@
+# RAG 策略檔範例（Z72 手冊）
+#
+# 由 RAG_Ultimate Phase 3 交付（見 docs/product/MVP_ARCHITECTURE.md §3.5）。
+# windMindOM 只「載入 + 查詢」，不重新 embed —— query 端必須用與灌庫時相同的 embedding model。
+#
+# 此檔為 example placeholder（M5-3 真實檔 ready 前用），供 strategy_loader 測試與本機 demo。
+
+meta:
+  name: Z72 手冊 RAG 策略
+  version: "2026-05"
+  oem_model: Z72
+  vector_store_file: z72_manual_v2026-05.parquet
+  source: RAG_Ultimate Phase 3 (placeholder)
+
+chunking:
+  method: semantic
+  size: 512
+  overlap: 50
+
+embedding:
+  model: BAAI/bge-large-zh-v1.5
+  dimension: 1024
+
+retrieval:
+  algorithm: hybrid_bm25_vector
+  top_k: 5
+  rerank: true
+  rerank_model: bge-reranker-v2-m3

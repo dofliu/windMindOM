@@ -16,16 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 49 |
-| **total (active)** | **63** |
+| done | 50 |
+| **total (active)** | **64** |
+
+最後更新：2026-05-29 22:xx（**WMOM-20260529-03 done — M5-1 起跑：Knowledge RAG 策略檔載入器 strategy_loader.py**）。autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、git clean、無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。M1-M4 100% → 切入 **EPIC-M5（RAG + mobile UI）**，挑 M5-1 子目標中**唯一無設計歧義 + 零外部依賴 + 單 session 可完工**的地基塊：`strategy_loader.py`（strategy.yaml schema 已在 MVP_ARCHITECTURE §3.5 完整 spec；純 YAML 解析 + pydantic 驗證，**不需 ChromaDB / 不需 RAG_Ultimate 真實 artifact / 不需 embedding model**；是 ingest/retrieve/alert_handler 共用的「載入+查詢用同一組參數」契約地基）。knowledge module 此前只有空 `__init__.py`，此為 M5 第一次寫 code。**新增**：`strategy_loader.py`（例外階層 StrategyLoadError→FileNotFound/Parse/Validation；pydantic v2 schema ChunkingStrategy[overlap<size]/EmbeddingStrategy/RetrievalStrategy[rerank⇒需 rerank_model]/StrategyMeta/RagStrategy，全 `extra="forbid"` 嚴格契約；`load_strategy(path)` 主入口）+ `strategies/rag_strategy_z72_manual.example.yaml`（Z72 策略 placeholder，對齊 §3.5 範例值，M5-3 真實檔 ready 前用）+ `tests/test_strategy_loader.py`（24 tests：example 契約鎖值 / happy path+預設 / 嚴格 schema typo / 約束驗證 / 例外階層）。**Verify**：backend 570→**594 passed**（+24）/ 1 xfailed，既有零 regression；frontend 未動（純 backend）。**Code review**：code-reviewer subagent 處置見 work-log。issue_stats done 49→50 / total 63→64。下次接手：M5-1 續 `ingest.py`/`retrieve.py`（需 ChromaDB M5-2 依賴，要先加 requirements）或 `alert_handler.py` 純邏輯（query 構造，零新依賴）；真實 strategy+parquet 需 RAG_Ultimate Phase 3（🟡 等劉老師）。詳細 handoff 在 work-logs/2026-05/2026-05-29-knowledge-strategy-loader.md。
+
+---
 
 最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
-
----
-
-最後更新：2026-05-29 20:xx（**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策（退料 guard 會計語意 / demo orchestrator product decision / UI v2 設計交接書）或 M6 環境（F6 PostgreSQL）或物理模型（高風險）。延續 5/26→5/28 的「擴大 frontend 測試覆蓋」momentum，挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 `mockUsers.ts`（WMOM-20260510-01 Part B）—— `getCurrentActorId()` 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** `frontend/services/__tests__/mockUsers.test.ts`（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（含 roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3（falsy/合法/未知+大小寫敏感）+ getCurrentActorId 7（含**未知 id→安全 fallback Alice**、**Owner 不過濾**、**SSR guard 用 vi.stubGlobal 打到**）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal test；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名改資料前提 / expectedRoles 註解改正兩層保護 / UUID→PLACEHOLDER 命名；nice _typeGuard 限制註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md。
-
----
 
 ---
 
@@ -2236,6 +2234,38 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - [`work-logs/2026-05/2026-05-29-docs-reorg.md`](work-logs/2026-05/2026-05-29-docs-reorg.md)
   - [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)
   - [`docs/routines/autonomous-daily-worker-prompt.md`](docs/routines/autonomous-daily-worker-prompt.md)
+
+---
+
+### WMOM-20260529-03 — M5-1 起跑：Knowledge RAG 策略檔載入器 strategy_loader.py
+
+- **Status**: done（2026-05-29 完成 — autonomous daily worker）
+- **Milestone**: M5（Knowledge / RAG + 現場 mobile UI）— EPIC-M5 子目標 M5-1 第一塊
+- **Priority**: high（M5 起跑地基；ingest / retrieve / alert_handler 共用契約）
+- **Estimate**: ~0.5 工作天
+- **Owner**: Claude（session 2026-05-29）
+- **Branch**: `claude/gifted-maxwell-1S0YV`
+- **為何挑這塊**：M1-M4 100% → 切入 EPIC-M5。M5-1 子目標中 `strategy_loader.py` 是**唯一無設計歧義
+  （schema 已在 `docs/product/MVP_ARCHITECTURE.md` §3.5 完整 spec）+ 零外部依賴（不需 ChromaDB M5-2 /
+  不需 RAG_Ultimate 真實 artifact M5-3 / 不需 embedding model）+ 單 session 可完工**的地基塊。
+  是「載入 + 查詢用同一組參數」契約的單一真實來源，後續 ingest / retrieve / alert_handler 都依賴它。
+- **Completion summary**:
+  - ✅ `modules/knowledge/strategy_loader.py`：
+    - 例外階層 `StrategyLoadError`（基底）→ `StrategyFileNotFoundError` / `StrategyParseError` / `StrategyValidationError`
+    - pydantic v2 schema（全 `extra="forbid"` 嚴格契約）：`ChunkingStrategy`（method Literal + overlap<size 驗證）/
+      `EmbeddingStrategy`（model + dimension>0）/ `RetrievalStrategy`（algorithm Literal + top_k>0 + rerank⇒需 rerank_model）/
+      `StrategyMeta`（可選：name/version/oem_model/vector_store_file/source）/ `RagStrategy`（三段必填 + meta 可選）
+    - `load_strategy(path)` 主入口 + `RagStrategy.from_dict` / `from_yaml_str` 類方法
+  - ✅ `modules/knowledge/strategies/rag_strategy_z72_manual.example.yaml`：Z72 策略 example placeholder
+    （對齊 §3.5 範例值；M5-3 真實檔由 RAG_Ultimate Phase 3 交付前先用此跑通契約）
+  - ✅ `modules/knowledge/tests/test_strategy_loader.py`：24 tests（example 契約鎖值 / happy path + 預設 /
+    嚴格 schema typo 擋 / 約束驗證 / 例外階層分流）
+  - ✅ **Verify**：backend 570 → **594 passed**（+24）/ 1 xfailed，既有零 regression；frontend 未動（純 backend）
+- **下次接手**：M5-1 續 `ingest.py` / `retrieve.py`（需 ChromaDB M5-2 依賴，要先加 requirements）或
+  `alert_handler.py` 純邏輯（警報事件 → 構造 query，零新依賴）；真實 strategy + parquet 需 RAG_Ultimate Phase 3（🟡）。
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-29-knowledge-strategy-loader.md`](work-logs/2026-05/2026-05-29-knowledge-strategy-loader.md)
+  - [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) §3.5
 
 ---
 
