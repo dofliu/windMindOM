@@ -19,7 +19,11 @@
 | done | 47 |
 | **total (active)** | **61** |
 
-最後更新：2026-05-28 20:xx（**WMOM-20260528-01 done — Frontend 元件層回歸測試擴充：workflow statusUtils + reporting formatters 純函式**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 5/27-01 與 5/27-02 兩份 handoff 都列為候選的「擴大 frontend 元件層測試」（`vitest.config.ts` 亦留 TODO 指向此）—— 5/26 導入 vitest+RTL 後唯一無設計歧義、完全 autonomous、單 session 可完工的工。**切入點**：先測最高 ROI、零脆弱的**純函式層**——`statusUtils.ts`（16 個 exported 純函式，餵 workflow 全 4 tab 的 enum→label 雙語 / enum→tone / Asia/Taipei 日期格式化，封存 WMOM-20260509-06 Must-fix #1 時區修法）+ `reporting/formatters.ts`（`fmtMoneyDecimal`/`fmtPct`，WMOM-20260509-09 Should-fix #1 抽出的共用層）。**設計**：label/tone 用 service 匯出的 `*Values` runtime 陣列窮舉 + `Record<Enum,...>` 期望表（compile-time 窮舉：新增 enum 漏補期望值 tsc 立刻紅）；日期驗 `2026-01-15T18:30:00Z → 2026-01-16 02:30`（跨午夜進位證實套了 Asia/Taipei UTC+8、不隨 runner timezone 漂移）。**不動 vitest.config.ts**（純函式不需 jsdom matcher → 基礎設施零變動）。**Verify**：vitest 11→**39 passed**（+19 statusUtils +9 formatters）；tsc 0 errors；vite build 918.27 kB（測試檔未進 bundle、大小持平）；backend 未動 zero regression。**Code review**：2 must / 3 should / 2 nice → 全評估後採納（must#1 `fmtPct` NaN 查 caller 確認型別已擋、非真 bug，補鎖現況 test + 註解使契約顯性、不動 source；must#2 `fmtDateTime` 原樣回傳加註解；should 補 -1000 / 999_999.99 邊界 + lang fallback 雙重 cast）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md。
+最後更新：2026-05-29 20:xx（**WMOM-20260507-02 sub-task a done — 風場總覽「匯出」按鈕接 GET /api/export/snapshot（JSON 下載）**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed；frontend vitest 39 passed；無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 候選清單**已全數完工**（A10 / WMOM-20260510-01 / A6 / A7 / F1–F5 done，僅剩 F6 PostgreSQL M6 需 docker），故從其餘 open issue 挑「最高 ROI、零依賴、有既有 pattern」者：**WMOM-20260507-02 sub-task a** —— `FarmOverview` PageHeader 上原無 handler 的「匯出」placeholder 接到既有 `GET /api/export/snapshot`（`export.py:54` 回 `{count,data}`）。**實作**：新增 `handleExportSnapshot`（fetch → `JSON.stringify(payload, null, 2)` pretty-print → Blob → anchor download `farm-snapshot-{YYYY-MM-DD}.json`）+ `exporting` state 走 `Btn` 既有 `loading`；ariaLabel 由不貼切「匯出報告」改「匯出風場快照」（WCAG accessible name），視覺 label「匯出」不動（保持設計稿對齊）。用 fetch+Blob 而非 window.open 因 endpoint 回 application/json（window.open 只會顯示在新分頁不下載）。**Verify**：tsc 0 errors / vite build 918.76 kB（+0.49 kB、748 modules 成功）/ vitest 39 passed / backend 未動 zero regression；瀏覽器點擊驗收留劉老師本機（sandbox 無頭）。**Code review**：0 must / 2 should / 2 nice → should#1（revokeObjectURL race）採納改 setTimeout(100ms)；should#2（靜默 catch）部分採納加 console.error（與 useSettings.ts 一致、不加 window.alert 因全 repo 無 alert 用例）；nice#1（res.text）不採納（pretty-print 刻意保留供工程師閱讀）；nice#2（無測試）延後（handler inline 未 export、component render 測試已列 5/28 handoff 獨立 session）。WMOM-20260507-02 仍 open（1/6 sub-task done，b–f 待補），issue_stats 不變（open 13 / in_progress 1 / done 47 / total 61）。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-farm-overview-export-snapshot.md。
+
+---
+
+最後更新（前）：2026-05-28 20:xx（**WMOM-20260528-01 done — Frontend 元件層回歸測試擴充：workflow statusUtils + reporting formatters 純函式**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 5/27-01 與 5/27-02 兩份 handoff 都列為候選的「擴大 frontend 元件層測試」（`vitest.config.ts` 亦留 TODO 指向此）—— 5/26 導入 vitest+RTL 後唯一無設計歧義、完全 autonomous、單 session 可完工的工。**切入點**：先測最高 ROI、零脆弱的**純函式層**——`statusUtils.ts`（16 個 exported 純函式，餵 workflow 全 4 tab 的 enum→label 雙語 / enum→tone / Asia/Taipei 日期格式化，封存 WMOM-20260509-06 Must-fix #1 時區修法）+ `reporting/formatters.ts`（`fmtMoneyDecimal`/`fmtPct`，WMOM-20260509-09 Should-fix #1 抽出的共用層）。**設計**：label/tone 用 service 匯出的 `*Values` runtime 陣列窮舉 + `Record<Enum,...>` 期望表（compile-time 窮舉：新增 enum 漏補期望值 tsc 立刻紅）；日期驗 `2026-01-15T18:30:00Z → 2026-01-16 02:30`（跨午夜進位證實套了 Asia/Taipei UTC+8、不隨 runner timezone 漂移）。**不動 vitest.config.ts**（純函式不需 jsdom matcher → 基礎設施零變動）。**Verify**：vitest 11→**39 passed**（+19 statusUtils +9 formatters）；tsc 0 errors；vite build 918.27 kB（測試檔未進 bundle、大小持平）；backend 未動 zero regression。**Code review**：2 must / 3 should / 2 nice → 全評估後採納（must#1 `fmtPct` NaN 查 caller 確認型別已擋、非真 bug，補鎖現況 test + 註解使契約顯性、不動 source；must#2 `fmtDateTime` 原樣回傳加註解；should 補 -1000 / 999_999.99 邊界 + lang fallback 雙重 cast）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md。
 
 ---
 
@@ -1939,7 +1943,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260507-02 — PageHeader placeholder 按鈕逐步補功能
 
-- **Status**: open
+- **Status**: open（**1/6 sub-task done** — a 風場總覽匯出 done 2026-05-29；b–f 待補）
 - **Milestone**: 不卡 M2-M5 主線，可隨時挑著補
 - **Priority**: low（UX polish；功能都可在 detail 頁完成）
 - **Estimate**: 每個 0.5-2h，依 API 是否存在
@@ -1947,7 +1951,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Description**:
   改版時依 VA.jsx 設計稿放了 7 個 PageHeader 裝飾按鈕，劉老師 2026-05-07 決定 placeholder 保留、之後逐項補功能。本 issue 作為清單追蹤；每個 sub-task 完成時直接打勾並 commit。
 - **Sub-tasks**（按好做順序排）：
-  - [ ] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（直接下載 JSON）。**估時 30 min**
+  - [x] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（fetch + Blob 下載 `farm-snapshot-{YYYY-MM-DD}.json`）。done 2026-05-29（branch `claude/upbeat-davinci-l1U9N`）。**估時 30 min → 實際 ~30 min**
   - [ ] **b. 風機細節 `停機`** — 對應 `OperatorControlCard` 的 stop 指令；點擊跳到右側卡片或直接呼叫 `POST /api/control/command { command: 'stop' }`。**估時 30 min**
   - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）

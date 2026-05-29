@@ -634,7 +634,34 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
 }) => {
   const { C } = useTheme();
   const [mode, setMode] = useState<ViewMode>('cards');
+  const [exporting, setExporting] = useState(false);
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+
+  // 匯出全風場即時快照（每台完整 SCADA tag）為 JSON 檔；接既有 GET /api/export/snapshot。
+  const handleExportSnapshot = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/export/snapshot`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `farm-snapshot-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      // 延遲釋放 Object URL：部分瀏覽器（Firefox / 舊版 Safari）下載為非同步，
+      // 同步 revoke 會在取得資源前釋放導致下載靜默取消。
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+    } catch (err) {
+      // 開發階段後端未啟動時匯出會失敗；尚無共用 toast 系統，先記 console 供診斷。
+      console.error('[FarmOverview] 匯出風場快照失敗：', err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const dateLabel = lang === 'zh'
     ? new Date().toLocaleDateString('zh-TW')
@@ -663,7 +690,13 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
         actions={
           <>
             <ViewToggle mode={mode} onChange={setMode} tr={tr} />
-            <Btn ariaLabel={tr('Export report', '匯出報告')}>{tr('Export', '匯出')}</Btn>
+            <Btn
+              ariaLabel={tr('Export farm snapshot', '匯出風場快照')}
+              onClick={handleExportSnapshot}
+              loading={exporting}
+            >
+              {tr('Export', '匯出')}
+            </Btn>
             <Btn variant="primary" ariaLabel={tr('New report', '新報告')}>
               + {tr('New Report', '新報告')}
             </Btn>
