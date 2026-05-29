@@ -16,10 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 47 |
-| **total (active)** | **61** |
+| done | 48 |
+| **total (active)** | **62** |
 
-最後更新：2026-05-28 20:xx（**WMOM-20260528-01 done — Frontend 元件層回歸測試擴充：workflow statusUtils + reporting formatters 純函式**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 5/27-01 與 5/27-02 兩份 handoff 都列為候選的「擴大 frontend 元件層測試」（`vitest.config.ts` 亦留 TODO 指向此）—— 5/26 導入 vitest+RTL 後唯一無設計歧義、完全 autonomous、單 session 可完工的工。**切入點**：先測最高 ROI、零脆弱的**純函式層**——`statusUtils.ts`（16 個 exported 純函式，餵 workflow 全 4 tab 的 enum→label 雙語 / enum→tone / Asia/Taipei 日期格式化，封存 WMOM-20260509-06 Must-fix #1 時區修法）+ `reporting/formatters.ts`（`fmtMoneyDecimal`/`fmtPct`，WMOM-20260509-09 Should-fix #1 抽出的共用層）。**設計**：label/tone 用 service 匯出的 `*Values` runtime 陣列窮舉 + `Record<Enum,...>` 期望表（compile-time 窮舉：新增 enum 漏補期望值 tsc 立刻紅）；日期驗 `2026-01-15T18:30:00Z → 2026-01-16 02:30`（跨午夜進位證實套了 Asia/Taipei UTC+8、不隨 runner timezone 漂移）。**不動 vitest.config.ts**（純函式不需 jsdom matcher → 基礎設施零變動）。**Verify**：vitest 11→**39 passed**（+19 statusUtils +9 formatters）；tsc 0 errors；vite build 918.27 kB（測試檔未進 bundle、大小持平）；backend 未動 zero regression。**Code review**：2 must / 3 should / 2 nice → 全評估後採納（must#1 `fmtPct` NaN 查 caller 確認型別已擋、非真 bug，補鎖現況 test + 註解使契約顯性、不動 source；must#2 `fmtDateTime` 原樣回傳加註解；should 補 -1000 / 999_999.99 邊界 + lang fallback 雙重 cast）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md。
+最後更新：2026-05-29 20:xx（**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策（退料 guard 會計語意 / demo orchestrator product decision / UI v2 設計交接書）或 M6 環境（F6 PostgreSQL）或物理模型（高風險）。延續 5/26→5/28 的「擴大 frontend 測試覆蓋」momentum，挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 `mockUsers.ts`（WMOM-20260510-01 Part B）—— `getCurrentActorId()` 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** `frontend/services/__tests__/mockUsers.test.ts`（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（含 roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3（falsy/合法/未知+大小寫敏感）+ getCurrentActorId 7（含**未知 id→安全 fallback Alice**、**Owner 不過濾**、**SSR guard 用 vi.stubGlobal 打到**）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal test；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名改資料前提 / expectedRoles 註解改正兩層保護 / UUID→PLACEHOLDER 命名；nice _typeGuard 限制註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md。
+
+---
+
+最後更新（前）：2026-05-28 20:xx（**WMOM-20260528-01 done — Frontend 元件層回歸測試擴充：workflow statusUtils + reporting formatters 純函式**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 5/27-01 與 5/27-02 兩份 handoff 都列為候選的「擴大 frontend 元件層測試」（`vitest.config.ts` 亦留 TODO 指向此）—— 5/26 導入 vitest+RTL 後唯一無設計歧義、完全 autonomous、單 session 可完工的工。**切入點**：先測最高 ROI、零脆弱的**純函式層**——`statusUtils.ts`（16 個 exported 純函式，餵 workflow 全 4 tab 的 enum→label 雙語 / enum→tone / Asia/Taipei 日期格式化，封存 WMOM-20260509-06 Must-fix #1 時區修法）+ `reporting/formatters.ts`（`fmtMoneyDecimal`/`fmtPct`，WMOM-20260509-09 Should-fix #1 抽出的共用層）。**設計**：label/tone 用 service 匯出的 `*Values` runtime 陣列窮舉 + `Record<Enum,...>` 期望表（compile-time 窮舉：新增 enum 漏補期望值 tsc 立刻紅）；日期驗 `2026-01-15T18:30:00Z → 2026-01-16 02:30`（跨午夜進位證實套了 Asia/Taipei UTC+8、不隨 runner timezone 漂移）。**不動 vitest.config.ts**（純函式不需 jsdom matcher → 基礎設施零變動）。**Verify**：vitest 11→**39 passed**（+19 statusUtils +9 formatters）；tsc 0 errors；vite build 918.27 kB（測試檔未進 bundle、大小持平）；backend 未動 zero regression。**Code review**：2 must / 3 should / 2 nice → 全評估後採納（must#1 `fmtPct` NaN 查 caller 確認型別已擋、非真 bug，補鎖現況 test + 註解使契約顯性、不動 source；must#2 `fmtDateTime` 原樣回傳加註解；should 補 -1000 / 999_999.99 邊界 + lang fallback 雙重 cast）。issue_stats open 13 / in_progress 1 / done 46→47 / total 60→61。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md。
 
 ---
 
@@ -2133,6 +2137,49 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - [`frontend/components/reporting/__tests__/formatters.test.ts`](frontend/components/reporting/__tests__/formatters.test.ts)
   - [`work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md`](work-logs/2026-05/2026-05-28-frontend-statusutils-formatters-tests.md)
 - **Depends on**: WMOM-20260526-01（done）
+- **Blocks**: -
+
+---
+
+### WMOM-20260529-01 — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約
+
+- **Status**: done（2026-05-29 完成 — autonomous daily worker）
+- **Milestone**: M4 後續 / 工程基礎設施（M6 demo-critical 身份層的測試守護）
+- **Priority**: medium（mock login 是 M6 客戶 demo 跑完整 lifecycle 的關鍵，此前零測試）
+- **Estimate**: 0.4 工作天 → **實際 ~0.4d**（frontend only）
+- **Owner**: Claude（session 2026-05-29）
+- **Branch**: `claude/kind-faraday-CWVM3`
+- **Source**: WMOM-20260526-01（vitest+RTL 基礎設施）+ 5/28 純函式測試 pattern 的自然續作；挑 demo-critical 且零脆弱、零新依賴的目標
+- **Completion summary**:
+  - ✅ **切入點**：mock login 身份核心 `frontend/services/mockUsers.ts`（WMOM-20260510-01 Part B）。
+    `getCurrentActorId()` 是**非 React 模組（service callback）唯一同步身份來源**，所有 dispatch /
+    approve API call 的 actor_id 都從這裡來；M6 demo 三階簽核（employee→leader→treasury）全靠 4 個
+    fixture user。此前零測試。只依賴 localStorage（vitest.config.ts `environment:'jsdom'` 已提供）→
+    **零 DOM render、零新依賴、不動 `vitest.config.ts`**
+  - ✅ `frontend/services/__tests__/mockUsers.test.ts`（**20 tests**，新建 `services/__tests__/` 目錄）：
+    - **fixture 契約（8）**：4 user / id 唯一 / UUID 分段格式（placeholder） / 全 is_active（資料前提，
+      非 UI） / email 唯一且 @wmom.dev / roles 用 `Record<string,ReadonlyArray<MockUserRole>>` 期望表
+      窮舉（value=compile-time、key=runtime 兩層保護；sort 後比對鎖成員集合不鎖順序） /
+      只有 Owner 標 dev_mode_only 且唯一含 owner role / 非 Owner 三人皆非 dev_mode_only
+    - **DEFAULT_USER 與常數（2）**：DEFAULT_USER===MOCK_USERS[0]===Alice 且 roles 僅 `['employee']`
+      （最低權限安全預設） / `ACTOR_ID_STORAGE_KEY==='wmom_actor_id'`（跨模組持久化契約）
+    - **findMockUser（3）**：null/undefined/空字串→null / 每個合法 id→正確 user / 未知 id→null + 大小寫敏感
+    - **getCurrentActorId（7）**：無值→Alice / 合法 id→原樣 / **Owner（dev_mode_only）id 仍回傳（不過濾）** /
+      未知 id→fallback Alice（安全：拒絕非 fixture 身份進 API call） / 空字串→fallback / 回傳值恆為已知
+      fixture id / **SSR（`typeof window==='undefined'`）→fallback（`vi.stubGlobal` 打到 source:95 guard）**
+    - 型別層 sanity：`_typeGuard: MockUser` 編譯期鎖介面欄位結構
+  - ✅ **Verify**：vitest 39→**59 passed**（+20）；`tsc --noEmit` 0 errors；`vite build` 918.27 kB
+    （測試檔未進 production bundle、大小持平）；backend 未動 zero regression（baseline 570 passed / 1 xfailed）
+  - ✅ **Code review**（code-reviewer subagent）1 must / 5 should / 3 nice → Needs revision → 全採納後 approve：
+    - MF#1 SSR guard 不可達且零測試 → 加 `vi.stubGlobal('window',undefined)` test 真正打到分支
+    - SF roles 順序過緊→改 sort 鎖集合；getCurrentActorId happy path 補 Owner 特例；is_active 命名改「資料前提」；
+      expectedRoles 註解改正兩層保護描述；UUID_SHAPE→PLACEHOLDER_UUID_SHAPE 減混淆
+    - nice：_typeGuard 限制註解、移除冗餘 afterEach（與 useCostData 風格對齊）
+- **Reference**:
+  - [`frontend/services/__tests__/mockUsers.test.ts`](frontend/services/__tests__/mockUsers.test.ts)
+  - [`frontend/services/mockUsers.ts`](frontend/services/mockUsers.ts)（被測 source）
+  - [`work-logs/2026-05/2026-05-29-mockusers-identity-tests.md`](work-logs/2026-05/2026-05-29-mockusers-identity-tests.md)
+- **Depends on**: WMOM-20260526-01（done）/ WMOM-20260510-01 Part B（done — 被測 source）
 - **Blocks**: -
 
 ---
