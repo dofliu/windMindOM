@@ -10,3 +10,5 @@ sqlalchemy>=2.0          # workflow / cost / reporting ORM repository
 pandas>=2.0              # cost waiting_time（weather window / 多項式擬合）
 reportlab>=4.0           # reporting 月報 PDF 生成
 jinja2>=3.1              # reporting 報表模板
+# knowledge module（M5 新增）
+pyyaml>=6.0              # knowledge RAG 策略檔載入（strategy_loader）

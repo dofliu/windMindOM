@@ -6,3 +6,4 @@
 
 pytest>=8.0              # 測試框架
 httpx>=0.27             # fastapi/starlette TestClient 後端（測試專用；production 用 uvicorn 不需）
+types-PyYAML>=6.0        # knowledge strategy_loader 的 yaml type stubs（type check 用）

@@ -1,0 +1,26 @@
+# Z72 警報手冊 RAG 策略檔
+#
+# 來源：RAG_Ultimate research 端（Phase 3 交付的 strategy.yaml 對應版本）。
+# windMindOM 只**載入**此策略並用相同 embedding model query，不在客戶端重新 embed。
+# 詳見 docs/product/MVP_ARCHITECTURE.md §3.5。
+#
+# ⚠ 本檔目前為對齊 MVP_ARCHITECTURE 範例的 reference 樣本；
+#   RAG_Ultimate Phase 3 正式策略檔就位後直接覆蓋本檔即可（schema 不變）。
+
+name: z72_manual          # 策略識別名（UI / log 顯示、多策略切換用）
+version: "2026-05"        # 對應 RAG_Ultimate 交付版號
+
+chunking:
+  method: semantic        # 切塊方法（semantic / fixed / recursive…）
+  size: 512               # 每塊目標長度
+  overlap: 50             # 相鄰塊重疊（須 < size）
+
+embedding:
+  model: BAAI/bge-large-zh-v1.5   # query 端必須用相同 model encode
+  dimension: 1024                  # 須與預計算向量檔一致
+
+retrieval:
+  algorithm: hybrid_bm25_vector   # 混合 BM25 + 向量
+  top_k: 5                         # 回傳前 5 個 chunk
+  rerank: true                     # 啟用重排序
+  rerank_model: bge-reranker-v2-m3

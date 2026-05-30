@@ -16,14 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 49 |
-| **total (active)** | **63** |
+| done | 50 |
+| **total (active)** | **64** |
 
-最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
+最後更新：2026-05-30 20:xx（**WMOM-20260530-01 done — Knowledge module M5-1 第一塊：RAG 策略檔載入器 strategy_loader**）。Autonomous daily worker session。preflight baseline 全綠（backend 570 passed / 1 xfailed、frontend vitest 59、working tree clean、無 blocker/regression → 決策樹 1、2 不觸發）。5/26→5/29 連四 session 推「frontend 測試覆蓋」，下一階段 component render 測試需 jsdom setupFiles + `@testing-library/jest-dom`（5/28、5/29 handoff 均標脆弱、建議獨立 session）；剩餘 open 多 🟡（需劉老師決策 / M6 環境 / 物理模型）。故開 **EPIC-M5-1（🔵 autonomous）第一塊**：`strategy_loader.py`——M5 最底層 contract，零外部依賴（不碰 ChromaDB / GPU / 向量檔）、可完整單元測試、零脆弱，且直接解 MVP_ARCHITECTURE 風險表「Phase 3 strategy 未 ready → baseline placeholder」。**新增** `modules/knowledge/strategy_loader.py`（4 frozen dataclass + StrategyError + 型別收窄 helper 避免 Any 外洩 + 驗證規則 + `parse_strategy`/`load_strategy`/`baseline_strategy`/`load_strategy_or_baseline`）+ `config/rag_strategy_z72_manual.yaml`（reference 樣本對齊 §3.5）+ `tests/test_strategy_loader.py`（38 tests）+ `__init__.py` re-export + requirements pyyaml/types-PyYAML。**Verify**：`pytest modules/{workflow,cost,reporting,knowledge}/tests/` → **608 passed / 1 xfailed**（570 baseline + 38 新，零 regression）；frontend 未動。issue_stats open 13 / in_progress 1 / done 49→50 / total 63→64。詳細 handoff 在 work-logs/2026-05/2026-05-30-knowledge-strategy-loader.md。
 
 ---
 
-最後更新：2026-05-29 20:xx（**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策（退料 guard 會計語意 / demo orchestrator product decision / UI v2 設計交接書）或 M6 環境（F6 PostgreSQL）或物理模型（高風險）。延續 5/26→5/28 的「擴大 frontend 測試覆蓋」momentum，挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 `mockUsers.ts`（WMOM-20260510-01 Part B）—— `getCurrentActorId()` 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** `frontend/services/__tests__/mockUsers.test.ts`（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（含 roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3（falsy/合法/未知+大小寫敏感）+ getCurrentActorId 7（含**未知 id→安全 fallback Alice**、**Owner 不過濾**、**SSR guard 用 vi.stubGlobal 打到**）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal test；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名改資料前提 / expectedRoles 註解改正兩層保護 / UUID→PLACEHOLDER 命名；nice _typeGuard 限制註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md。
+最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
 
 ---
 
@@ -2344,6 +2344,31 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 
 - M5 (2026-09)：RAG_Ultimate strategy 對接（Phase 3 ready 否則用 baseline placeholder）+ Demo Orchestrator UI 完整版（接 -10 placeholder）
 - M6 (2026-10)：Friendly 廠商現場部署 + 第一份月報送業主沒被退件 + 簽 LOI/合約
+
+---
+
+### WMOM-20260530-01 — Knowledge module M5-1 第一塊：RAG 策略檔載入器 strategy_loader
+
+- **Status**: done（2026-05-30 完成；branch `claude/gifted-maxwell-3pMce`）
+- **Milestone**: M5（2026-09）— EPIC-M5-1 Knowledge module 後端（🔵 autonomous-friendly）
+- **Priority**: medium（M5 最底層 contract；不阻塞 M4，但開啟 M5 RAG 主線）
+- **Estimate**: 0.5 工作天
+- **Owner**: Claude（autonomous daily worker，session 2026-05-30）
+- **Source**: ISSUES.md 頂部「🎯 未來大目標」EPIC-M5-1（ingest/retrieve/strategy_loader/alert_handler）拆出第一塊
+- **為何挑這塊**：M5-1 全做太大且 M5-2 ChromaDB / M5-3-4 灌手冊需 RAG_Ultimate Phase 3 artifact（🟡）；`strategy_loader.py` 零外部依賴、可完整單元測試、零脆弱，且 defines the contract 給後續 ingest/retrieve/alert_handler 共用，並直接解 MVP_ARCHITECTURE 風險表「Phase 3 未 ready → baseline placeholder」。
+- **Completion summary**:
+  - ✅ `modules/knowledge/strategy_loader.py`：4 個 frozen dataclass（Chunking/Embedding/Retrieval/RagStrategy）+ `StrategyError` + 型別收窄 helper（PyYAML `Any` → 精確型別，符合 CLAUDE.md §7 不用 Any）+ 驗證規則（size>0 / 0<=overlap<size / dimension>0 / top_k>0 / rerank=true 須有 rerank_model / 各必填字串非空）
+  - ✅ `parse_strategy`（解析 dict，與檔案 IO 解耦）/ `load_strategy`（檔案層，缺檔/空檔/壞 yaml 全轉 StrategyError）/ `baseline_strategy`（小 CPU 友善多語 placeholder）/ `load_strategy_or_baseline`（失敗 log warning 退 baseline）
+  - ✅ `config/rag_strategy_z72_manual.yaml`：reference 樣本（對齊 MVP_ARCHITECTURE §3.5）
+  - ✅ `modules/knowledge/tests/test_strategy_loader.py`：31 tests（happy path / 結構紅線 / 三 section 驗證 / 檔案層 / baseline 自洽 round-trip / or_baseline 退路）
+  - ✅ `modules/knowledge/__init__.py` 空殼 → re-export 公開 API + roadmap 註解
+  - ✅ requirements.txt +pyyaml / requirements-dev.txt +types-PyYAML
+  - ✅ Verify：`pytest modules/{workflow,cost,reporting,knowledge}/tests/` → **608 passed / 1 xfailed**（= 570 baseline + 38 新，零 regression）；frontend 未動
+- **Reference**:
+  - [`work-logs/2026-05/2026-05-30-knowledge-strategy-loader.md`](work-logs/2026-05/2026-05-30-knowledge-strategy-loader.md)
+  - [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) §3.5（strategy.yaml schema 範例）
+- **Depends on**: 無（純解析驗證；不碰 ChromaDB）
+- **Blocks / 下一塊**: M5-1 `ingest.py` / `retrieve.py`（需 M5-2 ChromaDB）/ `alert_handler.py`（query 構造可先做）
 
 ---
 
