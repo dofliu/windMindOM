@@ -16,14 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 49 |
-| **total (active)** | **63** |
+| done | 50 |
+| **total (active)** | **64** |
 
-最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
+最後更新：2026-05-31 20:xx（**WMOM-20260531-01 done — 前端 component render 測試基礎建設 + UI primitive 覆蓋**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 59 passed、tsc 0 / build OK，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/26→5/29 連四個 session 的「擴大 frontend 測試覆蓋」全在純函式 / hook 層；5/28、5/29 handoff 反覆點名下一階段「**真 component render 測試**」卡在前置（需補 `@testing-library/jest-dom` + vitest `setupFiles`，標脆弱、建議獨立 session）。本 session 就是那個獨立 session：**一次立起 component render 基礎建設，用最低脆弱度的 `components/ui/*` primitive library 當第一批驗證對象**。**基礎建設**：`frontend/test/setup.ts`（jest-dom matcher + **手動 `afterEach(cleanup)`**，因 `globals:false` RTL 不自動掛 cleanup，不補會「Found multiple elements」）+ `frontend/test/renderWithTheme.tsx`（包 ThemeProvider helper，因 ui 元件都用 useTheme）+ `vitest.config.ts` 加 setupFiles + `package.json` 加 `@testing-library/jest-dom`。**測試（+38）**：Btn 8（onClick / disabled+loading 擋點擊 / aria-label / aria-pressed / type）、StatusPill 15（render + 3 個 status→tone 純函式窮舉 + 未知值走 default）、layout 7（Stat / Card / PageHeader）、Field 8（Field / Input 受控 onChange 傳新值字串 / Select / ReadOnlyBox）。**Verify**：vitest 59→97 passed；tsc 0 errors；vite build 918.27 kB 持平（test 不進 bundle）；backend 570 / 1 xfailed zero regression。issue_stats open 13 / in_progress 1 / done 49→50 / total 63→64。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-31-ui-component-render-tests.md。
 
 ---
 
-最後更新：2026-05-29 20:xx（**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試：mockUsers 純函式 + fixture 契約**）。今日 autonomous daily worker session：preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策（退料 guard 會計語意 / demo orchestrator product decision / UI v2 設計交接書）或 M6 環境（F6 PostgreSQL）或物理模型（高風險）。延續 5/26→5/28 的「擴大 frontend 測試覆蓋」momentum，挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 `mockUsers.ts`（WMOM-20260510-01 Part B）—— `getCurrentActorId()` 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** `frontend/services/__tests__/mockUsers.test.ts`（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（含 roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3（falsy/合法/未知+大小寫敏感）+ getCurrentActorId 7（含**未知 id→安全 fallback Alice**、**Owner 不過濾**、**SSR guard 用 vi.stubGlobal 打到**）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal test；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名改資料前提 / expectedRoles 註解改正兩層保護 / UUID→PLACEHOLDER 命名；nice _typeGuard 限制註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md。
+最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
 
 ---
 
@@ -2236,6 +2236,46 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
   - [`work-logs/2026-05/2026-05-29-docs-reorg.md`](work-logs/2026-05/2026-05-29-docs-reorg.md)
   - [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)
   - [`docs/routines/autonomous-daily-worker-prompt.md`](docs/routines/autonomous-daily-worker-prompt.md)
+
+---
+
+### WMOM-20260531-01 — 前端 component render 測試基礎建設 + UI primitive 覆蓋
+
+- **Status**: done（2026-05-31 完成 — autonomous daily worker）
+- **Milestone**: 工程基礎設施 / 測試覆蓋持續擴大（ISSUES.md 頂部「🎯 跨 milestone 持續工作」🔵）
+- **Priority**: medium（解鎖 component render 測試這條線；UI primitive 是全 app 共用骨架、此前零測試）
+- **Estimate**: 0.5 工作天 → **實際 ~0.5d**（frontend only）
+- **Owner**: Claude（session 2026-05-31）
+- **Branch**: `claude/gifted-maxwell-0LIq0`
+- **Source**: 5/28、5/29 handoff 反覆點名的「真 component render 測試」前置（需 jest-dom + setupFiles），標脆弱、建議獨立 session → 本 session 即該獨立 session
+- **Completion summary**:
+  - ✅ **基礎建設**（解鎖整條 component render 測試線）：
+    - `frontend/test/setup.ts`：`import '@testing-library/jest-dom/vitest'`（注入 `toBeInTheDocument`
+      / `toHaveAttribute` / `toBeDisabled` matcher + 型別 augmentation）+ **手動 `afterEach(cleanup)`**
+      —— 本專案刻意 `globals: false`，RTL 自動 unmount 只在 `globals: true` 掛 afterEach，不補會跨
+      test render 殘留 →「Found multiple elements」（實作中真的撞到，補上後解）
+    - `frontend/test/renderWithTheme.tsx`：包 `<ThemeProvider>` 再 render 的共用 helper（`components/ui/*`
+      全用 `useTheme()`，不套 provider 直接 render 會 throw）
+    - `frontend/vitest.config.ts` 加 `setupFiles: ['./test/setup.ts']`、移除舊 TODO
+    - `package.json` 加 `@testing-library/jest-dom@^6.9.1`（`react` + `dom` 早已在 devDeps）
+  - ✅ **測試（+38）**：以最低脆弱度的 `components/ui/*` primitive library 當第一批驗證對象，只驗
+    行為 / 語意 DOM / aria，不綁 theme 配色 hex（避免主題改動即脆）：
+    - `Btn.test.tsx`（8）：render 為 `<button>` / type 預設 button 可改 submit / 點擊觸發 onClick /
+      **disabled 與 loading 皆 disable 且不觸發 onClick** / ariaLabel→accessible name / ariaPressed toggle / title
+    - `StatusPill.test.tsx`（15）：render children / title / colorBg+colorFg 自訂色蓋過 tone +
+      三個 status→tone 純函式（turbine / workOrder / technician）`it.each` 窮舉已知值 + **未知值走 default 分支**（switch 無漏接）
+    - `layout.test.tsx`（7）：Stat（label/value、unit+hint 缺省不顯示）/ Card（children/onClick/className）/
+      PageHeader（**title 渲染為 h1**、sub/breadcrumb/actions 缺省不顯示帶入才顯示）
+    - `Field.test.tsx`（8）：Field / Input（受控 value、undefined→空字串、**onChange 傳新值字串非 event**、disabled）/
+      Select（option 全 render、受控 value、切換帶新 value）/ ReadOnlyBox
+  - ✅ **Verify**：vitest 59→**97 passed**（9 檔）；`tsc --noEmit` 0 errors（jest-dom 型別經 setup 生效）；
+    `vite build` 918.27 kB（test/setup 不進 production bundle、大小持平）；backend 未動 zero regression（570 / 1 xfailed）
+- **Reference**:
+  - [`frontend/test/renderWithTheme.tsx`](frontend/test/renderWithTheme.tsx) / [`frontend/test/setup.ts`](frontend/test/setup.ts)
+  - [`frontend/components/ui/__tests__/`](frontend/components/ui/__tests__/)（Btn / StatusPill / layout / Field）
+  - [`work-logs/2026-05/2026-05-31-ui-component-render-tests.md`](work-logs/2026-05/2026-05-31-ui-component-render-tests.md)
+- **Depends on**: WMOM-20260526-01（vitest+RTL 基礎設施，done）
+- **Blocks**: 後續重元件 render 測試（CostPage / FarmOverview / workflow Panel，可直接複用 renderWithTheme）
 
 ---
 

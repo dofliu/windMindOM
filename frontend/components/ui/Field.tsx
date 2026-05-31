@@ -87,7 +87,9 @@ export const Input: React.FC<InputBaseProps> = ({
 
 interface SelectOption {
   value: string;
-  label: React.ReactNode;
+  // 限定 string：原生 <option> 只能顯示文字，傳 JSX 會被靜默渲染成空字串（footgun）。
+  // 全 app 既有呼叫端皆傳字串，於型別層擋住非字串 label。
+  label: string;
 }
 
 interface SelectProps {
@@ -122,7 +124,7 @@ export const Select: React.FC<SelectProps> = ({ value, options, onChange, ariaLa
     >
       {options.map(o => (
         <option key={o.value} value={o.value} style={{ color: '#000' }}>
-          {typeof o.label === 'string' ? o.label : ''}
+          {o.label}
         </option>
       ))}
     </select>
