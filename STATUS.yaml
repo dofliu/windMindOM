@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-05-29"  # WMOM-20260529-02（專案文件大整理，劉老師交辦）
-next_milestone: "**WMOM-20260529-02 done — 專案文件大整理（劉老師交辦）**：清過時 digiWT 重複檔（README 重寫 / AGENTS+GEMINI 改薄 pointer / 刪 project+idea+daily_report+session_handoff+root package-lock 空殼+pitch_deck_v0.4 / TODO 刷新 / 移除外部 dump z72SCADA_New / UI 原型只留交接書）；ISSUES.md 頂部 8 筆 changelog 抽 7 筆到 docs/legacy/issues_changelog_archive.md（只留最近 2）；新增「🎯 未來大目標（M5/M6 epics）」區塊（維持 ISSUES.md bot 友善 single source，M5-1~6 RAG+mobile / M6-1~6 PoC+合約，標 🔵 autonomous / 🟡 需劉老師）；routine prompt 更新版 docs/routines/autonomous-daily-worker-prompt.md（504→570 baseline、移除已 done A6/A7/A10/WMOM-20260510-01、讀最新 handoff）—— 劉老師需複製進 cron trigger 設定。Verify：backend 570 / frontend 59 / tsc 0 / build OK，零 code regression。**下一個 milestone 入口見 ISSUES.md 頂部 🎯 epic 區塊**。 ——（同日稍早）**WMOM-20260529-01 done — Frontend mock login 身份核心回歸測試**：autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、frontend vitest 39 passed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。5/10 handoff 已過時（A6/A7/A10/WMOM-20260510-01 全 done、M4 100%）；剩餘 open 多需劉老師決策或 M6 環境或物理模型。延續 5/26→5/28『擴大 frontend 測試覆蓋』momentum 挑唯一無設計歧義、完全 autonomous、單 session 可完工的續作。**切入點**：mock login 身份核心 mockUsers.ts（WMOM-20260510-01 Part B）—— getCurrentActorId() 是非 React 模組唯一同步身份來源、所有 dispatch/approve 的 actor_id 源頭、M6 demo 三階簽核關鍵、此前零測試；只依賴 localStorage（jsdom 已提供）→ 零 DOM render、零新依賴、不動 vitest.config.ts。**新增** frontend/services/__tests__/mockUsers.test.ts（20 tests，新建 services/__tests__ 目錄）：fixture 契約 8（roles 型別化期望表窮舉 sort 鎖集合、只 Owner dev_mode_only）+ DEFAULT_USER/常數 2（Alice 最低權限安全預設、storage key 契約）+ findMockUser 3 + getCurrentActorId 7（含未知 id→安全 fallback Alice、Owner 不過濾、SSR guard 用 vi.stubGlobal 打到）+ 型別 sanity。**Verify**：vitest 39→59 passed；tsc 0 errors；vite build 918.27 kB 持平；backend 未動 zero regression。**Code review**：1 must / 5 should / 3 nice → 全採納（must SSR guard 加 vi.stubGlobal；should roles 改 sort 鎖集合 / 補 Owner happy path / is_active 命名 / expectedRoles 註解 / UUID→PLACEHOLDER；nice _typeGuard 註解 + 移除冗餘 afterEach）。issue_stats open 13 / in_progress 1 / done 47→48 / total 61→62。M4 維持 100%。下次候選：真 component render 測試（CostPage / FarmOverview，需 vitest.config 補 jsdom setupFiles + npm i @testing-library/jest-dom）/ WMOM-20260519-01（需劉老師會計語意決策）/ WMOM-20260513-02 demo orchestrator（含 product decision）/ WMOM-20260509-F6（PostgreSQL，M6）。詳細 handoff 在 work-logs/2026-05/2026-05-29-mockusers-identity-tests.md."
+last_updated: "2026-06-01"  # WMOM-20260601-01（Knowledge / RAG baseline 檢索層，EPIC-M5 起手）
+next_milestone: "**WMOM-20260601-01 done — Knowledge / RAG module baseline 檢索層（EPIC-M5 M5-1 起手）**：autonomous daily worker session。preflight baseline 全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 ISSUES.md 🎯 EPIC-M5 挑最高價值 🔵 autonomous 項 = M5-1 Knowledge 後端（PMF 關鍵，設計規範已在 MVP_ARCHITECTURE §3.5、無歧義）。**Simulator-first 切法**（CLAUDE.md §15）：先做不依賴 ChromaDB（M5-2）/ RAG_Ultimate 真向量檔（M5-3 🟡）的純 Python baseline 層，純 simulator 模式即可 demo「警報→手冊處置」。**新增** modules/knowledge/：schemas.py（6 pydantic v2 模型）+ strategy_loader.py（載入 RAG 策略檔，缺失/空檔/非mapping→baseline default）+ corpus.py（載入 baseline 知識庫 JSON + by_alarm_code/filter，單筆損毀 graceful skip）+ retrieve.py（Retriever Protocol[name/is_baseline/retrieve] + BaselineKeywordRetriever 純 Python 評分：告警碼 0.6 + 關鍵字 0.3 + 文字 Jaccard 0.1，可解釋 match_reason）+ alert_handler.py（警報→query→retrieve→AlertRagResult，只依賴 Retriever 介面）+ config/rag_strategy_z72_manual.yaml + data/baseline_corpus_z72.json（11 個 Z72/Bachmann fault scenario SOP，告警碼對齊 monitoring fault_engine.FAULT_SCENARIOS）+ build_baseline_alert_handler 工廠。**Verify**：knowledge 54 tests + backend 全套 624 passed / 1 xfailed（570 原 baseline + 54 新，零 regression）；Any 0；端到端 smoke 警報碼 21→top1 變頻器冷卻 SOP。**Code review**：2 must / 7 should / 4 nice → must+should 全採納 + 便宜 nice 採納 / NTH1 過早優化不採納（must：handler isinstance→Retriever 契約屬性 is_baseline 解 DIP+升級契約；AlertEvent.timestamp 加 UTC-aware validator）。frontend 未動（backend-only）vitest 59 baseline 不受影響。issue_stats open 13（不變，EPIC-M5 epic 區塊不計入編號 open）/ done 49→50 / total 63→64。**下一步候選**：M5-6 FastAPI knowledge router 串前端（🔵 單 session）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md."
 technologies:
   - FastAPI
   - React
@@ -53,8 +53,8 @@ milestones:
   M5:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
-    status: planned
-    progress: 0
+    status: in_progress
+    progress: 15  # M5-1 baseline 檢索層 done（schema + loader + corpus + baseline retriever + alert_handler）；M5-2~6 待續
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 49  # +1: WMOM-20260529-02 專案文件大整理（清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic + routine prompt）(2026-05-29 劉老師交辦)
+  done: 50  # +1: WMOM-20260601-01 Knowledge / RAG baseline 檢索層（EPIC-M5 M5-1 起手，simulator-first，54 tests）(2026-06-01)
 
 inherited_baseline:
   source: digiWindTurbine

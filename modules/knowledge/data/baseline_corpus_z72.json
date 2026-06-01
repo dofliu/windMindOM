@@ -1,0 +1,132 @@
+{
+  "_meta": {
+    "description": "Z72 baseline 知識庫 placeholder。正式向量檔由 RAG_Ultimate Phase 3 交付（M5-3）；在那之前本檔供純 simulator 模式 demo「警報→手冊處置」。告警碼對齊 modules/monitoring/simulator/physics/fault_engine.py 的 FAULT_SCENARIOS。",
+    "document_source": "Z72_baseline_SOP.md (placeholder)",
+    "oem": "Bachmann",
+    "model": "Z72",
+    "is_baseline": true
+  },
+  "chunks": [
+    {
+      "id": "z72-sop-bearing-wear",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§3.1 發電機軸承",
+      "page": 31,
+      "chunk_text": "發電機主軸承溫度升高（告警碼 262 / 跳機碼 240、241）多為軸承潤滑劣化或磨損。處置：1) 確認 WGEN_GnBrgTmp1 趨勢是否持續上升並伴隨 WNAC_VibMsNacXDir 振動增大；2) 檢查潤滑油路與油位、補脂；3) 若溫度逼近 95°C（碼 240）應降載並安排停機檢查軸承；4) 出現碼 241 表示軸承失效跳機，須更換軸承後方可復機。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [262, 240, 241],
+      "keywords": ["軸承", "bearing", "溫度", "潤滑", "振動", "WGEN_GnBrgTmp1"]
+    },
+    {
+      "id": "z72-sop-generator-overspeed",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§4.2 發電機超速保護",
+      "page": 42,
+      "chunk_text": "發電機 / 轉子超速（Z72 事件 027 / 041）為控制系統或變槳失效導致。處置：1) 確認變槳系統是否正常順槳（pitch to feather）；2) 檢查 WROT_RotSpd 與 WGEN_GnSpd 是否超過 28.5 RPM；3) 確認超速保護電驛（81）動作正常；4) 復機前須排除變槳液壓 / 控制迴路故障，避免再次超速。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [41, 27],
+      "keywords": ["超速", "overspeed", "轉子", "變槳", "pitch", "RotSpd", "電驛"]
+    },
+    {
+      "id": "z72-sop-converter-cooling",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§5.3 變頻器水冷系統",
+      "page": 53,
+      "chunk_text": "變頻器 IGCT 水冷劣化（變頻器冷卻警示碼 32 / 跳機碼 21）會造成 WCNV_IGCTWtrTmp 持續上升、WCNV_IGCTWtrPres 壓力下降。處置：1) 檢查冷卻水泵運轉與管路是否洩漏 / 阻塞；2) 確認冷卻水位與膨脹箱壓力；3) 清潔熱交換器；4) 收到碼 21（變頻器要求跳機）應停機處理水冷系統後復機。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [32, 21],
+      "keywords": ["變頻器", "converter", "冷卻", "水冷", "IGCT", "WCNV_IGCTWtrTmp", "熱交換器"]
+    },
+    {
+      "id": "z72-sop-transformer-overheat",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§5.5 變壓器",
+      "page": 55,
+      "chunk_text": "變壓器過熱（告警碼 350 / 351）多為冷卻風扇或散熱效能下降。處置：1) 確認 WGDC_TrfCoreTmp 鐵心溫度趨勢；2) 檢查變壓器冷卻風扇運轉；3) 清潔散熱片與通風口；4) 必要時降載並安排檢查變壓器繞組與油（若油浸式）。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [350, 351],
+      "keywords": ["變壓器", "transformer", "過熱", "鐵心", "冷卻風扇", "WGDC_TrfCoreTmp"]
+    },
+    {
+      "id": "z72-sop-pitch-imbalance",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§4.4 變槳系統",
+      "page": 44,
+      "chunk_text": "葉片旋角不平衡（告警碼 43 / 311）為三葉片變槳角度不一致，造成 1P 振動與功率波動。處置：1) 比對三支葉片 pitch 角度回授；2) 校正變槳編碼器零點；3) 檢查變槳電池 / 液壓背壓；4) 若 1P 振動（WNAC_VibMsNacXDir）持續偏高應安排變槳系統檢修。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [43, 311],
+      "keywords": ["變槳", "pitch", "旋角", "不平衡", "葉片", "1P", "振動", "編碼器"]
+    },
+    {
+      "id": "z72-sop-yaw-sensor-drift",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§6.1 偏航系統",
+      "page": 61,
+      "chunk_text": "偏航感測器漂移（告警碼 223）會使對風誤差增大、發電量下降。處置：1) 比對風向標 WNAC 與機艙方位回授；2) 校正偏航位置感測器零點；3) 檢查風向標是否結冰 / 卡死；4) 校正後觀察對風誤差是否收斂。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [223],
+      "keywords": ["偏航", "yaw", "感測器", "漂移", "風向標", "對風誤差", "校正"]
+    },
+    {
+      "id": "z72-sop-stator-winding",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§3.3 發電機定子",
+      "page": 33,
+      "chunk_text": "定子繞組絕緣劣化（告警碼 264 / 跳機碼 244）會造成 WGEN_GnStaTmp 溫升異常。處置：1) 監看定子三相溫度差；2) 安排絕緣電阻（IR）測試；3) 檢查定子冷卻風道；4) 收到碼 244 須停機並評估重繞或更換定子。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [264, 244],
+      "keywords": ["定子", "stator", "繞組", "絕緣", "WGEN_GnStaTmp", "絕緣電阻", "溫升"]
+    },
+    {
+      "id": "z72-sop-hydraulic-leak",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§6.3 偏航煞車液壓",
+      "page": 63,
+      "chunk_text": "偏航煞車液壓洩漏（告警碼 260 / 261 / 228）會造成液壓壓力下降、偏航煞車力不足。處置：1) 檢查液壓站壓力與油位；2) 巡查管路接頭與煞車鉗是否滲油；3) 補充液壓油並排氣；4) 確認壓力恢復至設定值後解除告警。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [260, 261, 228],
+      "keywords": ["液壓", "hydraulic", "洩漏", "偏航煞車", "壓力", "油位", "管路"]
+    },
+    {
+      "id": "z72-sop-blade-icing",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§7.1 環境因素 — 葉片結冰",
+      "page": 71,
+      "chunk_text": "葉片結冰（告警碼 42 / 236）為低溫高濕環境造成葉片質量分布改變、功率曲線偏移與不平衡振動。處置：1) 確認環境溫度與濕度；2) 啟動防 / 除冰系統（若配備）；3) 結冰嚴重時降載或暫停運轉避免甩冰風險；4) 待結冰脫落並確認功率曲線恢復後復機。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [42, 236],
+      "keywords": ["結冰", "icing", "葉片", "除冰", "環境", "低溫", "功率曲線", "甩冰"]
+    },
+    {
+      "id": "z72-sop-grid-voltage-sag",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§8.2 電網介面 — 電壓擾動",
+      "page": 82,
+      "chunk_text": "電網電壓不穩 / 電壓驟降（告警碼 30 / 24）為外部電網因素。處置：1) 確認併網點電壓 / 頻率是否在容許範圍；2) 檢查 LVRT 低電壓穿越設定；3) 與電網調度確認外部事故；4) 多為外部因素，電網恢復後機組自動復機，必要時記錄事件回報業主。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [30, 24],
+      "keywords": ["電網", "grid", "電壓", "驟降", "LVRT", "併網", "頻率", "外部"]
+    },
+    {
+      "id": "z72-sop-nacelle-cooling",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "section": "§5.4 機艙冷卻系統",
+      "page": 54,
+      "chunk_text": "機艙冷卻系統故障（告警碼 256 / 273 / 258）為複合型故障，會同時拉高機艙內多個部件溫度。處置：1) 確認機艙冷卻風扇 / 通風閘門運轉；2) 檢查進氣濾網是否堵塞；3) 比對多點溫度（發電機 / 變頻器 / 機艙環境）找出熱源；4) 排除後逐步恢復負載並觀察溫度。",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "alarm_codes": [256, 273, 258],
+      "keywords": ["機艙", "nacelle", "冷卻", "風扇", "通風", "濾網", "溫度", "複合"]
+    }
+  ]
+}

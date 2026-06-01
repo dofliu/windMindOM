@@ -1,0 +1,22 @@
+# Z72 手冊 RAG 策略檔（baseline placeholder）
+#
+# 正式版由 RAG_Ultimate 研究端 Phase 3 提供（WMOM 的 M5-3 🟡）；
+# 在那之前本檔為 baseline placeholder，供 windMindOM 純 simulator 模式 demo。
+# 結構對齊 docs/product/MVP_ARCHITECTURE.md §3.5 範例。
+#
+# windMindOM 只「載入 + query」，不依此檔重新 embed（embed 在研究端做）。
+name: z72_manual_baseline
+oem: Bachmann
+model: Z72
+chunking:
+  method: semantic
+  size: 512
+  overlap: 50
+embedding:
+  model: BAAI/bge-large-zh-v1.5
+  dimension: 1024
+retrieval:
+  algorithm: hybrid_bm25_vector
+  top_k: 3
+  rerank: true
+  rerank_model: bge-reranker-v2-m3
