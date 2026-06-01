@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -50,7 +51,9 @@ class CorpusConfig(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     source: str = Field(description="語料檔路徑（相對策略檔所在目錄或絕對路徑）")
-    format: str = Field(default="jsonl", description="目前 baseline 僅支援 jsonl")
+    format: Literal["jsonl"] = Field(
+        default="jsonl", description="目前 baseline 僅支援 jsonl（擴充 parquet 時加入 Literal）"
+    )
 
 
 class RagStrategy(BaseModel):

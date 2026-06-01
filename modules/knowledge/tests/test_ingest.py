@@ -84,16 +84,28 @@ def test_build_retriever_from_baseline_strategy() -> None:
     assert retriever.size >= 10
 
 
-def test_build_retriever_rejects_unsupported_format() -> None:
-    """非 jsonl 格式被拒絕（baseline 尚未支援 parquet / chroma）。"""
+def test_unsupported_corpus_format_rejected_at_schema() -> None:
+    """非 jsonl 格式在 schema 層即被拒絕（CorpusConfig.format = Literal["jsonl"]）。"""
+    with pytest.raises(ValueError, match="jsonl"):
+        RagStrategy.model_validate(
+            {
+                "version": "x",
+                "corpus": {"source": "x.parquet", "format": "parquet"},
+            }
+        )
+
+
+def test_build_retriever_propagates_min_score() -> None:
+    """策略檔 retrieval.min_score 被帶入檢索器（不再是死配置）。"""
     strategy = RagStrategy.model_validate(
         {
             "version": "x",
-            "corpus": {"source": "x.parquet", "format": "parquet"},
+            "retrieval": {"top_k": 3, "min_score": 2.5},
+            "corpus": {"source": "z72_manual_baseline.jsonl", "format": "jsonl"},
         }
     )
-    with pytest.raises(ValueError, match="jsonl"):
-        build_retriever(strategy, _BASELINE_DIR)
+    retriever = build_retriever(strategy, _BASELINE_DIR)
+    assert retriever.min_score == 2.5
 
 
 def test_build_retriever_default_strategy_resolves_corpus() -> None:

@@ -69,6 +69,10 @@ class AlertHandler:
     def query(self, query: KnowledgeQuery) -> KnowledgeResponse:
         """直接以 ``KnowledgeQuery`` 檢索並包裝回應。
 
+        注意：本路徑**原樣尊重** ``query.top_k``（不套策略預設）；若需要策略
+        的 ``retrieval.top_k`` 預設，請走 ``handle()``。兩者職責分離：``query()``
+        給「呼叫端自己決定 top_k」的場景，``handle()`` 給「警報自動帶策略預設」。
+
         Args:
             query: 查詢請求。
 

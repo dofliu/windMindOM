@@ -85,4 +85,4 @@ def build_retriever(
         )
     corpus_path = strategy.resolve_corpus_path(base_dir)
     chunks = load_chunks_from_jsonl(corpus_path)
-    return BaselineLexicalRetriever(chunks)
+    return BaselineLexicalRetriever(chunks, min_score=strategy.retrieval.min_score)

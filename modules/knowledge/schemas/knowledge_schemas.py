@@ -16,10 +16,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -85,13 +84,17 @@ class AlertContext(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    alert_code: str = Field(description="警報碼，如 A-262 / T1-21 / 262")
-    severity: str = Field(default="warning", description="info / warning / alarm / critical")
+    alert_code: str = Field(min_length=1, description="警報碼，如 A-262 / T1-21 / 262")
+    severity: Literal["info", "warning", "alarm", "critical"] = Field(
+        default="warning", description="警報嚴重度"
+    )
     message: str = Field(default="", description="警報文字（中英皆可）")
     turbine_id: Optional[str] = Field(default=None, description="風機 id，如 WT003")
     subsystem: Optional[str] = Field(default=None, description="子系統，如 generator / pitch / yaw")
     oem_model: str = Field(default="Z72", description="機型，決定載入哪份語料")
-    timestamp: Optional[datetime] = Field(default=None, description="警報發生時間")
+    timestamp: Optional[AwareDatetime] = Field(
+        default=None, description="警報發生時間（須帶 tzinfo，一律 UTC）"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -126,4 +129,4 @@ class KnowledgeResponse(BaseModel):
     total_candidates: int = Field(
         default=0, description="進入比對的候選 chunk 總數（過濾前）"
     )
-    retrieved_at: datetime = Field(description="檢索時間戳（UTC）")
+    retrieved_at: AwareDatetime = Field(description="檢索時間戳（須帶 tzinfo，一律 UTC）")

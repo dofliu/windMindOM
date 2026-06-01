@@ -92,9 +92,18 @@ simulator（可獨立單測）。
 | backend baseline `pytest modules/{workflow,cost,reporting}/tests/` | **570 passed / 1 xfailed**（零 regression） |
 | frontend | 未動（本 session 純 backend 新 module，不影響 vitest 59） |
 
-## 5. Code review
+## 5. Code review（code-reviewer subagent：3 must / 6 should / 6 nice）
 
-（見下方收尾補記：code-reviewer subagent 對 staged diff 的 must/should-fix 處置）
+**Must-fix 全採納：**
+1. **語料警報碼 leading-zero 不一致** — 5 個 2 位數碼 chunk 的 `fault_codes` 只收非補零式（`T1-27`），但 text 用手冊 Event 三位數（`T1-027`），補零式查詢無法觸發 +10 加權。修：affected chunk 的 `fault_codes` 同時收補零 + 非補零 4 式（`T1-027`/`027`/`T1-27`/`27`）。驗證：`T1-27` 與 `T1-027` 皆命中 +10 路徑。
+2. **`min_score` 死配置** — `RagStrategy.retrieval.min_score` 從未被 `retrieve()` 讀取。修：`BaselineLexicalRetriever.__init__(min_score)` + filter 改 `score <= self._min_score`；`build_retriever()` 帶入 `strategy.retrieval.min_score`。
+3. **naive datetime 通過驗證** — `AlertContext.timestamp` / `KnowledgeResponse.retrieved_at` 接受無 tzinfo。修：改 `pydantic.AwareDatetime`，naive 直接 ValidationError。
+
+**Should-fix 採納（5/6）：** severity → `Literal`；`CorpusConfig.format` → `Literal["jsonl"]`（schema 層擋）；`matched_terms` 警報碼命中改 `[fault_code:...]` sentinel（與 lexical term 區隔，前端高亮不混淆）；test 改 `model_copy` 不 mutate 共享 strategy；`test_handle_respects_strategy_top_k` 斷言 `<=2`→`==2`。第 6 項（`build_query_text` 的單字母 noise）已在實作階段以 `_extract_terms` len>1 filter 解決。
+
+**Nice-to-have 採納（4/6）：** `alert_code` 加 `min_length=1`；補 restart chunk（空 fault_code）端到端命中 test；`_normalize_code` docstring 註明不正規化位數；`AlertHandler.query()` docstring 註明 top_k 職責分離。未採納 2 項（工程單位 `°C`/`bar` term 抽取、`WGDC_` prefix schema 對齊）記為 M5-3 embedding retriever 替換時處理。
+
+**修後 Verify**：knowledge tests 43→**50 passed**（+7 regression tests）；backend baseline **570 / 1 xfailed** 零 regression。
 
 ## 6. 下次 session 接手建議
 

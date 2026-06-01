@@ -64,6 +64,10 @@ def _normalize_code(code: str) -> str:
 
     去空白、轉小寫、移除常見分隔符（``A-262`` / ``A 262`` / ``a_262`` →
     ``a262``），讓 monitoring 端與手冊端格式差異不影響命中。
+
+    注意：本函式**不**正規化數字位數（``030`` 與 ``30`` 視為不同碼）。Z72
+    手冊事件表用三位數（Event 027），monitoring alarm_codes 用整數（27），
+    故語料端的 ``fault_codes`` 須同時收錄兩式（見 baseline jsonl）。
     """
     return re.sub(r"[\s\-_]+", "", code.strip().lower())
 
@@ -76,13 +80,17 @@ class BaselineLexicalRetriever:
     排序確保**決定性**。
     """
 
-    def __init__(self, chunks: list[ManualChunk]) -> None:
+    def __init__(self, chunks: list[ManualChunk], min_score: float = 0.0) -> None:
         """以一批 chunk 建構檢索器。
 
         Args:
             chunks: 語料（通常由 ``ingest.load_chunks_from_jsonl`` 載入）。
+            min_score: 相關性分數門檻，``retrieve()`` 只回傳 **score > min_score**
+                的 chunk。預設 0.0（等同「至少要有一個命中」）；由
+                ``RagStrategy.retrieval.min_score`` 帶入，讓策略檔調參真的生效。
         """
         self._chunks: list[ManualChunk] = list(chunks)
+        self._min_score = min_score
         # 預先計算每個 chunk 的索引欄位，避免每次查詢重算
         self._keyword_terms: list[set[str]] = []
         self._text_terms: list[set[str]] = []
@@ -98,6 +106,11 @@ class BaselineLexicalRetriever:
         """語料 chunk 總數。"""
         return len(self._chunks)
 
+    @property
+    def min_score(self) -> float:
+        """目前生效的分數門檻（來自策略檔）。"""
+        return self._min_score
+
     def retrieve(self, query: KnowledgeQuery) -> list[RetrievedChunk]:
         """對語料執行 baseline 檢索。
 
@@ -106,7 +119,7 @@ class BaselineLexicalRetriever:
 
         Returns:
             依分數遞減排序的 ``RetrievedChunk`` list，長度 ≤ ``top_k``；
-            分數須 > 0 才回傳（無命中不硬塞）。
+            分數須 > ``min_score`` 才回傳（預設 0.0 → 無命中不硬塞）。
         """
         if query.top_k <= 0:
             return []
@@ -125,7 +138,9 @@ class BaselineLexicalRetriever:
 
             if query_code and query_code in self._codes[idx]:
                 score += _WEIGHT_FAULT_CODE
-                matched.add(query.fault_code or "")
+                # 用 sentinel 標明這是「警報碼精準命中」，與正規化後的 lexical
+                # term 區隔，前端高亮邏輯才不會誤把原始碼當文字 substring 比對
+                matched.add(f"[fault_code:{query.fault_code}]")
 
             keyword_hits = query_terms & self._keyword_terms[idx]
             score += _WEIGHT_KEYWORD * len(keyword_hits)
@@ -135,7 +150,7 @@ class BaselineLexicalRetriever:
             score += _WEIGHT_TEXT * len(text_hits)
             matched |= text_hits
 
-            if score <= 0:
+            if score <= self._min_score:
                 continue
 
             scored.append(

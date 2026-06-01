@@ -79,7 +79,20 @@ def test_fault_code_match_dominates() -> None:
     res = r.retrieve(KnowledgeQuery(text="壓力", fault_code="A-262", top_k=2))
     assert res[0].chunk.chunk_id == "c1"
     assert res[0].score >= 10.0
-    assert "A-262" in res[0].matched_terms
+    # 警報碼命中以 sentinel 呈現，與 lexical term 區隔
+    assert "[fault_code:A-262]" in res[0].matched_terms
+
+
+def test_min_score_filters_low_relevance() -> None:
+    """min_score 門檻真的生效（策略檔調參不再是死配置）。"""
+    chunks = _toy_corpus()
+    # 只命中內文一個 term → score 1.0；門檻設 1.0 應被濾掉（須 > min_score）
+    strict = BaselineLexicalRetriever(chunks, min_score=1.0)
+    assert strict.min_score == 1.0
+    assert strict.retrieve(KnowledgeQuery(text="檢查", top_k=3)) == []
+    # 同查詢在預設門檻（0.0）下會回傳
+    lenient = BaselineLexicalRetriever(chunks, min_score=0.0)
+    assert lenient.retrieve(KnowledgeQuery(text="檢查", top_k=3))
 
 
 def test_keyword_weighs_more_than_text() -> None:
@@ -170,3 +183,21 @@ def test_baseline_corpus_numeric_code_matches() -> None:
     r = BaselineLexicalRetriever(load_chunks_from_jsonl(_BASELINE_CORPUS))
     res = r.retrieve(KnowledgeQuery(text="高溫", fault_code="262", top_k=1))
     assert res[0].chunk.chunk_id == "z72-bearing_wear-01"
+
+
+def test_baseline_corpus_padded_and_unpadded_codes_match() -> None:
+    """2 位數警報碼帶/不帶 leading zero 皆命中（monitoring 整數碼 vs 手冊 Event 三位數）。"""
+    r = BaselineLexicalRetriever(load_chunks_from_jsonl(_BASELINE_CORPUS))
+    for code in ("T1-27", "T1-027", "27", "027"):
+        res = r.retrieve(KnowledgeQuery(text="超速", fault_code=code, top_k=1))
+        assert res, f"code {code} 應命中"
+        assert res[0].chunk.chunk_id == "z72-generator_overspeed-01"
+        assert res[0].score >= 10.0  # 走到 fault_code 加權路徑
+
+
+def test_baseline_corpus_restart_chunk_lexical_hit() -> None:
+    """無 fault_code 的通則重啟 chunk 靠 keyword/text 命中。"""
+    r = BaselineLexicalRetriever(load_chunks_from_jsonl(_BASELINE_CORPUS))
+    res = r.retrieve(KnowledgeQuery(text="跳機後重啟步驟與安全鏈復歸", top_k=1))
+    assert res
+    assert res[0].chunk.chunk_id == "z72-general-restart-01"

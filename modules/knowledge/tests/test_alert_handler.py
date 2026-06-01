@@ -9,9 +9,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from modules.knowledge.alert_handler import AlertHandler, build_query_text
 from modules.knowledge.ingest import build_retriever
-from modules.knowledge.schemas.knowledge_schemas import AlertContext, KnowledgeQuery
+from modules.knowledge.schemas.knowledge_schemas import (
+    AlertContext,
+    KnowledgeQuery,
+    KnowledgeResponse,
+)
 from modules.knowledge.strategy_loader import BASELINE_STRATEGY_PATH, load_strategy
 
 _BASELINE_DIR = BASELINE_STRATEGY_PATH.parent
@@ -19,8 +26,11 @@ _FIXED_TIME = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 
 
 def _handler(top_k: int = 3) -> AlertHandler:
-    strategy = load_strategy(BASELINE_STRATEGY_PATH)
-    strategy.retrieval.top_k = top_k
+    # 用 model_copy 建新 strategy 物件（不 in-place mutate 共享 config）
+    base = load_strategy(BASELINE_STRATEGY_PATH)
+    strategy = base.model_copy(
+        update={"retrieval": base.retrieval.model_copy(update={"top_k": top_k})}
+    )
     retriever = build_retriever(strategy, _BASELINE_DIR)
     return AlertHandler(retriever, strategy, clock=lambda: _FIXED_TIME)
 
@@ -41,6 +51,32 @@ def test_build_query_text_joins_nonempty() -> None:
 def test_build_query_text_skips_empty_fields() -> None:
     alert = AlertContext(alert_code="A-262")
     assert build_query_text(alert) == "A-262"
+
+
+# ── schema 防呆 ───────────────────────────────────────────────────────
+
+
+def test_alert_code_rejects_empty() -> None:
+    """空 alert_code 屬資料品質問題，schema 早期失敗。"""
+    with pytest.raises(ValidationError):
+        AlertContext(alert_code="")
+
+
+def test_timestamp_rejects_naive_datetime() -> None:
+    """timezone-naive datetime 被拒（強制 UTC-aware，符合時間戳規範）。"""
+    with pytest.raises(ValidationError):
+        AlertContext(alert_code="A-262", timestamp=datetime(2026, 6, 1, 12, 0))
+
+
+def test_retrieved_at_rejects_naive_datetime() -> None:
+    """KnowledgeResponse.retrieved_at 同樣須帶 tzinfo。"""
+    with pytest.raises(ValidationError):
+        KnowledgeResponse(
+            query="x",
+            oem_model="Z72",
+            strategy_version="baseline-0.1",
+            retrieved_at=datetime(2026, 6, 1, 12, 0),  # naive
+        )
 
 
 # ── handle 端到端 ─────────────────────────────────────────────────────
@@ -70,7 +106,7 @@ def test_handle_respects_strategy_top_k() -> None:
     handler = _handler(top_k=2)
     alert = AlertContext(alert_code="A-262", message="軸承 偏航 變頻器 機艙 電網")
     resp = handler.handle(alert)
-    assert len(resp.chunks) <= 2
+    assert len(resp.chunks) == 2  # 命中 >2 個 chunk，驗證 top_k 確實截斷
 
 
 def test_handle_top_k_override() -> None:

@@ -4,7 +4,7 @@ category: wind_energy
 progress: 100
 status: active
 last_updated: "2026-06-01"  # WMOM-20260601-01（Knowledge module 後端 baseline，EPIC-M5 子目標 M5-1）
-next_milestone: "**WMOM-20260601-01 done — Knowledge module 後端 baseline 骨架（EPIC-M5 子目標 M5-1）**：autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、git tree clean → 決策樹第 1、2 條不觸發）；最新 handoff（5-29 docs-reorg）無未竟 code 工 → 改推進 M5 新 epic 第一塊（M5-1 標 🔵 autonomous-friendly + epic 備註『未 ready 用 baseline placeholder』→ 無設計歧義、單 session 可完工）。modules/knowledge/ 此前僅空 __init__.py。**新增** 純 Python / simulator-first / 零重量級依賴的 baseline RAG 後端（嚴格對齊 M5-1 四檔）：schemas/knowledge_schemas.py（5 model：ManualChunk/RetrievedChunk/AlertContext/KnowledgeQuery/KnowledgeResponse）+ strategy_loader.py（RagStrategy + default_strategy baseline placeholder + load_strategy YAML 驗證 + load_strategy_or_baseline 回退）+ retrieve.py（BaselineLexicalRetriever：中英混合 term 抽取〔英文 alnum + 中文 bigram〕、警報碼正規化〔A-262/262 同視〕、加權計分 fault_code+10>keyword+3>內文+1、(-score,chunk_id) 決定性排序、oem 過濾、無命中不硬塞）+ ingest.py（jsonl 載入帶行號錯誤 + build_retriever 非 jsonl 拒絕）+ alert_handler.py（AlertHandler.handle/.query + 可注入 clock、不耦合 simulator）+ data/baseline/（strategy.yaml + 12 筆手冊 chunk 對齊 monitoring 真實 FAULT_SCENARIOS alarm_codes，每碼收 A-262/262 兩式 → M5-6 可直接餵 monitoring alert code）+ requirements.txt 加 pyyaml。**刻意不做**（保零 regression + 不 scope creep）：ChromaDB（M5-2）/ 真 parquet + Phase3 策略（M5-3/4）/ API+前端（M5-5/6）—— 未動 app.py。**Verify**：新增 modules/knowledge/tests/（4 檔 42 tests）全綠；backend baseline 570 passed / 1 xfailed 零 regression。issue_stats done 49→50 / total 63→64。M5 progress 0→15。下次候選：M5-2 ChromaRetriever（共用 schema 平滑替換，需 chromadb）/ M5-6 API router 接告警事件（wiring app.py）/ M5-5 /field/ mobile 前端渲染 KnowledgeResponse。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-baseline-backend.md."
+next_milestone: "**WMOM-20260601-01 done — Knowledge module 後端 baseline 骨架（EPIC-M5 子目標 M5-1）**：autonomous daily worker session。preflight baseline 完全綠（backend 570 passed / 1 xfailed、git tree clean → 決策樹第 1、2 條不觸發）；最新 handoff（5-29 docs-reorg）無未竟 code 工 → 改推進 M5 新 epic 第一塊（M5-1 標 🔵 autonomous-friendly + epic 備註『未 ready 用 baseline placeholder』→ 無設計歧義、單 session 可完工）。modules/knowledge/ 此前僅空 __init__.py。**新增** 純 Python / simulator-first / 零重量級依賴的 baseline RAG 後端（嚴格對齊 M5-1 四檔）：schemas/knowledge_schemas.py（5 model：ManualChunk/RetrievedChunk/AlertContext/KnowledgeQuery/KnowledgeResponse）+ strategy_loader.py（RagStrategy + default_strategy baseline placeholder + load_strategy YAML 驗證 + load_strategy_or_baseline 回退）+ retrieve.py（BaselineLexicalRetriever：中英混合 term 抽取〔英文 alnum + 中文 bigram〕、警報碼正規化〔A-262/262 同視〕、加權計分 fault_code+10>keyword+3>內文+1、(-score,chunk_id) 決定性排序、oem 過濾、無命中不硬塞）+ ingest.py（jsonl 載入帶行號錯誤 + build_retriever 非 jsonl 拒絕）+ alert_handler.py（AlertHandler.handle/.query + 可注入 clock、不耦合 simulator）+ data/baseline/（strategy.yaml + 12 筆手冊 chunk 對齊 monitoring 真實 FAULT_SCENARIOS alarm_codes，每碼收 A-262/262 兩式 → M5-6 可直接餵 monitoring alert code）+ requirements.txt 加 pyyaml。**刻意不做**（保零 regression + 不 scope creep）：ChromaDB（M5-2）/ 真 parquet + Phase3 策略（M5-3/4）/ API+前端（M5-5/6）—— 未動 app.py。**Verify**：新增 modules/knowledge/tests/（4 檔 50 tests）全綠；backend baseline 570 passed / 1 xfailed 零 regression。issue_stats done 49→50 / total 63→64。M5 progress 0→15。下次候選：M5-2 ChromaRetriever（共用 schema 平滑替換，需 chromadb）/ M5-6 API router 接告警事件（wiring app.py）/ M5-5 /field/ mobile 前端渲染 KnowledgeResponse。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-baseline-backend.md."
 technologies:
   - FastAPI
   - React
@@ -54,7 +54,7 @@ milestones:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
     status: in_progress
-    progress: 15  # M5-1 done（knowledge 後端 baseline：strategy_loader/retrieve/ingest/alert_handler + baseline 語料 + 42 tests）；M5-2~6 待續
+    progress: 15  # M5-1 done（knowledge 後端 baseline：strategy_loader/retrieve/ingest/alert_handler + baseline 語料 + 50 tests）；M5-2~6 待續
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 50  # +1: WMOM-20260601-01 Knowledge module 後端 baseline 骨架（EPIC-M5 子目標 M5-1：strategy_loader/retrieve/ingest/alert_handler + baseline 語料 + 42 tests）(2026-06-01)
+  done: 50  # +1: WMOM-20260601-01 Knowledge module 後端 baseline 骨架（EPIC-M5 子目標 M5-1：strategy_loader/retrieve/ingest/alert_handler + baseline 語料 + 50 tests）(2026-06-01)
 
 inherited_baseline:
   source: digiWindTurbine
