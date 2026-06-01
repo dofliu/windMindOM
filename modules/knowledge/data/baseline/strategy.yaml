@@ -1,0 +1,23 @@
+# windMindOM Knowledge — baseline placeholder 策略（WMOM-20260601-01）
+#
+# 用途：RAG_Ultimate Phase 3 正式策略（strategy.yaml + z72_manual.parquet）
+# 尚未 ready 前，讓 knowledge module 在純 simulator 模式跑通整條
+# ingest → retrieve → alert_handler pipeline。
+#
+# 正式策略接上後，把 version / embedding / corpus 換成 Phase 3 產出即可，
+# schema（strategy_loader.RagStrategy）不變。
+
+version: baseline-0.1
+oem_model: Z72
+
+embedding:
+  provider: baseline-lexical   # 不重新 embed，純 lexical 比對
+  model: none
+
+retrieval:
+  top_k: 3
+  min_score: 0.0
+
+corpus:
+  source: z72_manual_baseline.jsonl   # 相對本檔所在目錄
+  format: jsonl
