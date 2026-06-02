@@ -480,3 +480,42 @@ python examples/fetch_scada_data.py
 | `nacelle_cooling_failure` | Nacelle cooling system fault |
 | `converter_cooling_fault` | Converter cooling degradation |
 | `grid_voltage_sag` | Grid voltage dip event |
+
+---
+
+## Knowledge / RAG API（M5，WMOM-20260602-01）
+
+> 警報 → 手冊處置段落。Simulator-first：baseline keyword retriever（純 Python，
+> 無外部依賴）即可 demo；M5-2 ChromaDB / M5-3 RAG_Ultimate 真向量檔上線後
+> 同一組 endpoint 不變、`is_baseline` 轉為 `false`。
+
+### POST `/api/knowledge/alert`
+
+警報事件 → 檢索手冊處置段落（top-k）。
+
+- **Request body**（`AlertEvent`）：
+  - `alarm_code` (int, **必填**, ≥1)：Bachmann 告警碼，例 `21`
+  - `turbine_id` (str, **必填**, 1–64 字)：風機 ID，例 `WT01`
+  - `alarm_level` (str, 預設 `A`)：`A` / `T1` / `T2`
+  - `oem` (str, 預設 `Bachmann`)、`model` (str, 預設 `Z72`)
+  - `scenario_id` (str, 可選)：對應 `fault_engine.FAULT_SCENARIOS` key
+  - `abnormal_tags` (str[], 可選)：異常 SCADA tag，例 `["WCNV_IGCTWtrTmp"]`
+  - `description` (str, 可選)、`severity` (float 0–1, 可選)
+  - `timestamp` (datetime, 可選)：**須 timezone-aware（UTC）**，naive datetime → 422
+- **Response**（`AlertRagResult`）：
+  - `alert`、`query`：回填的事件與構造出的檢索 query
+  - `chunks` (`RetrievedChunk[]`)：依相關度降冪，每筆含 `chunk`（手冊段落）、`score` (0–1)、`match_reason`（繁中可解釋命中原因）
+  - `strategy_name`、`retriever`（例 `baseline_keyword`）、`is_baseline` (bool)
+- **錯誤**：請求驗證失敗 → `422`；knowledge module 初始化失敗（策略檔/語料異常）→ `503`
+
+```bash
+curl -X POST localhost:8000/api/knowledge/alert \
+  -H "Content-Type: application/json" \
+  -d '{"alarm_code": 21, "turbine_id": "WT01", "description": "變頻器冷卻水溫過高"}'
+```
+
+### GET `/api/knowledge/info`
+
+回目前檢索層中繼資料（前端用來標示「目前為 baseline placeholder 檢索」橫幅）。
+
+- **Response**：`{ "retriever": str, "strategy_name": str, "is_baseline": bool }`

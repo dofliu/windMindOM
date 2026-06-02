@@ -34,6 +34,21 @@ class AlertHandler:
         self._retriever = retriever
         self._strategy = strategy
 
+    @property
+    def strategy_name(self) -> str:
+        """目前使用的 RAG 策略檔名。"""
+        return self._strategy.name
+
+    @property
+    def retriever_name(self) -> str:
+        """目前 retriever 名稱（讀 ``Retriever`` 契約屬性 ``name``，缺則退回類別名）。"""
+        return getattr(self._retriever, "name", type(self._retriever).__name__)
+
+    @property
+    def is_baseline(self) -> bool:
+        """目前是否為 baseline placeholder 檢索（讀 ``Retriever`` 契約屬性 ``is_baseline``）。"""
+        return getattr(self._retriever, "is_baseline", False)
+
     def build_query(self, event: AlertEvent) -> RetrievalQuery:
         """由警報事件構造檢索 query。
 
@@ -61,15 +76,11 @@ class AlertHandler:
 
         # 只依賴 Retriever 介面契約屬性（name / is_baseline），不認得任何
         # 具體實作 —— 符合 MVP_ARCHITECTURE §3.5「換 retriever 不需改 handler」。
-        # getattr 保留 default 作為防呆（實作未遵守契約時不致 crash）。
-        retriever_name = getattr(self._retriever, "name", type(self._retriever).__name__)
-        is_baseline = getattr(self._retriever, "is_baseline", False)
-
         return AlertRagResult(
             alert=event,
             query=query,
             chunks=chunks,
-            strategy_name=self._strategy.name,
-            retriever=retriever_name,
-            is_baseline=is_baseline,
+            strategy_name=self.strategy_name,
+            retriever=self.retriever_name,
+            is_baseline=self.is_baseline,
         )

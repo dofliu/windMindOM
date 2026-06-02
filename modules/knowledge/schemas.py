@@ -134,9 +134,11 @@ class AlertEvent(BaseModel):
     ``FAULT_SCENARIOS`` 的 key，``abnormal_tags`` 對齊 ``affected_tags``。
     """
 
-    alarm_code: int = Field(description="Bachmann 告警碼，例：21（變頻器跳機）")
+    alarm_code: int = Field(ge=1, description="Bachmann 告警碼（正整數），例：21（變頻器跳機）")
     alarm_level: AlarmLevel = Field(default="A", description="告警等級 A / T1 / T2")
-    turbine_id: str = Field(description="風機 ID")
+    turbine_id: str = Field(
+        min_length=1, max_length=64, description="風機 ID，例：WT01（與 workflow turbine_id 約束一致）"
+    )
     oem: str = Field(default="Bachmann", description="控制系統 / OEM")
     model: str = Field(default="Z72", description="風機機型")
     scenario_id: str | None = Field(
@@ -180,4 +182,23 @@ class AlertRagResult(BaseModel):
     retriever: str = Field(description="使用的 retriever，例：baseline_keyword")
     is_baseline: bool = Field(
         default=True, description="True 表示 placeholder 檢索（非真向量），前端可標示"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 對外 API 回應（knowledge router 用）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class KnowledgeInfoResponse(BaseModel):
+    """``GET /api/knowledge/info`` 回應：目前檢索層中繼資料。
+
+    前端用來判斷是否顯示「目前為 baseline placeholder 檢索」橫幅。
+    放在 schema 層（非 router 層）以對齊 cost / reporting 的契約分層。
+    """
+
+    retriever: str = Field(description="目前 retriever 名稱，例：baseline_keyword")
+    strategy_name: str = Field(description="使用中的 RAG 策略檔名")
+    is_baseline: bool = Field(
+        description="True 表示 placeholder 檢索（非真向量），前端可標示"
     )

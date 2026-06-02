@@ -16,15 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 50 |
-| **total (active)** | **64** |
+| done | 51 |
+| **total (active)** | **65** |
 
-最後更新：2026-06-01 20:xx（**WMOM-20260601-01 done — Knowledge / RAG module baseline 檢索層（EPIC-M5 M5-1 起手，simulator-first）**）。今日 autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 ISSUES.md 🎯 EPIC-M5 挑最高價值 🔵 autonomous 項 = M5-1 Knowledge 後端（PMF 關鍵，設計規範已在 `docs/product/MVP_ARCHITECTURE.md` §3.5、無歧義）。**Simulator-first 切法**（CLAUDE.md §15）：先做不依賴 ChromaDB（M5-2）/ RAG_Ultimate 真向量檔（M5-3 🟡）的純 Python baseline 層 → 純 simulator 模式即可 demo「警報→手冊處置段落 + 可解釋命中原因」。**新增** `modules/knowledge/`：`schemas.py`（6 個 pydantic v2 模型，AlertEvent.timestamp 強制 UTC-aware）+ `strategy_loader.py`（載入 RAG 策略檔；缺失/空檔/非mapping→baseline default）+ `corpus.py`（載入 baseline 知識庫 JSON + by_alarm_code/filter；單筆 chunk 損毀 graceful skip）+ `retrieve.py`（`Retriever` Protocol[name/is_baseline/retrieve] + `BaselineKeywordRetriever` 純 Python 評分：告警碼 0.6 + 關鍵字 0.3 + 文字 Jaccard 0.1，match_reason 繁中可解釋）+ `alert_handler.py`（警報→query→retrieve→`AlertRagResult`，只依賴 Retriever 介面、不認具體實作）+ `config/rag_strategy_z72_manual.yaml` + `data/baseline_corpus_z72.json`（11 個 Z72/Bachmann fault scenario SOP，告警碼對齊 `monitoring/simulator/physics/fault_engine.FAULT_SCENARIOS`）+ `build_baseline_alert_handler` 工廠。**Verify**：knowledge 54 tests + backend 全套 **624 passed / 1 xfailed**（570 原 baseline + 54 新，零 regression）；`Any` 0；端到端 smoke 警報碼 21→top1 變頻器冷卻 SOP。**Code review**：2 must / 7 should / 4 nice → must+should 全採納 + 便宜 nice 採納 / NTH1 過早優化不採納（must：handler `isinstance`→`Retriever` 契約屬性 `is_baseline` 解 DIP + MVP_ARCHITECTURE §3.5 升級契約；`AlertEvent.timestamp` 加 UTC-aware validator）。frontend 未動（backend-only），vitest 59 baseline 不受影響。issue_stats done 49→50 / total 63→64；M5 progress 0→15（in_progress）。下一步候選：M5-6 FastAPI knowledge router 串前端（🔵 單 session）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md。
+最後更新：2026-06-02 20:xx（**WMOM-20260602-01 done — Knowledge FastAPI router（EPIC-M5 M5-6）**）。今日 autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression）。依 6/01 handoff 挑最高價值 🔵 autonomous 項 = **M5-6**（把 M5-1 baseline 檢索層接成 HTTP，為 M5-5 前端鋪路）。**新增** `modules/knowledge/routers/`：`knowledge_router.py`（`POST /api/knowledge/alert`：`AlertEvent`→`AlertHandler.on_alert`→`AlertRagResult`，top-k chunks + 可解釋 `match_reason` + `is_baseline`；`GET /api/knowledge/info`：retriever/strategy/is_baseline 中繼資料；DI `set_handler` setter 對齊 cost/reporting，`None` reset）。**改** `alert_handler.py`（加 `strategy_name`/`retriever_name`/`is_baseline` 唯讀 property，`on_alert` 共用消重複契約邏輯）+ `app.py`（`include_router` 接入主 app）+ `schemas.py`（`KnowledgeInfoResponse`；`alarm_code` ge=1；`turbine_id` min_length=1/max_length=64）+ `requirements.txt`（補 `pyyaml>=6.0`）+ `docs/API_GUIDE.md`（補 Knowledge/RAG API 區段）。**升級契約**（MVP_ARCHITECTURE §3.5）：router 只依賴 `AlertHandler`/`Retriever` 介面，M5-2 換 `ChromaVectorRetriever` 只需 `set_handler` 換注入，router/schema/前端不動。**Verify**：knowledge 64 tests + backend 全套 **634 passed / 1 xfailed**（570 原 baseline + 64，零 regression）；`Any` 0；端到端 smoke + app 接線通過。**Code review**：兩輪 code-reviewer 合併 **3 must / 多 should / nice** → must+should 全採納 + 便宜 nice 採納 / 保留前次 session getattr 防呆決策不反轉（must：pyyaml 列依賴、`_get_handler` 例外保護→503 不洩漏、移除 `ValueError`→422 死碼、endpoint 改同步 `def` 避免阻斷 event loop）。frontend 未動（backend-only），vitest 59 baseline 不受影響。issue_stats done 50→51 / total 64→65；M5 progress 15→30（in_progress）。下一步候選：M5-5 `/field/` mobile frontend（打 `/api/knowledge/alert`，🔵 PMF 關鍵）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-02-knowledge-fastapi-router.md。
 
 ---
 
-最後更新：2026-05-29 21:xx（**WMOM-20260529-02 done — 專案文件大整理：清過時 digiWT 重複檔 + ISSUES changelog 抽 archive + M5/M6 epic 區塊 + routine prompt 更新**）。劉老師交辦的文件整理 session。**清理**：移除 digiWT 時代過時/重複檔（`README.md` 重寫為 windMindOM、`AGENTS.md`/`GEMINI.md` 改為指向 CLAUDE.md 的薄 pointer、刪 `project.md`/`idea.md`/`docs/daily_report.md`/`docs/session_handoff.md`/root `package-lock.json` 空殼/`docs/product/pitch_deck_v0.4`、`TODO.md` 刷新為 M5 現況）；移除外部專案 dump `z72SCADA_New/`（13 檔，CLAUDE.md §12 禁 fork 他 repo 程式）；`docs/design/2026-05-07-ui-source/` 只留交接書.md、刪 .jsx/.html 原型；清本機快取（gitignored）。**重整**：ISSUES.md 頂部累積 8 筆 session changelog → 抽 6 筆到 `docs/legacy/issues_changelog_archive.md`、只留最近 2 筆；新增「🎯 未來大目標（M5/M6 epics）」區塊（Q3 維持 ISSUES.md bot 友善 + 大目標清晰拆解，標 🔵 autonomous / 🟡 需劉老師）。**routine**：新增 `docs/routines/autonomous-daily-worker-prompt.md`（修正 504→570 baseline、移除已 done 的 A6/A7/A10/WMOM-20260510-01、改讀最新 handoff）+ 更新 `daily-workflow.md` 過時處。**Verify**：backend 570 passed / 1 xfailed、frontend vitest 59 / tsc 0 / vite build OK（純文件 + 死碼移除，零 code regression）。issue_stats done 48→49 / total 62→63。詳細 handoff 在 work-logs/2026-05/2026-05-29-docs-reorg.md。
-
+最後更新：2026-06-01 20:xx（**WMOM-20260601-01 done — Knowledge / RAG module baseline 檢索層（EPIC-M5 M5-1 起手，simulator-first）**）。今日 autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 ISSUES.md 🎯 EPIC-M5 挑最高價值 🔵 autonomous 項 = M5-1 Knowledge 後端（PMF 關鍵，設計規範已在 `docs/product/MVP_ARCHITECTURE.md` §3.5、無歧義）。**Simulator-first 切法**（CLAUDE.md §15）：先做不依賴 ChromaDB（M5-2）/ RAG_Ultimate 真向量檔（M5-3 🟡）的純 Python baseline 層 → 純 simulator 模式即可 demo「警報→手冊處置段落 + 可解釋命中原因」。**新增** `modules/knowledge/`：`schemas.py`（6 個 pydantic v2 模型，AlertEvent.timestamp 強制 UTC-aware）+ `strategy_loader.py`（載入 RAG 策略檔；缺失/空檔/非mapping→baseline default）+ `corpus.py`（載入 baseline 知識庫 JSON + by_alarm_code/filter；單筆 chunk 損毀 graceful skip）+ `retrieve.py`（`Retriever` Protocol[name/is_baseline/retrieve] + `BaselineKeywordRetriever` 純 Python 評分：告警碼 0.6 + 關鍵字 0.3 + 文字 Jaccard 0.1，match_reason 繁中可解釋）+ `alert_handler.py`（警報→query→retrieve→`AlertRagResult`，只依賴 Retriever 介面、不認具體實作）+ `config/rag_strategy_z72_manual.yaml` + `data/baseline_corpus_z72.json`（11 個 Z72/Bachmann fault scenario SOP，告警碼對齊 `monitoring/simulator/physics/fault_engine.FAULT_SCENARIOS`）+ `build_baseline_alert_handler` 工廠。**Verify**：knowledge 54 tests + backend 全套 **624 passed / 1 xfailed**（570 原 baseline + 54 新，零 regression）；`Any` 0；端到端 smoke 警報碼 21→top1 變頻器冷卻 SOP。**Code review**：2 must / 7 should / 4 nice → must+should 全採納 + 便宜 nice 採納 / NTH1 過早優化不採納（must：handler `isinstance`→`Retriever` 契約屬性 `is_baseline` 解 DIP + MVP_ARCHITECTURE §3.5 升級契約；`AlertEvent.timestamp` 加 UTC-aware validator）。frontend 未動（backend-only），vitest 59 baseline 不受影響。issue_stats done 49→50 / total 63→64；M5 progress 0→15（in_progress）。下一步候選：M5-6 FastAPI knowledge router 串前端（🔵 單 session）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md。
 
 ---
 
@@ -98,6 +97,27 @@
   - M5-5 `/field/` mobile-first frontend 🔵
   - M5-6 Alert → RAG auto query 串前端 FastAPI knowledge router 🔵（下一步建議候選）
 - **Reference**: [`work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md`](work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md)
+
+---
+
+### WMOM-20260602-01 — Knowledge FastAPI router（EPIC-M5 M5-6）
+
+- **Status**: done（2026-06-02 完成）
+- **Milestone**: M5
+- **Priority**: high（M5-1 baseline 檢索層接 HTTP，為 M5-5 前端鋪路）
+- **Owner**: Claude (autonomous daily worker, session 2026-06-02)
+- **Completion summary**:
+  - ✅ **`modules/knowledge/routers/knowledge_router.py`**：
+    - `POST /api/knowledge/alert` — 收 `AlertEvent` → `AlertHandler.on_alert` → `AlertRagResult`（top-k chunks + 可解釋 `match_reason` + `is_baseline` 標記）；`AlertEvent.timestamp` naive datetime 於 request 階段直接 422
+    - `GET /api/knowledge/info` — 回 retriever / strategy 中繼資料（前端標示「目前 baseline placeholder 檢索」）；不觸發檢索
+    - DI pattern：`set_handler(handler|None)` setter（對齊 cost/reporting routers），`None` reset 回 lazy baseline default
+  - ✅ **`modules/knowledge/alert_handler.py`**：加 `strategy_name` / `retriever_name` / `is_baseline` 唯讀 property（讀 `Retriever` 契約屬性），`on_alert` 共用 → 消除重複契約邏輯（single source of truth）
+  - ✅ **`modules/monitoring/server/app.py`**：import + `include_router(knowledge_router)` 接入主 app（`/api/knowledge/alert`、`/api/knowledge/info` 已註冊）
+  - ✅ **升級契約**：router 只依賴 `AlertHandler` / `Retriever` 介面；M5-2 換 `ChromaVectorRetriever` 後只需 `set_handler` 換注入 handler，router / schema / 前端不需改動（MVP_ARCHITECTURE §3.5）
+  - ✅ **8 tests**（`test_knowledge_router.py`：alert 排序命中 / unknown code graceful / tz-aware ok / naive 422 / 缺欄位 422 / info 中繼資料 / set_handler 注入 / reset）；knowledge 62 tests，backend 全套 632 passed / 1 xfailed 零 regression
+  - ✅ **Code review**（code-reviewer subagent）：見 work-log §5
+- **不在本 issue 範圍**：自由文字查詢 endpoint（`POST /api/knowledge/query`，留 M5-5 前端搜尋需求時開）、M5-2 ChromaDB、M5-3/4 真向量檔 🟡、M5-5 `/field/` mobile UI
+- **Reference**: [`work-logs/2026-06/2026-06-02-knowledge-fastapi-router.md`](work-logs/2026-06/2026-06-02-knowledge-fastapi-router.md)
 
 ---
 
