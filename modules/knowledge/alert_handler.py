@@ -34,6 +34,16 @@ class AlertHandler:
         self._retriever = retriever
         self._strategy = strategy
 
+    @property
+    def retriever(self) -> Retriever:
+        """目前使用的 retriever（唯讀；給上層查 name / is_baseline 用）。"""
+        return self._retriever
+
+    @property
+    def strategy(self) -> RagStrategy:
+        """目前使用的 RAG 策略（唯讀；給上層查策略名 / top_k 用）。"""
+        return self._strategy
+
     def build_query(self, event: AlertEvent) -> RetrievalQuery:
         """由警報事件構造檢索 query。
 

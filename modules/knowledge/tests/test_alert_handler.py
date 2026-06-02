@@ -25,6 +25,9 @@ class _StubRetriever:
     """測 handler 不依賴特定實作：記錄收到的 query。"""
 
     name = "stub"
+    # 完整實作 Retriever Protocol 契約屬性（name + is_baseline）；
+    # stub 非真向量，故 is_baseline=False。
+    is_baseline = False
 
     def __init__(self) -> None:
         self.last_query: RetrievalQuery | None = None

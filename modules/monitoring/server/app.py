@@ -150,6 +150,9 @@ from modules.workflow.routers import (  # noqa: E402
 # WMOM-20260509-08: reporting router (monthly PDF + annual budget)
 from modules.reporting.routers import router as reporting_router  # noqa: E402
 
+# WMOM-20260602-01: knowledge router (alert → RAG auto query, M5-6)
+from modules.knowledge.routers import router as knowledge_router  # noqa: E402
+
 app.include_router(turbines_router)
 app.include_router(config_router)
 app.include_router(export_router)
@@ -166,6 +169,7 @@ app.include_router(approval_router)
 app.include_router(material_request_router)
 app.include_router(inventory_router)
 app.include_router(reporting_router)
+app.include_router(knowledge_router)
 
 
 @app.get("/api/health")

@@ -181,3 +181,17 @@ class AlertRagResult(BaseModel):
     is_baseline: bool = Field(
         default=True, description="True 表示 placeholder 檢索（非真向量），前端可標示"
     )
+
+
+class KnowledgeStatus(BaseModel):
+    """knowledge module 檢索層狀態（給前端顯示 baseline badge 用）。
+
+    純 pydantic shape，與 FastAPI 無關（與本 module 其餘 schema 同層）；
+    由 ``/api/knowledge/status`` 回傳。
+    """
+
+    retriever: str = Field(description="目前 retriever 名，例：baseline_keyword")
+    is_baseline: bool = Field(
+        description="True 表示 placeholder 檢索（非真向量），前端可標示「baseline 模式」"
+    )
+    strategy_name: str = Field(description="目前 RAG 策略檔名")
