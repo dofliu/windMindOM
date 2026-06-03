@@ -34,6 +34,21 @@ class AlertHandler:
         self._retriever = retriever
         self._strategy = strategy
 
+    @property
+    def retriever(self) -> Retriever:
+        """目前使用的 retriever（唯讀）。
+
+        讓上層（FastAPI router）能做「不經警報事件」的直接檢索，並讀取
+        retriever 契約屬性（``name`` / ``is_baseline``）對前端標示來源，
+        而不需碰 handler 私有狀態。
+        """
+        return self._retriever
+
+    @property
+    def strategy(self) -> RagStrategy:
+        """目前使用的 RAG 策略（唯讀）。"""
+        return self._strategy
+
     def build_query(self, event: AlertEvent) -> RetrievalQuery:
         """由警報事件構造檢索 query。
 

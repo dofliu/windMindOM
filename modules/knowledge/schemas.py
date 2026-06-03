@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 # 告警等級：A=警示（alarm/warning）、T1=一級跳機、T2=二級跳機。
 # 對齊 fault_engine.FaultScenario.alarm_codes 的 ``type`` 欄位。
@@ -134,7 +134,7 @@ class AlertEvent(BaseModel):
     ``FAULT_SCENARIOS`` 的 key，``abnormal_tags`` 對齊 ``affected_tags``。
     """
 
-    alarm_code: int = Field(description="Bachmann 告警碼，例：21（變頻器跳機）")
+    alarm_code: int = Field(ge=1, description="Bachmann 告警碼，例：21（變頻器跳機）；有效碼自 1 起")
     alarm_level: AlarmLevel = Field(default="A", description="告警等級 A / T1 / T2")
     turbine_id: str = Field(description="風機 ID")
     oem: str = Field(default="Bachmann", description="控制系統 / OEM")
@@ -181,3 +181,43 @@ class AlertRagResult(BaseModel):
     is_baseline: bool = Field(
         default=True, description="True 表示 placeholder 檢索（非真向量），前端可標示"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# FastAPI router 回傳包裝（M5-6）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class KnowledgeQueryResponse(BaseModel):
+    """``POST /api/knowledge/query`` 的回傳（手動檢索）。"""
+
+    items: list[RetrievedChunk] = Field(
+        default_factory=list, description="檢索結果（依相關度排序）"
+    )
+    retriever: str = Field(description="使用的 retriever，例：baseline_keyword")
+    is_baseline: bool = Field(
+        default=True, description="True 表示 placeholder 檢索（非真向量），前端可標示"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]  # pydantic v2 computed_field + property
+    @property
+    def total(self) -> int:
+        """命中筆數（= ``len(items)``）。
+
+        computed_field 確保 ``total`` 永遠與 ``items`` 一致，避免日後改 endpoint
+        只更新 items 卻忘了 total 造成回應不一致（should-fix #9）。
+        """
+        return len(self.items)
+
+
+class KnowledgeInfoResponse(BaseModel):
+    """``GET /api/knowledge/info`` 的回傳（給前端標示 RAG 來源 / 模式）。"""
+
+    strategy_name: str = Field(description="目前載入的策略檔名")
+    oem: str = Field(description="策略適用的 OEM / 控制系統")
+    model: str = Field(description="策略適用的風機機型")
+    retriever: str = Field(description="目前使用的 retriever")
+    is_baseline: bool = Field(
+        default=True, description="True 表示 placeholder 檢索（非真向量）"
+    )
+    top_k: int = Field(gt=0, description="策略預設回傳筆數")
