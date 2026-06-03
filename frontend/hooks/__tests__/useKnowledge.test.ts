@@ -26,6 +26,7 @@ vi.mock('../../services/knowledgeService', () => ({
 
 const infoMock = knowledgeApi.info as unknown as Mock;
 const queryMock = knowledgeApi.query as unknown as Mock;
+const alertMock = knowledgeApi.queryByAlert as unknown as Mock;
 
 /** 可由外部 resolve 的 deferred promise（同 useCostData.test 工具）。 */
 function deferred<T>() {
@@ -70,10 +71,50 @@ function searchResult(tag: string) {
   };
 }
 
+/** AlertRagResult fixture（POST /api/knowledge/alert 回傳）。 */
+function alertResult(tag: string) {
+  return {
+    // backend 在回傳 AlertRagResult.alert 時會補上 handler 的 defaults（oem/model 等），
+    // fixture 比照實際 response shape，避免日後讀 result.alert.oem 取到 undefined 而 test 未抓到。
+    alert: {
+      alarm_code: 21,
+      alarm_level: 'T1' as const,
+      turbine_id: 'WTG-07',
+      oem: 'Bachmann',
+      model: 'Z72',
+      scenario_id: null,
+      abnormal_tags: ['converter_temp'],
+      description: null,
+      severity: null,
+      timestamp: null,
+    },
+    query: { text: '變頻器跳機', alarm_codes: [21] },
+    chunks: [
+      {
+        chunk: {
+          id: tag,
+          document_source: 'Z72UserManual.pdf',
+          chunk_text: `處置 ${tag}`,
+          oem: 'Bachmann',
+          model: 'Z72',
+          alarm_codes: [21],
+          keywords: [],
+        },
+        score: 0.8,
+        match_reason: 'mock',
+      },
+    ],
+    strategy_name: 'baseline',
+    retriever: 'baseline_keyword',
+    is_baseline: true,
+  };
+}
+
 describe('useKnowledge', () => {
   beforeEach(() => {
     infoMock.mockReset();
     queryMock.mockReset();
+    alertMock.mockReset();
     // 預設 info 成功（避免每個 test 都要設）。
     infoMock.mockResolvedValue(INFO_FIXTURE);
   });
@@ -176,5 +217,112 @@ describe('useKnowledge', () => {
       await p1;
     });
     expect(result.current.search.data).toBeNull();
+  });
+
+  // ── alert 流（Part B killer feature）──
+
+  it('runAlert happy path：寫進 alert.data、清 loading/error', async () => {
+    alertMock.mockResolvedValueOnce(alertResult('A'));
+    const { result } = renderHook(() => useKnowledge());
+    await waitFor(() => expect(result.current.info.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.runAlert({ alarm_code: 21, turbine_id: 'WTG-07' });
+    });
+
+    expect(result.current.alert.data?.chunks[0].chunk.id).toBe('A');
+    expect(result.current.alert.data?.alert.alarm_code).toBe(21);
+    expect(result.current.alert.loading).toBe(false);
+    expect(result.current.alert.error).toBeNull();
+  });
+
+  it('runAlert race：較慢的舊警報檢索後到不得蓋掉較新結果', async () => {
+    const slow = deferred<ReturnType<typeof alertResult>>();
+    const fast = deferred<ReturnType<typeof alertResult>>();
+    alertMock.mockReturnValueOnce(slow.promise).mockReturnValueOnce(fast.promise);
+
+    const { result } = renderHook(() => useKnowledge());
+    await waitFor(() => expect(result.current.info.data).not.toBeNull());
+
+    let p1!: Promise<void>;
+    let p2!: Promise<void>;
+    await act(async () => {
+      p1 = result.current.runAlert({ alarm_code: 21, turbine_id: 'A' });
+      p2 = result.current.runAlert({ alarm_code: 31, turbine_id: 'B' });
+    });
+
+    // 防禦性斷言：pin 住「第一次呼叫=slow、第二次=fast」的 mock 順序前提，
+    // 避免日後 mock 順序被改動導致 test「恰好通過」卻測錯場景。
+    expect(alertMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      fast.resolve(alertResult('B'));
+      await p2;
+    });
+    expect(result.current.alert.data?.chunks[0].chunk.id).toBe('B');
+
+    // 舊檢索後到 → alertReqRef 已前進，被當 stale 丟棄。
+    await act(async () => {
+      slow.resolve(alertResult('A'));
+      await p1;
+    });
+    expect(result.current.alert.data?.chunks[0].chunk.id).toBe('B');
+  });
+
+  it('runAlert 失敗 → error 寫入、data 維持 null', async () => {
+    alertMock.mockRejectedValueOnce(new Error('alert boom'));
+    const { result } = renderHook(() => useKnowledge());
+    await waitFor(() => expect(result.current.info.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.runAlert({ alarm_code: 21, turbine_id: 'WTG-07' });
+    });
+
+    expect(result.current.alert.error).toBe('alert boom');
+    expect(result.current.alert.data).toBeNull();
+  });
+
+  it('clearAlert：清空結果 + 推進序號使 in-flight 回應被丟棄', async () => {
+    const pending = deferred<ReturnType<typeof alertResult>>();
+    alertMock.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useKnowledge());
+    await waitFor(() => expect(result.current.info.data).not.toBeNull());
+
+    let p1!: Promise<void>;
+    await act(async () => {
+      p1 = result.current.runAlert({ alarm_code: 21, turbine_id: 'WTG-07' });
+    });
+    expect(result.current.alert.loading).toBe(true);
+
+    act(() => {
+      result.current.clearAlert();
+    });
+    expect(result.current.alert.loading).toBe(false);
+    expect(result.current.alert.data).toBeNull();
+
+    // in-flight 回應後到 → 被當 stale 丟棄，data 仍 null。
+    await act(async () => {
+      pending.resolve(alertResult('A'));
+      await p1;
+    });
+    expect(result.current.alert.data).toBeNull();
+  });
+
+  it('search 與 alert 兩條流獨立：alert 結果不影響 search', async () => {
+    queryMock.mockResolvedValueOnce(searchResult('Q'));
+    alertMock.mockResolvedValueOnce(alertResult('AL'));
+    const { result } = renderHook(() => useKnowledge());
+    await waitFor(() => expect(result.current.info.data).not.toBeNull());
+
+    await act(async () => {
+      await result.current.runSearch({ text: 'q' });
+    });
+    await act(async () => {
+      await result.current.runAlert({ alarm_code: 21, turbine_id: 'WTG-07' });
+    });
+
+    // 兩條流各自保有自己的結果。
+    expect(result.current.search.data?.items[0].chunk.id).toBe('Q');
+    expect(result.current.alert.data?.chunks[0].chunk.id).toBe('AL');
   });
 });

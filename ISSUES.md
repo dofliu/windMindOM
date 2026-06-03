@@ -16,14 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 53 |
-| **total (active)** | **67** |
+| done | 54 |
+| **total (active)** | **68** |
 
-最後更新：2026-06-03 late（**WMOM-20260603-03 done — `/field/` 現場 mobile 知識查詢頁（EPIC-M5 M5-5 Part A）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 59、飛輪健康：上個 session 的 PR 已 auto-merge 進 main）。依 flywheel handoff 建議接 **M5-5**「`/field/` mobile 前端串 knowledge router」（🔵 PMF 關鍵、net-new、與 22 個 stale PR 無 collision）。M5-5 範圍大，本次切 **Part A：知識檢索查詢**（核心 PMF slice，可獨立出貨）；work order list / completion 留 Part B。**新增** `frontend/services/knowledgeService.ts`（API client，型別嚴格對齊 `modules/knowledge/schemas.py`：info / query / queryByAlert 3 wrapper + 錯誤抽 FastAPI `detail`）/ `hooks/useKnowledge.ts`（info + search 兩條流，race 防護用單調遞增 `reqRef` 丟棄過期回應）/ `components/field/FieldPage.tsx`（mobile-first maxWidth 560 單欄：關鍵字 + 告警碼 input、常用 Z72 告警碼 chips、結果卡含相關度 % + 繁中命中原因 + 文件來源 + alarm pills、loading/error/空狀態；全走 ui 元件庫**零 hex**）。**改** `App.tsx`（field nav + render case）/ `ui/Logo.tsx`（field NavIcon）。**Verify**：`tsc` 0 error（無 `any`）+ `vitest` **73 passed**（59 baseline + 14 新：service 8 + hook 6）+ `vite build` ✓；backend 未動 638 不受影響。**Code review**：0 must-fix（schema 契約 / race 防護經確認）、採納多項 UX should-fix（422 detail 抽 msg、錯誤剝技術前綴、/info 失敗 badge、fmtScore clamp、alarm 去重），詳見 work-log。issue_stats done 52→53 / total 66→67；M5 progress 30→45。**下一步**：M5-5 Part B（my work orders + completion + alert detail 串 `queryByAlert`，client 已備）/ M5-2 ChromaDB。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-knowledge-mobile.md。
+最後更新：2026-06-03 night（**WMOM-20260603-04 done — `/field/` 警報檢索模式（EPIC-M5 M5-5 Part B，killer feature）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 73、飛輪健康：Part A PR #72 已 auto-merge 進 main）。接 Part A handoff 建議 #1 推進 **M5-5 Part B**「`/field/` 串 `queryByAlert`」（🔵 PMF killer feature、net-new、與 22 個 stale PR 無 collision）。Part B 範圍大故切最核心、無 backend 依賴的 **alert detail with RAG** slice：模擬 SCADA 警報事件 → 後端自動構造 query 檢索 top-k 手冊處置（`POST /api/knowledge/alert`）；my work orders / completion 留下個 session。**改** `hooks/useKnowledge.ts`（新增第三條流 `alert`：`runAlert`/`clearAlert`，獨立 `alertReqRef` race 防護與 search 流隔離）+ `components/field/FieldPage.tsx`（重構為 `ModeToggle` segmented + `QueryMode`/`AlertMode` + 共用 `ResultList`/`ResultCard`；AlertMode 表單告警碼/等級 Select/機組/異常標籤，`timestamp` 用 `toISOString()` 避免 422 時區陷阱，結果先顯示警報摘要 + 透明標示「系統據此檢索」query 再列 chunks，全走 ui 零 hex）。**Verify**：`tsc` 0 error（無 `any`）+ `vitest` **78 passed**（73 + 5 新：runAlert happy/race/error + clearAlert in-flight + 兩流獨立）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 53→54 / total 67→68；M5 progress 45→55。**下一步**：M5-5 Part B 續做（my work orders + completion 串 work_order router）/ alert 從真 monitoring 警報帶入 / M5-2 ChromaDB。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-alert-rag.md。
 
 ---
 
-最後更新：2026-06-03 23:xx（**WMOM-20260603-02 done — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly**）。劉老師交辦：把 autonomous worker 從每日 1 次改成**每 3 小時 1 次**並導入自動合併飛輪。**新增** `.github/workflows/ci.yml`（PR + push main 觸發：backend pytest 638 + frontend `npm ci`/`tsc`/`vitest`/`vite build`，concurrency 取消舊 run）+ `.github/workflows/auto-merge.yml`（`workflow_run` CI completed 觸發：CI 全綠且 head=`claude/*` 且標題非 `[WIP]` 且無 `hold`/`do-not-merge` label → `gh pr ready` + `gh pr merge --squash --delete-branch`；用 workflow_run 取 main 版 workflow 避免 PR 竄改合併邏輯）。**routine prompt v3**：cadence 每日→每 3 小時、baseline 570→638、stack-aware preflight（避免高頻重工）、沒乾淨工作 graceful 收尾、PR 收尾語意改「完工→正常 PR 自動合 / 半成品→`[WIP]` draft 跳過」。**劉老師需手動**：web trigger 排程改每 3 小時 + 貼 routine v3。先 squash-merge #69（M5-6）落地 main 再 rebase 本 PR（避免 ISSUES/STATUS stats 衝突）。issue_stats done 51→52 / total 65→66。詳細 handoff 在 work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md。
+最後更新：2026-06-03 late（**WMOM-20260603-03 done — `/field/` 現場 mobile 知識查詢頁（EPIC-M5 M5-5 Part A）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 59、飛輪健康：上個 session 的 PR 已 auto-merge 進 main）。依 flywheel handoff 建議接 **M5-5**「`/field/` mobile 前端串 knowledge router」（🔵 PMF 關鍵、net-new、與 22 個 stale PR 無 collision）。M5-5 範圍大，本次切 **Part A：知識檢索查詢**（核心 PMF slice，可獨立出貨）；work order list / completion 留 Part B。**新增** `frontend/services/knowledgeService.ts`（API client，型別嚴格對齊 `modules/knowledge/schemas.py`：info / query / queryByAlert 3 wrapper + 錯誤抽 FastAPI `detail`）/ `hooks/useKnowledge.ts`（info + search 兩條流，race 防護用單調遞增 `reqRef` 丟棄過期回應）/ `components/field/FieldPage.tsx`（mobile-first maxWidth 560 單欄：關鍵字 + 告警碼 input、常用 Z72 告警碼 chips、結果卡含相關度 % + 繁中命中原因 + 文件來源 + alarm pills、loading/error/空狀態；全走 ui 元件庫**零 hex**）。**改** `App.tsx`（field nav + render case）/ `ui/Logo.tsx`（field NavIcon）。**Verify**：`tsc` 0 error（無 `any`）+ `vitest` **73 passed**（59 baseline + 14 新：service 8 + hook 6）+ `vite build` ✓；backend 未動 638 不受影響。**Code review**：0 must-fix（schema 契約 / race 防護經確認）、採納多項 UX should-fix（422 detail 抽 msg、錯誤剝技術前綴、/info 失敗 badge、fmtScore clamp、alarm 去重），詳見 work-log。issue_stats done 52→53 / total 66→67；M5 progress 30→45。**下一步**：M5-5 Part B（my work orders + completion + alert detail 串 `queryByAlert`，client 已備）/ M5-2 ChromaDB。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-knowledge-mobile.md。
 
 ---
 
@@ -48,7 +48,7 @@
 | M5-2 | **ChromaDB 整合**（嵌入式、依 OEM 機型載入向量檔） | 🔵 | |
 | M5-3 | **RAG_Ultimate strategy 對接**：拿 Phase 3 的 `strategy.yaml` + `z72_manual.parquet` | 🟡 | 需 RAG_Ultimate Phase 3 產出；未 ready 用 baseline placeholder |
 | M5-4 | **灌 Z72 手冊 + 一年警報 csv** 跑通 ingest pipeline | 🟡 | 手冊已有 `docs/__Z72UserManual.pdf` |
-| M5-5 | **`/field/` mobile-first frontend**：~~知識檢索查詢（Part A）~~ ✅ done（WMOM-20260603-03）/ alerts list · alert detail with RAG · my work orders · completion（Part B 待續） | 🔵 | 現場工程師 persona、PMF 關鍵 |
+| M5-5 | **`/field/` mobile-first frontend**：~~知識檢索查詢（Part A）~~ ✅ done（WMOM-20260603-03）/ ~~alert detail with RAG（Part B-1）~~ ✅ done（WMOM-20260603-04）/ my work orders · completion（Part B-2 待續） | 🔵 | 現場工程師 persona、PMF 關鍵 |
 | M5-6 | ~~**Alert → RAG auto query**：警報事件觸發即 retrieve，前端顯示 top-3 chunks~~ ✅ done（WMOM-20260603-01，FastAPI knowledge router 3 endpoints） | 🔵 | 串 M5-1 + monitoring 告警 |
 
 ### EPIC-M6 — 第一個運維廠商 PoC + 第一筆合約（2026-10）
@@ -73,6 +73,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260603-04 — `/field/` 警報檢索模式（EPIC-M5 M5-5 Part B-1，killer feature）
+
+- **Status**: done（2026-06-03 完成）
+- **Milestone**: M5
+- **Priority**: high（PMF killer feature：警報跳出 → 30 秒看到手冊處置）
+- **Owner**: Claude (autonomous worker, session 2026-06-03)
+- **Completion summary**:
+  - ✅ **`/field/` 新增「警報檢索」模式**（串 Part A 已備好的 `knowledgeService.queryByAlert` → `POST /api/knowledge/alert`）：模擬 SCADA 警報事件（告警碼 / 等級 A·T1·T2 / 機組 / 異常標籤）→ 後端自動構造 query 檢索 top-k 手冊處置段落；結果先顯示警報摘要 + **透明標示「系統據此檢索」**的 auto-built query，再列 chunks。
+  - ✅ **`hooks/useKnowledge.ts`**：新增第三條流 `alert`（`runAlert` / `clearAlert`），用**獨立** `alertReqRef` 單調遞增序號做 race 防護，與既有 `search` 流（`reqRef`）完全隔離。
+  - ✅ **`components/field/FieldPage.tsx`**：重構為 `ModeToggle`（segmented，`aria-pressed`）+ `QueryMode`（Part A 抽出）+ `AlertMode`（新）+ 共用 `ResultList`/`ResultCard`；`timestamp` 用 `new Date().toISOString()` 避免 naive datetime 被 schema validator 擋 422（CLAUDE.md §B）；全走 ui 元件庫 **零 hex**。
+  - ✅ **Verify**：`tsc` 0 error（無 `any`）+ `vitest` **78 passed**（73 baseline + 5 新：runAlert happy/race/error + clearAlert in-flight 丟棄 + search/alert 兩流獨立）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **不在本 issue 範圍**（Part B 續做）：my work orders list + completion flow（需串 `work_order` router，涉及 persona / auth）；alert detail 從真 monitoring 警報事件帶入（目前用表單模擬 demo）。
+- **Reference**: [`work-logs/2026-06/2026-06-03-field-alert-rag.md`](work-logs/2026-06/2026-06-03-field-alert-rag.md)
+
+---
 
 ### WMOM-20260601-01 — Knowledge module baseline 檢索層（EPIC-M5 M5-1）
 
