@@ -16,14 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 51 |
-| **total (active)** | **65** |
+| done | 52 |
+| **total (active)** | **66** |
 
-最後更新：2026-06-03 20:xx（**WMOM-20260603-01 done — Knowledge RAG FastAPI router（EPIC-M5 M5-6）**）。autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed + M5-1 knowledge 54，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 6/01 handoff 建議接 **M5-6**「Alert → RAG auto query」（🔵 autonomous、串 M5-1 baseline 檢索層、為 M5-5 `/field/` 前端鋪路）。**新增** `modules/knowledge/routers/knowledge_router.py`：3 endpoints — `POST /api/knowledge/alert`（`AlertEvent`→`AlertRagResult`，**killer feature** SCADA 警報即時檢索 top-k 手冊處置段落）/ `POST /api/knowledge/query`（`RetrievalQuery`→`KnowledgeQueryResponse`，手動查手冊）/ `GET /api/knowledge/info`（`KnowledgeInfoResponse`，前端 baseline badge）。**DI pattern 對齊 reporting_router**：`set_handler_factory(factory|None)` + lazy 快取 singleton handler（baseline corpus/策略檔程序內不變，免每請求重讀）。`AlertHandler` 加 `retriever`/`strategy` 唯讀 property（router 透過 `Retriever` 契約屬性標示來源、不碰私有狀態）。`schemas.py` 加 `KnowledgeQueryResponse`（`total` 為 `@computed_field`）/`KnowledgeInfoResponse`。`app.py` `include_router` 註冊。**Verify**：knowledge 68 tests（54 M5-1 + 14 M5-6）+ backend 全套 **638 passed / 1 xfailed**（零 regression）；`Any` 0；3 routes 掛載 OK。**Code review**：4 must / 5 should / 3 nice，verdict Needs revision → must 全採納 + 便宜 should/nice 採納（S8 sys.path→conftest 不採納記 backlog）。must 重點：handler 初始化失敗回 **503**（非洩漏 traceback 的 500）+ error-path 測試 + DI singleton **autouse reset fixture**；S9 `total` 改 computed_field 保證與 items 一致。frontend 未動（backend-only）vitest 59 baseline 不受影響。issue_stats done 50→51 / total 64→65；M5 progress 15→30。下一步候選：**M5-5** `/field/` mobile 前端串本 router（🔵 PMF 關鍵）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-03-knowledge-rag-router.md。
+最後更新：2026-06-03 23:xx（**WMOM-20260603-02 done — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly**）。劉老師交辦：把 autonomous worker 從每日 1 次改成**每 3 小時 1 次**並導入自動合併飛輪。**新增** `.github/workflows/ci.yml`（PR + push main 觸發：backend pytest 638 + frontend `npm ci`/`tsc`/`vitest`/`vite build`，concurrency 取消舊 run）+ `.github/workflows/auto-merge.yml`（`workflow_run` CI completed 觸發：CI 全綠且 head=`claude/*` 且標題非 `[WIP]` 且無 `hold`/`do-not-merge` label → `gh pr ready` + `gh pr merge --squash --delete-branch`；用 workflow_run 取 main 版 workflow 避免 PR 竄改合併邏輯）。**routine prompt v3**：cadence 每日→每 3 小時、baseline 570→638、stack-aware preflight（避免高頻重工）、沒乾淨工作 graceful 收尾、PR 收尾語意改「完工→正常 PR 自動合 / 半成品→`[WIP]` draft 跳過」。**劉老師需手動**：web trigger 排程改每 3 小時 + 貼 routine v3。先 squash-merge #69（M5-6）落地 main 再 rebase 本 PR（避免 ISSUES/STATUS stats 衝突）。issue_stats done 51→52 / total 65→66。詳細 handoff 在 work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md。
 
 ---
 
-最後更新：2026-06-01 20:xx（**WMOM-20260601-01 done — Knowledge / RAG module baseline 檢索層（EPIC-M5 M5-1 起手，simulator-first）**）。今日 autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 ISSUES.md 🎯 EPIC-M5 挑最高價值 🔵 autonomous 項 = M5-1 Knowledge 後端（PMF 關鍵，設計規範已在 `docs/product/MVP_ARCHITECTURE.md` §3.5、無歧義）。**Simulator-first 切法**（CLAUDE.md §15）：先做不依賴 ChromaDB（M5-2）/ RAG_Ultimate 真向量檔（M5-3 🟡）的純 Python baseline 層 → 純 simulator 模式即可 demo「警報→手冊處置段落 + 可解釋命中原因」。**新增** `modules/knowledge/`：`schemas.py`（6 個 pydantic v2 模型，AlertEvent.timestamp 強制 UTC-aware）+ `strategy_loader.py`（載入 RAG 策略檔；缺失/空檔/非mapping→baseline default）+ `corpus.py`（載入 baseline 知識庫 JSON + by_alarm_code/filter；單筆 chunk 損毀 graceful skip）+ `retrieve.py`（`Retriever` Protocol[name/is_baseline/retrieve] + `BaselineKeywordRetriever` 純 Python 評分：告警碼 0.6 + 關鍵字 0.3 + 文字 Jaccard 0.1，match_reason 繁中可解釋）+ `alert_handler.py`（警報→query→retrieve→`AlertRagResult`，只依賴 Retriever 介面、不認具體實作）+ `config/rag_strategy_z72_manual.yaml` + `data/baseline_corpus_z72.json`（11 個 Z72/Bachmann fault scenario SOP，告警碼對齊 `monitoring/simulator/physics/fault_engine.FAULT_SCENARIOS`）+ `build_baseline_alert_handler` 工廠。**Verify**：knowledge 54 tests + backend 全套 **624 passed / 1 xfailed**（570 原 baseline + 54 新，零 regression）；`Any` 0；端到端 smoke 警報碼 21→top1 變頻器冷卻 SOP。**Code review**：2 must / 7 should / 4 nice → must+should 全採納 + 便宜 nice 採納 / NTH1 過早優化不採納（must：handler `isinstance`→`Retriever` 契約屬性 `is_baseline` 解 DIP + MVP_ARCHITECTURE §3.5 升級契約；`AlertEvent.timestamp` 加 UTC-aware validator）。frontend 未動（backend-only），vitest 59 baseline 不受影響。issue_stats done 49→50 / total 63→64；M5 progress 0→15（in_progress）。下一步候選：M5-6 FastAPI knowledge router 串前端（🔵 單 session）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md。
+最後更新：2026-06-03 20:xx（**WMOM-20260603-01 done — Knowledge RAG FastAPI router（EPIC-M5 M5-6）**）。autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed + M5-1 knowledge 54，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 6/01 handoff 建議接 **M5-6**「Alert → RAG auto query」（🔵 autonomous、串 M5-1 baseline 檢索層、為 M5-5 `/field/` 前端鋪路）。**新增** `modules/knowledge/routers/knowledge_router.py`：3 endpoints — `POST /api/knowledge/alert`（`AlertEvent`→`AlertRagResult`，**killer feature** SCADA 警報即時檢索 top-k 手冊處置段落）/ `POST /api/knowledge/query`（`RetrievalQuery`→`KnowledgeQueryResponse`，手動查手冊）/ `GET /api/knowledge/info`（`KnowledgeInfoResponse`，前端 baseline badge）。**DI pattern 對齊 reporting_router**：`set_handler_factory(factory|None)` + lazy 快取 singleton handler（baseline corpus/策略檔程序內不變，免每請求重讀）。`AlertHandler` 加 `retriever`/`strategy` 唯讀 property（router 透過 `Retriever` 契約屬性標示來源、不碰私有狀態）。`schemas.py` 加 `KnowledgeQueryResponse`（`total` 為 `@computed_field`）/`KnowledgeInfoResponse`。`app.py` `include_router` 註冊。**Verify**：knowledge 68 tests（54 M5-1 + 14 M5-6）+ backend 全套 **638 passed / 1 xfailed**（零 regression）；`Any` 0；3 routes 掛載 OK。**Code review**：4 must / 5 should / 3 nice，verdict Needs revision → must 全採納 + 便宜 should/nice 採納（S8 sys.path→conftest 不採納記 backlog）。must 重點：handler 初始化失敗回 **503**（非洩漏 traceback 的 500）+ error-path 測試 + DI singleton **autouse reset fixture**；S9 `total` 改 computed_field 保證與 items 一致。frontend 未動（backend-only）vitest 59 baseline 不受影響。issue_stats done 50→51 / total 64→65；M5 progress 15→30。下一步候選：**M5-5** `/field/` mobile 前端串本 router（🔵 PMF 關鍵）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-03-knowledge-rag-router.md。
 
 ---
 
@@ -122,6 +122,24 @@
   - ✅ **Code review**（code-reviewer subagent）：4 must / 5 should / 3 nice → must 全採納 + 便宜 should/nice 採納（S8 sys.path→conftest 不採納，記 backlog）。must 重點：handler 初始化失敗 → 503（非洩漏 traceback 的 500）+ error-path 測試 + DI singleton autouse reset fixture；S9：`KnowledgeQueryResponse.total` 改 `@computed_field` 保證與 items 一致
 - **不在本 issue 範圍**（後續）：M5-5 `/field/` mobile 前端（串本 router）、M5-2 ChromaDB、M5-3/4 RAG_Ultimate 真向量檔
 - **Reference**: [`work-logs/2026-06/2026-06-03-knowledge-rag-router.md`](work-logs/2026-06/2026-06-03-knowledge-rag-router.md)
+
+---
+
+## 工程基礎設施 / DevOps
+
+### WMOM-20260603-02 — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly
+
+- **Status**: done（2026-06-03 完成）
+- **Milestone**: 跨 milestone（autonomous worker 基礎建設）
+- **Priority**: high（高頻 autonomous 開發的前提；劉老師交辦）
+- **Owner**: Claude (autonomous worker, session 2026-06-03)
+- **Completion summary**:
+  - ✅ **`.github/workflows/ci.yml`（新）**：PR + push main 觸發，2 jobs — backend pytest（workflow + cost + reporting + knowledge，baseline 638）+ frontend（`npm ci` → `tsc --noEmit` → `vitest run` → `vite build`）；`concurrency` 取消舊 run
+  - ✅ **`.github/workflows/auto-merge.yml`（新）**：`workflow_run`（CI completed）觸發 — CI 全綠且 head 為 `claude/*` 且標題非 `[WIP]` 且無 `hold`/`do-not-merge` label → `gh pr ready` + `gh pr merge --squash --delete-branch` 自動合 main。用 `workflow_run`（workflow 檔取自 main）避免 PR 竄改合併邏輯
+  - ✅ **routine prompt v3**（`docs/routines/autonomous-daily-worker-prompt.md`）：cadence 每日 20:00 → **每 3 小時**；baseline 570→638；新增 stack-aware preflight（高頻下避免與前一個未合併 session 重工）+ 「沒乾淨工作就 graceful 收尾不硬擠」；PR 收尾語意改為「完工→正常 PR（CI 綠自動合）/ 半成品→`[WIP]` draft（auto-merge 跳過）」
+  - ✅ 急停開關：PR 加 `hold` / `do-not-merge` label 即可讓 auto-merge 跳過
+- **劉老師需手動做的事**（repo 側無法代勞）：到 Claude Code on the web trigger 設定把排程改 **每 3 小時** + 貼上 routine v3 prompt（見 work-log §決策）
+- **Reference**: [`work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md`](work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md)
 
 ---
 

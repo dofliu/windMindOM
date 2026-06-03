@@ -1,0 +1,64 @@
+name: Auto-merge bot PRs
+
+# windMindOM autonomous worker 飛輪（WMOM-20260603-02）。
+# CI 全綠後，自動把 bot（claude/*）開的 PR squash-merge 進 main，讓
+# 「每 3 小時一個 session」能持續推進、不堆未合併 PR、不撞分支。
+#
+# 安全閘門（全部成立才合）：
+#   - 觸發 CI 的是 pull_request 事件，且 CI conclusion = success
+#   - PR head 分支以 claude/ 開頭（只動 bot 自己的分支）
+#   - PR 標題不含 [WIP]（半成品用 [WIP] 標題擋下）
+#   - PR 不帶 hold / do-not-merge label（人工急停開關）
+#
+# 用 workflow_run 觸發：workflow 檔一律取自 main（預設分支），PR 內容
+# 改不到本檔，避免惡意 PR 竄改合併邏輯。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'claude/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 解析 PR 並在符合條件時 auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+
+          pr_json=$(gh pr list --repo "$REPO" --head "$HEAD_BRANCH" --base main \
+            --state open --json number,title,labels --jq '.[0] // empty')
+          if [ -z "$pr_json" ]; then
+            echo "找不到 head=$HEAD_BRANCH 的 open PR，略過。"; exit 0
+          fi
+
+          number=$(echo "$pr_json" | jq -r '.number')
+          title=$(echo "$pr_json" | jq -r '.title')
+          labels=$(echo "$pr_json" | jq -r '[.labels[].name] | join(",")')
+          echo "候選 PR #$number｜title=$title｜labels=[$labels]"
+
+          shopt -s nocasematch
+          if [[ "$title" == *"[wip]"* ]]; then
+            echo "標題含 [WIP] → 半成品，略過 auto-merge。"; exit 0
+          fi
+          shopt -u nocasematch
+
+          if [[ ",$labels," == *",hold,"* || ",$labels," == *",do-not-merge,"* ]]; then
+            echo "帶 hold / do-not-merge label → 人工急停，略過。"; exit 0
+          fi
+
+          # 若是 draft 先升為 ready（忽略已 ready 的錯誤），再 squash + 刪分支。
+          gh pr ready "$number" --repo "$REPO" || true
+          gh pr merge "$number" --repo "$REPO" --squash --delete-branch
+          echo "✅ 已 auto-merge PR #$number 進 main"
