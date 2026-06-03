@@ -22,6 +22,7 @@ export type NavIconId =
   | 'cost'
   | 'reports'
   | 'history'
+  | 'field'
   | 'faults'
   | 'settings';
 
@@ -80,6 +81,15 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
       <g {...cap}>
         <circle cx="12" cy="12" r="8" />
         <path d="M12 7v5l3 2" />
+      </g>
+    ),
+    field: (
+      // 手機 + 放大鏡：現場 mobile 知識查詢。
+      <g {...cap}>
+        <rect x="5" y="3" width="9" height="18" rx="2" />
+        <path d="M5 17h9" />
+        <circle cx="17" cy="9" r="2.5" />
+        <path d="M19 11l2 2" />
       </g>
     ),
     faults: (

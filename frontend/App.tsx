@@ -37,6 +37,7 @@ import UserSwitcher from './components/UserSwitcher';
 import CostPage from './components/CostPage';
 import WorkflowPage from './components/workflow/WorkflowPage';
 import ReportsPage from './components/reporting/ReportsPage';
+import FieldPage from './components/field/FieldPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { UserProvider } from './hooks/useCurrentUser';
 import { Sidebar, type NavItem } from './components/ui';
@@ -51,6 +52,7 @@ type ViewId =
   | 'history'
   | 'cost'
   | 'reports'
+  | 'field'
   | 'faults'
   | 'settings';
 
@@ -65,6 +67,7 @@ const PRIMARY_NAV: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
+  { id: 'field', iconId: 'field', labelEn: 'Field', labelZh: '現場查詢' },
   { id: 'faults', iconId: 'faults', labelEn: 'Faults', labelZh: '故障模擬' },
   { id: 'settings', iconId: 'settings', labelEn: 'Settings', labelZh: '設定' },
 ];
@@ -246,6 +249,8 @@ const AppShell: React.FC = () => {
         return <CostPage lang={lang} />;
       case 'reports':
         return <ReportsPage lang={lang} />;
+      case 'field':
+        return <FieldPage lang={lang} />;
       case 'faults':
         return <FaultInjectionPanel lang={lang} />;
       case 'settings':

@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-06-03"  # WMOM-20260603-02（CI + auto-merge 飛輪 + routine 改 3-hourly）
-next_milestone: "**WMOM-20260603-02 done — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly**：劉老師交辦把 autonomous worker 從每日 1 次改成每 3 小時 1 次並導入自動合併飛輪。**新增** .github/workflows/ci.yml（PR + push main 觸發：backend pytest 638 + frontend npm ci/tsc/vitest/vite build，concurrency 取消舊 run）+ auto-merge.yml（workflow_run CI completed 觸發：CI 全綠且 head=claude/* 且標題非 [WIP] 且無 hold/do-not-merge label → gh pr ready + gh pr merge --squash --delete-branch；用 workflow_run 取 main 版 workflow 避免 PR 竄改合併邏輯）。**routine prompt v3**（docs/routines/autonomous-daily-worker-prompt.md）：cadence 每日→每 3 小時、baseline 570→638、stack-aware preflight（避免高頻重工）、沒乾淨工作 graceful 收尾不硬擠、PR 收尾語意改「完工→正常 PR 自動合 / 半成品→[WIP] draft 跳過」。**劉老師需手動**：Claude Code on the web trigger 排程改每 3 小時 + 貼 routine v3 prompt。流程上先 squash-merge #69（M5-6）落地 main 再 rebase 本 PR（避免 ISSUES/STATUS stats 衝突）。issue_stats done 51→52 / total 65→66。**下一步候選**：M5-5 /field/ mobile 前端（🔵 PMF 關鍵）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ M5-3 RAG_Ultimate 真向量檔（🟡）。詳細 handoff 在 work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md."
+last_updated: "2026-06-03"  # WMOM-20260603-03（M5-5 Part A `/field/` 現場 mobile 知識查詢頁）
+next_milestone: "**WMOM-20260603-03 done — M5-5 Part A `/field/` 現場 mobile 知識查詢頁**：autonomous worker session，preflight 全綠（backend 638 / frontend 59、飛輪健康：上個 session PR 已 auto-merge 進 main）。依 flywheel handoff 接 M5-5（🔵 PMF 關鍵、net-new、與 22 個 stale PR 無 collision）；範圍大故切 Part A 知識檢索查詢。**新增** frontend/services/knowledgeService.ts（API client 型別嚴格對齊 modules/knowledge/schemas.py：info/query/queryByAlert + 錯誤抽 FastAPI detail）+ hooks/useKnowledge.ts（info+search 兩條流，race 防護用單調遞增 reqRef 丟棄過期回應）+ components/field/FieldPage.tsx（mobile-first maxWidth 560 單欄：關鍵字+告警碼 input、常用 Z72 告警碼 chips、結果卡含相關度%+繁中命中原因+文件來源+alarm pills、loading/error/空狀態，全走 ui 元件庫零 hex）。**改** App.tsx（field nav + render case）+ ui/Logo.tsx（field NavIcon）。**Verify**：tsc 0 error（無 any）+ vitest 71 passed（59 baseline + 12 新：service 6 + hook 6 含 race/clearSearch in-flight 丟棄）+ vite build ✓；backend 未動 638 不受影響。issue_stats done 52→53 / total 66→67；M5 progress 30→45。**下一步**：M5-5 Part B（my work orders + completion + alert detail 串 queryByAlert，client 已備）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ 22 個 stale PR triage（待劉老師）。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-knowledge-mobile.md."
 technologies:
   - FastAPI
   - React
@@ -54,7 +54,7 @@ milestones:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
     status: in_progress
-    progress: 30  # M5-1 baseline 檢索層 + M5-6 FastAPI knowledge router（3 endpoints）done；M5-2/3/4/5 待續
+    progress: 45  # M5-1 baseline 檢索層 + M5-6 knowledge router + M5-5 Part A `/field/` mobile 知識查詢頁 done；M5-2/3/4 + M5-5 Part B 待續
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 52  # +1: WMOM-20260603-02 CI + auto-merge 飛輪 + routine 改 3-hourly (2026-06-03)
+  done: 53  # +1: WMOM-20260603-03 M5-5 Part A `/field/` 現場 mobile 知識查詢頁 (2026-06-03)
 
 inherited_baseline:
   source: digiWindTurbine
