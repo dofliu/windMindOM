@@ -8,6 +8,10 @@
 
 ---
 
+最後更新（前）：2026-06-03 23:xx（**WMOM-20260603-02 done — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly**）。劉老師交辦：把 autonomous worker 從每日 1 次改成**每 3 小時 1 次**並導入自動合併飛輪。**新增** `.github/workflows/ci.yml`（PR + push main 觸發：backend pytest 638 + frontend `npm ci`/`tsc`/`vitest`/`vite build`，concurrency 取消舊 run）+ `.github/workflows/auto-merge.yml`（`workflow_run` CI completed 觸發：CI 全綠且 head=`claude/*` 且標題非 `[WIP]` 且無 `hold`/`do-not-merge` label → `gh pr ready` + `gh pr merge --squash --delete-branch`；用 workflow_run 取 main 版 workflow 避免 PR 竄改合併邏輯）。**routine prompt v3**：cadence 每日→每 3 小時、baseline 570→638、stack-aware preflight（避免高頻重工）、沒乾淨工作 graceful 收尾、PR 收尾語意改「完工→正常 PR 自動合 / 半成品→`[WIP]` draft 跳過」。**劉老師需手動**：web trigger 排程改每 3 小時 + 貼 routine v3。先 squash-merge #69（M5-6）落地 main 再 rebase 本 PR（避免 ISSUES/STATUS stats 衝突）。issue_stats done 51→52 / total 65→66。詳細 handoff 在 work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md。
+
+---
+
 最後更新（前）：2026-06-03 20:xx（**WMOM-20260603-01 done — Knowledge RAG FastAPI router（EPIC-M5 M5-6）**）。autonomous daily worker session：preflight baseline 全綠（backend 570 passed / 1 xfailed + M5-1 knowledge 54，無 blocker / 無 regression → 決策樹第 1、2 條不觸發）。依 6/01 handoff 建議接 **M5-6**「Alert → RAG auto query」（🔵 autonomous、串 M5-1 baseline 檢索層、為 M5-5 `/field/` 前端鋪路）。**新增** `modules/knowledge/routers/knowledge_router.py`：3 endpoints — `POST /api/knowledge/alert`（`AlertEvent`→`AlertRagResult`，**killer feature** SCADA 警報即時檢索 top-k 手冊處置段落）/ `POST /api/knowledge/query`（`RetrievalQuery`→`KnowledgeQueryResponse`，手動查手冊）/ `GET /api/knowledge/info`（`KnowledgeInfoResponse`，前端 baseline badge）。**DI pattern 對齊 reporting_router**：`set_handler_factory(factory|None)` + lazy 快取 singleton handler。`schemas.py` 加 `KnowledgeQueryResponse`（`total` 為 `@computed_field`）/`KnowledgeInfoResponse`。`app.py` `include_router` 註冊。**Verify**：knowledge 68 + backend **638 passed / 1 xfailed**（零 regression）。**Code review**：4 must / 5 should / 3 nice → must 全採納（handler 初始化失敗回 503 + error-path 測試 + DI singleton autouse reset fixture）。issue_stats done 50→51 / total 64→65；M5 progress 15→30。詳細 handoff 在 work-logs/2026-06/2026-06-03-knowledge-rag-router.md。
 
 ---

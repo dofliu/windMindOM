@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-06-03"  # WMOM-20260603-03（M5-5 Part A `/field/` 現場 mobile 知識查詢頁）
-next_milestone: "**WMOM-20260603-03 done — M5-5 Part A `/field/` 現場 mobile 知識查詢頁**：autonomous worker session，preflight 全綠（backend 638 / frontend 59、飛輪健康：上個 session PR 已 auto-merge 進 main）。依 flywheel handoff 接 M5-5（🔵 PMF 關鍵、net-new、與 22 個 stale PR 無 collision）；範圍大故切 Part A 知識檢索查詢。**新增** frontend/services/knowledgeService.ts（API client 型別嚴格對齊 modules/knowledge/schemas.py：info/query/queryByAlert + 錯誤抽 FastAPI detail）+ hooks/useKnowledge.ts（info+search 兩條流，race 防護用單調遞增 reqRef 丟棄過期回應）+ components/field/FieldPage.tsx（mobile-first maxWidth 560 單欄：關鍵字+告警碼 input、常用 Z72 告警碼 chips、結果卡含相關度%+繁中命中原因+文件來源+alarm pills、loading/error/空狀態，全走 ui 元件庫零 hex）。**改** App.tsx（field nav + render case）+ ui/Logo.tsx（field NavIcon）。**Verify**：tsc 0 error（無 any）+ vitest 73 passed（59 baseline + 14 新：service 8 + hook 6；review-fix 補 422 detail 抽 msg + queryByAlert error path）+ vite build ✓；backend 未動 638 不受影響。issue_stats done 52→53 / total 66→67；M5 progress 30→45。**下一步**：M5-5 Part B（my work orders + completion + alert detail 串 queryByAlert，client 已備）/ M5-2 ChromaDB（🔵 需 chromadb 依賴）/ 22 個 stale PR triage（待劉老師）。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-knowledge-mobile.md."
+last_updated: "2026-06-03"  # WMOM-20260603-04（M5-5 Part B-1 `/field/` 警報檢索模式，killer feature）
+next_milestone: "**WMOM-20260603-04 done — M5-5 Part B-1 `/field/` 警報檢索模式（killer feature）**：autonomous worker session，preflight 全綠（backend 638 / frontend 73、飛輪健康：Part A PR #72 已 auto-merge 進 main）。接 Part A handoff 推進 M5-5 Part B（🔵 PMF killer feature、net-new、與 22 個 stale PR 無 collision）；範圍大故切無 backend 依賴的 alert detail with RAG slice。**改** hooks/useKnowledge.ts（新增第三條流 alert：runAlert/clearAlert，獨立 alertReqRef race 防護與 search 流隔離）+ components/field/FieldPage.tsx（重構 ModeToggle segmented + QueryMode/AlertMode + 共用 ResultList/ResultCard；AlertMode 表單告警碼/等級 Select/機組/異常標籤，timestamp 用 toISOString 避免 422，結果先顯示警報摘要 + 透明標示『系統據此檢索』query 再列 chunks，全走 ui 零 hex）。串 Part A 已備的 POST /api/knowledge/alert，backend 完全沒動。**Verify**：tsc 0 error（無 any）+ vitest 78 passed（73 baseline + 5 新：runAlert happy/race/error + clearAlert in-flight + 兩流獨立）+ vite build ✓；backend 638 不受影響。issue_stats done 53→54 / total 67→68；M5 progress 45→55。**下一步**：M5-5 Part B-2（my work orders + completion 串 work_order router）/ alert 從真 monitoring 警報帶入 / M5-2 ChromaDB（🔵 需 chromadb 依賴）/ 22 個 stale PR triage（待劉老師）。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-alert-rag.md."
 technologies:
   - FastAPI
   - React
@@ -54,7 +54,7 @@ milestones:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
     status: in_progress
-    progress: 45  # M5-1 baseline 檢索層 + M5-6 knowledge router + M5-5 Part A `/field/` mobile 知識查詢頁 done；M5-2/3/4 + M5-5 Part B 待續
+    progress: 55  # M5-1 baseline 檢索層 + M5-6 knowledge router + M5-5 Part A 查詢頁 + Part B-1 警報檢索 done；M5-2/3/4 + M5-5 Part B-2（work orders/completion）待續
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 53  # +1: WMOM-20260603-03 M5-5 Part A `/field/` 現場 mobile 知識查詢頁 (2026-06-03)
+  done: 54  # +1: WMOM-20260603-04 M5-5 Part B-1 `/field/` 警報檢索模式 (2026-06-03)
 
 inherited_baseline:
   source: digiWindTurbine
