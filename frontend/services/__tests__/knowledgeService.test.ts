@@ -63,7 +63,7 @@ describe('knowledgeApi.info', () => {
     expect(init?.method ?? 'GET').toBe('GET');
   });
 
-  it('500 回應 → 丟含 detail 的 Error', async () => {
+  it('503 回應 → 丟含 detail 的 Error（handler 初始化失敗）', async () => {
     fetchMock.mockResolvedValueOnce(errResponse(503, { detail: '知識庫 RAG 服務暫時不可用' }));
     await expect(knowledgeApi.info()).rejects.toThrow('知識庫 RAG 服務暫時不可用');
   });
@@ -107,9 +107,28 @@ describe('knowledgeApi.query', () => {
     expect(JSON.parse(init.body)).toEqual({ text: '變頻器冷卻', alarm_codes: [21] });
   });
 
-  it('detail 非字串時 fallback 成 JSON 字串（不丟 [object Object]）', async () => {
-    fetchMock.mockResolvedValueOnce(errResponse(422, { detail: [{ msg: 'field required' }] }));
-    await expect(knowledgeApi.query({ text: '' })).rejects.toThrow('field required');
+  it('Pydantic 422 detail 陣列 → 抽 msg（不丟原始 JSON / [object Object]）', async () => {
+    fetchMock.mockResolvedValueOnce(
+      errResponse(422, { detail: [{ type: 'missing', loc: ['text'], msg: 'field required' }] }),
+    );
+    // 期望抽出可讀 msg、且訊息裡不含原始 JSON 結構符號（type / loc）。
+    let caught: unknown;
+    try {
+      await knowledgeApi.query({ text: '' });
+    } catch (e) {
+      caught = e;
+    }
+    const msg = caught instanceof Error ? caught.message : String(caught);
+    expect(msg).toContain('field required');
+    expect(msg).not.toContain('"type"');
+    expect(msg).not.toContain('"loc"');
+  });
+
+  it('detail 陣列多筆 → 各 msg 以「；」串接', async () => {
+    fetchMock.mockResolvedValueOnce(
+      errResponse(422, { detail: [{ msg: '欄位 A 必填' }, { msg: '欄位 B 格式錯誤' }] }),
+    );
+    await expect(knowledgeApi.query({ text: '' })).rejects.toThrow('欄位 A 必填；欄位 B 格式錯誤');
   });
 
   it('無 JSON body 時 fallback 成 HTTP {status}', async () => {
@@ -144,5 +163,12 @@ describe('knowledgeApi.queryByAlert', () => {
     expect(url).toContain('/api/knowledge/alert');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ alarm_code: 21, turbine_id: 'T01' });
+  });
+
+  it('503 回應 → 丟含 detail 的 Error（handler 初始化失敗）', async () => {
+    fetchMock.mockResolvedValueOnce(errResponse(503, { detail: '知識庫 RAG 服務暫時不可用' }));
+    await expect(knowledgeApi.queryByAlert({ alarm_code: 21, turbine_id: 'T01' })).rejects.toThrow(
+      '知識庫 RAG 服務暫時不可用',
+    );
   });
 });

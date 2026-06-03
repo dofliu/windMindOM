@@ -59,7 +59,10 @@ export interface AlertEvent {
   abnormal_tags?: string[];
   description?: string | null;
   severity?: number | null;
-  timestamp?: string | null; // ISO-8601，須帶時區（backend 強制 UTC-aware）
+  // ISO-8601 **須帶時區 offset**（例 "2026-06-03T10:00:00Z"）；backend 強制 UTC-aware，
+  // naive datetime 會被 schema validator 擋成 422。Part B 串警報時建議用
+  // `new Date().toISOString()`（永遠帶 Z）避免踩時區陷阱（CLAUDE.md §B：SCADA 一律 UTC）。
+  timestamp?: string | null;
 }
 
 /** POST /api/knowledge/alert 回傳。對齊 schemas.AlertRagResult。 */
@@ -92,13 +95,25 @@ export interface KnowledgeInfoResponse {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-/** 解析 backend 錯誤回應（FastAPI HTTPException 的 `detail`），對齊 reportingService。 */
+/**
+ * 解析 backend 錯誤回應（FastAPI HTTPException 的 `detail`）成現場工程師可讀字串。
+ *
+ * - `detail` 為字串（HTTPException）→ 直接回（例：503「知識庫 RAG 服務暫時不可用」）。
+ * - `detail` 為陣列（Pydantic v2 422 validation error）→ 抽每筆的 `msg` 串接，
+ *   避免把 `[{"type":"missing",...}]` 原始 JSON 丟給現場工程師看（review should-fix）。
+ * - 其餘 / 無 body → fallback `HTTP {status}`。
+ */
 async function readError(resp: Response): Promise<string> {
   try {
     const body = await resp.json();
-    if (body?.detail) {
-      return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    const detail = body?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+      return detail
+        .map((d: { msg?: string }) => (typeof d?.msg === 'string' ? d.msg : JSON.stringify(d)))
+        .join('；');
     }
+    if (detail) return JSON.stringify(detail);
   } catch {
     /* fall through */
   }

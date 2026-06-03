@@ -20,7 +20,13 @@ import type { RetrievedChunk } from '../../services/knowledgeService';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Card, Btn, PageHeader, StatusPill, Field, Input } from '../ui';
 
-/** 常用 Z72 告警碼（對齊 fault_engine 常見故障）— 現場一鍵帶入。 */
+/**
+ * 常用 Z72 告警碼 — 現場一鍵帶入。
+ *
+ * ⚠️ placeholder：以下碼為 baseline 示範值，**待用 `docs/__Z72UserManual.pdf` +
+ * `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx` 核實**（M5-4 灌真手冊 + 警報 csv 後
+ * 應以實際資料取代，避免一鍵帶入後查無結果造成 false confidence）。
+ */
 const COMMON_ALARM_CODES: Array<{ code: number; labelZh: string; labelEn: string }> = [
   { code: 21, labelZh: '變頻器跳機', labelEn: 'Converter trip' },
   { code: 31, labelZh: '齒輪箱高溫', labelEn: 'Gearbox over-temp' },
@@ -32,8 +38,9 @@ interface FieldPageProps {
   lang: Lang;
 }
 
-/** 相關度 0..1 → 百分比字串。 */
-const fmtScore = (score: number): string => `${Math.round(score * 100)}%`;
+/** 相關度 0..1 → 百分比字串。clamp 0..1 防 M5-2 ChromaDB distance 轉換溢出邊界。 */
+const fmtScore = (score: number): string =>
+  `${Math.round(Math.min(Math.max(score, 0), 1) * 100)}%`;
 
 /** 依相關度給 pill tone（高=ok、中=amber、低=muted）。 */
 function scoreTone(score: number): 'ok' | 'amber' | 'muted' {
@@ -90,7 +97,8 @@ const ResultCard: React.FC<{ item: RetrievedChunk; lang: Lang }> = ({ item, lang
 
       {chunk.alarm_codes.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-          {chunk.alarm_codes.map(code => (
+          {/* dedupe：backend schema 不保證 alarm_codes 唯一，去重避免 React duplicate key。 */}
+          {[...new Set(chunk.alarm_codes)].map(code => (
             <StatusPill key={code} tone="info">
               {zh ? '告警碼' : 'Alarm'} {code}
             </StatusPill>
@@ -133,7 +141,12 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
   };
 
   // baseline badge：is_baseline=true 表示 placeholder 檢索（非真向量），現場可見地標示。
-  const infoBadge = info.data ? (
+  // /info 失敗（例：handler 初始化 503）時改顯示警示 badge，不讓狀態靜默消失（demo 場景關鍵）。
+  const infoBadge = info.error ? (
+    <StatusPill tone="warn" size="md">
+      {zh ? 'RAG 服務異常' : 'RAG unavailable'}
+    </StatusPill>
+  ) : info.data ? (
     <StatusPill tone={info.data.is_baseline ? 'amber' : 'ok'} size="md">
       {info.data.is_baseline
         ? zh
@@ -146,6 +159,10 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
   ) : null;
 
   const results = search.data?.items ?? [];
+
+  // 顯示給現場工程師的錯誤訊息：剝掉 service 層的 `POST /api/... failed:` 技術前綴，
+  // 只留 backend 的繁中 detail（readError 已抽好）。
+  const searchErrorMsg = search.error?.replace(/^(GET|POST)\s+\S+\s+failed:\s*/, '') ?? null;
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
@@ -225,11 +242,11 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
       </Card>
 
       {/* ── 狀態 / 結果 ── */}
-      {search.error && (
+      {searchErrorMsg && (
         <Card tone="warn" style={{ marginBottom: 12 }}>
           <div style={{ color: C.warn, fontSize: 13 }}>
             {zh ? '查詢失敗：' : 'Search failed: '}
-            {search.error}
+            {searchErrorMsg}
           </div>
         </Card>
       )}
@@ -247,9 +264,10 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
       {results.length > 0 && (
         <>
           <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
+            {/* backend total（computed_field）= items.length，此處 results 已非空，直接用其長度。 */}
             {zh
-              ? `找到 ${search.data?.total ?? results.length} 段相關處置`
-              : `${search.data?.total ?? results.length} matching section(s)`}
+              ? `找到 ${results.length} 段相關處置`
+              : `${results.length} matching section(s)`}
           </div>
           {results.map(item => (
             <ResultCard key={item.chunk.id} item={item} lang={lang} />
