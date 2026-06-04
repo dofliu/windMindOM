@@ -16,10 +16,10 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 57 |
-| **total (active)** | **71** |
+| done | 58 |
+| **total (active)** | **72** |
 
-最後更新：2026-06-04 late-night（**WMOM-20260604-03 done — CostPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 108、飛輪健康：上個 session ReportsPage render 測試 PR #75 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前兩個同日 session（FieldPage / ReportsPage）連續 handoff **背書**「同範式續推 CostPage」。選 **CostPage**（`components/CostPage.tsx`，784 行）：admin 成本模型主入口，串 `useCostData` 4 endpoints（forecast / lcoe / monteCarlo / varFluct），分支邏輯豐富、依賴可乾淨 mock、零設計歧義、單 session 可完工。**新增** `components/__tests__/CostPage.test.tsx`（**15 tests**：mock `useCostData` 控 4 個 AsyncState + mock `recharts` 輕量 stub + stub `global.fetch` 路由 `/api/farms`·`/api/i18n`；覆蓋 mount 自動接線「forecast.run + 其他 reset」/ dataset 切換 / farms 載入 / Run scenario 全跑 / 各 panel run 接線帶預設 params / loading·error 態 / KPI strip 格式化 / DatasetMetaBadge / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **123 passed**（108 baseline + 15 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 56→57 / total 70→71。**下一步**：同範式續推 FarmOverview（730）/ SettingsPage（781）/ HistoryPage（809）/ workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-costpage-render-tests.md。
+最後更新：2026-06-04 late-night2（**WMOM-20260604-04 done — FarmOverview component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 123、飛輪健康：上個 session CostPage render 測試 PR #76 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前三個同日 session（FieldPage / ReportsPage / CostPage）連續 handoff **背書**「同範式續推 FarmOverview」。選 **FarmOverview**（`components/FarmOverview.tsx`，730 行）：`/admin` 風場總覽落地頁，純由 props（turbines / settings / lang）驅動，唯二外部依賴 `useTheme` + TrendCard farm-trend fetch 可乾淨 stub，零設計歧義。**新增** `components/__tests__/FarmOverview.test.tsx`（**18 tests**：`makeTurbine` 嚴格型別 fixture + `vi.stubGlobal('fetch')` 路由 farm-trend；覆蓋 PageHeader zh/en + MOCK 徽章 / HeroStats KPI 計算（功率加總·平均風速·全部健康·狀態混合·故障·一切順利）/ cards·summary·table 三檢視切換 + aria-pressed / 點卡片·點 row → onSelectTurbine / summary fmtPower kW / table 缺值 cell「—」/ TrendCard 24H·6H·7D fetch 接線 + 收集中/有資料兩態 / 語系 en 表頭）。**零 production 程式改動**。**code review** 7 must-fix：採納 4（模組快取順序污染→改 6H 切換隔離、jsonResponse 補 ok/status、'—' 改 cell-specific、flushAsync drain 多 tick），駁回 1 false-positive（reviewer 誤判 `RANGE_TO_API['7D']='1d'` 為 bug；實查後端 farm-trend 只支援至 1d，改 '7d' 反而會壞 → 改加測試守住刻意 cap），其餘記錄理由。**Verify**：`tsc` 0 error + `vitest` **141 passed**（123 baseline + 18 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 57→58 / total 71→72。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ workflow 各 panel 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。**給劉老師小問題**：總覽「7D」趨勢實際只拉 1 天（後端無 7d range），確認 UI 標示或開後端 issue。詳細 handoff 在 work-logs/2026-06/2026-06-04-farmoverview-render-tests.md。
 
 ---
 
@@ -69,6 +69,24 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260604-04 — FarmOverview component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-04 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；前三個同日 session handoff 背書「同範式續推 FarmOverview」）
+- **Owner**: Claude (autonomous worker, session 2026-06-04 late-night2)
+- **Completion summary**:
+  - ✅ **`components/__tests__/FarmOverview.test.tsx`（新，18 tests）**：延續 FieldPage / ReportsPage / CostPage 已落地的 render 測試範式（ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup + async act flush），為 `/admin` 風場總覽落地頁（730 行）補第一批 component render 測試。
+  - ✅ **覆蓋契約**：PageHeader（zh/en 標題 + `dataSource=MOCK` 才顯 MOCK 徽章）+ HeroStats KPI 計算（風場功率加總 / 平均風速 / 運轉計數「全部健康·狀態混合」/ 故障「請關注·一切順利」）+ cards·summary·table 三檢視切換 + aria-pressed + summary fmtPower（<1 MW → kW）+ table 欄位 toFixed·缺值 cell「—」+ 點卡片/點 row → onSelectTurbine 帶正確 turbine + TrendCard（預設 24H aria-pressed + mount 觸發 `farm-trend?range=1d` + 切 6H→`range=12h` + 切 7D→`range=1d`（守後端只支援至 1d 的刻意 cap）+ 收集中/有資料兩態）+ 語系 en 表頭。
+  - ✅ **mock 策略**：純由 props（turbines / settings / lang）驅動，`makeTurbine` 工廠全列核心必填欄位不用 `as` 強轉（tsc 守住與 types.ts 對齊）；`global.fetch` 以 `vi.stubGlobal` 路由 farm-trend（未預期 URL reject 不靜默吞）；`jsonResponse` 含 ok/status；`flushAsync`（setTimeout 0）drain 多層 fetch chain。
+  - ✅ **code review 7 must-fix**：採納 4（① 模組級 `_trendCache` 順序污染 → 改「有資料」測試先空 mount 再切 6H 隔離，`--sequence.shuffle` 佐證順序無關；② jsonResponse 補 ok/status；③ '—' 改 cell-specific 斷言；④ flushAsync drain 多 tick + 補 6H fetch 接線測試）；駁回 1 false-positive（reviewer 誤判 `RANGE_TO_API['7D']='1d'` 為 bug — 實查 `modules/monitoring/server/routers/turbines.py` 後端 farm-trend 只接受 5m/1h/12h/1d，改 '7d' 會 fallback 成 5m 而壞掉 → 改加測試守住刻意 cap）；其餘記錄理由（getByText 對歧義是大聲失敗非假綠 / 需動 production testid / 低 ROI 邊界）。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **141 passed**（123 baseline + 18 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **給劉老師小問題**：總覽趨勢圖「7D」時段實際只拉最近 1 天（前端 `RANGE_TO_API['7D']='1d'`，後端無 7d range）。若預期則 UI 標示待修；若應顯 7 天需開後端 issue 加 7d range + SQLite 查詢。
+- **下次續做**：同範式推 SettingsPage（781 行）/ HistoryPage（809）/ workflow 各 panel（`components/workflow/` 11 元件，僅 statusUtils helper test）。
+- **Reference**: [`work-logs/2026-06/2026-06-04-farmoverview-render-tests.md`](work-logs/2026-06/2026-06-04-farmoverview-render-tests.md)
+
+---
 
 ### WMOM-20260604-03 — CostPage component render 測試（EPIC-M5 測試覆蓋擴大）
 
