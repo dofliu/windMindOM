@@ -8,6 +8,10 @@
 
 ---
 
+最後更新（前）：2026-06-04 late-night（**WMOM-20260604-03 done — CostPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 108、飛輪健康：上個 session ReportsPage render 測試 PR #75 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前兩個同日 session（FieldPage / ReportsPage）連續 handoff **背書**「同範式續推 CostPage」。選 **CostPage**（`components/CostPage.tsx`，784 行）：admin 成本模型主入口，串 `useCostData` 4 endpoints。**新增** `components/__tests__/CostPage.test.tsx`（**15 tests**：mock `useCostData` 控 4 個 AsyncState + mock `recharts` 輕量 stub + stub `global.fetch`；覆蓋 mount 自動接線 / dataset 切換 / farms 載入 / Run scenario / 各 panel run 接線 / loading·error 態 / KPI 格式化 / DatasetMetaBadge / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **123 passed**（108 baseline + 15 新）+ `vite build` ✓。issue_stats done 56→57 / total 70→71。詳細 handoff 在 work-logs/2026-06/2026-06-04-costpage-render-tests.md。
+
+---
+
 最後更新（前）：2026-06-04（**WMOM-20260604-01 done — FieldPage component render 測試 + 前端 render 測試基礎建設**）。autonomous worker session：preflight 全綠（backend 638 / frontend 78、飛輪健康：handoff PR #71 + M5-5 Part A/B-1 均已在 main）。決策樹 #1 blocker / #2 regression / #3 飛輪壞掉**皆無** → 落 #4 乾淨 autonomous 工作。候選評估：M5-5 Part B-2（work orders）有 persona/auth「who is me」**設計歧義**（不自行開工）、M5-2 ChromaDB 有 CI 重依賴風險，故選 routine **明確背書**的「component render 測試覆蓋擴大」。FieldPage 是剛落地、最複雜（20KB ModeToggle + 雙模式表單）、**零 render 覆蓋**的元件（main 8 個測試檔全是 hook/util 單元測試）。**新增** `frontend/vitest.setup.ts`（啟用 `@testing-library/jest-dom` matcher）+ 改 `vitest.config.ts`（`setupFiles`）+ +devDep `@testing-library/jest-dom` + `components/field/__tests__/FieldPage.test.tsx`（**19 tests**：`vi.mock` useKnowledge hook + ThemeProvider 包裹；覆蓋預設渲染 / 模式切換 / info badge 三態 / query 結果·空·error·loading / alert 摘要+「系統據此檢索」query / 按鈕 disabled·payload trim·timestamp Z / 清除 / 多段卡片）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **97 passed**（78 baseline + 19 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 54→55 / total 68→69。詳細 handoff 在 work-logs/2026-06/2026-06-04-fieldpage-render-tests.md。
 
 ---
