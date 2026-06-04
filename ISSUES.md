@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 59 |
-| **total (active)** | **73** |
+| done | 60 |
+| **total (active)** | **74** |
 
-最後更新：2026-06-04（**WMOM-20260604-05 done — WorkflowPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 141、飛輪健康：上個 session FarmOverview render 測試 PR #77 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前四個同日 session（FieldPage / ReportsPage / CostPage / FarmOverview）連續 handoff **背書**「同範式續推 workflow 各 panel」。選 **WorkflowPage**（`components/workflow/WorkflowPage.tsx`，502 行）：核心「庫存派工簽核」模組主入口，先前 `components/workflow/` 目錄只有 `statusUtils` helper 單元測試、頁面層零覆蓋，**商業價值最高**且 5 hook + 11 子元件依賴可乾淨 mock，零設計歧義。**新增** `components/workflow/__tests__/WorkflowPage.test.tsx`（**21 tests**：mock 5 stateful hook（useWorkOrders / useMaterialRequests / useInventory / usePendingApprovals / useCurrentUser）+ 11 個子面板/wizard/modal marker mock + `global.fetch` 路由 `/api/farms`；覆蓋 active farm 載入三態（載入中·fetch 失敗·成功）/ 四 tab 切換（工單·領料單·庫存·簽核）+ aria-pressed / Create 按鈕依 tab / 簽核 pending 徽章 / 子面板 props wiring / row 點選開 4 種 modal·drawer / 建立 wizard onSubmit 接線 / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **162 passed**（141 baseline + 21 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 58→59 / total 72→73。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-workflowpage-render-tests.md。
+最後更新：2026-06-04（**WMOM-20260604-06 done — SettingsPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 162、飛輪健康：上個 session WorkflowPage render 測試 PR #78 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；WorkflowPage handoff **背書**「同範式續推 SettingsPage」。選 **SettingsPage**（`components/SettingsPage.tsx`，781 行）：`/admin/settings` 系統設定面板，純 props（`settings` / `onSave` / `lang`）+ `fetch` 驅動、**無 stateful hook 依賴**、ui primitive 真渲染，僅需 stub `global.fetch`，零設計歧義。**新增** `components/__tests__/SettingsPage.test.tsx`（**17 tests**：stub `global.fetch` 路由 4 GET config endpoint（wind / grid / turbine-spec / presets）+ 3 POST；`makeSettings(dataSource)` 工廠結構式滿足 `AppSettings`；覆蓋 基本渲染+語系（zh/en）/ dataSource 驅動條件區塊（MOCK·SIMULATION·OPC_DA·MODBUS_TCP）/ Select 切換接線 / settings prop 同步（rerender→useEffect）/ Save→onSave 接線+「已儲存」pill / backend down warn card / wind status 顯示 / wind profile POST+aria-pressed / custom wind 解析數值 body / grid profile POST / turbine spec presets 渲染 / apply spec POST）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **179 passed**（162 baseline + 17 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 59→60 / total 73→74。**下一步**：同範式續推 HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-settingspage-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260604-04 FarmOverview）詳見 work-logs/2026-06/2026-06-04-farmoverview-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260604-05 WorkflowPage）詳見 work-logs/2026-06/2026-06-04-workflowpage-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260604-06 — SettingsPage component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-04 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；`/admin/settings` 切資料源 / 風況電網覆寫 / 套機型規格 demo 操作面板，先前頁面層零覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-04)
+- **Completion summary**:
+  - ✅ **`components/__tests__/SettingsPage.test.tsx`（新，17 tests）**：延續 CostPage / FarmOverview 已落地的 render 測試範式（ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup + `global.fetch` stub + `await act(async)` flush mount effect），為 `/admin/settings`（`components/SettingsPage.tsx`，781 行）補第一批 component render 測試。SettingsPage 純 props（`settings` / `onSave` / `lang`）+ fetch 驅動、**無 stateful hook 依賴**，ui primitive（Btn / Card / Field / Input / Select / PageHeader / StatusPill）真渲染，僅 stub `global.fetch`。
+  - ✅ **覆蓋契約**：基本渲染 + 語系（zh「系統設定」/ en「Settings」+ Save 按鈕，含 negative 守 u() 映射未對調）+ dataSource 驅動條件區塊（MOCK→無模擬/OPC/Modbus；SIMULATION→模擬參數+風機規格+風況控制+電網控制；OPC_DA→含 ProgID；MODBUS_TCP→IP/埠號/Slave ID）+ Select 切換接線（MOCK→SIMULATION 即時出現模擬區塊）+ settings prop 同步（rerender→useEffect [settings]→setFormData）+ Save（type=submit）→ `onSave` 帶 formData +「已儲存」pill + backend down（wind GET reject→「無法連線到後端 API」warn card）+ wind status 顯示 + wind profile 按鈕（POST /api/config/wind {profile} + aria-pressed）+ custom wind 套用（POST 帶解析後數值 body）+ grid profile 按鈕（POST /api/config/grid）+ turbine spec presets 渲染 + apply spec（POST /api/config/turbine-spec 帶 editSpec payload）。
+  - ✅ **mock 策略**：`makeSettings(dataSource)` 工廠結構式滿足 `AppSettings`（不用 `as` 強轉，欄位漂移 tsc 即失敗）；`global.fetch` stub 路由 4 GET config endpoint（presets 先於 turbine-spec 判斷避免超字串誤命中）+ 3 POST（turbine-spec 回 `{spec}`、wind/grid 回 ok），未預期 URL/method `reject('Unexpected fetch')` 不靜默吞；POST 斷言以 method 過濾 `fetchMock.mock.calls` 取 body，避開 mount 多次 GET。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **179 passed**（162 baseline + 17 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板（WorkOrderListPanel / PendingApprovalPanel 等 panel 級互動）。
+- **Reference**: [`work-logs/2026-06/2026-06-04-settingspage-render-tests.md`](work-logs/2026-06/2026-06-04-settingspage-render-tests.md)
+
+---
 
 ### WMOM-20260604-05 — WorkflowPage component render 測試（EPIC-M5 測試覆蓋擴大）
 
