@@ -16,10 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 58 |
-| **total (active)** | **72** |
+| done | 59 |
+| **total (active)** | **73** |
 
-最後更新：2026-06-04 late-night2（**WMOM-20260604-04 done — FarmOverview component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 123、飛輪健康：上個 session CostPage render 測試 PR #76 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前三個同日 session（FieldPage / ReportsPage / CostPage）連續 handoff **背書**「同範式續推 FarmOverview」。選 **FarmOverview**（`components/FarmOverview.tsx`，730 行）：`/admin` 風場總覽落地頁，純由 props（turbines / settings / lang）驅動，唯二外部依賴 `useTheme` + TrendCard farm-trend fetch 可乾淨 stub，零設計歧義。**新增** `components/__tests__/FarmOverview.test.tsx`（**18 tests**：`makeTurbine` 嚴格型別 fixture + `vi.stubGlobal('fetch')` 路由 farm-trend；覆蓋 PageHeader zh/en + MOCK 徽章 / HeroStats KPI 計算（功率加總·平均風速·全部健康·狀態混合·故障·一切順利）/ cards·summary·table 三檢視切換 + aria-pressed / 點卡片·點 row → onSelectTurbine / summary fmtPower kW / table 缺值 cell「—」/ TrendCard 24H·6H·7D fetch 接線 + 收集中/有資料兩態 / 語系 en 表頭）。**零 production 程式改動**。**code review** 7 must-fix：採納 4（模組快取順序污染→改 6H 切換隔離、jsonResponse 補 ok/status、'—' 改 cell-specific、flushAsync drain 多 tick），駁回 1 false-positive（reviewer 誤判 `RANGE_TO_API['7D']='1d'` 為 bug；實查後端 farm-trend 只支援至 1d，改 '7d' 反而會壞 → 改加測試守住刻意 cap），其餘記錄理由。**Verify**：`tsc` 0 error + `vitest` **141 passed**（123 baseline + 18 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 57→58 / total 71→72。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ workflow 各 panel 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。**給劉老師小問題**：總覽「7D」趨勢實際只拉 1 天（後端無 7d range），確認 UI 標示或開後端 issue。詳細 handoff 在 work-logs/2026-06/2026-06-04-farmoverview-render-tests.md。
+最後更新：2026-06-04（**WMOM-20260604-05 done — WorkflowPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 141、飛輪健康：上個 session FarmOverview render 測試 PR #77 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前四個同日 session（FieldPage / ReportsPage / CostPage / FarmOverview）連續 handoff **背書**「同範式續推 workflow 各 panel」。選 **WorkflowPage**（`components/workflow/WorkflowPage.tsx`，502 行）：核心「庫存派工簽核」模組主入口，先前 `components/workflow/` 目錄只有 `statusUtils` helper 單元測試、頁面層零覆蓋，**商業價值最高**且 5 hook + 11 子元件依賴可乾淨 mock，零設計歧義。**新增** `components/workflow/__tests__/WorkflowPage.test.tsx`（**21 tests**：mock 5 stateful hook（useWorkOrders / useMaterialRequests / useInventory / usePendingApprovals / useCurrentUser）+ 11 個子面板/wizard/modal marker mock + `global.fetch` 路由 `/api/farms`；覆蓋 active farm 載入三態（載入中·fetch 失敗·成功）/ 四 tab 切換（工單·領料單·庫存·簽核）+ aria-pressed / Create 按鈕依 tab / 簽核 pending 徽章 / 子面板 props wiring / row 點選開 4 種 modal·drawer / 建立 wizard onSubmit 接線 / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **162 passed**（141 baseline + 21 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 58→59 / total 72→73。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-workflowpage-render-tests.md。
+
+> 📁 更早一筆 changelog（WMOM-20260604-04 FarmOverview）詳見 work-logs/2026-06/2026-06-04-farmoverview-render-tests.md。
 
 ---
 
@@ -69,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260604-05 — WorkflowPage component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-04 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；核心 workflow 模組主入口、商業價值最高；前四個同日 session handoff 背書「同範式續推 workflow 各 panel」）
+- **Owner**: Claude (autonomous worker, session 2026-06-04)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/WorkflowPage.test.tsx`（新，21 tests）**：延續 FieldPage / ReportsPage / CostPage / FarmOverview 已落地的 render 測試範式（mock hook + 子元件 marker mock + ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup + async act flush），為核心「庫存派工簽核」模組主入口（`components/workflow/WorkflowPage.tsx`，502 行）補第一批 component render 測試（先前 workflow 目錄僅 `statusUtils` helper 測試、頁面層零覆蓋）。
+  - ✅ **覆蓋契約**：active farm 載入三態（載入中 farmId null →「載入風場中…」/ fetch 失敗 → warn card「無法載入目前風場：」/ 成功 → header 風場名 + currentUser.name + 預設工單 tab）+ 四 tab 切換（工單 / 領料單 / 庫存 / 簽核）面板互斥 + aria-pressed 翻轉 + Create 按鈕依 tab（orders→建立工單 / material→建立領料單 / inventory·approval→無）+ 簽核 pending 徽章（total>0 顯示·=0 不顯示）+ 子面板 props wiring（total/loading/error 攤平斷言）+ row 點選開 4 種 modal·drawer（WorkOrderDetailModal / MaterialRequestDetailModal / InventoryDetailDrawer / ApprovalActionDialog）+ 建立 wizard onSubmit → `wo.create` 帶正確 req 接線 + 語系 en（tab/create aria-label 英文）。
+  - ✅ **mock 策略**：5 個 stateful hook（useWorkOrders / useMaterialRequests / useInventory / usePendingApprovals / useCurrentUser）全 mock，`makeWO`/`makeMR`/`makeInv`/`makeApprovals` 結構式完整實作 `UseXxxResult` 介面（不用 `as` 強轉，欄位/簽章漂移 tsc 即失敗）；11 個子面板/wizard/modal 以輕量 marker 取代（攤平關鍵 props 到 data-* + 提供觸發回呼按鈕）；`global.fetch` stub 路由 `/api/farms`（未預期 URL reject 不靜默吞）；fixtures（makeWorkOrder / makeMaterialRequest / makeInventoryItem / makePending）全列必填欄位、enum 字面量 union 嚴格對齊 service signature。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **162 passed**（141 baseline + 21 新，零 regression、`--sequence.shuffle` 亦綠）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 SettingsPage（781）/ HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板（WorkOrderListPanel / PendingApprovalPanel 等 panel 級互動）。
+- **Reference**: [`work-logs/2026-06/2026-06-04-workflowpage-render-tests.md`](work-logs/2026-06/2026-06-04-workflowpage-render-tests.md)
+
+---
 
 ### WMOM-20260604-04 — FarmOverview component render 測試（EPIC-M5 測試覆蓋擴大）
 

@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-06-04"  # WMOM-20260604-04（FarmOverview component render 測試）
-next_milestone: "**WMOM-20260604-04 done — FarmOverview component render 測試（EPIC-M5 測試覆蓋擴大）**：autonomous worker session，preflight 全綠（backend 638 / frontend 123、飛輪健康：上個 session CostPage render 測試 PR #76 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前三個同日 session（FieldPage / ReportsPage / CostPage）連續 handoff 背書『同範式續推 FarmOverview』。選 FarmOverview（components/FarmOverview.tsx，730 行）：/admin 風場總覽落地頁，純由 props（turbines/settings/lang）驅動，唯二外部依賴 useTheme + TrendCard farm-trend fetch 可乾淨 stub，零設計歧義。**新增** components/__tests__/FarmOverview.test.tsx（18 tests：makeTurbine 嚴格型別 fixture + vi.stubGlobal fetch 路由 farm-trend；覆蓋 PageHeader zh/en+MOCK 徽章/HeroStats KPI 計算/cards·summary·table 三檢視切換+aria-pressed/點卡片·點 row→onSelectTurbine/summary fmtPower kW/table 缺值 cell『—』/TrendCard 24H·6H·7D fetch 接線+收集中·有資料兩態/語系 en 表頭）。**零 production 程式改動**。code review 7 must-fix：採納 4（模組快取順序污染→6H 切換隔離、jsonResponse 補 ok/status、'—' 改 cell-specific、flushAsync drain 多 tick），駁回 1 false-positive（誤判 RANGE_TO_API['7D']='1d' 為 bug，實查後端 farm-trend 只支援至 1d，改加測試守住刻意 cap）。**Verify**：tsc 0 error + vitest 141 passed（123 baseline + 18 新，零 regression、--sequence.shuffle 亦綠）+ vite build ✓；backend 638 不受影響。issue_stats done 57→58 / total 71→72。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。**給劉老師**：總覽 7D 趨勢實際只拉 1 天（後端無 7d range），確認 UI 標示或開後端 issue。詳細 handoff 在 work-logs/2026-06/2026-06-04-farmoverview-render-tests.md."
+last_updated: "2026-06-04"  # WMOM-20260604-05（WorkflowPage component render 測試）
+next_milestone: "**WMOM-20260604-05 done — WorkflowPage component render 測試（EPIC-M5 測試覆蓋擴大）**：autonomous worker session，preflight 全綠（backend 638 / frontend 141、飛輪健康：上個 session FarmOverview render 測試 PR #77 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前四個同日 session（FieldPage / ReportsPage / CostPage / FarmOverview）連續 handoff 背書『同範式續推 workflow 各 panel』。選 WorkflowPage（components/workflow/WorkflowPage.tsx，502 行）：核心庫存派工簽核模組主入口，先前 workflow 目錄僅 statusUtils helper 測試、頁面層零覆蓋；商業價值最高且 5 hook + 11 子元件依賴可乾淨 mock，零設計歧義。**新增** components/workflow/__tests__/WorkflowPage.test.tsx（21 tests：mock 5 stateful hook + 11 子面板/wizard/modal marker + global.fetch 路由 /api/farms；覆蓋 active farm 載入三態·四 tab 切換+aria-pressed·Create 按鈕依 tab·簽核 pending 徽章·子面板 props wiring·row 點選開 4 種 modal/drawer·建立 wizard onSubmit 接線·語系 en）。**零 production 程式改動**。**Verify**：tsc 0 error + vitest 162 passed（141 baseline + 21 新，零 regression、--sequence.shuffle 亦綠）+ vite build ✓；backend 638 不受影響。issue_stats done 58→59 / total 72→73。**下一步**：同範式續推 SettingsPage（781）/ HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-workflowpage-render-tests.md."
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 58  # +1: WMOM-20260604-04 FarmOverview component render 測試 (2026-06-04 late-night2)
+  done: 59  # +1: WMOM-20260604-05 WorkflowPage component render 測試 (2026-06-04)
 
 inherited_baseline:
   source: digiWindTurbine
