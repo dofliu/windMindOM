@@ -16,14 +16,10 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 56 |
-| **total (active)** | **70** |
+| done | 57 |
+| **total (active)** | **71** |
 
-最後更新：2026-06-04 night（**WMOM-20260604-02 done — ReportsPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 97、飛輪健康：上個 session FieldPage render 測試 PR #74 已 auto-merge 進 main，測試基礎設施 `vitest.setup.ts` + jest-dom 都在 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前次 handoff 建議 #1 **明確背書**「同模式擴大 component render 測試」。選 **ReportsPage**（`/admin/reports` 主入口，195 行）：分支邏輯豐富（active farm 載入四態 + 雙 tab + 子面板接線）、依賴可乾淨 mock、零設計歧義、單 session 可完工（CostPage 784 / FarmOverview 730 留續做）。**新增** `components/reporting/__tests__/ReportsPage.test.tsx`（**11 tests**：mock `farmApi.list` 控載入態 + `useReports` hook + 兩個重量級子面板輕量 mock 攤平 props；覆蓋 active farm 載入四態 / tab 切換 aria-pressed / 子面板 farmId·farmName·lang wiring / onGenerate 帶 active farm_id 接線 / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **108 passed**（97 baseline + 11 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 55→56 / total 69→70。**下一步**：同範式續推 CostPage/FarmOverview/workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-reportspage-render-tests.md。
-
----
-
-最後更新：2026-06-04（**WMOM-20260604-01 done — FieldPage component render 測試 + 前端 render 測試基礎建設**）。autonomous worker session：preflight 全綠（backend 638 / frontend 78、飛輪健康：handoff PR #71 + M5-5 Part A/B-1 均已在 main）。決策樹 #1 blocker / #2 regression / #3 飛輪壞掉**皆無** → 落 #4 乾淨 autonomous 工作。候選評估：M5-5 Part B-2（work orders）有 persona/auth「who is me」**設計歧義**（不自行開工）、M5-2 ChromaDB 有 CI 重依賴風險，故選 routine **明確背書**的「component render 測試覆蓋擴大」。FieldPage 是剛落地、最複雜（20KB ModeToggle + 雙模式表單）、**零 render 覆蓋**的元件（main 8 個測試檔全是 hook/util 單元測試）。**新增** `frontend/vitest.setup.ts`（啟用 `@testing-library/jest-dom` matcher）+ 改 `vitest.config.ts`（`setupFiles`）+ +devDep `@testing-library/jest-dom` + `components/field/__tests__/FieldPage.test.tsx`（**19 tests**：`vi.mock` useKnowledge hook + ThemeProvider 包裹；覆蓋預設渲染 / 模式切換 / info badge 三態 / query 結果·空·error·loading / alert 摘要+「系統據此檢索」query / 按鈕 disabled·payload trim·timestamp Z / 清除 / 多段卡片）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **97 passed**（78 baseline + 19 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 54→55 / total 68→69。**下一步**：同模式擴大 CostPage/FarmOverview/workflow component 測試（基礎設施已就位）/ M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-fieldpage-render-tests.md。
+最後更新：2026-06-04 late-night（**WMOM-20260604-03 done — CostPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 108、飛輪健康：上個 session ReportsPage render 測試 PR #75 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前兩個同日 session（FieldPage / ReportsPage）連續 handoff **背書**「同範式續推 CostPage」。選 **CostPage**（`components/CostPage.tsx`，784 行）：admin 成本模型主入口，串 `useCostData` 4 endpoints（forecast / lcoe / monteCarlo / varFluct），分支邏輯豐富、依賴可乾淨 mock、零設計歧義、單 session 可完工。**新增** `components/__tests__/CostPage.test.tsx`（**15 tests**：mock `useCostData` 控 4 個 AsyncState + mock `recharts` 輕量 stub + stub `global.fetch` 路由 `/api/farms`·`/api/i18n`；覆蓋 mount 自動接線「forecast.run + 其他 reset」/ dataset 切換 / farms 載入 / Run scenario 全跑 / 各 panel run 接線帶預設 params / loading·error 態 / KPI strip 格式化 / DatasetMetaBadge / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **123 passed**（108 baseline + 15 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 56→57 / total 70→71。**下一步**：同範式續推 FarmOverview（730）/ SettingsPage（781）/ HistoryPage（809）/ workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-costpage-render-tests.md。
 
 ---
 
@@ -73,6 +69,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260604-03 — CostPage component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-04 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；前兩個同日 session handoff 背書「同範式續推 CostPage」）
+- **Owner**: Claude (autonomous worker, session 2026-06-04 late-night)
+- **Completion summary**:
+  - ✅ **`components/__tests__/CostPage.test.tsx`（新，15 tests）**：延續 FieldPage / ReportsPage 已落地的 render 測試範式（mock hook + ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup），為 `/admin/cost` 成本模型主入口（784 行）補第一批 component render 測試。
+  - ✅ **覆蓋契約**：mount 自動接線（dataset effect 觸發 `forecast.run({dataset})` + `lcoe/monteCarlo/varFluct.reset()`）+ dataset 切換（選 farm → forecast.run 帶新 dataset + 其他 reset）+ farms 載入（`/api/farms` resolve → selector 出現 farm 選項）+ Run scenario 全跑（4 endpoint 帶正確 params）+ 各 panel run 接線（Forecast / LCOE 帶 capex·discount / MonteCarlo 帶 nSim·seed / VarFluct）+ loading·error 態（按鈕 disabled + 計算中… / ErrorBox）+ KPI strip 格式化（data present 正確 fmtMoney·LCOE 兩位小數；無資料「—」）+ DatasetMetaBadge + 語系 en。
+  - ✅ **mock 策略**：`useCostData` hook 控 4 個 AsyncState（data/loading/error/run/reset spy）、`recharts` 輕量 stub 成 marker div（避免 jsdom 0-width 圖表噪音 + data-present 渲染穩定）、`global.fetch` 依 URL 路由 `/api/farms`·`/api/i18n`（零真連線）；`Slice<T>` / fixtures 工廠全列欄位不用 `as` 強轉（tsc 守住與 costService signature 對齊）。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **123 passed**（108 baseline + 15 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 FarmOverview（730 行）/ SettingsPage（781）/ HistoryPage（809）/ workflow 各頁 component 測試。
+- **Reference**: [`work-logs/2026-06/2026-06-04-costpage-render-tests.md`](work-logs/2026-06/2026-06-04-costpage-render-tests.md)
+
+---
 
 ### WMOM-20260604-02 — ReportsPage component render 測試（EPIC-M5 測試覆蓋擴大）
 
