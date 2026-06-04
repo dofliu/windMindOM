@@ -8,6 +8,10 @@
 
 ---
 
+最後更新（前）：2026-06-03 night（**WMOM-20260603-04 done — `/field/` 警報檢索模式（EPIC-M5 M5-5 Part B，killer feature）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 73、飛輪健康：Part A PR #72 已 auto-merge 進 main）。接 Part A handoff 建議 #1 推進 **M5-5 Part B**「`/field/` 串 `queryByAlert`」（🔵 PMF killer feature、net-new、與 22 個 stale PR 無 collision）。Part B 範圍大故切最核心、無 backend 依賴的 **alert detail with RAG** slice：模擬 SCADA 警報事件 → 後端自動構造 query 檢索 top-k 手冊處置（`POST /api/knowledge/alert`）；my work orders / completion 留下個 session。**改** `hooks/useKnowledge.ts`（新增第三條流 `alert`：`runAlert`/`clearAlert`，獨立 `alertReqRef` race 防護與 search 流隔離）+ `components/field/FieldPage.tsx`（重構為 `ModeToggle` segmented + `QueryMode`/`AlertMode` + 共用 `ResultList`/`ResultCard`；AlertMode 表單告警碼/等級 Select/機組/異常標籤，`timestamp` 用 `toISOString()` 避免 422 時區陷阱，結果先顯示警報摘要 + 透明標示「系統據此檢索」query 再列 chunks，全走 ui 零 hex）。**Verify**：`tsc` 0 error（無 `any`）+ `vitest` **78 passed**（73 + 5 新：runAlert happy/race/error + clearAlert in-flight + 兩流獨立）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 53→54 / total 67→68；M5 progress 45→55。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-alert-rag.md。
+
+---
+
 最後更新（前）：2026-06-03 23:xx（**WMOM-20260603-02 done — CI（GitHub Actions）+ auto-merge 飛輪 + routine 改 3-hourly**）。劉老師交辦：把 autonomous worker 從每日 1 次改成**每 3 小時 1 次**並導入自動合併飛輪。**新增** `.github/workflows/ci.yml`（PR + push main 觸發：backend pytest 638 + frontend `npm ci`/`tsc`/`vitest`/`vite build`，concurrency 取消舊 run）+ `.github/workflows/auto-merge.yml`（`workflow_run` CI completed 觸發：CI 全綠且 head=`claude/*` 且標題非 `[WIP]` 且無 `hold`/`do-not-merge` label → `gh pr ready` + `gh pr merge --squash --delete-branch`；用 workflow_run 取 main 版 workflow 避免 PR 竄改合併邏輯）。**routine prompt v3**：cadence 每日→每 3 小時、baseline 570→638、stack-aware preflight（避免高頻重工）、沒乾淨工作 graceful 收尾、PR 收尾語意改「完工→正常 PR 自動合 / 半成品→`[WIP]` draft 跳過」。**劉老師需手動**：web trigger 排程改每 3 小時 + 貼 routine v3。先 squash-merge #69（M5-6）落地 main 再 rebase 本 PR（避免 ISSUES/STATUS stats 衝突）。issue_stats done 51→52 / total 65→66。詳細 handoff 在 work-logs/2026-06/2026-06-03-ci-automerge-flywheel.md。
 
 ---

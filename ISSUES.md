@@ -16,14 +16,14 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 55 |
-| **total (active)** | **69** |
+| done | 56 |
+| **total (active)** | **70** |
 
-最後更新：2026-06-04（**WMOM-20260604-01 done — FieldPage component render 測試 + 前端 render 測試基礎建設**）。autonomous worker session：preflight 全綠（backend 638 / frontend 78、飛輪健康：handoff PR #71 + M5-5 Part A/B-1 均已在 main）。決策樹 #1 blocker / #2 regression / #3 飛輪壞掉**皆無** → 落 #4 乾淨 autonomous 工作。候選評估：M5-5 Part B-2（work orders）有 persona/auth「who is me」**設計歧義**（不自行開工）、M5-2 ChromaDB 有 CI 重依賴風險，故選 routine **明確背書**的「component render 測試覆蓋擴大」。FieldPage 是剛落地、最複雜（20KB ModeToggle + 雙模式表單）、**零 render 覆蓋**的元件（main 8 個測試檔全是 hook/util 單元測試）。**新增** `frontend/vitest.setup.ts`（啟用 `@testing-library/jest-dom` matcher）+ 改 `vitest.config.ts`（`setupFiles`）+ +devDep `@testing-library/jest-dom` + `components/field/__tests__/FieldPage.test.tsx`（**19 tests**：`vi.mock` useKnowledge hook + ThemeProvider 包裹；覆蓋預設渲染 / 模式切換 / info badge 三態 / query 結果·空·error·loading / alert 摘要+「系統據此檢索」query / 按鈕 disabled·payload trim·timestamp Z / 清除 / 多段卡片）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **97 passed**（78 baseline + 19 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 54→55 / total 68→69。**下一步**：同模式擴大 CostPage/FarmOverview/workflow component 測試（基礎設施已就位）/ M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-fieldpage-render-tests.md。
+最後更新：2026-06-04 night（**WMOM-20260604-02 done — ReportsPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 97、飛輪健康：上個 session FieldPage render 測試 PR #74 已 auto-merge 進 main，測試基礎設施 `vitest.setup.ts` + jest-dom 都在 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前次 handoff 建議 #1 **明確背書**「同模式擴大 component render 測試」。選 **ReportsPage**（`/admin/reports` 主入口，195 行）：分支邏輯豐富（active farm 載入四態 + 雙 tab + 子面板接線）、依賴可乾淨 mock、零設計歧義、單 session 可完工（CostPage 784 / FarmOverview 730 留續做）。**新增** `components/reporting/__tests__/ReportsPage.test.tsx`（**11 tests**：mock `farmApi.list` 控載入態 + `useReports` hook + 兩個重量級子面板輕量 mock 攤平 props；覆蓋 active farm 載入四態 / tab 切換 aria-pressed / 子面板 farmId·farmName·lang wiring / onGenerate 帶 active farm_id 接線 / 語系 en）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **108 passed**（97 baseline + 11 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 55→56 / total 69→70。**下一步**：同範式續推 CostPage/FarmOverview/workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-reportspage-render-tests.md。
 
 ---
 
-最後更新：2026-06-03 night（**WMOM-20260603-04 done — `/field/` 警報檢索模式（EPIC-M5 M5-5 Part B，killer feature）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 73、飛輪健康：Part A PR #72 已 auto-merge 進 main）。接 Part A handoff 建議 #1 推進 **M5-5 Part B**「`/field/` 串 `queryByAlert`」（🔵 PMF killer feature、net-new、與 22 個 stale PR 無 collision）。Part B 範圍大故切最核心、無 backend 依賴的 **alert detail with RAG** slice：模擬 SCADA 警報事件 → 後端自動構造 query 檢索 top-k 手冊處置（`POST /api/knowledge/alert`）；my work orders / completion 留下個 session。**改** `hooks/useKnowledge.ts`（新增第三條流 `alert`：`runAlert`/`clearAlert`，獨立 `alertReqRef` race 防護與 search 流隔離）+ `components/field/FieldPage.tsx`（重構為 `ModeToggle` segmented + `QueryMode`/`AlertMode` + 共用 `ResultList`/`ResultCard`；AlertMode 表單告警碼/等級 Select/機組/異常標籤，`timestamp` 用 `toISOString()` 避免 422 時區陷阱，結果先顯示警報摘要 + 透明標示「系統據此檢索」query 再列 chunks，全走 ui 零 hex）。**Verify**：`tsc` 0 error（無 `any`）+ `vitest` **78 passed**（73 + 5 新：runAlert happy/race/error + clearAlert in-flight + 兩流獨立）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 53→54 / total 67→68；M5 progress 45→55。**下一步**：M5-5 Part B 續做（my work orders + completion 串 work_order router）/ alert 從真 monitoring 警報帶入 / M5-2 ChromaDB。詳細 handoff 在 work-logs/2026-06/2026-06-03-field-alert-rag.md。
+最後更新：2026-06-04（**WMOM-20260604-01 done — FieldPage component render 測試 + 前端 render 測試基礎建設**）。autonomous worker session：preflight 全綠（backend 638 / frontend 78、飛輪健康：handoff PR #71 + M5-5 Part A/B-1 均已在 main）。決策樹 #1 blocker / #2 regression / #3 飛輪壞掉**皆無** → 落 #4 乾淨 autonomous 工作。候選評估：M5-5 Part B-2（work orders）有 persona/auth「who is me」**設計歧義**（不自行開工）、M5-2 ChromaDB 有 CI 重依賴風險，故選 routine **明確背書**的「component render 測試覆蓋擴大」。FieldPage 是剛落地、最複雜（20KB ModeToggle + 雙模式表單）、**零 render 覆蓋**的元件（main 8 個測試檔全是 hook/util 單元測試）。**新增** `frontend/vitest.setup.ts`（啟用 `@testing-library/jest-dom` matcher）+ 改 `vitest.config.ts`（`setupFiles`）+ +devDep `@testing-library/jest-dom` + `components/field/__tests__/FieldPage.test.tsx`（**19 tests**：`vi.mock` useKnowledge hook + ThemeProvider 包裹；覆蓋預設渲染 / 模式切換 / info badge 三態 / query 結果·空·error·loading / alert 摘要+「系統據此檢索」query / 按鈕 disabled·payload trim·timestamp Z / 清除 / 多段卡片）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **97 passed**（78 baseline + 19 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 54→55 / total 68→69。**下一步**：同模式擴大 CostPage/FarmOverview/workflow component 測試（基礎設施已就位）/ M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-fieldpage-render-tests.md。
 
 ---
 
@@ -73,6 +73,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260604-02 — ReportsPage component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-04 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；前次 handoff 建議 #1 明確背書）
+- **Owner**: Claude (autonomous worker, session 2026-06-04 night)
+- **Completion summary**:
+  - ✅ **`components/reporting/__tests__/ReportsPage.test.tsx`（新，11 tests）**：延續 FieldPage 已落地的 render 測試範式（mock hook + ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup），為 `/admin/reports` 主入口補第一批 component render 測試。
+  - ✅ **覆蓋契約**：active farm 載入四態（載入中 / fetch 失敗剝技術前綴 / 無啟用風場引導 / 成功）+ tab 切換（月報 ⇄ 年度預算 + aria-pressed 翻轉）+ 子面板 props wiring（farmId / farmName / lang）+ onGenerate 接線（子面板觸發 → 帶 active `farm_id` 呼叫 `generateMonthly` / `generateAnnual`）+ 語系 en。
+  - ✅ **mock 策略**：`farmApi.list` 控 active farm 載入態、`useReports` hook 控兩條 sub-state + 四個 action spy、兩個重量級子面板（MonthlyReportPanel / AnnualBudgetPanel 各 350+ 行）輕量 mock 成 marker div + 攤平 props 到 `data-*`，讓測試聚焦 ReportsPage 路由 / 接線；`makeReports` 六欄全列不用 `as` 強轉（tsc 守住與 hook signature 對齊）。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **108 passed**（97 baseline + 11 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 CostPage（784 行）/ FarmOverview（730 行）/ workflow 各頁 component 測試。
+- **Reference**: [`work-logs/2026-06/2026-06-04-reportspage-render-tests.md`](work-logs/2026-06/2026-06-04-reportspage-render-tests.md)
+
+---
 
 ### WMOM-20260603-04 — `/field/` 警報檢索模式（EPIC-M5 M5-5 Part B-1，killer feature）
 
