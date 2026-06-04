@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-06-04"  # WMOM-20260604-01（FieldPage component render 測試 + 前端 render 測試基礎建設）
-next_milestone: "**WMOM-20260604-01 done — FieldPage component render 測試 + 前端 render 測試基礎建設**：autonomous worker session，preflight 全綠（backend 638 / frontend 78、飛輪健康：handoff PR #71 + M5-5 Part A/B-1 均已在 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；M5-5 Part B-2（work orders）有 persona/auth 歧義、M5-2 ChromaDB 有重依賴風險，故選 routine 明確背書的『component render 測試覆蓋擴大』。FieldPage 是最新最複雜、零 render 覆蓋的元件（main 8 個測試檔全是 hook/util 單元測試）。**新增** vitest.setup.ts（jest-dom matcher）+ 改 vitest.config.ts setupFiles + +devDep @testing-library/jest-dom + components/field/__tests__/FieldPage.test.tsx（19 tests：mock useKnowledge hook + ThemeProvider 包裹；覆蓋預設渲染/模式切換/info badge 三態/query 結果·空·error·loading/alert 摘要+query/按鈕 disabled·payload trim·timestamp Z/清除/多段卡片）。**零 production 程式改動**。**Verify**：tsc 0 error + vitest 97 passed（78 baseline + 19 新，零 regression）+ vite build ✓；backend 638 不受影響。issue_stats done 54→55 / total 68→69。**下一步**：同模式擴大 CostPage/FarmOverview/workflow component 測試（基礎設施已就位）/ M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-fieldpage-render-tests.md."
+last_updated: "2026-06-04"  # WMOM-20260604-02（ReportsPage component render 測試）
+next_milestone: "**WMOM-20260604-02 done — ReportsPage component render 測試（EPIC-M5 測試覆蓋擴大）**：autonomous worker session，preflight 全綠（backend 638 / frontend 97、飛輪健康：上個 session FieldPage render 測試 PR #74 已 auto-merge 進 main，測試基礎設施 vitest.setup.ts + jest-dom 在 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；前次 handoff 建議 #1 明確背書『同模式擴大 component render 測試』。選 ReportsPage（/admin/reports 主入口，195 行）：分支邏輯豐富（active farm 載入四態 + 雙 tab + 子面板接線）、依賴可乾淨 mock、零設計歧義、單 session 可完工（CostPage 784 / FarmOverview 730 留續做）。**新增** components/reporting/__tests__/ReportsPage.test.tsx（11 tests：mock farmApi.list 控載入態 + useReports hook + 兩個重量級子面板輕量 mock 攤平 props；覆蓋 active farm 載入四態/tab 切換 aria-pressed/子面板 farmId·farmName·lang wiring/onGenerate 帶 active farm_id 接線/語系 en）。**零 production 程式改動**。**Verify**：tsc 0 error + vitest 108 passed（97 baseline + 11 新，零 regression）+ vite build ✓；backend 638 不受影響。issue_stats done 55→56 / total 69→70。**下一步**：同範式續推 CostPage/FarmOverview/workflow component 測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-reportspage-render-tests.md."
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 55  # +1: WMOM-20260604-01 FieldPage component render 測試 + 前端 render 測試基礎建設 (2026-06-04)
+  done: 56  # +1: WMOM-20260604-02 ReportsPage component render 測試 (2026-06-04 night)
 
 inherited_baseline:
   source: digiWindTurbine
