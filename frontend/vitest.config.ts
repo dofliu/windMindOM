@@ -11,9 +11,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
-    // TODO: 未來加 component 測試（CostPage / FarmOverview 等）若要用
-    // `@testing-library/jest-dom` 的 toBeInTheDocument 等 matcher，需補
-    // `setupFiles: ['@testing-library/jest-dom/vitest']`。目前只測 hook，毋須。
+    // component render 測試啟用 @testing-library/jest-dom matcher
+    // （toBeInTheDocument / toBeDisabled / toHaveTextContent…）。
+    // setup 檔只 import matcher，對純 hook / util 測試無副作用。
+    setupFiles: ['./vitest.setup.ts'],
     include: ['**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules/**', 'dist/**'],
   },
