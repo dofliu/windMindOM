@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 63 |
-| **total (active)** | **77** |
+| done | 64 |
+| **total (active)** | **78** |
 
-最後更新：2026-06-05（**WMOM-20260605-03 done — MaterialRequestListPanel component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 220、飛輪健康：上個 session WorkOrderListPanel render 測試 PR #81 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；WorkOrderListPanel handoff **背書**「同範式續推 workflow 子面板」。選 **MaterialRequestListPanel**（`components/workflow/MaterialRequestListPanel.tsx`，203 行）：`/admin/workflow` 領料 tab 核心「庫存派工」清單，與 WorkOrderListPanel **高度同構**之純 props 元件（`items`/`total`/`loading`/`error`/`status`/`search` + 4 callback + `lang`），**無 hook / 無 fetch / 無 internal state**；先前無任何測試覆蓋本面板真實渲染。**新增** `components/workflow/__tests__/MaterialRequestListPanel.test.tsx`（**22 tests**：`makeMR()`/`makeItem()` 工廠結構式滿足 `MaterialRequestResponse`/`Item`；覆蓋 基本渲染+語系（zh/en，含 negative zh leak）/ status filter Select（選項涵蓋 all+9 status zh+en 順序鎖定·value 反映 prop·onChange 接線）/ search Input（value+onChange）/ Refresh（onClick→onRefresh·loading→「載入中…」+ disabled·disabled 點擊不觸發 onRefresh）/ counter（N/total·filter 截斷 2/50）/ error warn card / empty 態（loading·error 時不顯示）/ row（business_key·work_order 連結 有無·料件項數+預估總量·更新時間時區·狀態 pill·en 單數 item）/ 點擊 row→onSelect objectContaining）。**外加同型 1 行 production UX bug 修正**——Refresh `Btn` 補傳 `loading={loading}`（載入中按鈕未 disabled 可重複觸發查詢，與 WorkOrderListPanel 同型）+ `vitest.config.ts` 加 `TZ=UTC`（review #3）。**Verify**：`tsc` 0 error + `vitest` **242 passed**（220 baseline + 22 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 62→63 / total 76→77。**下一步**：同範式續推 PendingApprovalPanel（270，簽核）/ InventoryListPanel（286）/ TurbineDetail（1056）/ M5-2 ChromaDB / stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-materialrequestlistpanel-render-tests.md。
+最後更新：2026-06-05（**WMOM-20260605-04 done — InventoryListPanel component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 242、飛輪健康：上個 session MaterialRequestListPanel render 測試 PR #82 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；MaterialRequestListPanel handoff **背書**「同範式續推 workflow 子面板」。選 **InventoryListPanel**（`components/workflow/InventoryListPanel.tsx`，286 行）：`/admin/workflow` 庫存 tab 核心「庫存」模組清單，與 WorkOrder/MaterialRequest 列表面板**高度同構**之純 props 元件（`items`/`total`/`loading`/`error`/`warehouses`/`warehouseId`/`belowSafetyOnly`/`search` + 5 callback + `lang`），**無 hook / 無 fetch / 無 internal state**；比前兩面板多 warehouse Select（★ default 前綴）+ below-safety toggle（aria-pressed）兩個過濾控件；先前無任何測試覆蓋本面板真實渲染。**新增** `components/workflow/__tests__/InventoryListPanel.test.tsx`（**29 tests**：`makeItem()`/`makeWarehouse()` 工廠結構式滿足 `InventoryItemResponse`/`WarehouseResponse`；覆蓋 基本渲染+語系（zh/en，含 negative zh leak）/ warehouse Select（選項涵蓋 全部倉+各倉 ★default·value 反映 prop·onChange 接線）/ below-safety toggle（文案+aria-pressed 切換·onClick→取反值）/ search Input（value+onChange）/ Refresh（onClick→onRefresh·loading→「載入中…」+ disabled·disabled 點擊不觸發 onRefresh）/ counter（N/total·filter 截斷 2/50）/ error warn card / empty 態（loading·error 時不顯示）/ row（SKU·name·unit·三欄 stock·安全·可用·LOW pill below_safety 有無·最後出庫時間 last_used_at 有/null·時區）/ 點擊 row→onSelect objectContaining）。**外加同型 1 行 production UX bug 修正**——Refresh `Btn` 補傳 `loading={loading}`（載入中按鈕未 disabled 可重複觸發查詢，與 WorkOrder/MaterialRequest 同型；至此三大列表面板同型 bug 全數修正）。**Verify**：`tsc` 0 error + `vitest` **271 passed**（242 baseline + 29 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 63→64 / total 77→78。**下一步**：同範式續推 PendingApprovalPanel（270，簽核）/ detail modal（WorkOrderDetailModal 933 等需 mock dialog）/ TurbineDetail（1056）/ M5-2 ChromaDB / stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventorylistpanel-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-02 WorkOrderListPanel）詳見 work-logs/2026-06/2026-06-05-workorderlistpanel-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260605-03 MaterialRequestListPanel）詳見 work-logs/2026-06/2026-06-05-materialrequestlistpanel-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260605-04 — InventoryListPanel component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-05 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；`/admin/workflow` 庫存 tab 核心「庫存」模組清單，先前無任何測試覆蓋本面板真實渲染）
+- **Owner**: Claude (autonomous worker, session 2026-06-05)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/InventoryListPanel.test.tsx`（新，29 tests）**：延續 WorkOrderListPanel / MaterialRequestListPanel 已落地的 render 測試範式（ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup），為 `InventoryListPanel.tsx`（286 行）補 component render 測試。本面板與前兩列表面板高度同構之純 props 元件（`items`/`total`/`loading`/`error`/`warehouses`/`warehouseId`/`belowSafetyOnly`/`search` + 5 callback + `lang`），**無 hook / 無 fetch / 無 internal state** → 測試直接 render + fireEvent + 斷言。多了 warehouse Select（★ default 倉前綴）+ below-safety toggle（aria-pressed）兩個過濾控件。`makeItem()`/`makeWarehouse()` 工廠結構式滿足 `InventoryItemResponse`/`WarehouseResponse`（不用 `as` 強轉；`total_available`/`below_safety` computed 欄位以 overrides 明確指定）。
+  - ✅ **覆蓋契約**：基本渲染 + 語系（zh「倉別/搜尋（料號 / 名稱）/重新整理」+ counter「顯示 1 / 3 個料件」；en「Warehouse/Search (SKU / name)/Refresh/Showing 1 of 5 inventory items」含 zh negative leak 守住）+ warehouse Select（選項涵蓋「全部倉」+各倉 ★default 前綴·value 反映 prop·onChange→onWarehouseChange）+ below-safety toggle（文案「全部」↔「只顯示低於安全庫存」·aria-pressed 反映·onClick→onBelowSafetyChange 取反值）+ search Input（value+onChange→onSearchChange）+ Refresh（onClick→onRefresh·loading→「載入中…」/「Loading…」**且 disabled**·disabled 點擊不觸發）+ counter（N/total·filter 截斷 2/50）+ error warn card（⚠ + 訊息）+ empty 態（items=[] 顯示·loading·error 時不顯示）+ row（SKU·name·單位·三欄 stock 全新/良品/維修中·安全/可用·LOW pill below_safety 有/無·最後出庫時間 last_used_at 有 2026-06-02 16:30/null 不顯示·aria-label 鎖定）+ 點擊 row→onSelect objectContaining。
+  - ✅ **外加同型 1 行 production UX bug 修正**：`InventoryListPanel.tsx` Refresh `Btn` 漏傳 `loading` prop → 載入中按鈕未 disabled（可重複點擊重複觸發查詢）。補 `loading={loading}` 接上 Btn 既有 `isDisabled = disabled || loading`，與 WorkOrderListPanel / MaterialRequestListPanel 的同型修正一致。**至此 workflow 三大列表面板同型 bug 全數修正**。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **271 passed**（242 baseline + 29 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 PendingApprovalPanel（270，簽核核心）；或進入 detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，互動多需 mock dialog）/ TurbineDetail（1056）。
+- **Reference**: [`work-logs/2026-06/2026-06-05-inventorylistpanel-render-tests.md`](work-logs/2026-06/2026-06-05-inventorylistpanel-render-tests.md)
+
+---
 
 ### WMOM-20260605-03 — MaterialRequestListPanel component render 測試（EPIC-M5 測試覆蓋擴大）
 
