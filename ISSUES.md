@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 60 |
-| **total (active)** | **74** |
+| done | 61 |
+| **total (active)** | **75** |
 
-最後更新：2026-06-04（**WMOM-20260604-06 done — SettingsPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 162、飛輪健康：上個 session WorkflowPage render 測試 PR #78 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；WorkflowPage handoff **背書**「同範式續推 SettingsPage」。選 **SettingsPage**（`components/SettingsPage.tsx`，781 行）：`/admin/settings` 系統設定面板，純 props（`settings` / `onSave` / `lang`）+ `fetch` 驅動、**無 stateful hook 依賴**、ui primitive 真渲染，僅需 stub `global.fetch`，零設計歧義。**新增** `components/__tests__/SettingsPage.test.tsx`（**17 tests**：stub `global.fetch` 路由 4 GET config endpoint（wind / grid / turbine-spec / presets）+ 3 POST；`makeSettings(dataSource)` 工廠結構式滿足 `AppSettings`；覆蓋 基本渲染+語系（zh/en）/ dataSource 驅動條件區塊（MOCK·SIMULATION·OPC_DA·MODBUS_TCP）/ Select 切換接線 / settings prop 同步（rerender→useEffect）/ Save→onSave 接線+「已儲存」pill / backend down warn card / wind status 顯示 / wind profile POST+aria-pressed / custom wind 解析數值 body / grid profile POST / turbine spec presets 渲染 / apply spec POST）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **179 passed**（162 baseline + 17 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 59→60 / total 73→74。**下一步**：同範式續推 HistoryPage（809）/ TurbineDetail（1056）/ workflow 子面板測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-04-settingspage-render-tests.md。
+最後更新：2026-06-05（**WMOM-20260605-01 done — HistoryPage component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 179、飛輪健康：上個 session SettingsPage render 測試 PR #79 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；SettingsPage handoff **背書**「同範式續推 HistoryPage」。選 **HistoryPage**（`components/HistoryPage.tsx`，809 行）：`/admin/history` 歷史資料頁，純 props（`turbines` / `lang`）+ 兩條 fetch（`/api/i18n/tags`、`/api/turbines/:id/history`）驅動，唯一重子元件 `EventComparisonView`（compare tab）可 mock 成 sentinel，零設計歧義。**新增** `components/__tests__/HistoryPage.test.tsx`（**21 tests**：mock `EventComparisonView` sentinel + stub `global.fetch`（i18n/tags + history）+ stub `window.open`；`makeTurbine`/`makeHistoryPayload` 工廠結構式滿足型別；覆蓋 基本渲染+語系（zh/en，含 i18n GET lang 傳遞）/ 單機·多機比較 tab 切換（aria-pressed + 掛 EventComparisonView）/ 查詢卡風機·筆數 Select 接線+重新 fetch / 歷史 fetch→資料表 toFixed(2)+缺值「—」/ 事件清單（button role 鎖定）→詳情 detail+payload / 空事件 warn / 事件類型 toggle 過濾 / 事件搜尋 / 標籤預設 thermal·自訂套用→表頭更新 / CSV 匯出 window.open 帶 format=csv / i18n 標籤對映 / history fetch 失敗 error path）。**零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **200 passed**（179 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 60→61 / total 74→75。**下一步**：同範式續推 TurbineDetail（1056）/ workflow 子面板測試 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-historypage-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260604-05 WorkflowPage）詳見 work-logs/2026-06/2026-06-04-workflowpage-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260604-06 SettingsPage）詳見 work-logs/2026-06/2026-06-04-settingspage-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260605-01 — HistoryPage component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-05 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；`/admin/history` SCADA 歷史查詢 + 事件標記 + CSV 匯出 demo 主畫面，先前頁面層零覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-05)
+- **Completion summary**:
+  - ✅ **`components/__tests__/HistoryPage.test.tsx`（新，21 tests）**：延續 CostPage / FarmOverview / SettingsPage 已落地的 render 測試範式（ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup + `global.fetch` stub + `await act(async)` flush mount effect），為 `/admin/history`（`components/HistoryPage.tsx`，809 行）補第一批 component render 測試。HistoryPage 純 props（`turbines` / `lang`）+ 兩條 fetch（`/api/i18n/tags`、`/api/turbines/:id/history`）驅動；唯一重子元件 `EventComparisonView`（compare tab）mock 成 sentinel；recharts 圖表在 jsdom width=0 不渲染內部但不 crash → 斷言聚焦非圖表 UI。
+  - ✅ **覆蓋契約**：基本渲染 + 語系（zh「歷史資料」+ CSV 按鈕「匯出區間/匯出聚焦」+ tab「單機歷史/多機比較」；en「History」/「Single turbine」/「Multi compare」/「Latest 20 rows」含 negative 守 zh 不外洩；en→i18n GET 帶 `lang=en`）+ 單機/比較 tab 切換（aria-pressed + 點「多機比較」掛 EventComparisonView + single 查詢卡消失）+ 查詢卡（風機 Select options 由 turbines props 生成 / mount 即 fetch WT001 / 切風機·筆數 Select→重新 fetch 帶新 id·limit）+ 歷史資料表（數值 toFixed(2) + 缺值「—」+ 表頭 startup 標籤）+ 事件清單（button role 鎖定避開詳情 div 同名）→詳情（detail + payload temp）+ 空事件 warn +「請從左側選擇事件。」+ 事件類型 toggle 過濾（關「故障」→ 故障事件消失·grid 仍在）+ 事件搜尋（關鍵字過濾）+ 標籤切換（預設 thermal→重新 fetch+表頭換 thermal 標籤·startup 消失；自訂套用→activeTags 換值）+ CSV 匯出（window.open 帶 `/api/export/history?...format=csv&turbine_id=WT001`）+ i18n 標籤對映（i18n 回 `{WTUR_TurSt:'渦輪狀態'}`→表頭顯示中文）。
+  - ✅ **mock 策略**：`makeTurbine`/`makeHistoryPayload` 工廠結構式滿足型別（不用 `as` 強轉）；`global.fetch` stub 路由 i18n/tags + history，未預期 URL `reject('Unexpected fetch')` 不靜默吞；`window.open` 以 spy 取代（jsdom 未實作）；`tagLabels` per-test 覆寫（`beforeEach` reset），無跨測試殘留；HistoryPage 無 module-level 可變快取依賴 → 測試彼此獨立、`--randomize` 安全。
+  - ✅ **零 production 程式改動**。**Verify**：`tsc` 0 error + `vitest` **200 passed**（179 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：同範式推 TurbineDetail（1056）/ workflow 子面板（WorkOrderListPanel / PendingApprovalPanel 等 panel 級互動）；或補 HistoryPage focus window 深度斷言 / EventComparisonView 獨立測試。
+- **Reference**: [`work-logs/2026-06/2026-06-05-historypage-render-tests.md`](work-logs/2026-06/2026-06-05-historypage-render-tests.md)
+
+---
 
 ### WMOM-20260604-06 — SettingsPage component render 測試（EPIC-M5 測試覆蓋擴大）
 
