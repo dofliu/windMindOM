@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 64 |
-| **total (active)** | **78** |
+| done | 65 |
+| **total (active)** | **79** |
 
-最後更新：2026-06-05（**WMOM-20260605-04 done — InventoryListPanel component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 242、飛輪健康：上個 session MaterialRequestListPanel render 測試 PR #82 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；MaterialRequestListPanel handoff **背書**「同範式續推 workflow 子面板」。選 **InventoryListPanel**（`components/workflow/InventoryListPanel.tsx`，286 行）：`/admin/workflow` 庫存 tab 核心「庫存」模組清單，與 WorkOrder/MaterialRequest 列表面板**高度同構**之純 props 元件（`items`/`total`/`loading`/`error`/`warehouses`/`warehouseId`/`belowSafetyOnly`/`search` + 5 callback + `lang`），**無 hook / 無 fetch / 無 internal state**；比前兩面板多 warehouse Select（★ default 前綴）+ below-safety toggle（aria-pressed）兩個過濾控件；先前無任何測試覆蓋本面板真實渲染。**新增** `components/workflow/__tests__/InventoryListPanel.test.tsx`（**29 tests**：`makeItem()`/`makeWarehouse()` 工廠結構式滿足 `InventoryItemResponse`/`WarehouseResponse`；覆蓋 基本渲染+語系（zh/en，含 negative zh leak）/ warehouse Select（選項涵蓋 全部倉+各倉 ★default·value 反映 prop·onChange 接線）/ below-safety toggle（文案+aria-pressed 切換·onClick→取反值）/ search Input（value+onChange）/ Refresh（onClick→onRefresh·loading→「載入中…」+ disabled·disabled 點擊不觸發 onRefresh）/ counter（N/total·filter 截斷 2/50）/ error warn card / empty 態（loading·error 時不顯示）/ row（SKU·name·unit·三欄 stock·安全·可用·LOW pill below_safety 有無·最後出庫時間 last_used_at 有/null·時區）/ 點擊 row→onSelect objectContaining）。**外加同型 1 行 production UX bug 修正**——Refresh `Btn` 補傳 `loading={loading}`（載入中按鈕未 disabled 可重複觸發查詢，與 WorkOrder/MaterialRequest 同型；至此三大列表面板同型 bug 全數修正）。**Verify**：`tsc` 0 error + `vitest` **271 passed**（242 baseline + 29 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 63→64 / total 77→78。**下一步**：同範式續推 PendingApprovalPanel（270，簽核）/ detail modal（WorkOrderDetailModal 933 等需 mock dialog）/ TurbineDetail（1056）/ M5-2 ChromaDB / stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventorylistpanel-render-tests.md。
+最後更新：2026-06-05（**WMOM-20260605-05 done — PendingApprovalPanel component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 271、飛輪健康：上個 session InventoryListPanel render 測試 PR #83 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；InventoryListPanel handoff **背書**「同範式續推 PendingApprovalPanel」。選 **PendingApprovalPanel**（`components/workflow/PendingApprovalPanel.tsx`，270 行）：`/admin/workflow` 簽核 tab 核心「簽核 signoff」流程主清單（員工/組長/主管/總務各層看「輪到我簽的步驟」按 通過/駁回），與三大列表面板**同構**之純 props 元件（`items`/`total`/`loading`/`error`/`level`/`subjectType`/`workOrderCache` + 5 callback + `lang`），**無 hook / 無 fetch / 無 internal state**；比列表面板多 work_order cache 命中 vs miss 的 row fallback（business_key·turbine vs subjectTypeLabel·…subjectId8）+ chain progress pill；先前無任何測試覆蓋本面板真實渲染。**新增** `components/workflow/__tests__/PendingApprovalPanel.test.tsx`（**27 tests**：`makeStep()`/`makeChain()`/`makePending()`/`makeWO()` 工廠結構式滿足 `SignoffStepResponse`/`SignoffChainResponse`/`PendingSignoffItem`/`WorkOrderResponse`；覆蓋 基本渲染+語系（zh/en，含 negative zh leak）/ level Select（四層選項·value·onChange）/ subject_type Select（全部對象+工單+領料單·value·onChange·en 正向）/ Refresh（onClick·loading→「載入中…」+ disabled·disabled 點擊不觸發）/ counter（N/total+level 標籤）/ error warn card / empty 態（zh/en·loading·error 時不顯示）/ row（work_order 命中 cache business_key·turbine·title·chain progress·priority·status pill·開啟時間時區；非工單/cache miss fallback subjectTypeLabel·…subjectId8）/ 通過·駁回→onApproveClick·onRejectClick 帶該 item·多 row 按鈕順序對齊）。**外加同型 1 行 production UX bug 修正**——Refresh `Btn` 補傳 `loading={loading}`（載入中按鈕未 disabled 可重複觸發查詢；至此 workflow 四大面板同型 bug 全數修正）。code-reviewer **0 must-fix** / 採納 3 should-fix（onChange 補 `toHaveBeenCalledTimes`·error 同節點斷言合一·fallback row 精準計數含修正 reviewer 漏算 Select option）+ 2 nice（en empty / en 按鈕 aria）。**Verify**：`tsc` 0 error + `vitest` **298 passed**（271 baseline + 27 新，零 regression）+ `vite build` ✓；backend 未動 638 不受影響。issue_stats done 64→65 / total 78→79。**下一步**：detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902 需 mock dialog）/ TurbineDetail（1056）/ M5-2 ChromaDB / stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-pendingapprovalpanel-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-03 MaterialRequestListPanel）詳見 work-logs/2026-06/2026-06-05-materialrequestlistpanel-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260605-04 InventoryListPanel）詳見 work-logs/2026-06/2026-06-05-inventorylistpanel-render-tests.md。
 
 ---
 
@@ -71,6 +71,23 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260605-05 — PendingApprovalPanel component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-05 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；`/admin/workflow` 簽核 tab 核心「簽核 signoff」流程主清單，先前無任何測試覆蓋本面板真實渲染）
+- **Owner**: Claude (autonomous worker, session 2026-06-05)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/PendingApprovalPanel.test.tsx`（新，27 tests）**：延續 WorkOrder/MaterialRequest/Inventory 三大列表面板已落地的 render 測試範式（ThemeProvider 包裹 + jest-dom matcher + afterEach cleanup），為 `PendingApprovalPanel.tsx`（270 行）補 component render 測試。本面板為簽核流程主清單（員工/組長/主管/總務各層看「輪到我簽的步驟」按 通過/駁回），與三大列表面板同構之純 props 元件（`items`/`total`/`loading`/`error`/`level`/`subjectType`/`workOrderCache` + 5 callback + `lang`），**無 hook / 無 fetch / 無 internal state** → 測試直接 render + fireEvent + 斷言。`makeStep()`/`makeChain()`/`makePending()`/`makeWO()` 工廠結構式滿足 `SignoffStepResponse`/`SignoffChainResponse`/`PendingSignoffItem`/`WorkOrderResponse`（不用 `as` 強轉）。
+  - ✅ **覆蓋契約**：基本渲染 + 語系（zh「我的簽核層級/對象類型/重新整理」+ counter「顯示 1 / 3 筆 組長 待簽」；en「Acting as level/Subject type/Refresh/Showing 1 of 5 pending steps for Supervisor」含 zh negative leak 守住）+ level Select（員工/組長/主管/總務 4 層·value 反映 prop·onChange→onLevelChange）+ subject_type Select（「全部對象」+工單+領料單·value·onChange→onSubjectTypeChange·en 正向 All subjects/Work order/Material request）+ Refresh（onClick→onRefresh·loading→「載入中…」/「Loading…」**且 disabled**·disabled 點擊不觸發）+ counter（N/total+level 標籤）+ error warn card（⚠ + 訊息同節點合一斷言）+ empty 態（zh/en·loading·error 時不顯示）+ row（work_order 命中 cache：business_key·turbine·title·chain progress pill「組長 · 1/2」·priority/status pill·開啟時間時區 2026-06-02 16:30；非工單/cache miss fallback：subjectTypeLabel·…subjectId8 末 8 碼）+ 通過/駁回→onApproveClick/onRejectClick 帶該 pending item·多 row 按鈕順序對齊第 2 列帶第 2 筆。
+  - ✅ **外加同型 1 行 production UX bug 修正**：`PendingApprovalPanel.tsx` Refresh `Btn` 漏傳 `loading` prop → 載入中按鈕未 disabled（可重複點擊重複觸發查詢）。補 `loading={loading}` 接上 Btn 既有 `isDisabled = disabled || loading`，與三大列表面板的同型修正一致。**至此 workflow 四大面板（WorkOrder/MaterialRequest/Inventory/PendingApproval）同型 bug 全數修正**。
+  - ✅ **code-reviewer 0 must-fix / 採納 3 should-fix + 2 nice**：onChange 測試補 `toHaveBeenCalledTimes(1)`（#1）/ error 兩斷言指向同節點 → 合一為 `getByText(/⚠ 載入待簽失敗（500）/)`（#2）/ fallback row 改精準計數 `.filter(OPTION 排除).toHaveLength(2)`——修正 reviewer 漏算 subject_type Select 的 `<option>`（全域 3 次，row 內 2 次）（#3）/ 補 en 空狀態文案測試 + en 通過/駁回按鈕 aria-label 測試（nice）。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **298 passed**（271 baseline + 27 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：進入 detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，互動多需 mock dialog）/ TurbineDetail（1056）；或非 render 方向 M5-2 ChromaDB / stale PR triage。
+- **Reference**: [`work-logs/2026-06/2026-06-05-pendingapprovalpanel-render-tests.md`](work-logs/2026-06/2026-06-05-pendingapprovalpanel-render-tests.md)
+
+---
 
 ### WMOM-20260605-04 — InventoryListPanel component render 測試（EPIC-M5 測試覆蓋擴大）
 

@@ -109,7 +109,11 @@ const PendingApprovalPanel: React.FC<Props> = ({
           />
         </Field>
         <div />
-        <Btn onClick={onRefresh} ariaLabel={ui('Refresh pending list', '重新整理待簽列表')}>
+        <Btn
+          onClick={onRefresh}
+          loading={loading}
+          ariaLabel={ui('Refresh pending list', '重新整理待簽列表')}
+        >
           {loading ? ui('Loading…', '載入中…') : ui('Refresh', '重新整理')}
         </Btn>
       </div>
