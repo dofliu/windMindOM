@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-06-05"  # WMOM-20260605-01（HistoryPage component render 測試）
-next_milestone: "**WMOM-20260605-01 done — HistoryPage component render 測試（EPIC-M5 測試覆蓋擴大）**：autonomous worker session，preflight 全綠（backend 638 / frontend 179、飛輪健康：上個 session SettingsPage render 測試 PR #79 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；SettingsPage handoff 背書『同範式續推 HistoryPage』。選 HistoryPage（components/HistoryPage.tsx，809 行）：/admin/history 歷史資料頁，純 props（turbines/lang）+ 兩條 fetch（i18n/tags、turbines/:id/history）驅動，唯一重子元件 EventComparisonView 可 mock，零設計歧義。**新增** components/__tests__/HistoryPage.test.tsx（21 tests：mock EventComparisonView sentinel + stub global.fetch + window.open；覆蓋 基本渲染+語系 zh/en·單機/比較 tab 切換 aria-pressed·查詢卡風機/筆數 Select 接線+重新 fetch·歷史 fetch→資料表 toFixed/缺值「—」·事件清單→詳情 detail/payload·空事件 warn·事件類型 toggle 過濾·事件搜尋·標籤預設 thermal/自訂套用→表頭更新·CSV 匯出 window.open·i18n 標籤對映·history fetch 失敗 error path）。**零 production 程式改動**。**Verify**：tsc 0 error + vitest 200 passed（179 baseline + 21 新，零 regression）+ vite build ✓；backend 638 不受影響。issue_stats done 60→61 / total 74→75。**下一步**：同範式續推 TurbineDetail（1056）/ workflow 子面板 / M5-5 Part B-2（需劉老師釐清 persona/auth）/ M5-2 ChromaDB / 22 stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-historypage-render-tests.md."
+last_updated: "2026-06-05"  # WMOM-20260605-02（WorkOrderListPanel component render 測試）
+next_milestone: "**WMOM-20260605-02 done — WorkOrderListPanel component render 測試（EPIC-M5 測試覆蓋擴大）**：autonomous worker session，preflight 全綠（backend 638 / frontend 200、飛輪健康：上個 session HistoryPage render 測試 PR #80 已 auto-merge 進 main）。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作；HistoryPage handoff 背書『同範式續推 workflow 子面板』。選 WorkOrderListPanel（components/workflow/WorkOrderListPanel.tsx，221 行）：/admin/workflow 工單 tab 核心『派工』清單，純 props 元件（items/total/loading/error/status/search + 4 callback + lang），無 hook / 無 fetch / 無 internal state；先前 WorkflowPage.test.tsx 把本面板 mock 成 marker、真實渲染零覆蓋。**新增** components/workflow/__tests__/WorkOrderListPanel.test.tsx（20 tests：makeWO() 工廠結構式滿足 WorkOrderResponse；覆蓋 基本渲染+語系 zh/en 含 negative leak·status filter Select 選項順序鎖定+value+onChange·search Input value+onChange·Refresh onClick+loading 文案+disabled·counter N/total+filter 截斷·error warn card·empty 態 loading/error 不顯示·row business_key/turbine/type/title/更新時間時區/預估工時 null/優先級+狀態 pill·點擊 row→onSelect objectContaining）。**外加 review must-fix #1 修 1 行 production UX bug**：Refresh Btn 補傳 loading={loading}（載入中按鈕未 disabled 可重複觸發查詢）。**Verify**：tsc 0 error + vitest 220 passed（200 baseline + 20 新，零 regression）+ vite build ✓；backend 638 不受影響。issue_stats done 61→62 / total 75→76。**下一步**：同範式續推 PendingApprovalPanel（270，簽核）/ MaterialRequestListPanel（203）/ TurbineDetail（1056）/ M5-2 ChromaDB / stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-workorderlistpanel-render-tests.md."
 technologies:
   - FastAPI
   - React
@@ -65,7 +65,7 @@ issue_stats:
   open: 13
   in_progress: 1   # WMOM-20260504-12（等劉老師 24h 記憶體長跑驗收）
   blocked: 0
-  done: 61  # +1: WMOM-20260605-01 HistoryPage component render 測試 (2026-06-05)
+  done: 62  # +1: WMOM-20260605-02 WorkOrderListPanel component render 測試 (2026-06-05)
 
 inherited_baseline:
   source: digiWindTurbine

@@ -102,7 +102,7 @@ const WorkOrderListPanel: React.FC<Props> = ({
             ariaLabel={ui('Search work orders', '搜尋工單')}
           />
         </Field>
-        <Btn onClick={onRefresh} ariaLabel={ui('Refresh list', '重新整理列表')}>
+        <Btn onClick={onRefresh} loading={loading} ariaLabel={ui('Refresh list', '重新整理列表')}>
           {loading ? ui('Loading…', '載入中…') : ui('Refresh', '重新整理')}
         </Btn>
       </div>
