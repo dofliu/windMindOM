@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 67 |
-| **total (active)** | **81** |
+| done | 68 |
+| **total (active)** | **82** |
 
-最後更新：2026-06-05（**WMOM-20260605-07 done — InventoryAdjustmentDialog component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 322、飛輪健康：上個 session ApprovalActionDialog render 測試 PR #85 已 auto-merge 進 main）。stack-aware：15 筆 open PR 全為飛輪上線前 stale draft，無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑**最小且含互動**的 **InventoryAdjustmentDialog**（`components/workflow/InventoryAdjustmentDialog.tsx`，339 行）：庫存頁「手動 +/- 調整」對話框（選 stock kind → 整數異動量允許負 → 必填原因 → 選填備註 → 送出呼 useInventory.adjust）。與 ApprovalActionDialog 同屬「有狀態 + async」對話框，但**多 useCurrentUser 依賴**（payload 帶 actor_id）+ **即時預覽計算**（currentQty±delta=next、負庫存警告），先前無任何測試。**新增** `components/workflow/__tests__/InventoryAdjustmentDialog.test.tsx`（**23 tests**：`makeItem/makeLog/makeResult` 工廠結構式滿足型別；render wrapper **同包 ThemeProvider + UserProvider**、`beforeEach` 清 localStorage 確保 currentUser 落 DEFAULT_USER；覆蓋 標題/dialog aria-label（zh 同字串·en `Adjust inventory` vs `Adjust stock` 可區分不外洩 zh）+ header 副標 sku·name / 三欄回顧（new/used/repairing label scope 進 grid 避誤命中 + qty）/ delta 預覽（new+1·負號·切 kind 改 currentQty·無效 0/NaN→「—」+ 鈕 disabled）/ 扣負數 ⚠409 警告但鈕仍可按 / gating（reason 空 disabled·僅空白 trim 後仍 disabled）/ 送出空備註→note=undefined+actor_id=DEFAULT_USER.id+成功 onAdjusted+onClose / 送出換 kind+負 delta+有備註→payload 反映+note trim / 拋錯⚠回填不 onClose 鈕回復可按 / 拋錯後重試成功清舊錯誤卡 / submitting 受控 Promise「送出中…/Submitting…」+disabled（zh/en 對稱）/ 關閉路徑 遮罩·✕·取消→onClose、wrapper 本身+子孫 stopPropagation 不 onClose）。code-reviewer 採納 4 must-fix（getPreviewCard 去 as·submitting 測試 await onClose·三欄 grid 改 closest 定位·onAdjusted 斷言補 log 欄位）+ 2 should-fix（遮罩註解·補測 onAdjusted 省略守 optional chain）。**Verify**：`tsc` 0 error + `vitest` **345 passed**（322 baseline + 23 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 66→67 / total 80→81。**下一步**：InventoryDetailDrawer（478）/ wizard / detail modal（933/902 需 mock dialog）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md。
+最後更新：2026-06-05（**WMOM-20260605-08 done — InventoryDetailDrawer component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 345、飛輪健康：上個 session InventoryAdjustmentDialog render 測試 PR #86 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft（#30–#68），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑 **InventoryDetailDrawer**（`components/workflow/InventoryDetailDrawer.tsx`，478 行）：庫存頁右側 480px 料件詳情 drawer，含本系列尚未覆蓋的 **async lifecycle（mount lazy load audit log）+ 內嵌有狀態 dialog（adjust 成功 reload）**，先前無任何測試。**新增** `components/workflow/__tests__/InventoryDetailDrawer.test.tsx`（**21 tests**：`makeItem/makeLog/makeResult` 工廠結構式滿足型別；render wrapper **同包 ThemeProvider + UserProvider**（內嵌 dialog 依賴 useCurrentUser）；`settleInitialLoad` helper 集中 await mount lazy load 結算避免 act 警告；覆蓋 dialog/關閉鈕 aria-label（zh 料件詳情·關閉抽屜 vs en Inventory item detail·Close drawer 不外洩 zh）+ header sku·name / 庫存分項三欄 scope 進 Card / 可用總計·安全庫存 / below_safety LOW pill 有無 / metadata unit·unit_cost·warehouse_id 末8碼·description 空→（無）·四時間欄 fmtDateTime Asia/Taipei 換算 / audit log mount 即呼 `loadAdjustments(item.id)` 一次·空→尚無異動紀錄+header(0)·有 log→AuditRow sign+delta+kind+reason+actor 末8碼+計數·note 有無分支·reject→⚠ 錯誤卡不顯空狀態 / Refresh 鈕 loadAdjustments 再呼 / 內嵌 dialog 開啟兩 dialog aria-label 並存·送出→onAdjust 收(item.id,payload)+成功 reload / 關閉路徑遮罩·✕→onClose·content wrapper+子孫 stopPropagation）。code-reviewer review（採納情形見 work-log）。**Verify**：`tsc` 0 error + `vitest` **366 passed**（345 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 67→68 / total 81→82。**下一步**：Create*Wizard / detail modal（902/933 需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-06 ApprovalActionDialog）詳見 work-logs/2026-06/2026-06-05-approvalactiondialog-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260605-07 InventoryAdjustmentDialog）詳見 work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260605-08 — InventoryDetailDrawer component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-05 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；庫存料件詳情 drawer，含 async lazy-load lifecycle + 內嵌有狀態 adjust dialog，先前無任何測試覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-05)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/InventoryDetailDrawer.test.tsx`（新，21 tests）**：為 `InventoryDetailDrawer.tsx`（478 行）補 component render 測試。本元件是庫存頁右側 480px 滑出的料件詳情 drawer（identity / stocks / metadata / audit log），含本系列尚未覆蓋的 **async lifecycle**（mount useEffect → `loadAdjustments(item.id)` → logs/loading/error 三態、Refresh 再拉、adjust 成功 reload）+ **內嵌另一個有狀態 dialog**（`InventoryAdjustmentDialog`，z=300）。render wrapper **同包 ThemeProvider + UserProvider**（內嵌 dialog 依賴 useCurrentUser），`beforeEach` 清 `localStorage`；`settleInitialLoad` helper 集中 await mount lazy load 結算，避免 async setState 洩漏觸發 act 警告。`makeItem/makeLog/makeResult` 工廠結構式滿足型別（不用 `as`）。
+  - ✅ **覆蓋契約**：dialog/關閉鈕 aria-label（zh「料件詳情」「關閉抽屜」vs en「Inventory item detail」「Close drawer」不外洩 zh）+ header sku·name / 庫存分項三欄（new/used/repairing label + qty，scope 進「庫存分項」Card 避誤命中 audit row 同 label）/ 可用總計·安全庫存 / below_safety=true→LOW pill·false→無 pill / metadata（unit·unit_cost·warehouse_id 末8碼 `…12345678`·description 空→「（無）」·四時間欄 `fmtDateTime` Asia/Taipei +8 換算驗算）/ audit log（mount 即以 item.id 呼 `loadAdjustments` 一次·空→「尚無異動紀錄。」+ header(0)·有 log→AuditRow `+5 全新`/`-2 良品`+reason+actor 末8碼+計數(2)·note 有無分支·reject→⚠ 錯誤卡且不顯空狀態）/ Refresh 鈕→`loadAdjustments` 再呼(2) / 內嵌 dialog（點「+ 調整庫存」→ 兩 dialog aria-label 並存·送出→`onAdjust` 收 `(item.id, payload)`+成功 reload `loadAdjustments`(2)）/ 關閉路徑（遮罩·✕→onClose；content wrapper + 子孫 stopPropagation 不 onClose）。
+  - ✅ **code-reviewer 採納 2 must-fix + 2 should-fix + 1 nice-to-have**：must-fix（① `settleInitialLoad` 語意不完整只等 call 不等 setState flush → 改為再等 Refresh 鈕文案回「重新整理」確保 `setLogsLoading(false)` flush + lang-aware，去 act 洩漏；② below_safety / note 兩 test 單 `it` 內雙 render + cleanup 時序脆弱 → 各拆兩個獨立 `it`）；should-fix（③ `getStockCard` 的 `parentElement` 耦合 Card DOM + within scope 過寬 → 改 `getStockGrid()` 以 `closest('[style*="grid-template-columns"]')` 精確定位三欄、summary 測試改 screen-level；④ fmtDateTime test 補 last_received_at 斷言）；nice-to-have（⑤ error 態補驗 Refresh 鈕回復可按）。**不採納**：must-fix 3（遮罩 test 原碼已先 settle，reviewer 誤判）/ should-fix 3·4 與 nice-to-have 1·3（說明性或既有 test 已正確）。詳見 work-log。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **366 passed**（345 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：Create*Wizard（多步驟）/ detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板 chromadb 依賴 + 向量檔來源）/ stale PR triage（#30–#68 共 22 筆 pre-flywheel draft）。
+- **Reference**: [`work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md`](work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md)
+
+---
 
 ### WMOM-20260605-07 — InventoryAdjustmentDialog component render 測試（EPIC-M5 測試覆蓋擴大）
 
@@ -2429,7 +2445,7 @@ A10 為 mock 簡化用了字串 `"GBT_TEMP_HIGH"` 當 `source_alarm_code`，但 
 - **Completion summary**:
   - ✅ **切入點**：先測最高 ROI、零脆弱的**純函式層**（無 React / async / DOM → 確定性高、
     不脆弱），**不動 `vitest.config.ts`**（純函式不需 jsdom matcher / setupFiles → 基礎設施零變動）
-  - ✅ `frontend/components/workflow/__tests__/statusUtils.test.ts`（**19 tests**）：
+  - ✅ `frontend/components/workflow/__tests__/statusUtils.test.ts`（**21 tests**）：
     - 10 個 label 函式 en/zh 雙語**窮舉**：用 service 匯出的 `*Values` runtime 陣列迭代 +
       `Record<Enum, [en, zh]>` 期望表 → **compile-time 窮舉**（新增 enum 漏補期望值 tsc 立刻紅）
     - 4 個 tone 函式窮舉（`Record<Enum, PillTone>`，確認 switch 無漏 case）
