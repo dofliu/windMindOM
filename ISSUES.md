@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 66 |
-| **total (active)** | **80** |
+| done | 67 |
+| **total (active)** | **81** |
 
-最後更新：2026-06-05（**WMOM-20260605-06 done — ApprovalActionDialog component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 298、飛輪健康：上個 session PendingApprovalPanel render 測試 PR #84 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft，無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。**為何不選 M5-2 ChromaDB**：`Retriever` Protocol 已抽象乾淨，但真正可測需 chromadb 重依賴（CI 影響）+ 真向量檔（M5-3 🟡 依賴 RAG_Ultimate Phase 3）+ embedding 選型（設計決策）→ 帶 🟡 設計依賴，非乾淨 autonomous。選 **ApprovalActionDialog**（`components/workflow/ApprovalActionDialog.tsx`，309 行）：簽核流程「最後一哩」對話框（reviewer 從 PendingApprovalPanel 按 通過/駁回 後彈出確認、填備註/駁回原因送出），是 workflow render 測試系列**首個含 internal state（comment/reason/submitting/error/warning）+ async 送出 + 樂觀關閉 / 錯誤回填**的元件，覆蓋價值高於純 props 面板，先前無任何測試。**新增** `components/workflow/__tests__/ApprovalActionDialog.test.tsx`（**24 tests**：`makeStep/makeChain/makePending/makeWO/makeResult` 工廠結構式滿足型別；覆蓋 標題/dialog aria-label（mode×lang zh/en 含 negative leak）/ subject 摘要（workOrder 命中 business_key·turbine·title·priority·status pill·typeLabel，以 `within` scope；vs cache miss fallback subjectTypeLabel·…subjectId8）/ step·chain context（層級 signoffLevelLabel·階段 seq+1/levels.length）/ approve·reject 輸入互斥（備註 Input vs 駁回原因 textarea）/ 送出鈕 gating（approve 恆 enabled·reject reason 空 disabled·僅空白 trim 後仍 disabled）/ 送出 approve（空備註→null·有備註+workOrder 命中→trim 值·成功 onClose）/ 送出 reject（reason.trim()·成功 onClose）/ subject_transition_error 警告卡不 onClose 且鈕回復可按 / 拋錯 ⚠ 回填不 onClose 且鈕回復可按 / 拋錯後重試成功清除舊錯誤卡 / submitting 受控 Promise「送出中…/Submitting…」+ disabled（zh/en 對稱）/ 關閉路徑 遮罩·✕·取消→onClose、內容 wrapper 本身 + 子孫 stopPropagation 不 onClose）。code-reviewer **採納 3 must-fix**（en submitting 補 disabled·stopPropagation 改點 wrapper 本身·transition_error 補鈕 enabled）+ **3 should-fix**（Btn ariaLabel 假設注解·1 個 submit 測試走 workOrder 命中路徑·priority/status 以 `within` scope）+ **1 nice**（拋錯→重試清錯誤卡，守 setError(null) 置於 handleSubmit 開頭）；**不採納** should-fix 工廠抽共用檔（會動到已 merged 的 PendingApprovalPanel.test，scope creep，留待專門重構）。**Verify**：`tsc` 0 error + `vitest` **322 passed**（298 baseline + 24 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 65→66 / total 79→80。**下一步**：InventoryAdjustmentDialog（339）/ InventoryDetailDrawer（478）/ wizard / detail modal（933/902 需 mock dialog）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-approvalactiondialog-render-tests.md。
+最後更新：2026-06-05（**WMOM-20260605-07 done — InventoryAdjustmentDialog component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 322、飛輪健康：上個 session ApprovalActionDialog render 測試 PR #85 已 auto-merge 進 main）。stack-aware：15 筆 open PR 全為飛輪上線前 stale draft，無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑**最小且含互動**的 **InventoryAdjustmentDialog**（`components/workflow/InventoryAdjustmentDialog.tsx`，339 行）：庫存頁「手動 +/- 調整」對話框（選 stock kind → 整數異動量允許負 → 必填原因 → 選填備註 → 送出呼 useInventory.adjust）。與 ApprovalActionDialog 同屬「有狀態 + async」對話框，但**多 useCurrentUser 依賴**（payload 帶 actor_id）+ **即時預覽計算**（currentQty±delta=next、負庫存警告），先前無任何測試。**新增** `components/workflow/__tests__/InventoryAdjustmentDialog.test.tsx`（**23 tests**：`makeItem/makeLog/makeResult` 工廠結構式滿足型別；render wrapper **同包 ThemeProvider + UserProvider**、`beforeEach` 清 localStorage 確保 currentUser 落 DEFAULT_USER；覆蓋 標題/dialog aria-label（zh 同字串·en `Adjust inventory` vs `Adjust stock` 可區分不外洩 zh）+ header 副標 sku·name / 三欄回顧（new/used/repairing label scope 進 grid 避誤命中 + qty）/ delta 預覽（new+1·負號·切 kind 改 currentQty·無效 0/NaN→「—」+ 鈕 disabled）/ 扣負數 ⚠409 警告但鈕仍可按 / gating（reason 空 disabled·僅空白 trim 後仍 disabled）/ 送出空備註→note=undefined+actor_id=DEFAULT_USER.id+成功 onAdjusted+onClose / 送出換 kind+負 delta+有備註→payload 反映+note trim / 拋錯⚠回填不 onClose 鈕回復可按 / 拋錯後重試成功清舊錯誤卡 / submitting 受控 Promise「送出中…/Submitting…」+disabled（zh/en 對稱）/ 關閉路徑 遮罩·✕·取消→onClose、wrapper 本身+子孫 stopPropagation 不 onClose）。code-reviewer 採納 4 must-fix（getPreviewCard 去 as·submitting 測試 await onClose·三欄 grid 改 closest 定位·onAdjusted 斷言補 log 欄位）+ 2 should-fix（遮罩註解·補測 onAdjusted 省略守 optional chain）。**Verify**：`tsc` 0 error + `vitest` **345 passed**（322 baseline + 23 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 66→67 / total 80→81。**下一步**：InventoryDetailDrawer（478）/ wizard / detail modal（933/902 需 mock dialog）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-05 PendingApprovalPanel）詳見 work-logs/2026-06/2026-06-05-pendingapprovalpanel-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260605-06 ApprovalActionDialog）詳見 work-logs/2026-06/2026-06-05-approvalactiondialog-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260605-07 — InventoryAdjustmentDialog component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-05 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；庫存「手動 +/- 調整」對話框，含 useCurrentUser 依賴 + 即時預覽計算 + async 送出，先前無任何測試覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-05)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/InventoryAdjustmentDialog.test.tsx`（新，23 tests）**：為 `InventoryAdjustmentDialog.tsx`（339 行）補 component render 測試。本元件是庫存頁「手動 +/- 調整」對話框（選 stock kind → 整數異動量允許負 → 必填原因 → 選填備註 → 送出呼 `useInventory.adjust`）。與 ApprovalActionDialog 同屬「有狀態 + async」對話框，但**多 useCurrentUser 依賴**（送出 payload 帶 actor_id）+ **即時預覽計算**（currentQty±delta=next、負庫存 ⚠409 警告）。render wrapper **同包 ThemeProvider + UserProvider**，`beforeEach` 清 `localStorage` 確保 currentUser 落 `DEFAULT_USER`（actor_id 斷言可預測）。`makeItem/makeLog/makeResult` 工廠結構式滿足型別（不用 `as`）；async 送出以受控 Promise + `waitFor` 收尾（無 act 警告）。
+  - ✅ **覆蓋契約**：標題/dialog aria-label（zh 同字串「調整庫存」·en `Adjust inventory` vs `Adjust stock` 可區分且不外洩 zh）+ header 副標 sku·name / 三欄回顧（new/used/repairing label scope 進 grid 避誤命中 + qty）/ delta 預覽（new+1·負號·切 kind 改 currentQty·無效 0/NaN→「—」+ 鈕 disabled）/ 扣負數 ⚠409 警告但鈕仍可按（前端只警告交 backend 拒）/ gating（reason 空 disabled·填入 enabled·僅空白 trim 後仍 disabled）/ 送出空備註→`note=undefined`+`actor_id=DEFAULT_USER.id`+成功 `onAdjusted`+`onClose` / 送出換 kind(used)+負 delta(-3)+有備註→payload 反映+note trim / 拋錯→⚠ 回填且**不** onClose 鈕回復可按 / 拋錯後重試成功→舊錯誤卡清除（守 `setError(null)`）/ submitting 中→「送出中…/Submitting…」+ disabled（zh/en 對稱）/ 關閉路徑（遮罩·✕·取消→onClose；內容 wrapper 本身 + 子孫 stopPropagation 不 onClose）。
+  - ✅ **code-reviewer 採納 4 must-fix + 2 should-fix**：must-fix（① `getPreviewCard` 去 `as` 改 null-guard；② 兩 submitting 測試 resolve 後改 await `onClose` 收尾，避免 act 警告洩漏；③ 三欄 grid locator 改 `closest('[style*="grid-template-columns"]')` + instanceof guard，去結構脆弱 + `as`；④ `onAdjusted` 斷言強化為 item.id + log 具體欄位）；should-fix（⑤ 遮罩測試補「overlay=role=dialog 節點」註解；⑥ 補測 `onAdjusted` 省略時送出仍不拋錯，守 optional chain，+1 test）。**不採納**：SF beforeEach 改 setItem（現狀 clear() 正確且簡潔）/ retry 泛型風格 / delta=0 與 NaN「重複」（實走不同分支）/ nice testid（會動產品碼）。詳見 work-log。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **345 passed**（322 baseline + 23 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：InventoryDetailDrawer（478）/ Create*Wizard / detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，需 mock dialog）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板 chromadb 依賴 + 向量檔來源）/ stale PR triage（15 筆 pre-flywheel draft）。
+- **Reference**: [`work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md`](work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md)
+
+---
 
 ### WMOM-20260605-06 — ApprovalActionDialog component render 測試（EPIC-M5 測試覆蓋擴大）
 
@@ -132,7 +148,7 @@
   - ✅ **code-reviewer 採納 must-fix 1 + should-fix 3 + nice 1**：`makeItem` JSDoc 補 null join 欄位說明（#2）/ `vitest.config.ts` 加 `process.env.TZ='UTC'` flaky 防護（#3）/ empty-error 斷言改比對訊息文字避免 `getByText(/⚠/)` 多元素脆點（#4）/ 新增「loading disabled 點擊不觸發 onRefresh」行為測試（#5）/ 新增 en status Select 選項 `toEqual` 守 en 拼字（#6）。
   - ✅ **覆蓋契約**：基本渲染 + 語系（zh「狀態/搜尋（領料編號 / 工單）/重新整理」+ counter「顯示 1 / 3 筆領料單」；en「Status/Search (key / work order)/Refresh/Showing 1 of 5 material requests」含 4 個 zh negative leak 守住）+ status filter Select（選項涵蓋「全部狀態」+ 9 status 順序鎖定 MaterialRequestStatusValues·value 反映 prop·onChange→onStatusChange）+ search Input（value+onChange→onSearchChange）+ Refresh（onClick→onRefresh·loading→「載入中…」/「Loading…」**且 disabled**）+ counter（N/total·filter 截斷 2/50）+ error warn card（⚠ + 訊息）+ empty 態（items=[] 顯示·loading·error 時不顯示）+ row（business_key·work_order 連結 有「工單 …{後8碼}」/null「（無關聯工單）」·料件項數+預估總量 reduce·更新於時區 2026-06-02 16:30·狀態 pill·en 單數 item·aria-label 鎖定）+ 點擊 row→onSelect objectContaining。
   - ✅ **外加同型 1 行 production UX bug 修正**：`MaterialRequestListPanel.tsx` Refresh `Btn` 漏傳 `loading` prop → 載入中按鈕未 disabled（可重複點擊重複觸發查詢）。補 `loading={loading}` 接上 Btn 既有 `isDisabled = disabled || loading`，與上個 session 對 WorkOrderListPanel 的同型修正一致。
-  - ✅ **Verify**：`tsc` 0 error + `vitest` **242 passed**（220 baseline + 22 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **242 passed**（220 baseline + 23 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
 - **下次續做**：同範式推 PendingApprovalPanel（270，簽核核心）/ InventoryListPanel（286）/ TurbineDetail（1056）；或較大的 WorkOrderDetailModal（933）/ MaterialRequestDetailModal（902）。
 - **Reference**: [`work-logs/2026-06/2026-06-05-materialrequestlistpanel-render-tests.md`](work-logs/2026-06/2026-06-05-materialrequestlistpanel-render-tests.md)
 
