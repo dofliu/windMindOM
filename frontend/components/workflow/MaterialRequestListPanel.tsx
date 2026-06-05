@@ -90,7 +90,7 @@ const MaterialRequestListPanel: React.FC<Props> = ({
             ariaLabel={ui('Search material requests', '搜尋領料單')}
           />
         </Field>
-        <Btn onClick={onRefresh} ariaLabel={ui('Refresh list', '重新整理列表')}>
+        <Btn onClick={onRefresh} loading={loading} ariaLabel={ui('Refresh list', '重新整理列表')}>
           {loading ? ui('Loading…', '載入中…') : ui('Refresh', '重新整理')}
         </Btn>
       </div>
