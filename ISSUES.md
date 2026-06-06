@@ -16,14 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 73 |
-| **total (active)** | **87** |
+| done | 74 |
+| **total (active)** | **88** |
 
-最後更新：2026-06-06（**WMOM-20260606-05 done — TurbineDetail component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（同日第五輪）：preflight 全綠（backend 638 / frontend 525、飛輪健康：上輪 MaterialRequestDetailModal PR #91 已 auto-merge 進 main，baseline 自 481 推進到 525）。stack-aware：open PR 全為飛輪上線前 stale draft（#30–#68 共 22 筆），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 點名挑本系列至今**最大元件 TurbineDetail**（`components/TurbineDetail.tsx`，1056 行，`/admin` 風機詳情頁）：PageHeader 麵包屑+狀態 pill+actions、故障 banner、4 hero 數字、即時趨勢 4 通道、子系統健康 8 格、明細 8 tabs、TrendChartPanel、OperatorControlCard（6 指令+限載+每 3s 輪詢 control status）、最近事件、AI 故障診斷（僅 FAULT）。**新增** `components/__tests__/TurbineDetail.test.tsx`（**49 tests**，純測試零 production 變更）。外部依賴隔離（本元件比先前 detail modal 多 3 種副作用）：`analyzeTurbineFault`（geminiService）→ `vi.mock` spy；`TrendChartPanel`（recharts+多支 fetch 重元件）→ `vi.mock` 換輕量 stub div 只驗 turbineApiId/lang 接線；`global.fetch` → `stubFetch(status)` helper 接管 control GET/POST，回 spy 斷言 body。**flakiness 對策**：所有 render 以 `await renderDetail`（內部 `act(async)` 包 render + flush microtask）收尾消 act 警告；3s 輪詢 + 2s 清訊息用 **real timer**（快速測試不二次觸發）+ `afterEach(cleanup)` clearInterval + `restoreAllMocks`。覆蓋殼層 header 四狀態 pill·TurState fallback·lang=en / hero 4 數字 / 故障 banner（嚴重度%·phase·TRIPPED·alarms）/ 子系統健康 8 格（`within` scope）+ 明細 8 tab 切換+缺值 fallback / TrendChartPanel padding 接線 / OperatorControlCard（GET padding id·6 指令+限載鈕·status-driven 5 pill·指令/限載 POST body·OK 訊息）/ 最近事件 4 態 / AI 診斷卡（非 FAULT 不渲染·FAULT 自動分析·重新分析·失敗·派遣 onDispatch·activeWorkOrder pill·lang=en）。**眉角**：3 處 `getByText` 撞重複文字（IDLE「待機」header vs 最近事件 / hero 值 vs live-trends cur / 健康 label 發電機·變頻器 vs 明細 tab 按鈕）→ `getAllByText().length>0` + `within(healthCard)` scope；`vi.fn<[Args],Ret>()` 雙型別參數本 vitest 版不支援（TS2558）→ 改 `vi.fn<(t)=>Promise<string>>()` 函式型別式。**Verify**：`tsc` 0 error + `vitest` **574 passed**（525 baseline + 49 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 72→73 / total 86→87。**下一步**：render 測試剩餘大元件（`FieldPage` 系列 / `KnowledgePage` / monitoring 其他面板）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ M5-5 `/field/` mobile Part B-2 / stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-06-turbinedetail-render-tests.md。
+最後更新：2026-06-06（**WMOM-20260606-06 done — DispatchModal component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（同日第六輪）：preflight 全綠（backend 638 / frontend 574、飛輪健康：上輪 TurbineDetail PR #92 已 auto-merge 進 main，baseline 自 525 推進到 574）。stack-aware：open PR 全為飛輪上線前 stale draft（#30–#68 共 22 筆），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。挑 untested 元件中**最單純**的 `components/DispatchModal.tsx`（194 行）——「AI 故障診斷 → 派工」確認對話框，自 TurbineDetail AI 診斷卡 onDispatch（上輪剛覆蓋的觸發點）開啟。**新增** `components/__tests__/DispatchModal.test.tsx`（**21 tests**，純測試零 production 變更）。依賴僅 `useTheme` → ThemeProvider 包裹即可；純 props-driven、無 fetch/async/lang prop，`Btn`/`Card`/`StatusPill` 用真實 ui 元件不 mock。覆蓋殼層靜態（dialog aria-modal·標題·Close·目標風機名+狀態·AI fault analysis `<pre>` 原樣·區塊標題）/ 技師清單（只列 ON_DUTY 過濾 OFF_DUTY/DISPATCHED·每卡姓名+pill `within` scope·無 ON_DUTY 警告卡·空陣列警告卡·初始 aria-pressed=false·點選→true·改選互斥）/ Confirm gating+callback（未選 disabled·選後可按·`onConfirm(turbineId,technicianId,faultAnalysis)` 原樣透傳+不自動 onClose·無技師 disabled·id=0 falsy guard 邊界）/ 四關閉路徑（遮罩·內容 stopPropagation·✕·Cancel）。工廠 `makeTurbine`/`makeTech` 結構式滿足型別不用 `as`。code-reviewer 回 3 must-fix+4 should-fix，採納 4（dead import、id=0 邊界 test、enum 值斷言、onClose not called），婉拒投機/低價值 5（理由見 work-log）。**Verify**：`tsc` 0 error + `vitest` **595 passed**（574 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 73→74 / total 87→88。**下一步**：render 測試剩餘 untested 元件（UserSwitcher / EventComparisonView / reporting 子面板 / MaintenanceHub / FarmSelector / FaultInjectionPanel / TrendChartPanel / ui primitives）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ M5-5 `/field/` mobile Part B-2 / stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-06-dispatchmodal-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260606-04 MaterialRequestDetailModal）詳見 work-logs/2026-06/2026-06-06-materialrequestdetailmodal-render-tests.md（更早的 WMOM-20260606-03 WorkOrderDetailModal 已搬 `docs/legacy/issues_changelog_archive.md`）。
-
-> 📁 更早一筆 changelog（WMOM-20260606-02 CreateMaterialRequestWizard）詳見 work-logs/2026-06/2026-06-06-creatematerialrequestwizard-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260606-05 TurbineDetail）詳見 work-logs/2026-06/2026-06-06-turbinedetail-render-tests.md（更早的 WMOM-20260606-04 MaterialRequestDetailModal 已搬 `docs/legacy/issues_changelog_archive.md`）。
 
 ---
 
@@ -73,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260606-06 — DispatchModal component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-06 完成，同日第六輪）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；「AI 故障診斷 → 派工」確認對話框，與上輪 TurbineDetail onDispatch 接點直接相關，先前無任何測試覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-06 第六輪)
+- **Completion summary**:
+  - ✅ **`components/__tests__/DispatchModal.test.tsx`（新，21 tests，純測試零 production 變更）**：為 `DispatchModal.tsx`（194 行）補 component render 測試。本元件是「AI 故障診斷 → 派工」流程的確認對話框，自 TurbineDetail AI 診斷卡（onDispatch）或風場總覽觸發、於 App.tsx 掛載：header 標題「Dispatch Technician」+✕、目標風機名+狀態、AI fault analysis `<pre>` 卡、可用技師清單（僅 ON_DUTY 入選、逐張可點 aria-pressed、無人值班→警告卡）、footer Cancel + Confirm dispatch（未選 disabled）。是 detail modal 系列中**最單純**的一支（純 props-driven、無 fetch/async/lang prop）。
+  - ✅ **依賴隔離**：依賴僅 `useTheme` → render wrapper 包 `ThemeProvider` 即可；`Btn`/`Card`/`StatusPill` 用真實 ui 元件不 mock（驗整合輸出）。無 fetch/timer/async callback，故不需 stubFetch/fake timer/await act 收尾。工廠 `makeTurbine`/`makeTech` 結構式滿足型別不用 `as`。
+  - ✅ **覆蓋契約**：殼層靜態（dialog role+aria-modal·標題 heading·Close aria-label·目標風機名+狀態·AI fault analysis `<pre>` 原樣字串·區塊標題）/ 技師清單（只列 ON_DUTY 過濾 OFF_DUTY/DISPATCHED·每卡姓名+ON DUTY pill `within` scope·無 ON_DUTY 警告卡·空陣列警告卡·初始 aria-pressed=false·點選→true·改選互斥）/ Confirm gating+callback（未選 disabled·選後可按·`onConfirm(turbineId,technicianId,faultAnalysis)` 原樣透傳 `toHaveBeenCalledWith(42,9,text)`+不自動 onClose·無技師 disabled·id=0 falsy guard 邊界）/ 四關閉路徑（遮罩→onClose·內容點擊 stopPropagation 不關·✕·Cancel）。
+  - 🔍 **code-reviewer review**：回 3 must-fix + 4 should-fix + 2 nice-to-have，採納 4：① dead `beforeEach` import 移除；② 新增 id=0 falsy guard 邊界 test（卡視覺選中 aria-pressed=true 但 Confirm 維持 disabled，守住兩 guard 一致行為）；③ `getByText('ON DUTY')` → `getByText(TechnicianStatus.ON_DUTY)` 與 enum 同步；④ Confirm 後補 `expect(onClose).not.toHaveBeenCalled()`。婉拒 5（遮罩/stopPropagation 已由 test pair 雙向覆蓋、regex partial match 為刻意、'FAULT' 碰撞投機、2 nice-to-have 低價值）。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **595 passed**（574 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **給劉老師 follow-up（非阻塞）**：DispatchModal id=0 falsy guard 小瑕疵——技師 id=0 時卡顯示「已選中」卻按不下 Confirm（視覺/行為不一致）；實務技師 id 從 1 起不影響現況，若未來改 0-indexed 應改 guard 為 `!== null`。
+- **下次續做**：render 測試剩餘 untested 元件（UserSwitcher / EventComparisonView / reporting 子面板 MonthlyReportPanel·AnnualBudgetPanel / MaintenanceHub / FarmSelector / FaultInjectionPanel / TrendChartPanel / ui primitives）；非 render 方向 M5-2 ChromaDB（需劉老師拍板 chromadb 依賴+向量檔來源）/ M5-5 `/field/` mobile Part B-2 / stale PR triage（#30–#68 共 22 筆）。
+- **Reference**: [`work-logs/2026-06/2026-06-06-dispatchmodal-render-tests.md`](work-logs/2026-06/2026-06-06-dispatchmodal-render-tests.md)
 
 ### WMOM-20260606-05 — TurbineDetail component render 測試（EPIC-M5 測試覆蓋擴大）
 
