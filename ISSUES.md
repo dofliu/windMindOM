@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 68 |
-| **total (active)** | **82** |
+| done | 69 |
+| **total (active)** | **83** |
 
-最後更新：2026-06-05（**WMOM-20260605-08 done — InventoryDetailDrawer component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 345、飛輪健康：上個 session InventoryAdjustmentDialog render 測試 PR #86 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft（#30–#68），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑 **InventoryDetailDrawer**（`components/workflow/InventoryDetailDrawer.tsx`，478 行）：庫存頁右側 480px 料件詳情 drawer，含本系列尚未覆蓋的 **async lifecycle（mount lazy load audit log）+ 內嵌有狀態 dialog（adjust 成功 reload）**，先前無任何測試。**新增** `components/workflow/__tests__/InventoryDetailDrawer.test.tsx`（**21 tests**：`makeItem/makeLog/makeResult` 工廠結構式滿足型別；render wrapper **同包 ThemeProvider + UserProvider**（內嵌 dialog 依賴 useCurrentUser）；`settleInitialLoad` helper 集中 await mount lazy load 結算避免 act 警告；覆蓋 dialog/關閉鈕 aria-label（zh 料件詳情·關閉抽屜 vs en Inventory item detail·Close drawer 不外洩 zh）+ header sku·name / 庫存分項三欄 scope 進 Card / 可用總計·安全庫存 / below_safety LOW pill 有無 / metadata unit·unit_cost·warehouse_id 末8碼·description 空→（無）·四時間欄 fmtDateTime Asia/Taipei 換算 / audit log mount 即呼 `loadAdjustments(item.id)` 一次·空→尚無異動紀錄+header(0)·有 log→AuditRow sign+delta+kind+reason+actor 末8碼+計數·note 有無分支·reject→⚠ 錯誤卡不顯空狀態 / Refresh 鈕 loadAdjustments 再呼 / 內嵌 dialog 開啟兩 dialog aria-label 並存·送出→onAdjust 收(item.id,payload)+成功 reload / 關閉路徑遮罩·✕→onClose·content wrapper+子孫 stopPropagation）。code-reviewer review（採納情形見 work-log）。**Verify**：`tsc` 0 error + `vitest` **366 passed**（345 baseline + 21 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 67→68 / total 81→82。**下一步**：Create*Wizard / detail modal（902/933 需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md。
+最後更新：2026-06-06（**WMOM-20260606-01 done — CreateWorkOrderWizard component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 366、飛輪健康：上個 session InventoryDetailDrawer render 測試 PR #87 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft（#30–#68），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑 **CreateWorkOrderWizard**（`components/workflow/CreateWorkOrderWizard.tsx`，466 行）：`/admin/workflow` 工單 tab「建立工單」3 步精靈，四個未測 workflow 元件中最小最自包含（不依賴 useCurrentUser、僅 ThemeProvider），引入本系列尚未覆蓋的 **多步驟 wizard 形態**（step machine + 逐步 gating + buildRequest 序列化）。**新增** `components/workflow/__tests__/CreateWorkOrderWizard.test.tsx`（**32 tests**：`makeTurbine` 工廠結構式滿足 TurbineData 不用 `as`；`selectTurbine/gotoStep2/gotoStep3` 步驟導覽 helper；覆蓋 dialog aria-label + h2 標題 zh/en 不外洩中文 + step indicator「第 N 步/共 3 步」/ Step 1 空列表提示·localeCompare 排序·FAULT ⚠·功率風速 toFixed·未選 Next disabled→選後 aria-pressed·preselectTurbineId 預選 / Step 2 欄位齊備·title|description gating（trim 後算）·Back 保留已選風機·type/priority Select 完整選項 / Step 3 派工欄位·summary 卡反映風機·類型·標題·crew_size 夾限 1–20 / 送出 buildRequest 序列化（trim·空選填送 null·estimated_hours Number 轉型）·submitting 中態「建立中…」+ disabled·onSubmit reject→⚠ 錯誤卡+不關閉+鈕回復可按 / 關閉路徑遮罩·✕·取消→onClose·content stopPropagation）。**眉角**：送出鈕 accessible name 恆為 aria-label「建立工單」→ submitting 中態改以 `findByText('建立中…').closest('button')` 驗；RTL getByText 比對直接 text node 串接 → summary 類型行用 `toHaveTextContent` 子字串斷言。code-reviewer review（採納情形見 work-log）。**Verify**：`tsc` 0 error + `vitest` **398 passed**（366 baseline + 32 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 68→69 / total 82→83。**下一步**：CreateMaterialRequestWizard（690）/ detail modal（902/933 需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-06-createworkorderwizard-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-07 InventoryAdjustmentDialog）詳見 work-logs/2026-06/2026-06-05-inventoryadjustmentdialog-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260605-08 InventoryDetailDrawer）詳見 work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md。
 
 ---
 
@@ -71,6 +71,22 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260606-01 — CreateWorkOrderWizard component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-06 完成）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；工單 tab「建立工單」3 步精靈，本系列首個多步驟 wizard 形態，先前無任何測試覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-06)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/CreateWorkOrderWizard.test.tsx`（新，32 tests）**：為 `CreateWorkOrderWizard.tsx`（466 行）補 component render 測試。本元件是 `/admin/workflow` 工單 tab 的「建立工單」3 步精靈（Step 1 選風機 → Step 2 工單細節 → Step 3 派工+工時 → 送出），是四個未測 workflow 元件中**最小最自包含**（不依賴 useCurrentUser，僅需 ThemeProvider），引入本系列尚未覆蓋的**多步驟 wizard 形態**（step machine + 逐步 gating + buildRequest 序列化 + async 送出）。`makeTurbine` 工廠結構式滿足 `TurbineData`（不用 `as`）；`selectTurbine/gotoStep2/gotoStep3` 步驟導覽 helper。
+  - ✅ **覆蓋契約**：殼層（dialog aria-label + h2 標題 zh/en 不外洩中文 / step indicator「第 N 步 / 共 3 步」vs「Step N of 3」/ footer 鈕在各 step 出現規則）/ Step 1（空列表提示卡 zh/en·name localeCompare 排序·FAULT ⚠ 有無·功率風速 toFixed·未選 Next disabled→選後啟用+aria-pressed·preselectTurbineId 預選解鎖）/ Step 2（欄位齊備+step indicator 更新·title|description gating 任一空 disabled+純空白 trim 後不算·Back 回 Step 1 保留已選風機·type/priority Select 完整選項）/ Step 3（派工欄位+建立鈕無下一步·summary 卡反映風機·類型·標題·crew_size 夾限 >20→20·<1→1）/ 送出（完整 request：trim 值+空選填送 null+estimated_hours `Number` 轉型·estimated_hours 空→null+source_alarm_code·assignee trim 值·submitting 中態文字「建立中…」+disabled·onSubmit reject→⚠ 錯誤卡+不 onClose+鈕回復可按）/ 關閉路徑（遮罩·✕·取消→onClose·content stopPropagation 不 onClose）。
+  - ✅ **實作眉角**：① 送出鈕 accessible name 恆為 aria-label「建立工單」（aria-label 蓋過可見文字）→ submitting 中態不能用 `getByRole('button',{name:'建立中…'})`，改 `findByText('建立中…').closest('button')`；② RTL `getByText` 比對元素「直接 text node」串接（getNodeText），summary 類型行 `{typeLabel} ·{StatusPill}` 會被拆成「故障維修 ·」→ 改 `toHaveTextContent` 子字串斷言。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **398 passed**（366 baseline + 32 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：CreateMaterialRequestWizard（690，另一多步驟 wizard）/ detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板 chromadb 依賴 + 向量檔來源）/ stale PR triage（#30–#68 共 22 筆 pre-flywheel draft）。
+- **Reference**: [`work-logs/2026-06/2026-06-06-createworkorderwizard-render-tests.md`](work-logs/2026-06/2026-06-06-createworkorderwizard-render-tests.md)
+
+---
 
 ### WMOM-20260605-08 — InventoryDetailDrawer component render 測試（EPIC-M5 測試覆蓋擴大）
 
