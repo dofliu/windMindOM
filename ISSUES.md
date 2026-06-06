@@ -16,12 +16,12 @@
 | open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 69 |
-| **total (active)** | **83** |
+| done | 70 |
+| **total (active)** | **84** |
 
-最後更新：2026-06-06（**WMOM-20260606-01 done — CreateWorkOrderWizard component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session：preflight 全綠（backend 638 / frontend 366、飛輪健康：上個 session InventoryDetailDrawer render 測試 PR #87 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft（#30–#68），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑 **CreateWorkOrderWizard**（`components/workflow/CreateWorkOrderWizard.tsx`，466 行）：`/admin/workflow` 工單 tab「建立工單」3 步精靈，四個未測 workflow 元件中最小最自包含（不依賴 useCurrentUser、僅 ThemeProvider），引入本系列尚未覆蓋的 **多步驟 wizard 形態**（step machine + 逐步 gating + buildRequest 序列化）。**新增** `components/workflow/__tests__/CreateWorkOrderWizard.test.tsx`（**32 tests**：`makeTurbine` 工廠結構式滿足 TurbineData 不用 `as`；`selectTurbine/gotoStep2/gotoStep3` 步驟導覽 helper；覆蓋 dialog aria-label + h2 標題 zh/en 不外洩中文 + step indicator「第 N 步/共 3 步」/ Step 1 空列表提示·localeCompare 排序·FAULT ⚠·功率風速 toFixed·未選 Next disabled→選後 aria-pressed·preselectTurbineId 預選 / Step 2 欄位齊備·title|description gating（trim 後算）·Back 保留已選風機·type/priority Select 完整選項 / Step 3 派工欄位·summary 卡反映風機·類型·標題·crew_size 夾限 1–20 / 送出 buildRequest 序列化（trim·空選填送 null·estimated_hours Number 轉型）·submitting 中態「建立中…」+ disabled·onSubmit reject→⚠ 錯誤卡+不關閉+鈕回復可按 / 關閉路徑遮罩·✕·取消→onClose·content stopPropagation）。**眉角**：送出鈕 accessible name 恆為 aria-label「建立工單」→ submitting 中態改以 `findByText('建立中…').closest('button')` 驗；RTL getByText 比對直接 text node 串接 → summary 類型行用 `toHaveTextContent` 子字串斷言。code-reviewer review（採納情形見 work-log）。**Verify**：`tsc` 0 error + `vitest` **398 passed**（366 baseline + 32 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 68→69 / total 82→83。**下一步**：CreateMaterialRequestWizard（690）/ detail modal（902/933 需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-06-createworkorderwizard-render-tests.md。
+最後更新：2026-06-06（**WMOM-20260606-02 done — CreateMaterialRequestWizard component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（同日第二輪）：preflight 全綠（backend 638 / frontend 398、飛輪健康：上輪 CreateWorkOrderWizard PR #88 已 auto-merge 進 main）。stack-aware：22 筆 open PR 全為飛輪上線前 stale draft（#30–#68），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。依前份 handoff 候選挑 **CreateMaterialRequestWizard**（`components/workflow/CreateMaterialRequestWizard.tsx`，690 行）：`/admin/workflow` 領料單 tab「建立領料單」3 步精靈，本系列第二個多步驟 wizard，**首次引入需 mock 自訂 hook（`useInventoryItems`）** + cart 增刪 + `window.confirm` 守門的 backdrop 關閉路徑。**新增** `components/workflow/__tests__/CreateMaterialRequestWizard.test.tsx`（**41 tests**：`vi.hoisted` + `vi.mock` 注入可控 inventory 狀態；`makeItem/makeWorkOrder` 工廠結構式滿足型別不用 `as`；`gotoStep2/addItem/gotoStep3` 步驟導覽 helper；覆蓋 dialog aria-label+h2 標題 zh/en 不外洩中文+step indicator / Step 1 不關聯預設選中·closed/cancelled filter·business_key 降冪排序·空清單提示·preselectWorkOrderId 預選·點選 aria-pressed 切換·Step 1 無 gating / Step 2 進入呼 inv.refresh·清單 sku/name/N·U·R/Low pill·loading/empty/error 態·加入移到 cart 並從左側消失·移除回左·qty 夾限 min 1·stock kind 三選項·canNext2 gating·Back / Step 3 summary 反映工單·料件數·每行 sku·name×qty·庫存類型 / 送出 buildRequest 序列化（無關聯→work_order_id null·qty/stock_kind 修改反映）·submitting 中態「建立中…」+disabled·reject→⚠ 不關閉鈕回復 / 關閉路徑 ✕·取消直呼不彈 confirm·遮罩空 cart 直接關·遮罩有 cart 走 window.confirm（OK→關 / Cancel→不關）·content stopPropagation）。**眉角**：送出鈕 accessible name 恆為 aria-label「建立領料單」→ submitting 中態以 `findByText('建立中…').closest('button')` 驗；backdrop 守門以 `vi.spyOn(window,'confirm')` 控回傳；✕/取消綁 onClose 直呼（非 handleBackdropClick）即使有 cart 也不彈 confirm。**踩雷**：`makeWorkOrder` 初版漏 `...overrides` spread → 全 fall back default（tsc 不報錯），靠降冪排序 test 抓出。code-reviewer review（採納情形見 work-log）。**Verify**：`tsc` 0 error + `vitest` **438 passed**（398 baseline + 41 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。issue_stats done 69→70 / total 83→84。**下一步**：detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，需 mock 多 callback）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板依賴+向量檔來源）/ stale PR triage（#30–#68 共 22 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-06-creatematerialrequestwizard-render-tests.md。
 
-> 📁 更早一筆 changelog（WMOM-20260605-08 InventoryDetailDrawer）詳見 work-logs/2026-06/2026-06-05-inventorydetaildrawer-render-tests.md。
+> 📁 更早一筆 changelog（WMOM-20260606-01 CreateWorkOrderWizard）詳見 work-logs/2026-06/2026-06-06-createworkorderwizard-render-tests.md。
 
 ---
 
@@ -71,6 +71,23 @@
 ---
 
 ## M5（2026-09）— Knowledge / RAG + 現場 mobile UI
+
+### WMOM-20260606-02 — CreateMaterialRequestWizard component render 測試（EPIC-M5 測試覆蓋擴大）
+
+- **Status**: done（2026-06-06 完成，同日第二輪）
+- **Milestone**: M5（測試覆蓋持續工作）
+- **Priority**: medium（regression 防護網；領料單 tab「建立領料單」3 步精靈，本系列第二個多步驟 wizard，首次需 mock 自訂 hook + cart 增刪 + confirm 守門關閉，先前無任何測試覆蓋）
+- **Owner**: Claude (autonomous worker, session 2026-06-06 第二輪)
+- **Completion summary**:
+  - ✅ **`components/workflow/__tests__/CreateMaterialRequestWizard.test.tsx`（新，41 tests）**：為 `CreateMaterialRequestWizard.tsx`（690 行）補 component render 測試。本元件是 `/admin/workflow` 領料單 tab 的「建立領料單」3 步精靈（Step 1 選關聯工單 → Step 2 左右 split 料件 picker + cart → Step 3 檢閱 + 送出）。是本系列第二個多步驟 wizard，**首次引入需 mock 自訂 hook（`useInventoryItems`，async picker 來源）** + cart 增刪同步 availableItems + `window.confirm` 守門的 backdrop 關閉路徑。以 `vi.hoisted` + `vi.mock` 注入可控 inventory 狀態（items/loading/error/refresh），`beforeEach` 重設預設 items 並重建 refresh spy；render wrapper 僅需 ThemeProvider（不依賴 useCurrentUser，requesterId 由 prop 傳入）。`makeItem/makeWorkOrder` 工廠結構式滿足型別（不用 `as`）。
+  - ✅ **覆蓋契約**：殼層（dialog aria-label + h2 標題 zh/en 不外洩中文 / step indicator「第 N 步 / 共 3 步」/ footer 鈕各 step 出現規則）/ Step 1（「不關聯工單」預設選中·closed/cancelled filter·business_key 降冪排序·空清單提示卡 zh/en·preselectWorkOrderId 預選·點工單卡 aria-pressed 切換·Step 1 Next 無 gating）/ Step 2（進入呼 inv.refresh·清單 sku/name/N·U·R 庫存·below_safety→Low pill·loading/empty/error 態·加入移到 cart 並從左側消失·移除回左·qty 夾限 min 1·stock kind 三選項·canNext2 gating·Back）/ Step 3（summary 反映工單 business_key·無關聯→（無）·料件數·每行 sku·name×qty unit·庫存類型）/ 送出（buildRequest 序列化：farm_id·requester_id·無關聯→work_order_id null·items·qty/stock_kind 修改反映·submitting 中態「建立中…」+disabled·reject→⚠ 錯誤卡+不 onClose+鈕回復）/ 關閉路徑（✕·取消直呼 onClose 不彈 confirm·遮罩空 cart 直接關·遮罩有 cart 走 window.confirm OK→關 / Cancel→不關·content stopPropagation 不關）。
+  - ✅ **實作眉角**：① 送出鈕 accessible name 恆為 aria-label「建立領料單」→ submitting 中態以 `findByText('建立中…').closest('button')` 驗；② backdrop 守門以 `vi.spyOn(window,'confirm')` 控回傳；③ ✕/取消鈕綁 `onClose` 直呼（非 handleBackdropClick）→ 即使 cart 有料件也不彈 confirm，為獨立契約測試。
+  - ⚠️ **踩雷（已修）**：`makeWorkOrder` 初版結尾漏 `...overrides` spread → 所有 work order fall back 成 default（WO-2026-001），導致 5 個依賴多工單區分的 test 失敗；`tsc` 不報錯（overrides 僅未用 param）。靠「降冪排序」value-discriminating test 抓出。
+  - ✅ **Verify**：`tsc` 0 error + `vitest` **438 passed**（398 baseline + 41 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed 不受影響。
+- **下次續做**：detail modal（WorkOrderDetailModal 933 / MaterialRequestDetailModal 902，需 mock 多 action callback + 狀態機 tab）/ TurbineDetail（1056）；非 render 方向 M5-2 ChromaDB（需劉老師拍板 chromadb 依賴 + 向量檔來源）/ stale PR triage（#30–#68 共 22 筆 pre-flywheel draft）。
+- **Reference**: [`work-logs/2026-06/2026-06-06-creatematerialrequestwizard-render-tests.md`](work-logs/2026-06/2026-06-06-creatematerialrequestwizard-render-tests.md)
+
+---
 
 ### WMOM-20260606-01 — CreateWorkOrderWizard component render 測試（EPIC-M5 測試覆蓋擴大）
 
