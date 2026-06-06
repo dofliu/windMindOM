@@ -710,7 +710,10 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                     variant="primary"
                     onClick={() => {
                       const hours = Number(actualHours);
-                      if (!actualHours || Number.isNaN(hours) || hours < 0) {
+                      // 純空白字串 `Number('   ')` 會回 0 並通過 `hours < 0` 檢查，
+                      // 與其他欄位一律 `.trim()` 的慣例不一致 → 先 trim 再判空，
+                      // 避免「只敲空白」被當成 0 工時送出（WMOM-20260606-03 review 修）。
+                      if (!actualHours.trim() || Number.isNaN(hours) || hours < 0) {
                         setError(ui('Actual hours required (>= 0).', '實際工時必填，需 >= 0。'));
                         return;
                       }
