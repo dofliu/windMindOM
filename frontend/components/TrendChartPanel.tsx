@@ -215,7 +215,7 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
         </ResponsiveContainer>
       </div>
 
-      <div style={{ marginTop: 6, fontSize: 11, color: C.faint }}>
+      <div data-testid="trend-footer" style={{ marginTop: 6, fontSize: 11, color: C.faint }}>
         {lang === 'zh' ? '顯示標籤' : 'Showing'}: {activeTags.map(t => getLabel(t)).join(' · ')}
       </div>
     </div>
