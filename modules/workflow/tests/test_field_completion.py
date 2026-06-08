@@ -286,6 +286,34 @@ def test_finish_via_api_without_evidence_ok(client):
     assert data["completion_photos"] == []
 
 
+def test_finish_rejects_oversized_signature(client):
+    """簽名 base64 超過上限（~2.2MB）→ 422（防 body/DB 炸彈）。"""
+    wo_id = _create_and_start(client, str(uuid4()))
+    r = client.post(
+        f"/api/workflow/work-orders/{wo_id}/finish{_Q}",
+        json={
+            "actual_hours": 1.0,
+            "followup_kind": "none",
+            "completion_signature": "x" * 3_000_001,
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_finish_rejects_too_many_photos(client):
+    """佐證照片超過 8 張 → 422。"""
+    wo_id = _create_and_start(client, str(uuid4()))
+    r = client.post(
+        f"/api/workflow/work-orders/{wo_id}/finish{_Q}",
+        json={
+            "actual_hours": 1.0,
+            "followup_kind": "none",
+            "completion_photos": [f"data:img,{i}" for i in range(9)],
+        },
+    )
+    assert r.status_code == 422
+
+
 def test_list_by_assignee_via_api(client):
     """API：list?assignee_id=X 只回 X 的工單（我的工單）。"""
     alice, bob = str(uuid4()), str(uuid4())

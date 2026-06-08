@@ -9,10 +9,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# 完工佐證大小上限（WMOM-20260608-02 follow-up / review must#3：防 base64 炸 body+DB）。
+# 簽名 PNG 通常 < 100 KB；單張照片 base64 ≈ 原圖 × 1.37，限 ~7.5 MB（容 5–6 MP 手機照）。
+_MAX_SIGNATURE_LEN = 3_000_000   # ~2.2 MB base64
+_MAX_PHOTO_LEN = 10_000_000      # ~7.5 MB base64/張
+_MAX_PHOTO_COUNT = 8             # 一張工單最多 8 張佐證照片
+# 單張照片字串（帶長度上限）。
+_PhotoDataUrl = Annotated[str, Field(max_length=_MAX_PHOTO_LEN)]
 
 from modules.workflow.domain import (
     FollowupKind,
@@ -102,10 +110,14 @@ class FinishRequest(BaseModel):
     unfinished_items: Optional[str] = Field(default=None, max_length=4000)
     followup_note: Optional[str] = Field(default=None, max_length=4000)
     completion_signature: Optional[str] = Field(
-        default=None, description="簽名 base64 data URL（現場完工帶）"
+        default=None,
+        max_length=_MAX_SIGNATURE_LEN,
+        description="簽名 base64 data URL（現場完工帶）",
     )
-    completion_photos: list[str] = Field(
-        default_factory=list, description="佐證照片 base64 data URL 清單"
+    completion_photos: list[_PhotoDataUrl] = Field(
+        default_factory=list,
+        max_length=_MAX_PHOTO_COUNT,
+        description="佐證照片 base64 data URL 清單（每張 ≤ 7.5 MB，最多 8 張）",
     )
 
 
