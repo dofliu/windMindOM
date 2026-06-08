@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
+| open | 14 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 79 |
+| done | 80 |
 | **total (active)** | **96** |
 
 最後更新：2026-06-07（**WMOM-20260607-04 done — FarmSelector component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（2026-06-07 第四輪）：preflight 全綠（backend 638 / frontend 751、飛輪健康：上輪 EventComparisonView PR #98 已 auto-merge 進 main，baseline 自 719 推進到 751）。stack-aware：open PR 全為飛輪上線前 stale draft（#30–#68 共 21 筆），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。接上輪 handoff「render 測試剩餘 untested 元件」清單下一支——`components/FarmSelector.tsx`（532 行，sidebar 風場切換器 + 新增風場 modal）。**新增** `components/__tests__/FarmSelector.test.tsx`（**39 tests**——初版 35 + code-reviewer 採納補 4，純測試零 production 變更）。**Mock 策略**：`useTheme` 用真實 ThemeProvider；`global.fetch` 以 `vi.fn` 路由三端點（`GET /api/farms` 列表·`POST /api/farms/{id}/activate` 切換·`POST /api/farms` 建立），用 `init.method` 區分同路徑 GET/POST，未預期 URL reject、`rejectAll` 驗容錯；`window.location` 整顆換成只有 `reload:vi.fn()` 的物件並 **afterEach 還原 `originalLocation`**（避免測試間洩漏）。覆蓋 mount fetch / trigger 殼層（GET 一次·aria-haspopup/expanded·active 名+額定 MW·無 active fallback 選擇風場/Select farm·en）/ 展開收合（初始無 listbox·點開 expanded=true·再點收·標頭風場專案+新增 zh/en·**click-outside mousedown 關閉**）/ farm 清單（option 數·名/台數/MW/地點·active aria-selected+使用中·非 active 無標記·en Active/turbines·空清單尚未建立風場/No farms）/ 切換（點非 active→POST activate+reload 一次·**點 active 自己 no-op**·activate 非 ok 不 reload）/ 新增 modal（開 dialog+關 dropdown·4 preset z72 預設 pressed·切 preset·name 空 Create disabled→輸入啟用·離岸 checkbox·**送出 POST body 驗 name+preset+is_offshore**·建立成功 onCreated 重新 fetch GET≥2·✕/取消/overlay 三關閉路徑·en 標題）/ 容錯（reject 不崩潰 fallback·reject 後仍可展開空狀態）。**眉角**：同路徑 `/api/farms` GET vs POST 用 `init.method` 分流；`window.location` 整顆替換需 afterEach 還原；option 用 farm 名 regex+`within` 縮範圍避多元素命中。code-reviewer 回 5 must+7 should+3 nice，**採納 9 / 駁回誤判 1（must#2 TS fewer-params-OK，tsc 0 error 實證）/ 婉拒 3**（must#5 `vi.spyOn(location.reload)` 在本 jsdom throw「Cannot redefine property」已 probe 實證→保留整顆 location 替換；must#6 module-level fetchMock 與既有慣例一致；should#4/6 switching guard / aria-expanded 版本差異 ROI 低），35→39 tests。**Verify**：`tsc` 0 error + `vitest` **790 passed**（751 baseline + 39 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed。issue_stats done 79→80 / total 93→94。**下一步**：render 測試剩餘 untested 元件（MaintenanceHub 439 / FaultInjectionPanel 555 / ui primitives）；非 render M5-2 ChromaDB（🟡）/ M5-5 `/field/` mobile Part B-2（🟡）/ stale PR triage（#30–#68 共 21 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-07-farmselector-render-tests.md。
@@ -524,7 +524,18 @@
 
 ### WMOM-20260608-01 — M5-2 ChromaVectorRetriever（接 RAG_Ultimate 預算向量檔 + 內嵌 query encoder）
 
-- **Status**: open
+- **Status**: done（2026-06-08 完成；branch `claude/issue-WMOM-20260608-01-2026-06-08`）
+- **Completion summary**:
+  - ✅ `vector_loader.py`（載入 RAG_Ultimate 預算向量 27×512 + adapter + 驗證）/ `embedder.py`（lazy SentenceTransformer query encoder）/ `chroma_retrieve.py`（`ChromaVectorRetriever` 實作 `Retriever`，cosine top-k）
+  - ✅ `build_chroma_alert_handler()`（warmup + 任一缺失 graceful fallback baseline）+ router env 開關 `WMOM_KNOWLEDGE_RETRIEVER=chroma`
+  - ✅ 向量檔入庫 `data/wind_farm_vectors/`（244KB，manifest 絕對路徑已清洗）；模型 92MB gitignore 走 deploy artifact
+  - ✅ requirements：chromadb>=1.0（需 >=1.0 相容 numpy 2.0）+ sentence-transformers>=3.0
+  - ✅ tests：vector_loader 18 + chroma（skip-if-no-model）+ fallback 2 必跑；**全 backend 701 passed / 1 xfailed 零 regression**
+  - ✅ code review 3 must + 4 should + 2 nice → 採納 9/9（nice#2 延後 M5-3）
+  - 語意檢索實測：「軸承振動異常」命中 bearing_fault；env 開關實測切換 chroma/baseline OK
+- **Reference**: [`work-logs/2026-06/2026-06-08-wmom-20260608-01-chroma-vector-retriever.md`](work-logs/2026-06/2026-06-08-wmom-20260608-01-chroma-vector-retriever.md)
+
+<details><summary>📜 原始 issue description</summary>
 - **Milestone**: M5（M5-2）
 - **Priority**: high（語意檢索升級；PMF 關鍵的檢索品質）
 - **Estimate**: 1.5-2 工作天
@@ -548,6 +559,8 @@
   - DEC-20260608-01（decision_log.md）
   - `../RAG_Ultimate/exports/wind_farm_vectors/manifest.json`
   - `modules/knowledge/retrieve.py`（`Retriever` Protocol + 升級註解）
+
+</details>
 
 ---
 

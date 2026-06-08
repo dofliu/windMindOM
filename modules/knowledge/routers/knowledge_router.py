@@ -22,11 +22,15 @@ DI pattern：與 reporting_router 一致，提供 ``set_handler_factory`` 給 te
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException
 
-from modules.knowledge import build_baseline_alert_handler
+from modules.knowledge import (
+    build_baseline_alert_handler,
+    build_chroma_alert_handler,
+)
 from modules.knowledge.alert_handler import AlertHandler
 from modules.knowledge.schemas import (
     AlertEvent,
@@ -48,6 +52,18 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 _handler_factory: Callable[[], AlertHandler] | None = None
 _handler: AlertHandler | None = None
+
+# 預設 retriever 選擇（env 開關）。設 ``WMOM_KNOWLEDGE_RETRIEVER=chroma`` 啟用
+# M5-2 語意檢索；其餘值 / 未設 → baseline keyword。chroma 工廠本身在向量檔 /
+# 模型 / chromadb 任一缺失時會自動 fallback baseline，故此開關安全（DEC-20260608-01）。
+_ENV_RETRIEVER = "WMOM_KNOWLEDGE_RETRIEVER"
+
+
+def _default_factory() -> AlertHandler:
+    """依 env 選預設 handler 工廠：chroma（語意）或 baseline（關鍵字）。"""
+    if os.environ.get(_ENV_RETRIEVER, "").strip().lower() == "chroma":
+        return build_chroma_alert_handler()
+    return build_baseline_alert_handler()
 
 
 def set_handler_factory(factory: Callable[[], AlertHandler] | None) -> None:
@@ -75,7 +91,7 @@ def _get_handler() -> AlertHandler:
     """
     global _handler
     if _handler is None:
-        factory = _handler_factory if _handler_factory is not None else build_baseline_alert_handler
+        factory = _handler_factory if _handler_factory is not None else _default_factory
         try:
             _handler = factory()
         except Exception as exc:

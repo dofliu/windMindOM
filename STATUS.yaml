@@ -54,7 +54,7 @@ milestones:
     name: "Knowledge / RAG + 現場 mobile UI"
     target_month: "2026-09"
     status: in_progress
-    progress: 55  # M5-1 baseline 檢索層 + M5-6 knowledge router + M5-5 Part A 查詢頁 + Part B-1 警報檢索 done；M5-2/3/4 + M5-5 Part B-2（work orders/completion）待續
+    progress: 60  # +M5-2 ChromaVectorRetriever done (WMOM-20260608-01)；M5-1 baseline + M5-6 router + M5-5 Part A/B-1 done；M5-3/4（完整手冊向量檔）+ M5-5 Part B-2（完工流程）待續
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 15   # +2: WMOM-20260608-01 (M5-2 ChromaDB) + WMOM-20260608-02 (Part B-2 完工流程)
+  open: 14   # WMOM-20260608-02 (Part B-2) 待做；-01 已 done
   in_progress: 2   # WMOM-20260504-12（記憶體長跑驗收）+ WMOM-20260503-05（客戶接觸）
   blocked: 0
-  done: 79  # 校正：原宣稱 80，實際 79（兩筆粗體 **done** 已正規化；2026-06-08 audit）
+  done: 80  # +1: WMOM-20260608-01 M5-2 ChromaVectorRetriever (2026-06-08)
 
 inherited_baseline:
   source: digiWindTurbine
