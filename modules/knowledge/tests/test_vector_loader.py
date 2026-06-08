@@ -30,12 +30,12 @@ from modules.knowledge.vector_loader import (
 
 
 def test_load_shipped_export_basic() -> None:
-    """載入 repo 內 shipped 向量檔：27 chunks / dim 512 / 逐列對齊。"""
+    """載入 repo 內 shipped 向量檔：完整 Z72 手冊 531 chunks / dim 512 / 逐列對齊。"""
     export = load_vector_export()
     assert isinstance(export, VectorExport)
-    assert len(export) == 27
+    assert len(export) == 531  # 完整 Z72 手冊（M5-3/4，取代 27-chunk fixture）
     assert export.dim == 512
-    assert export.vectors.shape == (27, 512)
+    assert export.vectors.shape == (531, 512)
     assert export.vectors.dtype == np.float32
     # chunks 與 vectors 列數一致。
     assert len(export.chunks) == export.vectors.shape[0]
@@ -49,12 +49,13 @@ def test_shipped_vectors_are_l2_normalized() -> None:
 
 
 def test_shipped_manifest_contract() -> None:
-    """manifest 契約欄位齊全且與實際向量一致。"""
+    """manifest 契約欄位齊全且與實際向量一致（完整 Z72 手冊）。"""
     export = load_vector_export()
     assert export.manifest["vector_dim"] == 512
     assert export.manifest["normalized"] is True
-    assert export.manifest["num_chunks"] == 27
+    assert export.manifest["num_chunks"] == 531
     assert export.manifest["embedding_model"] == "Z72_WT_embed_small"
+    assert export.manifest["documents"] == ["z72_user_manual"]
 
 
 def test_adapter_maps_rag_ultimate_to_knowledge_chunk() -> None:
