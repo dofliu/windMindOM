@@ -257,6 +257,80 @@ PRODUCT_VISION_v0.5 / MVP_ARCHITECTURE_v0.5 之外，還有一批容器架構衍
 
 ---
 
+## DEC-20260608-01 — M5-2 知識檢索上 ChromaDB：採 RAG_Ultimate 預算向量檔 + 內嵌 Z72_WT_embed_small query encoder
+
+**Date**: 2026-06-08
+**Status**: accepted
+**Version**: v0.8.1 / M5
+**Decision maker**: 劉老師（拍板）+ Claude（格式查證）
+
+### Context
+
+M5-1 已上線純 Python `BaselineKeywordRetriever`（告警碼 0.6 + 關鍵字 0.3 + Jaccard 0.1，零外部依賴），simulator 模式可 demo「警報 → 手冊段落」。M5-2 要升級為語意向量檢索。架構原則（CLAUDE.md §15）：windMindOM **不自己 re-embed 語料**，只載入 RAG_Ultimate 預算向量檔 + query。2026-06-08 RAG_Ultimate 交付 `exports/wind_farm_vectors/`（vectors.npy `(27,512)` float32 L2-normalized + chunks.jsonl + embeddings.jsonl + manifest.json，embedding_model = `Z72_WT_embed_small`）。
+
+### Considered Options
+
+- A. 過渡自嵌入：本機 Ollama embed baseline_corpus_z72.json 進 Chroma（違反 no-re-embed，僅當橋）
+- B. 只上骨架不啟用：寫 ChromaVectorRetriever 但無向量檔暫不接
+- C. **採 RAG_Ultimate 預算向量檔**：load vectors.npy + chunks 進 Chroma；query 端內嵌同一個 `Z72_WT_embed_small`（標準 sentence-transformers 格式）即時 encode query 做 cosine
+- D. 改方向：windMindOM 自己當正式 embedding 來源（放棄研究端分工）
+
+### Decision
+
+選 **C**。向量檔到位後 A（過渡自嵌入）作廢。`ChromaVectorRetriever` 實作既有 `Retriever` Protocol（AlertHandler / schema / 前端不動），baseline retriever 保留為 fallback。
+
+### Rationale
+
+- 向量檔格式契約完整（manifest 宣告 dim/normalized/cosine/逐列對齊），vectors.npy 實測 row L2 norm = 1.0。
+- query encoder `Z72_WT_embed_small` 是**標準 sentence-transformers**（config_sentence_transformers.json + 1_Pooling + 2_Normalize + model.safetensors 95MB），windMindOM 可 `SentenceTransformer(path).encode(query)` **離線**用，不必 HTTP 接 RAG_Ultimate → 守住 simulator-first / 客戶離線部署。
+- 符合「研究端供向量檔、windMindOM 只載入+query」分工，不關死 RAG_Ultimate 路線。
+
+### Consequences
+
+- **新依賴**：`chromadb`（輕）+ `sentence-transformers` + `torch`（重，CPU 版數百 MB / GPU 版上看 2GB）+ ship 95MB `Z72_WT_embed_small` 進 windMindOM（建議放 `modules/knowledge/models/`）。劉老師 2026-06-08 確認「收進去」。
+- **退路**：若要避 torch，可把模型轉 ONNX runtime 再 ship（多一道轉檔，列 M5-2 follow-up 選項）。
+- **schema adapter**：RAG_Ultimate `{doc_id, chunk_index, text}` → windMindOM `KnowledgeChunk{document_source, section, alarm_codes=[], keywords=[]}`（doc_id→document_source；向量檢索用不到 alarm_codes/keywords 留空）。
+- **語料規模**：此份為 RAG_Ultimate test fixture（5 文件 / 27 chunks），足夠打通管線 + demo；完整 Z72 手冊之後同格式補。
+- **新 issue**：WMOM-20260608-01（M5-2 ChromaVectorRetriever 實作）。
+
+### Reference
+
+- 向量檔：`../RAG_Ultimate/exports/wind_farm_vectors/`（manifest.json 契約）
+- 介面：`modules/knowledge/retrieve.py`（`Retriever` Protocol + 升級註解）
+- 模型：`../RAG_Ultimate/legacy_projects/embedTunedforWT/models/Z72_WT_embed_small`
+
+---
+
+## DEC-20260608-02 — M5-5 Part B-2 現場完工流程：依 assignee_id 過濾工單 + 完工需簽名與拍照佐證
+
+**Date**: 2026-06-08
+**Status**: accepted
+**Version**: v0.8.1 / M5
+**Decision maker**: 劉老師（拍板）
+
+### Context
+
+`/field/` mobile 頁已有 Part A（知識查詢）+ Part B-1（alert detail with RAG）。Part B-2「我的工單 + 完工」未做，先前有兩處設計歧義需劉老師定。
+
+### Decision
+
+1. **「我的工單」依指派 `assignee_id` 過濾**（綁 WMOM-20260510-01 mock login persona — 現場工程師身分決定看到哪些單）。
+2. **「完工」動作需「簽名 + 拍照」佐證**（不只是改狀態）。
+
+### Consequences
+
+- **Workflow schema 擴充**：work order 完工需新增 signature（簽名影像/資料）+ photo（佐證照片）欄位 + 儲存策略（檔案 vs base64 vs 物件儲存）。
+- **與 inventory/cost 鏈整合**：完工填實際用料 `actual_qty` 是 [WMOM-20260519-01] 退料 guard（`physical_ceiling`）的上游輸入 — 完工流程欄位設計決定退料邊界與月報材料成本正確性。
+- **persona 依賴**：assignee 過濾需 WMOM-20260510-01 mock login 提供現場工程師身分。
+- **新 issue**：WMOM-20260608-02（Part B-2：我的工單列表 + 完工簽名/拍照流程）。
+
+### Reference
+
+- 前端：`frontend/components/field/FieldPage.tsx`
+- 關聯：WMOM-20260510-01（mock login persona）、WMOM-20260519-01（退料 guard）
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

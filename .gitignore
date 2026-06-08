@@ -33,3 +33,10 @@ docs/sales/customer_feedback/20*-*-*-*.md
 
 # Physics test reports — pytest 自動產生（regenerable，不該 commit）
 tests/physics/reports/
+
+# z72SCADA_New/ — Z72 真實 SCADA 資料備份（1.7 GB / 279 檔 CSV），
+# 屬本機資料夾，repo 已於 2026-05~06 移除追蹤；絕不入 git
+z72SCADA_New/
+
+# poster 暫存圖檔（劉老師 2026-06-08 裁決：留本機、不入版控）
+poster_*.png

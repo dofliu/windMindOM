@@ -13,11 +13,11 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
-| in_progress | 1 |
+| open | 15 |
+| in_progress | 2 |
 | blocked | 0 |
-| done | 80 |
-| **total (active)** | **94** |
+| done | 79 |
+| **total (active)** | **96** |
 
 最後更新：2026-06-07（**WMOM-20260607-04 done — FarmSelector component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（2026-06-07 第四輪）：preflight 全綠（backend 638 / frontend 751、飛輪健康：上輪 EventComparisonView PR #98 已 auto-merge 進 main，baseline 自 719 推進到 751）。stack-aware：open PR 全為飛輪上線前 stale draft（#30–#68 共 21 筆），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。接上輪 handoff「render 測試剩餘 untested 元件」清單下一支——`components/FarmSelector.tsx`（532 行，sidebar 風場切換器 + 新增風場 modal）。**新增** `components/__tests__/FarmSelector.test.tsx`（**39 tests**——初版 35 + code-reviewer 採納補 4，純測試零 production 變更）。**Mock 策略**：`useTheme` 用真實 ThemeProvider；`global.fetch` 以 `vi.fn` 路由三端點（`GET /api/farms` 列表·`POST /api/farms/{id}/activate` 切換·`POST /api/farms` 建立），用 `init.method` 區分同路徑 GET/POST，未預期 URL reject、`rejectAll` 驗容錯；`window.location` 整顆換成只有 `reload:vi.fn()` 的物件並 **afterEach 還原 `originalLocation`**（避免測試間洩漏）。覆蓋 mount fetch / trigger 殼層（GET 一次·aria-haspopup/expanded·active 名+額定 MW·無 active fallback 選擇風場/Select farm·en）/ 展開收合（初始無 listbox·點開 expanded=true·再點收·標頭風場專案+新增 zh/en·**click-outside mousedown 關閉**）/ farm 清單（option 數·名/台數/MW/地點·active aria-selected+使用中·非 active 無標記·en Active/turbines·空清單尚未建立風場/No farms）/ 切換（點非 active→POST activate+reload 一次·**點 active 自己 no-op**·activate 非 ok 不 reload）/ 新增 modal（開 dialog+關 dropdown·4 preset z72 預設 pressed·切 preset·name 空 Create disabled→輸入啟用·離岸 checkbox·**送出 POST body 驗 name+preset+is_offshore**·建立成功 onCreated 重新 fetch GET≥2·✕/取消/overlay 三關閉路徑·en 標題）/ 容錯（reject 不崩潰 fallback·reject 後仍可展開空狀態）。**眉角**：同路徑 `/api/farms` GET vs POST 用 `init.method` 分流；`window.location` 整顆替換需 afterEach 還原；option 用 farm 名 regex+`within` 縮範圍避多元素命中。code-reviewer 回 5 must+7 should+3 nice，**採納 9 / 駁回誤判 1（must#2 TS fewer-params-OK，tsc 0 error 實證）/ 婉拒 3**（must#5 `vi.spyOn(location.reload)` 在本 jsdom throw「Cannot redefine property」已 probe 實證→保留整顆 location 替換；must#6 module-level fetchMock 與既有慣例一致；should#4/6 switching guard / aria-expanded 版本差異 ROI 低），35→39 tests。**Verify**：`tsc` 0 error + `vitest` **790 passed**（751 baseline + 39 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed。issue_stats done 79→80 / total 93→94。**下一步**：render 測試剩餘 untested 元件（MaintenanceHub 439 / FaultInjectionPanel 555 / ui primitives）；非 render M5-2 ChromaDB（🟡）/ M5-5 `/field/` mobile Part B-2（🟡）/ stale PR triage（#30–#68 共 21 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-07-farmselector-render-tests.md。
 
@@ -519,6 +519,58 @@
   - M5-5 `/field/` mobile-first frontend 🔵
   - ~~M5-6 Alert → RAG auto query 串前端 FastAPI knowledge router 🔵~~ ✅ done（WMOM-20260603-01）
 - **Reference**: [`work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md`](work-logs/2026-06/2026-06-01-knowledge-rag-foundation.md)
+
+---
+
+### WMOM-20260608-01 — M5-2 ChromaVectorRetriever（接 RAG_Ultimate 預算向量檔 + 內嵌 query encoder）
+
+- **Status**: open
+- **Milestone**: M5（M5-2）
+- **Priority**: high（語意檢索升級；PMF 關鍵的檢索品質）
+- **Estimate**: 1.5-2 工作天
+- **Source**: DEC-20260608-01（劉老師 2026-06-08 拍板「上 ChromaDB + 收 query encoder」）
+- **Decision baseline**: 採 RAG_Ultimate 預算向量檔（C 方案），過渡自嵌入（A）作廢。`ChromaVectorRetriever` 實作既有 `Retriever` Protocol（`is_baseline=False`），baseline retriever 保留 fallback。
+- **要做什麼**：
+  1. **新依賴**：`chromadb` + `sentence-transformers` + `torch` 進 requirements；ship `Z72_WT_embed_small`（95MB ST 模型）到 `modules/knowledge/models/Z72_WT_embed_small/`
+  2. **向量載入器**：讀 `../RAG_Ultimate/exports/wind_farm_vectors/`（vectors.npy `(27,512)` float32 L2-normalized + chunks.jsonl 逐列對齊 + manifest.json 契約）→ 灌進嵌入式 Chroma collection
+  3. **schema adapter**：RAG_Ultimate `{doc_id, chunk_index, text}` → `KnowledgeChunk{document_source=doc_id, section, alarm_codes=[], keywords=[]}`
+  4. **`ChromaVectorRetriever`**：query 端 `SentenceTransformer(model_path).encode(query)`（512 維 normalized）→ Chroma cosine top-k → `RetrievedChunk`（繁中 `match_reason`：語意相似度）；實作 `Retriever`（`name`/`is_baseline=False`/`retrieve`）
+  5. **接線**：`build_baseline_alert_handler()` 旁加 `build_chroma_alert_handler()`；`knowledge_router` info endpoint 標示 retriever 來源（baseline vs chroma badge）
+  6. **tests**：向量載入對齊驗證 / encode 維度 512 / cosine top-k 確定性 / fallback to baseline（模型或向量檔缺）/ adapter 映射
+- **驗收**：
+  - query「軸承振動異常」能語意命中 bearing_fault chunk（baseline keyword 可能漏）
+  - 模型/向量檔缺失時 graceful fallback baseline、不崩
+  - backend 全套零 regression
+- **退路（follow-up 選項）**：避 torch → 模型轉 ONNX runtime 再 ship（多一道轉檔，另開 issue）
+- **語料注意**：此份是 RAG_Ultimate test fixture（5 文件 / 27 chunks），打通管線 + demo 足夠；完整 Z72 手冊之後同格式補（M5-3/4）
+- **Depends on**: WMOM-20260601-01（knowledge baseline，done）；RAG_Ultimate 向量檔（已交付 2026-06-08）
+- **Reference**:
+  - DEC-20260608-01（decision_log.md）
+  - `../RAG_Ultimate/exports/wind_farm_vectors/manifest.json`
+  - `modules/knowledge/retrieve.py`（`Retriever` Protocol + 升級註解）
+
+---
+
+### WMOM-20260608-02 — M5-5 Part B-2：我的工單列表 + 完工簽名/拍照流程（`/field/` mobile）
+
+- **Status**: open
+- **Milestone**: M5（M5-5 Part B-2）
+- **Priority**: high（現場工程師 persona、PMF 關鍵）
+- **Estimate**: 2-3 工作天（含 workflow schema 擴充）
+- **Source**: DEC-20260608-02（劉老師 2026-06-08 拍板）
+- **Decision baseline**:
+  1. 「我的工單」**依指派 `assignee_id` 過濾**（綁 WMOM-20260510-01 mock login persona）
+  2. 「完工」需**簽名 + 拍照**佐證（不只改狀態）
+- **要做什麼**：
+  - **Backend**：work order 完工 schema 加 signature + photo 欄位 + 儲存策略（檔案 / base64 / 物件儲存擇一，先求 demo 可跑）；完工 API 收 actual_qty + signature + photo
+  - **Frontend**（`frontend/components/field/FieldPage.tsx`）：「我的工單」列表（依 assignee_id 過濾）+ 工單詳情 + 完工流程（填實際用料 → 簽名 canvas → 拍照上傳 → 送出）
+  - **整合注意**：完工填的 `actual_qty` 是 WMOM-20260519-01 退料 guard（`physical_ceiling`）的上游輸入 → 兩者欄位語意要對齊
+- **驗收**：現場工程師（mock login persona）登入 → 只看到自己被指派的工單 → 完工含簽名+照片 → 後端落地 → 月報材料成本反映 actual_qty
+- **Depends on**: WMOM-20260510-01（mock login persona / assignee 身分）；WMOM-20260603-04（Part B-1，done）
+- **關聯**: WMOM-20260519-01（退料 guard，actual_qty 上游）
+- **Reference**:
+  - DEC-20260608-02（decision_log.md）
+  - `frontend/components/field/FieldPage.tsx`
 
 ---
 
@@ -1971,6 +2023,13 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
   決策後實作 + 加 negative path test。
 
+- **決策（2026-06-08，PR triage salvage）**：採 **PR #41**（branch `claude/nice-brown-KxhlK`）的 review-後 semantic，**不**採 #40 的 `dispatched−consumed` 版。#40/#41 兩條 stale PR 已關（帶 2-3 週前 stale 追蹤檔、與 main 79-commit 落差會衝突），邏輯收進本 issue 之後在最新 main 上**重做乾淨分支**：
+  - guard 公式：`physical_ceiling per-line = (actual_qty if set else estimated_qty)`；`max_returnable = Σ physical_ceiling − already_returned`
+  - 聚合 by `(request_id, item_id)`，跨 stock_kind / return_to_kind 支援 cross-kind return（dispatch NEW → return USED）
+  - 實作位置：`add_return` 內先對 MR row `SELECT FOR UPDATE`（序列化）→ `_assert_return_within_physical_ceiling` static helper guard → 失敗回 422 繁中錯誤，stock/return/ledger 三邊 atomic rollback
+  - tests：11 negative+happy（單次/累進/已簽收/未在MR/DRAFT/cross-kind/multi-line/atomic 累計不變）+ 修 2 個編碼 F1-bug 的舊 test
+  - 衍生 follow-up **WMOM-20260519-02**（`_guard_receive` 加 `actual_qty ≤ estimated_qty` 上限校驗）
+  - 來源完整 review 紀錄：已關閉的 PR #41 body（3 MF + 6 SF + 3 NH，採納 9/12）
 - **Files候選**：
   - `modules/workflow/repository/material_request_repository.py:add_return`
   - 或 `modules/workflow/domain/inventory.py:MaterialRequest`（新 domain method）
@@ -2109,7 +2168,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260505-23 — Physics 自我驗證框架（self-validation framework）
 
-- **Status**: **done**（Layer 1-7 全 2026-05-06 完成）
+- **Status**: done（Layer 1-7 全 2026-05-06 完成）
 - **Milestone**: M3 並行（infrastructure，不卡 workflow）
 - **Priority**: critical（**P0 — 物理正確性的根基；劉老師 2026-05-05 review 強調「不能只是說有採用，要知道結果是否準確」**）
 - **Estimate**: 4-6 工作天 → **實際 1 天連跑完 7 layer**
@@ -2424,7 +2483,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260507-01 — 前端 UI 改版（A · Calm Operator + 雙主題）
 
-- **Status**: **done**（2026-05-07 完成）
+- **Status**: done（2026-05-07 完成）
 - **Milestone**: M1 並行（前端基礎設施，不卡 M3 frontend issue -19/-20/-25）
 - **Priority**: medium（劉老師對外 demo 與第一個客戶接觸需要更專業的視覺語言）
 - **Estimate**: 1 工作天 → **實際 1 個 session**
@@ -2481,7 +2540,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Description**:
   改版時依 VA.jsx 設計稿放了 7 個 PageHeader 裝飾按鈕，劉老師 2026-05-07 決定 placeholder 保留、之後逐項補功能。本 issue 作為清單追蹤；每個 sub-task 完成時直接打勾並 commit。
 - **Sub-tasks**（按好做順序排）：
-  - [ ] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（直接下載 JSON）。**估時 30 min**
+  - [ ] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（直接下載 JSON）。**估時 30 min**。**[salvage 待重做]** PR #58（branch `claude/upbeat-davinci-l1U9N`）已完整實作（`handleExportSnapshot`：fetch → Blob → anchor download `farm-snapshot-{date}.json`；按鈕走 `Btn` `loading` state；ariaLabel 修為「匯出風場快照」；`revokeObjectURL` 包 `setTimeout` 避 Firefox/Safari 取消下載；失敗 `console.error`）+ code review 過。PR 因帶 stale 追蹤檔（與 main 79-commit 落差）已關，**邏輯在最新 main 重做**——只動 `frontend/components/FarmOverview.tsx`，低風險。
   - [ ] **b. 風機細節 `停機`** — 對應 `OperatorControlCard` 的 stop 指令；點擊跳到右側卡片或直接呼叫 `POST /api/control/command { command: 'stop' }`。**估時 30 min**
   - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
