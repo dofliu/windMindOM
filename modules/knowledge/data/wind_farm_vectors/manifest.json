@@ -1,0 +1,28 @@
+{
+  "embedding_model": "Z72_WT_embed_small",
+  "model_path": "",
+  "vector_dim": 512,
+  "normalized": true,
+  "similarity": "cosine (= dot product, 因向量已 L2 normalize)",
+  "chunking": {
+    "strategy": "recursive",
+    "chunk_size": 500,
+    "chunk_overlap": 50,
+    "unit": "characters"
+  },
+  "corpus_dir": "",
+  "num_documents": 5,
+  "num_chunks": 27,
+  "documents": [
+    "bearing_fault_diagnosis",
+    "iec61400_summary",
+    "maintenance_manual_excerpt",
+    "pitch_yaw_control",
+    "scada_alarm_codes"
+  ],
+  "files": {
+    "vectors.npy": "float32 (27, 512) 向量矩陣，逐列對齊 chunks.jsonl",
+    "chunks.jsonl": "每列 chunk 的 metadata（不含向量）",
+    "embeddings.jsonl": "自含格式：{id, doc_id, text, vector[dim]}"
+  }
+}

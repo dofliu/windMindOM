@@ -10,3 +10,8 @@ sqlalchemy>=2.0          # workflow / cost / reporting ORM repository
 pandas>=2.0              # cost waiting_time（weather window / 多項式擬合）
 reportlab>=4.0           # reporting 月報 PDF 生成
 jinja2>=3.1              # reporting 報表模板
+# knowledge / RAG（M5-2 ChromaDB 語意檢索，DEC-20260608-01）
+chromadb>=1.0            # 嵌入式向量庫；需 >=1.0 才相容 numpy 2.0（0.5.x 用 np.float_ 會壞）
+sentence-transformers>=3.0  # query 端 encode（Z72_WT_embed_small），自動帶 torch
+# 註：torch 由 sentence-transformers 帶入；GPU 版（RTX 4080 / cu124）依機器另裝。
+#     嵌入模型權重（~95MB）走 deploy artifact，不入 git（見 .gitignore）

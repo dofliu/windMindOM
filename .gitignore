@@ -40,3 +40,8 @@ z72SCADA_New/
 
 # poster 暫存圖檔（劉老師 2026-06-08 裁決：留本機、不入版控）
 poster_*.png
+
+# 嵌入模型權重（M5-2 ChromaDB query encoder，~95MB）— 走 deploy artifact，
+# 不入 git 避免膨脹；放 modules/knowledge/models/ 下，由 env WMOM_EMBED_MODEL_DIR
+# 或預設位置解析。向量檔（小，244KB）仍入庫於 data/wind_farm_vectors/。
+modules/knowledge/models/
