@@ -308,6 +308,10 @@ def _apply_side_effects(
         wo.work_summary = kwargs.get("work_summary")
         wo.unfinished_items = kwargs.get("unfinished_items")
         wo.followup_note = kwargs.get("followup_note")
+        # 完工佐證（WMOM-20260608-02）：現場工程師帶簽名 + 照片；optional，
+        # office finish 不帶則維持 None / 空 list（不覆寫成 None 以外的值）。
+        wo.completion_signature = kwargs.get("completion_signature")
+        wo.completion_photos = list(kwargs.get("completion_photos") or [])
     elif action == "approve_all":
         wo.closed_at = now
     elif action == "reject":

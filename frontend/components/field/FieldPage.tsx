@@ -30,9 +30,10 @@ import type {
 } from '../../services/knowledgeService';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Card, Btn, PageHeader, StatusPill, Field, Input, Select } from '../ui';
+import { MyOrdersMode } from './MyOrdersMode';
 
-/** 頁面模式：手動關鍵字查詢 vs 警報事件檢索。 */
-type FieldMode = 'query' | 'alert';
+/** 頁面模式：手動關鍵字查詢 / 警報事件檢索 / 我的工單完工。 */
+type FieldMode = 'query' | 'alert' | 'orders';
 
 /**
  * 常用 Z72 告警碼 — 現場一鍵帶入。
@@ -220,6 +221,7 @@ const ModeToggle: React.FC<{
   const tabs: Array<{ id: FieldMode; labelZh: string; labelEn: string }> = [
     { id: 'query', labelZh: '關鍵字查詢', labelEn: 'Keyword' },
     { id: 'alert', labelZh: '警報檢索', labelEn: 'Alert' },
+    { id: 'orders', labelZh: '我的工單', labelEn: 'My Orders' },
   ];
   return (
     <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -563,7 +565,7 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
 
       <ModeToggle mode={mode} onChange={setMode} lang={lang} />
 
-      {mode === 'query' ? (
+      {mode === 'query' && (
         <QueryMode
           lang={lang}
           loading={search.loading}
@@ -573,7 +575,8 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
           onSearch={runSearch}
           onClear={clearSearch}
         />
-      ) : (
+      )}
+      {mode === 'alert' && (
         <AlertMode
           lang={lang}
           loading={alert.loading}
@@ -583,6 +586,7 @@ export const FieldPage: React.FC<FieldPageProps> = ({ lang }) => {
           onClear={clearAlert}
         />
       )}
+      {mode === 'orders' && <MyOrdersMode lang={lang} />}
     </div>
   );
 };

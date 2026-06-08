@@ -86,6 +86,10 @@ export interface FinishRequest {
   work_summary?: string | null;
   unfinished_items?: string | null;
   followup_note?: string | null;
+  /** 完工佐證（WMOM-20260608-02）：簽名 base64 data URL（現場完工帶）。 */
+  completion_signature?: string | null;
+  /** 完工佐證：照片 base64 data URL 清單。 */
+  completion_photos?: string[];
 }
 
 export interface RejectRequest {
@@ -143,6 +147,10 @@ export interface WorkOrderResponse {
   unfinished_items: string | null;
   followup_kind: FollowupKind;
   followup_note: string | null;
+  // 完工佐證（WMOM-20260608-02）。後端必回，但設 optional 讓既有 fixture / 消費端
+  // 不需逐一補欄（list/detail 視圖通常不讀佐證；現場完工是「寫入」而非讀取）。
+  completion_signature?: string | null;
+  completion_photos?: string[];
 
   // 簽核
   signoff_chain_id: string | null;
@@ -171,6 +179,8 @@ export interface WorkOrderListQuery {
   farm_id: string;
   turbine_id?: string;
   status?: WorkOrderStatus;
+  /** 依指派人過濾（WMOM-20260608-02「我的工單」）。 */
+  assignee_id?: string;
   only_open?: boolean;
   limit?: number;
   offset?: number;
@@ -232,6 +242,7 @@ export const workOrderApi = {
         farm_id: q.farm_id,
         turbine_id: q.turbine_id,
         status: q.status,
+        assignee_id: q.assignee_id,
         only_open: q.only_open,
         limit: q.limit,
         offset: q.offset,

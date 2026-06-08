@@ -85,6 +85,11 @@ class WorkOrderORM(Base):
     followup_kind: Mapped[str] = mapped_column(String(32), default="none")
     followup_note: Mapped[Optional[str]] = mapped_column(Text)
 
+    # ── 完工佐證（WMOM-20260608-02）：現場簽名 + 照片 ─────────────────
+    # signature 單張 base64 data URL；photos 以 JSON array 字串存（repo 層序列化）。
+    completion_signature: Mapped[Optional[str]] = mapped_column(Text)
+    completion_photos: Mapped[Optional[str]] = mapped_column(Text)  # JSON array of data URL
+
     # ── 簽核 ─────────────────────────────────────────────────────────
     signoff_chain_id: Mapped[Optional[str]] = mapped_column(String(36))
 
