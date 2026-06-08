@@ -57,12 +57,16 @@ def test_retriever_contract(retriever) -> None:
 
 
 @_needs_model
-def test_semantic_query_hits_bearing_doc(retriever) -> None:
-    """語意查「軸承振動異常」應命中 bearing_fault 文件（baseline keyword 可能漏）。"""
-    result = retriever.retrieve(RetrievalQuery(text="軸承振動異常 該怎麼診斷", top_k=3))
+def test_semantic_query_returns_relevant_chunk(retriever) -> None:
+    """語意查「emergency pitch system」應命中手冊 pitch 相關段落（語意，非關鍵字硬比對）。"""
+    result = retriever.retrieve(
+        RetrievalQuery(text="emergency pitch system drive train", top_k=5)
+    )
     assert result, "應有命中"
-    sources = {rc.chunk.document_source for rc in result}
-    assert any("bearing" in s for s in sources), f"top-3 來源={sources}"
+    # 完整 Z72 手冊單一 doc_id；改驗 top-5 內有段落文字命中 pitch 主題。
+    assert any("pitch" in rc.chunk.chunk_text.lower() for rc in result), (
+        f"top-5 文字未命中 pitch；scores={[round(r.score, 2) for r in result]}"
+    )
 
 
 @_needs_model
