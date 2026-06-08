@@ -24,7 +24,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, Engine, create_engine, event as sa_event, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from modules.workflow.domain import (
@@ -158,8 +158,48 @@ def get_repository(db_path: str) -> "WorkOrderRepository":
     with _ENGINE_LOCK:
         if abs_path not in _SCHEMA_INITIALIZED:
             Base.metadata.create_all(engine)
+            _migrate_completion_columns(engine)
             _SCHEMA_INITIALIZED.add(abs_path)
     return WorkOrderRepository(engine)
+
+
+def _migrate_completion_columns(engine: Engine) -> None:
+    """補既有 wmom_work_orders 表缺的完工佐證欄（WMOM-20260608-02）。
+
+    ``create_all`` 不會對既有表加欄；既有 farm DB 的 wmom_work_orders 沒有
+    ``completion_signature`` / ``completion_photos`` 會在 SELECT 全欄時報
+    「no such column」。用 SQLite ``ALTER TABLE ADD COLUMN``（冪等：先查
+    PRAGMA table_info）補上，避免破壞既有部署。
+    """
+    with engine.begin() as conn:
+        existing = {
+            row[1]  # PRAGMA table_info: (cid, name, type, ...)
+            for row in conn.exec_driver_sql("PRAGMA table_info(wmom_work_orders)").fetchall()
+        }
+        for col in ("completion_signature", "completion_photos"):
+            if col not in existing:
+                try:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE wmom_work_orders ADD COLUMN {col} TEXT"
+                    )
+                except OperationalError:
+                    # multi-worker 啟動競態：另一 worker 已搶先加同欄（duplicate column）
+                    # 或瞬時 lock。欄最終會存在 → 安全吞掉，不讓 worker 啟動失敗。
+                    pass
+
+
+def _load_completion_photos(raw: str | None) -> list[str]:
+    """把 DB 存的 photos JSON array 字串還原為 list[str]（壞 / 空 → []）。"""
+    if not raw:
+        return []
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    # 防呆：只收 list of str（非預期結構回空，不讓壞資料污染 domain）。
+    if isinstance(loaded, list):
+        return [str(x) for x in loaded]
+    return []
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -193,7 +233,7 @@ def _farm_id_short(farm_id: str) -> str:
 
 
 class WorkOrderRepository:
-    """SQLAlchemy 2.0 repository for work_orders + progress notes + event log。"""
+    """SQLAlchemy 2.0 repository for wmom_work_orders + progress notes + event log。"""
 
     MAX_OPEN_PER_TURBINE = 3  # walkthrough Q3：可由 farm config 覆寫，目前 hard-code
 
@@ -344,6 +384,7 @@ class WorkOrderRepository:
         farm_id: str | None = None,
         turbine_id: str | None = None,
         status: WorkOrderStatus | None = None,
+        assignee_id: UUID | None = None,
         only_open: bool = False,
         limit: int = 200,
         offset: int = 0,
@@ -351,6 +392,8 @@ class WorkOrderRepository:
         """Returns (items, total) — total 是真實 DB count（不受 limit/offset 截斷）。
 
         Review fix #11：加 ``offset`` 支援分頁（前端能跳第 N 頁）。
+        WMOM-20260608-02：加 ``assignee_id`` 過濾，給 ``/field/`` 現場工程師
+        看「我的工單」（只列指派給自己的單）。
         """
         with self._sessionmaker() as sess:
             base = select(WorkOrderORM)
@@ -360,6 +403,8 @@ class WorkOrderRepository:
                 base = base.where(WorkOrderORM.turbine_id == turbine_id)
             if status is not None:
                 base = base.where(WorkOrderORM.status == status.value)
+            if assignee_id is not None:
+                base = base.where(WorkOrderORM.assignee_id == uuid_to_str(assignee_id))
             if only_open:
                 base = base.where(
                     WorkOrderORM.status.in_([s.value for s in open_states()])
@@ -562,6 +607,8 @@ class WorkOrderRepository:
             unfinished_items=orm.unfinished_items,
             followup_kind=FollowupKind(orm.followup_kind),
             followup_note=orm.followup_note,
+            completion_signature=orm.completion_signature,
+            completion_photos=_load_completion_photos(orm.completion_photos),
             material_request_ids=[],  # M4 補
             signoff_chain_id=_str_to_uuid(orm.signoff_chain_id),
             closed_at=_ensure_utc(orm.closed_at),
@@ -631,6 +678,13 @@ class WorkOrderRepository:
         orm.unfinished_items = wo.unfinished_items
         orm.followup_kind = wo.followup_kind.value
         orm.followup_note = wo.followup_note
+        orm.completion_signature = wo.completion_signature
+        # photos 以 JSON array 字串存；空清單存 None（與「未拍照」一致，省空間）。
+        orm.completion_photos = (
+            json.dumps(wo.completion_photos, ensure_ascii=False)
+            if wo.completion_photos
+            else None
+        )
         orm.signoff_chain_id = _uuid_to_str(wo.signoff_chain_id)
         orm.closed_at = wo.closed_at
         orm.cancelled_at = wo.cancelled_at

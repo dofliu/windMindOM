@@ -89,13 +89,24 @@ class UpdateProgressRequest(BaseModel):
 
 
 class FinishRequest(BaseModel):
-    """``/finish`` — 完工，工單進 AWAITING_SIGNOFF。"""
+    """``/finish`` — 完工，工單進 AWAITING_SIGNOFF。
+
+    WMOM-20260608-02：加完工佐證（簽名 + 照片）。schema 設 **optional** —
+    既有 office finish path 不破壞；「現場工程師完工須簽名+拍照」的強制在
+    ``/field/`` 前端那層（DEC-20260608-02）。
+    """
 
     actual_hours: float = Field(ge=0)
     followup_kind: FollowupKind
     work_summary: Optional[str] = Field(default=None, max_length=4000)
     unfinished_items: Optional[str] = Field(default=None, max_length=4000)
     followup_note: Optional[str] = Field(default=None, max_length=4000)
+    completion_signature: Optional[str] = Field(
+        default=None, description="簽名 base64 data URL（現場完工帶）"
+    )
+    completion_photos: list[str] = Field(
+        default_factory=list, description="佐證照片 base64 data URL 清單"
+    )
 
 
 class RejectRequest(BaseModel):
@@ -166,6 +177,8 @@ class WorkOrderResponse(BaseModel):
     unfinished_items: Optional[str] = None
     followup_kind: FollowupKind = FollowupKind.NONE
     followup_note: Optional[str] = None
+    completion_signature: Optional[str] = None
+    completion_photos: list[str] = Field(default_factory=list)
 
     # 簽核
     signoff_chain_id: Optional[UUID] = None

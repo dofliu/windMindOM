@@ -277,6 +277,7 @@ async def list_work_orders(
     farm_id: str = Query(..., min_length=1),
     turbine_id: str | None = None,
     status: WorkOrderStatus | None = None,
+    assignee_id: UUID | None = None,
     only_open: bool = False,
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
@@ -293,6 +294,7 @@ async def list_work_orders(
         farm_id=farm_id,
         turbine_id=turbine_id,
         status=status,
+        assignee_id=assignee_id,
         only_open=only_open,
         limit=limit,
         offset=offset,
@@ -393,6 +395,8 @@ async def finish(
         work_summary=req.work_summary,
         unfinished_items=req.unfinished_items,
         followup_note=req.followup_note,
+        completion_signature=req.completion_signature,
+        completion_photos=req.completion_photos,
     )
 
     try:

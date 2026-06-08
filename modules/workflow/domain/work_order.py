@@ -179,6 +179,13 @@ class WorkOrder:
     followup_kind: FollowupKind = FollowupKind.NONE  # ≡ etech chooseschange (縮二元)
     followup_note: str | None = None
 
+    # ── 完工佐證（WMOM-20260608-02 / DEC-20260608-02）─────────────────
+    # 現場工程師完工須簽名 + 拍照。domain 設 optional（office finish 不強制、
+    # 既有 path 不破壞）；「現場必須」的強制在 /field/ 前端那層。
+    # 儲存：base64 data URL（簽名單張 PNG / 照片多張），demo-first（M6 前可改物件儲存）。
+    completion_signature: str | None = None       # canvas 簽名 base64 data URL
+    completion_photos: list[str] = field(default_factory=list)  # 佐證照片 base64 data URL 清單
+
     # ── 領料（DN-03 主，placeholder 給工單 ←→ 領料單關聯）───────────
     material_request_ids: list[UUID] = field(default_factory=list)
 
