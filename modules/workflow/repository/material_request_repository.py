@@ -466,6 +466,58 @@ class MaterialRequestRepository:
     # Returns（D3-Q4 — atomic 加回 stock）
     # ──────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _assert_return_within_physical_ceiling(
+        sess: Session, *, request_id: UUID, item_id: UUID, qty: int
+    ) -> None:
+        """擋超量退料（WMOM-20260519-01 / 採 PR #41 review-後 semantic）。
+
+        實體可退上限 = Σ per-line ``physical_ceiling`` − 已退量，其中
+        ``physical_ceiling = actual_qty if actual_qty is not None else estimated_qty``
+        （簽收後以實收量為準，未簽收前以預估派出量為準）。聚合 by
+        ``(request_id, item_id)``，**跨 stock_kind**（支援 dispatch NEW → return USED
+        試裝後歸二手的 cross-kind 退料）。
+
+        超量會在月報 ``summary_by_category(CONFIRMED)`` 視角產生負值材料成本
+        （F1 沖銷 entry 寫過頭），故從源頭擋。
+
+        Raises:
+            MaterialRequestRuleViolation: 退料 qty 超過可退上限（router 對映 422）。
+                料件不在 MR 中（ceiling=0）亦擋。
+        """
+        # per-line physical_ceiling 加總（actual 優先，否則 estimated）。
+        ceiling = sess.execute(
+            select(
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(
+                            MaterialRequestItemORM.actual_qty,
+                            MaterialRequestItemORM.estimated_qty,
+                        )
+                    ),
+                    0,
+                )
+            ).where(
+                MaterialRequestItemORM.request_id == str(request_id),
+                MaterialRequestItemORM.item_id == str(item_id),
+            )
+        ).scalar_one()
+
+        already_returned = sess.execute(
+            select(func.coalesce(func.sum(MaterialReturnORM.qty), 0)).where(
+                MaterialReturnORM.request_id == str(request_id),
+                MaterialReturnORM.item_id == str(item_id),
+            )
+        ).scalar_one()
+
+        max_returnable = int(ceiling) - int(already_returned)
+        if qty > max_returnable:
+            raise MaterialRequestRuleViolation(
+                f"退料數量 {qty} 件超過可退上限 {max(max_returnable, 0)} 件"
+                f"（實體可退 {int(ceiling)} − 已退 {int(already_returned)}）；"
+                f"料件不在工單領料清單中時上限為 0。"
+            )
+
     def add_return(
         self,
         *,
@@ -500,12 +552,12 @@ class MaterialRequestRepository:
         - dispatch entry 的 ``locked_unit_cost`` 為 None（向後相容老 entries）→ fallback
           查當前 inventory ``unit_cost``
 
-        ⚠ 會計邊界（caller 責任）：
-        - 本 method 沒驗證 ``qty <= (dispatched_qty - already_returned_qty - actual_consumed)``。
-          若退料 qty 超過實際派出未消耗的量（例如 wo finish ``actual_qty=1`` 但退料 2 件），
-          月報 ``summary_by_category(CONFIRMED)`` 視角會出現負值材料成本。
-        - Future work：WMOM-20260519-F1-followup 評估是否要在 domain 層加 guard 或在
-          UI/router 層擋。本 F1 改動只負責「退料 → 寫沖銷 entry」的會計動作。
+        ✅ 會計邊界 guard（WMOM-20260519-01，2026-06-08 補上）：
+        - 三寫前先過 ``_assert_return_within_physical_ceiling``：退料 qty 不得超過
+          ``Σ physical_ceiling − 已退量``（``physical_ceiling = actual_qty or estimated_qty``），
+          超量 → ``MaterialRequestRuleViolation``（router 對映 422），避免月報
+          ``summary_by_category(CONFIRMED)`` 出現負值材料成本。
+        - MR row 取 ``with_for_update`` 序列化並發退料，防兩 thread 各自過 guard 後共同超量。
         """
         if qty <= 0:
             raise MaterialRequestRuleViolation(f"qty must be > 0 (got {qty})")
@@ -522,9 +574,18 @@ class MaterialRequestRepository:
 
         with self._sessionmaker() as sess:
             try:
-                mr_orm = sess.get(MaterialRequestORM, str(request_id))
+                # WMOM-20260519-01：MR row SELECT FOR UPDATE 序列化並發 add_return，
+                # 避免兩個 thread 各自通過 guard 後共同超量退料（已退量的 lost-update）。
+                mr_orm = sess.get(
+                    MaterialRequestORM, str(request_id), with_for_update=True
+                )
                 if mr_orm is None:
                     raise LookupError(f"material_request {request_id} not found")
+
+                # WMOM-20260519-01：退料量超過實體可退上限 → 422（三寫前先擋，atomic rollback）。
+                self._assert_return_within_physical_ceiling(
+                    sess, request_id=request_id, item_id=item_id, qty=qty
+                )
 
                 # 加回 stock（atomic）
                 apply_stock_delta_in_session(

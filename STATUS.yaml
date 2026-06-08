@@ -62,10 +62,10 @@ milestones:
     progress: 0
 
 issue_stats:
-  open: 13   # WMOM-20260608-01/-02 皆 done
+  open: 12   # +WMOM-20260519-01 退料 guard done
   in_progress: 2   # WMOM-20260504-12（記憶體長跑驗收）+ WMOM-20260503-05（客戶接觸）
   blocked: 0
-  done: 81  # +2: WMOM-20260608-01 ChromaDB + -02 Part B-2 現場完工 (2026-06-08)
+  done: 82  # +3: WMOM-20260608-01 ChromaDB + -02 Part B-2 + 20260519-01 退料 guard (2026-06-08)
 
 inherited_baseline:
   source: digiWindTurbine
