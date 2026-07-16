@@ -41,6 +41,7 @@ jobs:
           modules/reporting/tests/
           modules/knowledge/tests/
           modules/monitoring/tests/
+          modules/auth/tests/
           tests/
           -q
 

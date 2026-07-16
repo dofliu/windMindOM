@@ -153,6 +153,9 @@ from modules.reporting.routers import router as reporting_router  # noqa: E402
 # WMOM-20260603-01 (M5-6): knowledge router (警報 → RAG 手冊檢索)
 from modules.knowledge.routers import router as knowledge_router  # noqa: E402
 
+# DEC-20260716-01 (M6-4): auth router（JWT 登入 + 目前身分）；非破壞式，既有 router 不受影響
+from modules.auth.routers import router as auth_router  # noqa: E402
+
 app.include_router(turbines_router)
 app.include_router(config_router)
 app.include_router(export_router)
@@ -170,6 +173,7 @@ app.include_router(material_request_router)
 app.include_router(inventory_router)
 app.include_router(reporting_router)
 app.include_router(knowledge_router)
+app.include_router(auth_router)
 
 
 @app.get("/api/health")
