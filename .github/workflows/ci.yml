@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend pytest（workflow + cost + reporting + knowledge）
+    name: Backend pytest（5 module + monitoring/physics + e2e）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,13 +29,19 @@ jobs:
           cache: pip
       - name: 安裝依賴（runtime + dev）
         run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: pytest（baseline 638 passed / 1 xfailed）
+      # 涵蓋全 5 module + monitoring/physics 迴歸防護（tests/ 含 physics
+      # 一致性 + e2e lifecycle + farm registry + dev_mode）。monitoring 是
+      # 最大且物理最敏感的模組，先前未進 CI；改壞物理一致性 CI 不會擋 →
+      # 補上以符合「不要破壞既有物理一致性」守則。
+      - name: pytest（全 backend + physics/e2e）
         run: >-
           python -m pytest
           modules/workflow/tests/
           modules/cost/tests/
           modules/reporting/tests/
           modules/knowledge/tests/
+          modules/monitoring/tests/
+          tests/
           -q
 
   frontend:

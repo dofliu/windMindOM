@@ -201,14 +201,16 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 進度檢視 dashboard
 
+> 狀態快照（2026-07-16）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+
 | Month | Module | Done criteria | Status |
 |-------|--------|--------------|:------:|
-| 1 (2026-05) | Setup | repo baseline + 規劃就位 + friendly 客戶接觸 | 🟡 in_progress (本月) |
-| 2 (2026-06) | Cost | K13 demo 跑通 + LCOE dashboard | ⚪ |
-| 3 (2026-07) | Workflow Part 1 | Work Order + Approval 跑通 | ⚪ |
-| 4 (2026-08) | Workflow Part 2 + Reporting | Inventory + 月報 PDF | ⚪ |
-| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | ⚪ |
-| 6 (2026-10) | PoC + 合約 | 第一筆收入 | ⚪ |
+| 1 (2026-05) | Setup | repo baseline + 規劃就位 + friendly 客戶接觸 | ✅ done（infra；客戶接觸持續中） |
+| 2 (2026-06) | Cost | K13 demo 跑通 + LCOE dashboard | ✅ done |
+| 3 (2026-07) | Workflow Part 1 | Work Order + Approval 跑通 | ✅ done |
+| 4 (2026-08) | Workflow Part 2 + Reporting | Inventory + 月報 PDF | ✅ done |
+| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~75%) |
+| 6 (2026-10) | PoC + 合約 | 第一筆收入 | ⚪ 未開始 |
 
 每月最後一個 session 更新本表 + work-log + STATUS.yaml。
 

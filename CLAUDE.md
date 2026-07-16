@@ -130,9 +130,11 @@ WMOM = WindMindOM 縮寫。
 
 ## 10. 目前狀態（簡要）
 
+> 進度以 [`STATUS.yaml`](STATUS.yaml) 為準；本節為快照，更新時請同步。
+
 - **產品版本**：v0.8.1（2026-05-02 baseline）
-- **Milestone**：M1 Setup（2026-05）— repo baseline 整理 + 規劃文件就位 + friendly 客戶接觸
-- **下次工作**：見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) M1 的 issue 清單
+- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）未開始
+- **下次工作**：M5 收尾（客戶手冊擴充 + 一年警報 csv 灌入）+ M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
 - **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
@@ -156,20 +158,20 @@ WMOM = WindMindOM 縮寫。
 
 ## 13. Daily Routine
 
-完整 routine 在 `docs/routines/daily-workflow.md`（M1 第一週從 v0.5 搬入）。
+完整 routine 在 [`docs/routines/daily-workflow.md`](docs/routines/daily-workflow.md)（已於 M1 從 v0.5 搬入）。
 精簡版 8 phase：Preflight → Claim → Branch+Log → Implement → Verify → Review → Wrap-up → Commit。
 
 哲學：**一日一項重要工作**。不貪多。
 
 ## 14. Claude Code 專屬
 
-如果在 Claude Code 內工作（推薦從 M1 起）：
+如果在 Claude Code 內工作（推薦）：
 
 - 啟動：`cd D:\Project_CodingSimulation\researchTopic\windMindOM && claude`
-- Slash commands（M1 第一週搬入）：`/daily-start`、`/claim-issue {ID}`、`/review`、`/daily-wrapup`
-- Sub-agents（M1 第一週搬入）：`code-reviewer`（Python async + 風電領域 + FastAPI 專長）
+- Slash commands（`.claude/commands/`，已就緒）：`/daily-start`、`/claim-issue {ID}`、`/review`、`/daily-wrapup`
+- Sub-agents（`.claude/agents/`，已就緒）：`code-reviewer`（Python async + 風電領域 + FastAPI 專長）
 
-範本在 `docs/claude-code-templates/`（M1 第一週從 v0.5 搬入）。
+範本在 `docs/claude-code-templates/`（已就緒）。
 
 ## 15. 小提醒
 
