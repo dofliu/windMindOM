@@ -109,9 +109,23 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 | Material Request 結案 `close`（-05c） | `LEADER` / `SUPERVISOR` | 生命週期收尾＝管理者 |
 | Material Request 取消 `cancel`（-05c） | `LEADER` / `SUPERVISOR` | 撤單＝管理者 |
 | Material Request 退料 `returns`（-05c） | `TREASURY` | 退料入庫（atomic stock-in）＝庫管；`returned_by` 沿用 body（可代登記） |
+| Approval 待簽列表 `/approvals/pending`（-05e） | 任何登入者 | 讀取自己的待簽 |
+| Approval 簽核 `/approve`、駁回 `/reject`（-05e） | 任何登入者 + **token 身分** | 見下方註記 |
 
 > 原則：**動 stock（出/入庫）= TREASURY**、**現場動作（建單/送簽/收料）= 任何登入者**、
-> **生命週期管控（結案/取消）= LEADER/SUPERVISOR**。work_order / approval 遷移時沿用同一分類邏輯。
+> **生命週期管控（結案/取消）= LEADER/SUPERVISOR**。work_order 遷移時沿用同一分類邏輯。
+
+#### 註記：approval 的授權分兩層（-05e）
+
+1. **router 層（本 PR 已做）**：`require_authenticated` + 簽核 `actor_id` 改由**已驗證 token** 決定
+   （不再信任 body）。這讓既有「職責分離」（`_check_actor_separation`：同一人不可連簽同 chain
+   先前階）建立在**可信身分**上——是本 PR 的核心安全增益。`test_approval_router_auth.py` 以
+   「同一 token 連簽兩階 → 第二階 409」實測反證。
+2. **domain 層（後續強化，未做）**：「該角色能否簽此 level」——step level（100/300/500/666）
+   → 對映 EMPLOYEE/LEADER/SUPERVISOR/TREASURY 的逐階角色檢查。目前 `approve_step` 只驗身分
+   （不驗角色），故 enforce 後任何登入者仍可簽任一階（只要沒連簽）。要補此檢查需讓 signoff
+   domain 取得 actor 角色（注入 user store 或由 router 傳入），屬**架構性變更**，cutover 前若
+   要收緊需單獨拆 issue（暫記 `WMOM-20260716-05e-followup`）。
 
 ---
 
