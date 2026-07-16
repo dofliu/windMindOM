@@ -21,9 +21,11 @@ import logging
 from typing import Callable
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 
+from modules.auth.dependencies import require_role, resolve_actor_id_optional
+from modules.auth.roles import Role
 from modules.workflow.repository import (
     InsufficientStock,
     InventoryRepository,
@@ -225,19 +227,31 @@ async def update_inventory_metadata(
 @router.post(
     "/inventory/{item_id}/adjust",
     response_model=AdjustInventoryResult,
+    # WMOM-20260716-05b：出入庫/調整 = 總務庫管（ADMIN 全權）。enforce=false 時放行（過渡期）。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def adjust_inventory(
     item_id: UUID,
     req: AdjustInventoryRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> AdjustInventoryResult:
     """手動 +/- 異動 stock + 同 transaction 寫 ``InventoryAdjustmentLog``。
+
+    身分（WMOM-20260716-05b 雙模式）：有 Bearer token → 用 token 身分；enforce=false 時
+    無 token 沿用 body ``actor_id``（可省略＝系統 adjust）。``WMOM_AUTH_ENFORCE=true`` 後
+    無 token → 401、非 TREASURY/ADMIN → 403。
 
     Errors：
     - 404：item 不存在
     - 422：reason 空 / safety_stock 負（StockAdjustmentError）
     - 409：扣到負數（InsufficientStock）
     """
+    resolved = resolve_actor_id_optional(request, str(req.actor_id) if req.actor_id else None)
+    try:
+        actor_uuid = UUID(resolved) if resolved else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"actor_id 非合法 UUID: {resolved}")
     repo = _get_repo(farm_id)
     try:
         item, log = repo.adjust(
@@ -245,7 +259,7 @@ async def adjust_inventory(
             delta_kind=req.delta_kind,
             delta=req.delta,
             reason=req.reason,
-            actor_id=req.actor_id,
+            actor_id=actor_uuid,
             note=req.note,
         )
     except StockAdjustmentError as e:
