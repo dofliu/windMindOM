@@ -23,11 +23,12 @@ import logging
 from typing import Callable
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 # review fix #14：logging 走 top-level
 _logger = logging.getLogger(__name__)
 
+from modules.auth.dependencies import require_authenticated, resolve_actor_id
 from modules.workflow.domain import (
     InvalidTransition,
     SignoffLevel,
@@ -129,12 +130,35 @@ def _get_material_request_repo(farm_id: str) -> MaterialRequestRepository:
     return get_material_request_repository(db_path)
 
 
+def _actor_uuid(request: Request, body_actor_id: UUID) -> UUID:
+    """雙模式解析簽核 actor（token 優先，否則沿用 body）並轉回 UUID。
+
+    approve/reject 的 actor_id 為必填 UUID——signoff 職責分離（``_check_actor_separation``）
+    正是以此身分判斷「同一人不可連簽」。故 ``WMOM_AUTH_ENFORCE=true`` 後身分改由已驗證
+    token 決定、不再信任 body，職責分離才建立在可信身分上（防冒簽）。
+
+    注意：本 gate 只保證「actor 身分可信 + 已登入」；**「該角色能否簽此 level」**
+    （step level 100/300/500/666 → EMPLOYEE/LEADER/SUPERVISOR/TREASURY 對映）為更細的
+    domain 層強制，屬後續強化（見 auth 計畫 §4.1 註記），本 PR 不含。
+    """
+    resolved = resolve_actor_id(request, str(body_actor_id) if body_actor_id else None)
+    try:
+        return UUID(resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"actor_id 非合法 UUID: {resolved}")
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/approvals/pending", response_model=PendingSignoffListResponse)
+@router.get(
+    "/approvals/pending",
+    response_model=PendingSignoffListResponse,
+    # WMOM-20260716-05e：待簽列表＝任何登入者（enforce=false 放行）。
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_pending_approvals(
     farm_id: str = Query(..., min_length=1),
     level: SignoffLevel = Query(...),
@@ -170,17 +194,21 @@ async def list_pending_approvals(
 @router.post(
     "/approvals/{step_id}/approve",
     response_model=ApprovalResultResponse,
+    # WMOM-20260716-05e：簽核＝任何登入者；細粒度 level→role 屬 domain 後續強化。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
 )
 async def approve_step(
     step_id: UUID,
     req: ApproveStepRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> ApprovalResultResponse:
     """通過一階。若是最後一階 → 自動 work_order.approve_all() 進 CLOSED。"""
     signoff_repo = _get_signoff_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先（職責分離依此可信身分）
     try:
         chain, is_last = signoff_repo.approve_step(
-            step_id, actor_id=req.actor_id, comment=req.comment
+            step_id, actor_id=actor, comment=req.comment
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -216,7 +244,7 @@ async def approve_step(
         mr_repo = _get_material_request_repo(farm_id)
         try:
             mr_repo.transition(chain.subject_id, "approve_all")
-            mr_repo.dispatch_request(chain.subject_id, actor_id=req.actor_id)
+            mr_repo.dispatch_request(chain.subject_id, actor_id=actor)
             subject_changed = True
         except LookupError as e:
             _logger.error(
@@ -268,17 +296,21 @@ async def approve_step(
 @router.post(
     "/approvals/{step_id}/reject",
     response_model=ApprovalResultResponse,
+    # WMOM-20260716-05e：簽核（駁回）＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
 )
 async def reject_step(
     step_id: UUID,
     req: RejectStepRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> ApprovalResultResponse:
     """駁回一階 → chain 進 REJECTED + 自動 work_order.reject(reason) 回 IN_PROGRESS。"""
     signoff_repo = _get_signoff_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先（職責分離依此可信身分）
     try:
         chain = signoff_repo.reject_step(
-            step_id, actor_id=req.actor_id, reason=req.reason
+            step_id, actor_id=actor, reason=req.reason
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
