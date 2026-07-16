@@ -41,7 +41,9 @@ import FieldPage from './components/field/FieldPage';
 import GuidedTourPage from './components/tour/GuidedTourPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { UserProvider } from './hooks/useCurrentUser';
-import { Sidebar, type NavItem } from './components/ui';
+import { AuthProvider, useAuth } from './hooks/useAuth';
+import LoginPage from './components/LoginPage';
+import { Btn, Sidebar, type NavItem } from './components/ui';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -75,10 +77,56 @@ const SECONDARY_NAV: NavItem[] = [
   { id: 'settings', iconId: 'settings', labelEn: 'Settings', labelZh: '設定' },
 ];
 
+/**
+ * Sidebar footer 的登入狀態 chip（WMOM-20260716-05f-b）。
+ * 已登入 → 顯示身分 + 登出；未登入 → 顯示「登入」鈕（開 overlay）。
+ * 與 dev 的 UserSwitcher 並存（過渡期：token 走真登入、body actor_id 走 switcher）。
+ */
+const LoginStatus: React.FC<{ lang: 'zh' | 'en' }> = ({ lang }) => {
+  const { C } = useTheme();
+  const auth = useAuth();
+  const t = (zh: string, en: string) => (lang === 'zh' ? zh : en);
+  if (auth.isAuthenticated && auth.actor) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+        <span
+          title={`${auth.actor.name}（${auth.actor.role}）`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            color: C.sub,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {t('登入：', 'As: ')}
+          <span style={{ color: C.text, fontWeight: 600 }}>{auth.actor.name}</span>
+        </span>
+        <Btn size="sm" variant="ghost" onClick={auth.logout} ariaLabel={t('登出', 'Sign out')}>
+          {t('登出', 'Sign out')}
+        </Btn>
+      </div>
+    );
+  }
+  return (
+    <Btn
+      size="sm"
+      variant="secondary"
+      fullWidth
+      onClick={auth.openLogin}
+      ariaLabel={t('登入', 'Sign in')}
+    >
+      {t('登入', 'Sign in')}
+    </Btn>
+  );
+};
+
 const AppShell: React.FC = () => {
   const { C } = useTheme();
   const { settings, saveSettings } = useSettings();
   const { lang, setLang } = useI18n();
+  const auth = useAuth();
 
   // ── Data hooks（不動 API） ──
   const mockData = useMockTurbineData();
@@ -290,6 +338,7 @@ const AppShell: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <FarmSelector lang={lang} />
             <UserSwitcher lang={lang} />
+            <LoginStatus lang={lang} />
           </div>
         }
       />
@@ -348,6 +397,15 @@ const AppShell: React.FC = () => {
           onComplete={handleCompleteWorkOrder}
         />
       )}
+
+      {auth.loginOpen && (
+        <LoginPage
+          lang={lang}
+          onLogin={auth.login}
+          onClose={auth.closeLogin}
+          sessionExpired={auth.sessionExpired}
+        />
+      )}
     </div>
   );
 };
@@ -355,7 +413,9 @@ const AppShell: React.FC = () => {
 const App: React.FC = () => (
   <ThemeProvider>
     <UserProvider>
-      <AppShell />
+      <AuthProvider>
+        <AppShell />
+      </AuthProvider>
     </UserProvider>
   </ThemeProvider>
 );
