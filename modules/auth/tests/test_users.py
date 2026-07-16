@@ -50,7 +50,10 @@ def test_build_default_store_dev_seeds_demo_users(monkeypatch):
         assert user is not None and user.role is role
 
 
-def test_build_default_store_prod_is_empty(monkeypatch):
+def test_build_default_store_prod_is_empty(monkeypatch, tmp_path):
     monkeypatch.delenv("WMOM_DEV_MODE", raising=False)
+    monkeypatch.setenv("WMOM_AUTH_DB_URL", f"sqlite:///{tmp_path}/prod.db")  # tmp，不留 stray ./wmom_auth.db
+    monkeypatch.delenv("WMOM_ADMIN_USER", raising=False)
+    monkeypatch.delenv("WMOM_ADMIN_PASSWORD", raising=False)
     store = build_default_store()
-    assert store.authenticate("alice", "demo1234") is None  # prod 無 demo user（安全預設）
+    assert store.count() == 0  # prod SqlUserStore 無 demo user（安全預設）

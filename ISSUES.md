@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
+| open | 14 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 86 |
+| done | 87 |
 | **total (active)** | **103** |
 
 最後更新：2026-07-16（**專案檢視 session — 4 PR 進 main #105-108**）。全 repo 檢視 → `docs/product/PROJECT_REVIEW_2026-07-16.md`（F1-F6）；P0 文件真相對齊 + CI 補 monitoring/physics（#106）；M6 決策簡報 + openopc2 GPL 標示（#107）；**M6-4 真 auth 基礎層 done**（#108，stdlib JWT+RBAC+login，非破壞，+34 tests，DEC-20260716-01）。全 backend **899 passed / 0 failed**。新增 issue：done WMOM-20260716-01/02/03、open WMOM-20260716-04/05/06（見下方 EPIC-M6）。**下一步**：auth follow-up（DB user store → router 強制授權 + 前端真登入）+ footprint CPU-torch pin（DEC-20260716-02）+ 客戶接觸（WMOM-20260503-05）。
@@ -39,7 +39,7 @@
 - **WMOM-20260716-03** — M6-4 真 auth 基礎層：stdlib JWT + RBAC + login，非破壞（#108，DEC-20260716-01）✅
 
 **Open（auth / footprint follow-up）**
-- **WMOM-20260716-04** — 🔵 auth follow-up：DB-backed user store + admin 建帳 API（換掉 seeded store；介面已預留 `build_default_store()`，非破壞）
+- **WMOM-20260716-04** — auth follow-up：DB-backed user store（`SqlUserStore`）+ admin 建帳/列帳 API（`/api/auth/users`）+ env bootstrap 首個 admin，非破壞（+17 tests）✅ done
 - **WMOM-20260716-05** — 🟡 auth follow-up：router 逐支改 `get_current_actor`/`require_roles` 強制授權 + 前端 mock login 換真 `/api/auth/login`（**②③配套、會改行為，需劉老師在場排**）
 - **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 

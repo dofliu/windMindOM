@@ -28,3 +28,22 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     actor: ActorInfo
+
+
+class CreateUserRequest(BaseModel):
+    """``POST /api/auth/users``（admin 建帳）請求體。"""
+
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=8, max_length=256)  # 密碼政策：至少 8 碼
+    name: str = Field(min_length=1, max_length=256)
+    role: Role
+
+
+class UserInfo(BaseModel):
+    """使用者的公開資訊（**不含密碼雜湊**）。"""
+
+    id: str
+    username: str
+    name: str
+    role: Role
+    is_active: bool
