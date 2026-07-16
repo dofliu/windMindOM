@@ -230,3 +230,17 @@ def require_role(*allowed: Role):
         )
 
     return _dependency
+
+
+def require_authenticated():
+    """enforce-aware「需登入」閘門（不限角色）。給無角色限制、但強制後需登入的端點用。
+
+    - ``WMOM_AUTH_ENFORCE=false`` → 放行；``true`` → 需有效 token（任何角色），無則 401。
+    """
+
+    def _dependency(request: Request) -> None:
+        if not is_auth_enforced():
+            return
+        get_current_actor(request)  # token / dev-fallback / 401
+
+    return _dependency
