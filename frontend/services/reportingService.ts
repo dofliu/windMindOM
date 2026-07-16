@@ -10,6 +10,8 @@
  * PDF blob 處理：服務層回 `Blob`；UI 層 createObjectURL → `<a download>`。
  */
 
+import { authFetch } from './authClient';
+
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Schema types（對齊 backend Pydantic）──────────────────────────────────
@@ -162,7 +164,7 @@ async function postRaw(
   path: string,
   acceptable: 'application/pdf' | 'text/html' | 'application/json',
 ): Promise<Response> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { Accept: acceptable },
   });
@@ -173,7 +175,7 @@ async function postRaw(
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const resp = await fetch(`${API_BASE}${path}`);
+  const resp = await authFetch(`${API_BASE}${path}`);
   if (!resp.ok) throw new Error(`GET ${path} failed: ${await readError(resp)}`);
   return resp.json() as Promise<T>;
 }

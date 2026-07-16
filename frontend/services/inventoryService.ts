@@ -12,6 +12,8 @@
  * 可考慮統一（讓 materialService re-export inventoryService 型別），暫不做避免 scope creep.
  */
 
+import { authFetch } from './authClient';
+
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Enums ─────────────────────────────────────────────────────────────────
@@ -153,7 +155,7 @@ async function readError(resp: Response): Promise<string> {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const resp = await fetch(`${API_BASE}${path}`);
+  const resp = await authFetch(`${API_BASE}${path}`);
   if (!resp.ok) {
     throw new Error(`GET ${path} failed: ${await readError(resp)}`);
   }
@@ -161,7 +163,7 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -173,7 +175,7 @@ async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
 }
 
 async function patchJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

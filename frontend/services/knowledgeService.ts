@@ -11,6 +11,8 @@
  * 型別嚴格對齊 backend pydantic schema（modules/knowledge/schemas.py）。
  */
 
+import { authFetch } from './authClient';
+
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Schema types（對齊 backend Pydantic）──────────────────────────────────
@@ -121,13 +123,13 @@ async function readError(resp: Response): Promise<string> {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const resp = await fetch(`${API_BASE}${path}`);
+  const resp = await authFetch(`${API_BASE}${path}`);
   if (!resp.ok) throw new Error(`GET ${path} failed: ${await readError(resp)}`);
   return resp.json() as Promise<T>;
 }
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

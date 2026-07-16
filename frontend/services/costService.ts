@@ -5,6 +5,8 @@
  * Schemas: modules/cost/schemas/cost_schemas.py
  */
 
+import { authFetch } from './authClient';
+
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Request types ────────────────────────────────────────────────────────
@@ -157,7 +159,7 @@ async function postJSON<TReq, TResp>(
   body: TReq,
   signal?: AbortSignal,
 ): Promise<TResp> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
