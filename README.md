@@ -5,6 +5,7 @@
 > 從 [digiWindTurbine](https://github.com/dofliu/digiWindTurbine)（物理模擬器 + SCADA 平台）商業化升級而來。
 
 - **產品版本**：v0.8.1（2026-05 baseline）
+- **目前進度**：M1–M4 done；M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%；M6（PoC + 合約）未開始。以 [`STATUS.yaml`](STATUS.yaml) 為準
 - **第一個目標客戶**：Z72 機型運維廠商 / 2026 Q4 PoC + 第一筆合約
 - **設計原則**：Simulator-first —— 所有功能都能在純模擬模式下 demo（無實場是 sales killer feature）
 
@@ -18,7 +19,7 @@
 | **cost** | ECN 移植：K13 成本模型、LCOE、Monte Carlo、20 年 var-fluct，farm-aware dataset | ✅ M2 done |
 | **workflow** | 工單 + 多階簽核 + 庫存 + 領料派工（雙寫交易模型 + 狀態機） | ✅ M3-M4 done |
 | **reporting** | 月報 PDF + 年度預算，KPI + iframe HTML preview | ✅ M4 done |
-| **knowledge** | RAG 警報查手冊（研究端策略檔 + 預計算向量檔，平台只載入 + query） | 🔜 M5 |
+| **knowledge** | RAG 警報查手冊（研究端策略檔 + 預計算向量檔，平台只載入 + query） | 🟡 M5 進行中 ~75% |
 
 詳細產品脈絡見 [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md)；一張圖看全貌見 [`docs/architecture/windMindOM-architecture.md`](docs/architecture/windMindOM-architecture.md)。
 

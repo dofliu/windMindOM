@@ -9,15 +9,15 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-05-29（文件大整理：清掉 digiWT 時代過時/重複檔、ISSUES.md changelog 抽到 archive、新增 M5/M6 epic 區塊；baseline backend 570 / frontend vitest 59）
+最後更新：2026-07-16（P0 文件真相對齊 + CI 補 monitoring/physics 測試；依 2026-07 專案檢視建議 P0 項）
 
 ---
 
-## 現況（2026-05）
+## 現況（2026-07）
 
-- **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成
-- **baseline 綠**：backend `pytest modules/{workflow,cost,reporting}/tests/` → **570 passed / 1 xfailed**；frontend vitest **59 passed** / tsc 0 / vite build OK
-- **近期 autonomous daily worker** 在補測試覆蓋與工程基礎設施（vitest+RTL 導入、純函式回歸測試、CI baseline 容差、並發 dispatch 序列化）
+- **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）
+- **baseline 綠**：backend 全套（5 module + monitoring/physics + e2e）→ **865 passed / 1 skipped（需 embed 模型）/ 1 xfailed**；frontend vitest **~797 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics（先前缺）
+- **節奏提醒**：autonomous 飛輪自 2026-06-08 後暫停；重啟時挑題準則建議改為「對 M6 critical path 有貢獻優先」（見 2026-07 專案檢視 F3）
 
 ---
 
