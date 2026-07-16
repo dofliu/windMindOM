@@ -19,8 +19,14 @@ from decimal import Decimal
 from typing import Callable
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from modules.auth.dependencies import (
+    require_authenticated,
+    require_role,
+    resolve_actor_id,
+)
+from modules.auth.roles import Role
 from modules.workflow.domain import (
     InvalidTransition,
     Priority,
@@ -234,6 +240,19 @@ def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
     return HTTPException(status_code=status, detail=f"{action}: {msg}")
 
 
+def _actor_uuid(request: Request, body_actor_id: UUID) -> UUID:
+    """雙模式解析 actor（token 優先，否則沿用 body）並轉回 UUID。
+
+    dispatch / update_progress 的 actor_id 為必填 UUID；``WMOM_AUTH_ENFORCE=true`` 後
+    身分改由已驗證 token 決定、不再信任 body。WMOM-20260716-05d pattern（同其他 workflow router）。
+    """
+    resolved = resolve_actor_id(request, str(body_actor_id) if body_actor_id else None)
+    try:
+        return UUID(resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"actor_id 非合法 UUID: {resolved}")
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # CRUD
 # ─────────────────────────────────────────────────────────────────────────
@@ -243,6 +262,8 @@ def _map_state_error(action: str, exc: InvalidTransition) -> HTTPException:
     "/work-orders",
     response_model=WorkOrderResponse,
     status_code=201,
+    # WMOM-20260716-05d：建工單＝現場工程師 + 管理層（庫管不建）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.EMPLOYEE, Role.LEADER, Role.SUPERVISOR))],
 )
 async def create_work_order(req: CreateWorkOrderRequest) -> WorkOrderResponse:
     """建立 DRAFT 工單。
@@ -321,10 +342,16 @@ async def get_work_order(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.post("/work-orders/{work_order_id}/dispatch", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/dispatch",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：派工＝組長 / 主管。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
+)
 async def dispatch(
     work_order_id: UUID,
     req: DispatchRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> WorkOrderResponse:
     """DRAFT → DISPATCHED。
@@ -333,14 +360,20 @@ async def dispatch(
     若工單建單時未指派 + 派工時也未帶 → state machine 拒絕。
     """
     repo = _get_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body
     return _run_transition(
         repo, work_order_id, "dispatch",
-        actor_id=req.actor_id,
+        actor_id=actor,
         assignee_id=req.assignee_id,
     )
 
 
-@router.post("/work-orders/{work_order_id}/start-work", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/start-work",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：開工＝任何登入者（現場 assignee）。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def start_work(
     work_order_id: UUID,
     req: StartWorkRequest,
@@ -359,22 +392,34 @@ async def start_work(
     )
 
 
-@router.post("/work-orders/{work_order_id}/update-progress", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/update-progress",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：進度回報＝任何登入者（現場）。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def update_progress(
     work_order_id: UUID,
     req: UpdateProgressRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> WorkOrderResponse:
     """IN_PROGRESS self-loop：append progress note + 更新 updated_at。"""
     repo = _get_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body
     return _run_transition(
         repo, work_order_id, "update_progress",
-        actor_id=req.actor_id,
+        actor_id=actor,
         note=req.note,
     )
 
 
-@router.post("/work-orders/{work_order_id}/finish", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/finish",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：完工申報＝現場工程師 + 管理層。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.EMPLOYEE, Role.LEADER, Role.SUPERVISOR))],
+)
 async def finish(
     work_order_id: UUID,
     req: FinishRequest,
@@ -445,7 +490,12 @@ async def finish(
     return response
 
 
-@router.post("/work-orders/{work_order_id}/approve", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/approve",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：直接結案 guard＝組長 / 主管。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
+)
 async def approve(
     work_order_id: UUID,
     farm_id: str = Query(..., min_length=1),
@@ -487,7 +537,12 @@ async def approve(
     return _run_transition(repo, work_order_id, "approve_all")
 
 
-@router.post("/work-orders/{work_order_id}/reject", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/reject",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：簽核退回＝組長 / 主管。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
+)
 async def reject(
     work_order_id: UUID,
     req: RejectRequest,
@@ -501,7 +556,12 @@ async def reject(
     )
 
 
-@router.post("/work-orders/{work_order_id}/cancel", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/cancel",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：撤單＝組長 / 主管。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
+)
 async def cancel(
     work_order_id: UUID,
     req: CancelRequest,
@@ -515,7 +575,12 @@ async def cancel(
     )
 
 
-@router.post("/work-orders/{work_order_id}/reopen", response_model=WorkOrderResponse)
+@router.post(
+    "/work-orders/{work_order_id}/reopen",
+    response_model=WorkOrderResponse,
+    # WMOM-20260716-05d：重開＝組長 / 主管。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
+)
 async def reopen(
     work_order_id: UUID,
     req: ReopenRequest,

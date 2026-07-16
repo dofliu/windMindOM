@@ -109,11 +109,18 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 | Material Request 結案 `close`（-05c） | `LEADER` / `SUPERVISOR` | 生命週期收尾＝管理者 |
 | Material Request 取消 `cancel`（-05c） | `LEADER` / `SUPERVISOR` | 撤單＝管理者 |
 | Material Request 退料 `returns`（-05c） | `TREASURY` | 退料入庫（atomic stock-in）＝庫管；`returned_by` 沿用 body（可代登記） |
+| Work Order 建單 `create`（-05d） | `EMPLOYEE` / `LEADER` / `SUPERVISOR` | 現場+管理層可建，庫管不建 |
+| Work Order 派工 `dispatch`（-05d） | `LEADER` / `SUPERVISOR` | 派工＝管理層；actor 由 token 解析 |
+| Work Order 開工 `start-work`、進度 `update-progress`（-05d） | 任何登入者 | 現場 assignee（update-progress actor 由 token 解析）|
+| Work Order 完工 `finish`（-05d） | `EMPLOYEE` / `LEADER` / `SUPERVISOR` | 完工申報＝現場+管理層 |
+| Work Order 結案 `approve` / 駁回 `reject` / 取消 `cancel` / 重開 `reopen`（-05d） | `LEADER` / `SUPERVISOR` | 生命週期管控＝管理層 |
 | Approval 待簽列表 `/approvals/pending`（-05e） | 任何登入者 | 讀取自己的待簽 |
 | Approval 簽核 `/approve`、駁回 `/reject`（-05e） | 任何登入者 + **token 身分** | 見下方註記 |
 
-> 原則：**動 stock（出/入庫）= TREASURY**、**現場動作（建單/送簽/收料）= 任何登入者**、
-> **生命週期管控（結案/取消）= LEADER/SUPERVISOR**。work_order 遷移時沿用同一分類邏輯。
+> 原則：**動 stock（出/入庫）= TREASURY**、**現場動作（建單/送簽/收料/開工/回報）= 任何登入者或含 EMPLOYEE**、
+> **派工 / 生命週期管控（結案/取消/駁回/重開）= LEADER/SUPERVISOR**、**建單/完工 = 現場+管理層（庫管除外）**。
+> 4 支 workflow router（inventory / material_request / approval / work_order）皆已依此分類遷移。
+> **讀取端點（各 router 的 list/get）之授權尚未掛**——延後至 -05h，cutover 前補（見計畫 §2 P1-c）。
 
 #### 註記：approval 的授權分兩層（-05e）
 
