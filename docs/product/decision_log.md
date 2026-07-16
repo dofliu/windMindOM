@@ -331,6 +331,94 @@ M5-1 已上線純 Python `BaselineKeywordRetriever`（告警碼 0.6 + 關鍵字 
 
 ---
 
+## DEC-20260716-01 — M6-4 真 auth：stdlib JWT + RBAC，漸進非破壞式導入
+
+**Date**: 2026-07-16
+**Status**: accepted
+**Version**: v0.8.1
+**Decision maker**: 劉老師（「按照建議逐步完成」授權）／ Claude 執行
+
+### Context
+
+現況身分靠 request body 的 `actor_id` + 前端 mock login，後端無驗證層 → 任何 client
+可冒充任何人、無授權強制（`PROJECT_REVIEW_2026-07-16` F5）。M6 付費客戶多真實使用者，
+身分可冒充會使簽核/完工佐證失去意義 → 真 auth 是交付前提。細節見
+`M6_prep_decision_brief.md`。
+
+### Considered Options
+
+- A. 漸進非破壞式：加 user store + JWT login + `get_current_actor` dependency（無 token
+  時 fallback dev 行為），router 分批遷移。
+- B. 一次全量：所有 router 從 actor_id-in-body 改 JWT，一個大 PR。
+- C. 只寫 DEC，不寫程式。
+
+### Decision
+
+選 **A**。技術選型：
+- **HS256 JWT + PBKDF2-SHA256 密碼雜湊，純 Python stdlib**（不引 PyJWT/bcrypt/cryptography）。
+- RBAC 角色對映既有 signoff 角色（EMPLOYEE/LEADER/SUPERVISOR/TREASURY）+ ADMIN，不重造。
+- user store：dev_mode seed 4 個 demo user（對映 `mockUsers.ts`）；production 預設空（安全預設，
+  待接 DB-backed store）。
+- JWT 金鑰 `WMOM_JWT_SECRET`：production 未設即 raise（杜絕不安全預設）。
+
+### Rationale
+
+- A 非破壞（既有 router 未採用 dependency 前行為零改變）→ 可逐步驗證、可回退、每步 CI 綠。
+- stdlib crypto **零新依賴、無原生 build**（sandbox 實測 bcrypt/cryptography 原生 build 失敗），
+  且直接呼應 F5 的部署 footprint 顧慮（不往 image 疊 crypto 原生輪子）。HS256 對稱金鑰對
+  單客戶 on-prem PoC 已足夠；未來要非對稱/金鑰輪替再換（介面已隔離在 `tokens.py`）。
+
+### Consequences
+
+- 新增 `modules/auth/`（roles/tokens/passwords/users/dependencies/schemas/router）+ 34 tests。
+- `app.py` 掛 `/api/auth` router（`/login` + `/me`）；`ci.yml` 加 `modules/auth/tests/`。
+- 非破壞：全 backend 迴歸 899 passed / 0 failed（含 e2e lifecycle）。
+- **Follow-up（不在本增量）**：DB-backed user store + admin 建帳 API + 密碼政策；router 逐支
+  改用 `get_current_actor`/`require_roles` 強制授權；前端 mock login 換真 `/api/auth/login`。
+
+---
+
+## DEC-20260716-02 — 部署 footprint：先量測，採 deploy 專用 CPU-torch pin
+
+**Date**: 2026-07-16
+**Status**: accepted
+**Version**: v0.8.1
+**Decision maker**: 劉老師 ／ Claude 量測
+
+### Context
+
+M5-2（DEC-20260608-01）query 端帶 `torch` + 95MB 模型；M6 要 docker-compose 部客戶現場，
+image 過大（`PROJECT_REVIEW` F5）。
+
+### Considered Options
+
+- A. 維持帶 torch（最省事）。
+- B. 直接輕量化（torch 不進 production image）。
+- C. 先量測 image 體積 + 客戶硬體門檻再定。
+
+### Decision
+
+選 **C 先量測 → 據數據採「deploy 專用 CPU-torch pin」為近期做法**。量測結果：
+`sentence-transformers` 在 linux 預設拉 **CUDA torch**，image 估 **~4–5 GB**，其中 torch+CUDA
+libs ≈ 2.5–3 GB（無 GPU 的客戶機純浪費）。`.dockerignore` 已排除 `bachmann/`(38MB)/frontend/docs，
+app code 本身精簡，**torch 為主要體積來源**。
+
+### Rationale
+
+CPU-only torch pin（deploy 專用、不碰 dev 的 RTX 4080 GPU 設定）可將 image 砍半至 ~2–2.5 GB，
+**零架構風險**。完整輕量化（B，torch 不進 serving，image ~0.5–1 GB）需動 M5-2 檢索路徑，
+待客戶硬體很吃緊再評估。
+
+### Consequences
+
+- **Follow-up 實作**：Dockerfile 於 `pip install -r requirements.txt` 前先
+  `pip install torch --index-url https://download.pytorch.org/whl/cpu`，讓 requirements 的
+  torch 依賴以 CPU wheel 滿足；主 `requirements.txt` 不動（保留 dev GPU 相容）。
+- 補充：Docker image 為 linux/CPU 且 `.dockerignore` 已排除 OPC-DA 路徑（openopc2），故 GPL/openopc2
+  疑慮（見 `bachmann/README.md`）**不涉及此容器**，僅涉 Windows OPC-DA 部署。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown
