@@ -13,6 +13,8 @@
  * 與耦合（讓 material 與 work order client 兩個檔互不需 patch 一起改）。
  */
 
+import { authFetch } from './authClient';
+
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
 // ─── Enums（與後端 string Enum 對齊） ─────────────────────────────────────
@@ -221,7 +223,7 @@ async function readError(resp: Response): Promise<string> {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const resp = await fetch(`${API_BASE}${path}`);
+  const resp = await authFetch(`${API_BASE}${path}`);
   if (!resp.ok) {
     throw new Error(`GET ${path} failed: ${await readError(resp)}`);
   }
@@ -229,7 +231,7 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 async function postJSON<TReq, TResp>(path: string, body: TReq): Promise<TResp> {
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const resp = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
