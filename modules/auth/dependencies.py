@@ -179,6 +179,35 @@ def resolve_actor_id(request: Request, body_actor_id: str | None) -> str:
     )
 
 
+def resolve_actor_id_optional(request: Request, body_actor_id: str | None) -> str | None:
+    """同 :func:`resolve_actor_id`，但允許「無 actor」（系統 / 匿名動作）。
+
+    用於 actor 可省略的端點（如系統自動 inventory adjust——無真人簽）。
+
+    - 有有效 token → sub。
+    - 無 token：``WMOM_AUTH_ENFORCE=true`` → 401；否則回 ``body_actor_id``（**可為 None**，
+      不 dev fallback、不 400）。
+    """
+    token = _extract_bearer_token(request)
+    if token is not None:
+        try:
+            payload = decode_access_token(token)
+        except TokenError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"invalid token: {exc}",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        return str(payload["sub"])
+    if is_auth_enforced():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="需要登入（缺 Bearer token）",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return body_actor_id  # 過渡期：可為 None（系統 adjust）
+
+
 def require_role(*allowed: Role):
     """enforce-aware 角色閘門 dependency（業務 router 用）。
 
