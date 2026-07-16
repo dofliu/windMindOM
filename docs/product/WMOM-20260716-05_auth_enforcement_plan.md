@@ -94,6 +94,25 @@ monitoring（turbines/faults/farms/control）、cost、reporting、knowledge：�
 
 > 這是**提案**。實際「誰能做什麼」是你的營運決策——請逐列確認或改。空格處尤其要你定（例：EMPLOYEE 能否建工單、LEADER 能否看成本）。
 
+### 4.1 已實作端點的 RBAC（隨 router 遷移逐支落地，enforce=false 時全放行）
+
+下表是**已寫進程式**的 gate（`require_role` / `require_authenticated`），依「動作性質」歸類。
+cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` 一律全權，故不另列。
+
+| 端點 / 動作 | gate | 理由（動作性質） |
+|---|---|---|
+| Inventory 出入庫 `/adjust`（-05b） | `TREASURY` | 動 stock ＝ 總務庫管 |
+| Material Request 建單 `create`（-05c） | 任何登入者 | 現場工程師發起 |
+| Material Request 送簽 `submit-for-approval`（-05c） | 任何登入者 | 發起人自送 |
+| Material Request 發料 `dispatch`（-05c） | `TREASURY` | 出庫（atomic stock-out）＝庫管 |
+| Material Request 收料 `receive`（-05c） | 任何登入者 | 現場工程師收料確認 |
+| Material Request 結案 `close`（-05c） | `LEADER` / `SUPERVISOR` | 生命週期收尾＝管理者 |
+| Material Request 取消 `cancel`（-05c） | `LEADER` / `SUPERVISOR` | 撤單＝管理者 |
+| Material Request 退料 `returns`（-05c） | `TREASURY` | 退料入庫（atomic stock-in）＝庫管；`returned_by` 沿用 body（可代登記） |
+
+> 原則：**動 stock（出/入庫）= TREASURY**、**現場動作（建單/送簽/收料）= 任何登入者**、
+> **生命週期管控（結案/取消）= LEADER/SUPERVISOR**。work_order / approval 遷移時沿用同一分類邏輯。
+
 ---
 
 ## 5. 需要你拍板的決策

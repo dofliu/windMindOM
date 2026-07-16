@@ -18,8 +18,15 @@ if TYPE_CHECKING:
     from modules.workflow.domain.inventory import MaterialRequest
     from modules.workflow.repository import ItemMetadata
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from modules.auth.dependencies import (
+    require_authenticated,
+    require_role,
+    resolve_actor_id,
+    resolve_actor_id_optional,
+)
+from modules.auth.roles import Role
 from modules.workflow.domain import InvalidTransition
 from modules.workflow.domain.inventory import (
     MaterialRequestStatus,
@@ -188,10 +195,27 @@ def _build_mr_list_response(
 # ─────────────────────────────────────────────────────────────────────────
 
 
+def _actor_uuid(request: Request, body_actor_id: UUID | None, *, optional: bool = False) -> UUID | None:
+    """雙模式解析 actor（有 token 用 token、否則沿用 body）並轉 UUID（workflow schema 多為 UUID）。
+
+    ``optional=True`` 允許無 actor（系統動作）。WMOM-20260716-05b pattern。
+    """
+    fn = resolve_actor_id_optional if optional else resolve_actor_id
+    resolved = fn(request, str(body_actor_id) if body_actor_id else None)
+    if resolved is None:
+        return None
+    try:
+        return UUID(resolved)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"actor_id 非合法 UUID: {resolved}")
+
+
 @router.post(
     "/material-requests",
     response_model=MaterialRequestResponse,
     status_code=201,
+    # WMOM-20260716-05：建領料單＝任何登入者（enforce=false 放行）。
+    dependencies=[Depends(require_authenticated())],
 )
 async def create_material_request(req: CreateMaterialRequest) -> MaterialRequestResponse:
     """建立 DRAFT 領料單（含多筆 items）。"""
@@ -256,10 +280,12 @@ async def get_material_request(
 @router.post(
     "/material-requests/{material_request_id}/submit-for-approval",
     response_model=MaterialRequestResponse,
+    dependencies=[Depends(require_authenticated())],  # 提送簽核＝任何登入者
 )
 async def submit_for_approval(
     material_request_id: UUID,
     req: SubmitForApprovalRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialRequestResponse:
     """DRAFT → AWAITING_APPROVAL + 自動建 signoff chain（DN-02 領料 3 階預設）。
@@ -270,6 +296,7 @@ async def submit_for_approval(
     """
     mr_repo = _get_mr_repo(farm_id)
     signoff_repo = _get_signoff_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body actor_id
 
     # 先建 chain；建好後才動領料單 status，這樣失敗就不會 leave inconsistent state
     try:
@@ -277,7 +304,7 @@ async def submit_for_approval(
             material_request_id=material_request_id,
             farm_id=farm_id,
             escalate_to_supervisor=req.escalate_to_supervisor,
-            actor_id=req.actor_id,
+            actor_id=actor,
         )
     except ValueError as e:
         # build_chain_levels 全 disabled → ValueError
@@ -286,7 +313,7 @@ async def submit_for_approval(
     # transition state
     try:
         mr_repo.transition(
-            material_request_id, "submit_for_approval", actor_id=req.actor_id
+            material_request_id, "submit_for_approval", actor_id=actor
         )
     except LookupError:
         raise HTTPException(
@@ -312,10 +339,13 @@ async def submit_for_approval(
 @router.post(
     "/material-requests/{material_request_id}/dispatch",
     response_model=MaterialRequestResponse,
+    # WMOM-20260716-05c：發料出庫（atomic stock-out）＝總務庫管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def dispatch_material_request(
     material_request_id: UUID,
     req: DispatchMaterialRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialRequestResponse:
     """APPROVED → DISPATCHED — **atomic stock + cost ledger 雙寫**。
@@ -324,8 +354,9 @@ async def dispatch_material_request(
     最後一階時自動觸發。但保留為 explicit endpoint，給 ops 手動補 + test 用。
     """
     repo = _get_mr_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id, optional=True)  # 出庫 actor 可省略（系統自動觸發）
     try:
-        mr = repo.dispatch_request(material_request_id, actor_id=req.actor_id)
+        mr = repo.dispatch_request(material_request_id, actor_id=actor)
     except LookupError:
         raise HTTPException(
             status_code=404,
@@ -341,18 +372,22 @@ async def dispatch_material_request(
 @router.post(
     "/material-requests/{material_request_id}/receive",
     response_model=MaterialRequestResponse,
+    # WMOM-20260716-05c：收料確認＝任何登入者（現場工程師收料）。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
 )
 async def receive_material_request(
     material_request_id: UUID,
     req: ReceiveMaterialRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialRequestResponse:
     """DISPATCHED → RECEIVED + 寫 actual_quantities 進 items。"""
     repo = _get_mr_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body actor_id
     try:
         mr = repo.transition(
             material_request_id, "receive",
-            actor_id=req.actor_id,
+            actor_id=actor,
             actual_quantities=req.actual_quantities,
         )
     except LookupError:
@@ -368,16 +403,20 @@ async def receive_material_request(
 @router.post(
     "/material-requests/{material_request_id}/close",
     response_model=MaterialRequestResponse,
+    # WMOM-20260716-05c：結案＝組長 / 主管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
 )
 async def close_material_request(
     material_request_id: UUID,
     req: CloseMaterialRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialRequestResponse:
     """USED / RECEIVED → CLOSED。"""
     repo = _get_mr_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body actor_id
     try:
-        mr = repo.transition(material_request_id, "close", actor_id=req.actor_id)
+        mr = repo.transition(material_request_id, "close", actor_id=actor)
     except LookupError:
         raise HTTPException(
             status_code=404,
@@ -391,10 +430,13 @@ async def close_material_request(
 @router.post(
     "/material-requests/{material_request_id}/cancel",
     response_model=MaterialRequestResponse,
+    # WMOM-20260716-05c：取消＝組長 / 主管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.LEADER, Role.SUPERVISOR))],
 )
 async def cancel_material_request(
     material_request_id: UUID,
     req: CancelMaterialRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialRequestResponse:
     """DRAFT / AWAITING_APPROVAL / APPROVED → CANCELLED。
@@ -402,10 +444,11 @@ async def cancel_material_request(
     DISPATCHED 之後不允許 cancel — 物料已離庫，須走 ``MaterialReturn`` 流程。
     """
     repo = _get_mr_repo(farm_id)
+    actor = _actor_uuid(request, req.actor_id)  # 雙模式：token 優先，否則沿用 body actor_id
     try:
         mr = repo.transition(
             material_request_id, "cancel",
-            actor_id=req.actor_id,
+            actor_id=actor,
             cancel_reason=req.cancel_reason,
         )
     except LookupError:
@@ -422,13 +465,18 @@ async def cancel_material_request(
     "/material-requests/{material_request_id}/returns",
     response_model=MaterialReturnResponse,
     status_code=201,
+    # WMOM-20260716-05c：退料入庫（atomic stock-in）＝總務庫管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def create_material_return(
     material_request_id: UUID,
     req: CreateMaterialReturn,
     farm_id: str = Query(..., min_length=1),
 ) -> MaterialReturnResponse:
-    """建退料記錄 + atomic 加回 stock（D3-Q4: 4 種分類）。"""
+    """建退料記錄 + atomic 加回 stock（D3-Q4: 4 種分類）。
+
+    ``returned_by``（誰退的，audit）沿用 body — 庫管 (TREASURY) 可代現場工程師登記退料。
+    """
     repo = _get_mr_repo(farm_id)
     try:
         ret = repo.add_return(
