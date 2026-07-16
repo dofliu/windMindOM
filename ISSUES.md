@@ -13,19 +13,35 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 15 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 83 |
-| **total (active)** | **97** |
+| done | 86 |
+| **total (active)** | **103** |
 
-最後更新：2026-06-07（**WMOM-20260607-04 done — FarmSelector component render 測試（EPIC-M5 測試覆蓋擴大）**）。autonomous worker session（2026-06-07 第四輪）：preflight 全綠（backend 638 / frontend 751、飛輪健康：上輪 EventComparisonView PR #98 已 auto-merge 進 main，baseline 自 719 推進到 751）。stack-aware：open PR 全為飛輪上線前 stale draft（#30–#68 共 21 筆），無進行中 WIP。決策樹 #1/#2/#3 皆無 → 落 #4 乾淨 autonomous 工作。接上輪 handoff「render 測試剩餘 untested 元件」清單下一支——`components/FarmSelector.tsx`（532 行，sidebar 風場切換器 + 新增風場 modal）。**新增** `components/__tests__/FarmSelector.test.tsx`（**39 tests**——初版 35 + code-reviewer 採納補 4，純測試零 production 變更）。**Mock 策略**：`useTheme` 用真實 ThemeProvider；`global.fetch` 以 `vi.fn` 路由三端點（`GET /api/farms` 列表·`POST /api/farms/{id}/activate` 切換·`POST /api/farms` 建立），用 `init.method` 區分同路徑 GET/POST，未預期 URL reject、`rejectAll` 驗容錯；`window.location` 整顆換成只有 `reload:vi.fn()` 的物件並 **afterEach 還原 `originalLocation`**（避免測試間洩漏）。覆蓋 mount fetch / trigger 殼層（GET 一次·aria-haspopup/expanded·active 名+額定 MW·無 active fallback 選擇風場/Select farm·en）/ 展開收合（初始無 listbox·點開 expanded=true·再點收·標頭風場專案+新增 zh/en·**click-outside mousedown 關閉**）/ farm 清單（option 數·名/台數/MW/地點·active aria-selected+使用中·非 active 無標記·en Active/turbines·空清單尚未建立風場/No farms）/ 切換（點非 active→POST activate+reload 一次·**點 active 自己 no-op**·activate 非 ok 不 reload）/ 新增 modal（開 dialog+關 dropdown·4 preset z72 預設 pressed·切 preset·name 空 Create disabled→輸入啟用·離岸 checkbox·**送出 POST body 驗 name+preset+is_offshore**·建立成功 onCreated 重新 fetch GET≥2·✕/取消/overlay 三關閉路徑·en 標題）/ 容錯（reject 不崩潰 fallback·reject 後仍可展開空狀態）。**眉角**：同路徑 `/api/farms` GET vs POST 用 `init.method` 分流；`window.location` 整顆替換需 afterEach 還原；option 用 farm 名 regex+`within` 縮範圍避多元素命中。code-reviewer 回 5 must+7 should+3 nice，**採納 9 / 駁回誤判 1（must#2 TS fewer-params-OK，tsc 0 error 實證）/ 婉拒 3**（must#5 `vi.spyOn(location.reload)` 在本 jsdom throw「Cannot redefine property」已 probe 實證→保留整顆 location 替換；must#6 module-level fetchMock 與既有慣例一致；should#4/6 switching guard / aria-expanded 版本差異 ROI 低），35→39 tests。**Verify**：`tsc` 0 error + `vitest` **790 passed**（751 baseline + 39 新，零 regression）+ `vite build` ✓；backend 未動 638 / 1 xfailed。issue_stats done 79→80 / total 93→94。**下一步**：render 測試剩餘 untested 元件（MaintenanceHub 439 / FaultInjectionPanel 555 / ui primitives）；非 render M5-2 ChromaDB（🟡）/ M5-5 `/field/` mobile Part B-2（🟡）/ stale PR triage（#30–#68 共 21 筆）。詳細 handoff 在 work-logs/2026-06/2026-06-07-farmselector-render-tests.md。
+最後更新：2026-07-16（**專案檢視 session — 4 PR 進 main #105-108**）。全 repo 檢視 → `docs/product/PROJECT_REVIEW_2026-07-16.md`（F1-F6）；P0 文件真相對齊 + CI 補 monitoring/physics（#106）；M6 決策簡報 + openopc2 GPL 標示（#107）；**M6-4 真 auth 基礎層 done**（#108，stdlib JWT+RBAC+login，非破壞，+34 tests，DEC-20260716-01）。全 backend **899 passed / 0 failed**。新增 issue：done WMOM-20260716-01/02/03、open WMOM-20260716-04/05/06（見下方 EPIC-M6）。**下一步**：auth follow-up（DB user store → router 強制授權 + 前端真登入）+ footprint CPU-torch pin（DEC-20260716-02）+ 客戶接觸（WMOM-20260503-05）。
+
+> 📁 前一筆詳細 changelog（2026-06-07/08，FarmSelector render 測試 + M5 大推進）已封存到 work-logs/2026-06/；各 issue 詳細紀錄保留於下方 `### WMOM-*` 區段。
 
 > 📁 更早一筆 changelog（WMOM-20260607-03 EventComparisonView）詳見 work-logs/2026-06/2026-06-07-eventcomparisonview-render-tests.md；各 issue 詳細紀錄仍保留於下方 `### WMOM-*` 區段，更早 session 的 changelog blurb 已封存到 `docs/legacy/issues_changelog_archive.md`。
 
 ---
 
 > 📁 更早的 session changelog 已封存到 [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)（避免本檔無限膨脹；完整 work-log 在 `work-logs/`）。
+
+---
+
+## 📌 2026-07-16 session 新增 issue（專案檢視 follow-up）
+
+**Done（#105-108）**
+- **WMOM-20260716-01** — 專案檢視（`PROJECT_REVIEW_2026-07-16.md` F1-F6）+ P0 onboarding 文件真相對齊 + CI 補 monitoring/physics（#105 #106）✅
+- **WMOM-20260716-02** — M6 部署決策簡報（auth/footprint）+ openopc2 GPL/體積標示 + footprint 量測（#107）✅
+- **WMOM-20260716-03** — M6-4 真 auth 基礎層：stdlib JWT + RBAC + login，非破壞（#108，DEC-20260716-01）✅
+
+**Open（auth / footprint follow-up）**
+- **WMOM-20260716-04** — 🔵 auth follow-up：DB-backed user store + admin 建帳 API（換掉 seeded store；介面已預留 `build_default_store()`，非破壞）
+- **WMOM-20260716-05** — 🟡 auth follow-up：router 逐支改 `get_current_actor`/`require_roles` 強制授權 + 前端 mock login 換真 `/api/auth/login`（**②③配套、會改行為，需劉老師在場排**）
+- **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 
 ---
 
@@ -58,7 +74,7 @@
 | M6-1 | **Friendly 運維廠商現場部署**（docker-compose 在客戶端跑起來） | 🟡 | 需客戶現場 |
 | M6-2 | **Z72 PLC 連線測試**（客戶端 OPC tunnel） | 🟡 | 需客戶 PLC |
 | M6-3 | **PostgreSQL backend 切換 + row-lock 驗證**（WMOM-20260509-F6） | 🔵 | 部署前；需 docker postgres |
-| M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login） | 🔵 | mock login 是 demo 用，production 需真 auth |
+| M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login）— **基礎層 done**（#108 WMOM-20260716-03，DEC-20260716-01）；剩 DB user store（-04）+ router 強制授權/前端真登入（-05）+ HTTPS | 🔵 | 基礎層非破壞已進 main；②③配套需在場排 |
 | M6-5 | **培訓 + 第一個月運轉 + 收反饋** | 🟡 | 需客戶 |
 | M6-6 | **第一份自動月報交業主** | 🔵 | reporting module 已 ready，需真資料驗證 |
 
