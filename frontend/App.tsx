@@ -38,6 +38,7 @@ import CostPage from './components/CostPage';
 import WorkflowPage from './components/workflow/WorkflowPage';
 import ReportsPage from './components/reporting/ReportsPage';
 import FieldPage from './components/field/FieldPage';
+import GuidedTourPage from './components/tour/GuidedTourPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { UserProvider } from './hooks/useCurrentUser';
 import { Sidebar, type NavItem } from './components/ui';
@@ -54,6 +55,7 @@ type ViewId =
   | 'reports'
   | 'field'
   | 'faults'
+  | 'tour'
   | 'settings';
 
 const PRIMARY_NAV: NavItem[] = [
@@ -69,6 +71,7 @@ const PRIMARY_NAV: NavItem[] = [
 const SECONDARY_NAV: NavItem[] = [
   { id: 'field', iconId: 'field', labelEn: 'Field', labelZh: '現場查詢' },
   { id: 'faults', iconId: 'faults', labelEn: 'Faults', labelZh: '故障模擬' },
+  { id: 'tour', iconId: 'tour', labelEn: 'Guided Tour', labelZh: '情境導覽' },
   { id: 'settings', iconId: 'settings', labelEn: 'Settings', labelZh: '設定' },
 ];
 
@@ -253,6 +256,8 @@ const AppShell: React.FC = () => {
         return <FieldPage lang={lang} />;
       case 'faults':
         return <FaultInjectionPanel lang={lang} />;
+      case 'tour':
+        return <GuidedTourPage lang={lang} />;
       case 'settings':
         return <SettingsPage settings={settings} onSave={saveSettings} lang={lang} />;
       default:

@@ -24,6 +24,7 @@ export type NavIconId =
   | 'history'
   | 'field'
   | 'faults'
+  | 'tour'
   | 'settings';
 
 export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }> = ({
@@ -75,6 +76,12 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
         <path d="M14 3v5h5" />
         {/* mini bar chart inside */}
         <path d="M9 17v-3M12 17v-6M15 17v-4" />
+      </g>
+    ),
+    tour: (
+      <g {...cap}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M10 8.5l5.5 3.5-5.5 3.5z" />
       </g>
     ),
     history: (
