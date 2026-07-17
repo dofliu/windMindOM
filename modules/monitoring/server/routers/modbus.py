@@ -1,6 +1,8 @@
 """Modbus TCP simulator server control API."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/modbus", tags=["modbus"])
@@ -16,7 +18,11 @@ class ModbusStartRequest(BaseModel):
     port: int = 5020
 
 
-@router.get("/status")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/status",
+    dependencies=[Depends(require_authenticated())],
+)
 async def modbus_status():
     """Get Modbus server status."""
     b = get_broker()
@@ -27,7 +33,11 @@ async def modbus_status():
     return b.simulator.modbus_server.get_status()
 
 
-@router.post("/start")
+# WMOM-20260716-05h-2：modbus 起停＝系統管理員（infra）
+@router.post(
+    "/start",
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
 async def modbus_start(req: ModbusStartRequest):
     """Start the Modbus TCP simulator server."""
     b = get_broker()
@@ -46,7 +56,11 @@ async def modbus_start(req: ModbusStartRequest):
     return {"status": "started", "port": req.port, "turbine_count": len(b.simulator.turbines)}
 
 
-@router.post("/stop")
+# WMOM-20260716-05h-2：modbus 起停＝系統管理員（infra）
+@router.post(
+    "/stop",
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
 async def modbus_stop():
     """Stop the Modbus TCP simulator server."""
     b = get_broker()
@@ -56,7 +70,11 @@ async def modbus_stop():
     return {"status": "stopped"}
 
 
-@router.get("/registers")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/registers",
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_register_map():
     """Get the Modbus register map (for documentation)."""
     from simulator.modbus_server import ModbusSimServer

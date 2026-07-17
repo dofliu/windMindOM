@@ -130,9 +130,14 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 - `reporting`（templates / monthly / annual-budget）→ `SUPERVISOR`（報表檢視＝管理層）
 - `knowledge`（alert / query / info）→ 任何登入者（警報 RAG，現場工程師必需）
 
-> **仍待做**：monitoring 9 支 router（61 端點，-05h-2）。
-> 原則：讀取（監控檢視 / i18n / export）→ 任何登入者；控制 / 故障注入 / farm 建立 / 設定變更 →
-> `SUPERVISOR`；破壞性 / infra（刪 farm、儲存清理、modbus 起停）→ `ADMIN`。cutover 前補（計畫 §2 P1-c）。
+**-05h-2（monitoring 9 支 router，61 端點）**：
+- 讀取（turbines / faults·scenarios·active / farms 檢視+export / config 檢視 / export / i18n / control status / modbus status / maintenance 檢視）→ **任何登入者**（34 端點）
+- 控制 / 故障注入 / farm 建立·clone / 資料集生成 / 設定變更 / 派工建單改單（control command·curtail、faults inject·clear·test-run、farms create·patch·activate·clone·datasets、config 各 POST、maintenance create·patch）→ `SUPERVISOR`（23 端點）
+- 破壞性 / infra（farms `DELETE`、config `storage/maintenance`、modbus `start`·`stop`）→ `ADMIN`（4 端點）
+
+> **-05h 全數完成**：4 支 workflow router + inventory 料件管理 + cost/reporting/knowledge + monitoring 9 支，
+> 各 router 讀寫端點皆已掛 enforce-aware gate（enforce=false 全放行）。cutover（-05i，翻 `WMOM_AUTH_ENFORCE=true`）
+> 前請對本 §4.1 逐列確認。**尚未做**：`/field/` 現場登入（-05g，需 D5）、cutover（-05i，需你在場）。
 
 #### 註記：approval 的授權分兩層（-05e）
 

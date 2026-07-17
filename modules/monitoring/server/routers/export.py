@@ -1,7 +1,8 @@
 import csv
 import io
 import json
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from modules.auth.dependencies import require_authenticated
 from fastapi.responses import StreamingResponse
 from typing import Optional
 
@@ -51,7 +52,11 @@ EVENT_SEVERITY = {
 }
 
 
-@router.get("/snapshot")
+@router.get(
+    "/snapshot",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def export_snapshot():
     """Export current state of all turbines (JSON with full SCADA tags)."""
     turbines = get_broker().get_all_turbines()
@@ -61,7 +66,11 @@ async def export_snapshot():
     }
 
 
-@router.get("/history")
+@router.get(
+    "/history",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def export_history(
     turbine_id: str = Query(..., description="Turbine ID (e.g. WT001)"),
     start: Optional[str] = Query(None, description="ISO datetime start"),
@@ -83,7 +92,11 @@ async def export_history(
     return {"turbineId": turbine_id, "count": len(rows), "data": rows}
 
 
-@router.get("/events")
+@router.get(
+    "/events",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def export_events(
     turbine_id: Optional[str] = Query(None, description="Turbine ID filter"),
     start: Optional[str] = Query(None, description="ISO datetime start"),
