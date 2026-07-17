@@ -24,7 +24,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 
-from modules.auth.dependencies import require_role, resolve_actor_id_optional
+from modules.auth.dependencies import (
+    require_authenticated,
+    require_role,
+    resolve_actor_id_optional,
+)
 from modules.auth.roles import Role
 from modules.workflow.repository import (
     InsufficientStock,
@@ -94,6 +98,8 @@ def _get_repo(farm_id: str) -> InventoryRepository:
     "/warehouses",
     response_model=WarehouseResponse,
     status_code=201,
+    # WMOM-20260716-05h：建倉＝總務庫管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def create_warehouse(req: CreateWarehouseRequest) -> WarehouseResponse:
     repo = _get_repo(req.farm_id)
@@ -106,7 +112,12 @@ async def create_warehouse(req: CreateWarehouseRequest) -> WarehouseResponse:
     return WarehouseResponse.model_validate(wh)
 
 
-@router.get("/warehouses", response_model=WarehouseListResponse)
+@router.get(
+    "/warehouses",
+    response_model=WarehouseListResponse,
+    # WMOM-20260716-05h：查詢＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_warehouses(
     farm_id: str = Query(..., min_length=1),
 ) -> WarehouseListResponse:
@@ -130,6 +141,8 @@ async def list_warehouses(
     "/inventory",
     response_model=InventoryItemResponse,
     status_code=201,
+    # WMOM-20260716-05h：建料件主檔＝總務庫管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def create_inventory_item(
     req: CreateInventoryItemRequest,
@@ -158,7 +171,11 @@ async def create_inventory_item(
     return InventoryItemResponse.model_validate(item)
 
 
-@router.get("/inventory", response_model=InventoryItemListResponse)
+@router.get(
+    "/inventory",
+    response_model=InventoryItemListResponse,
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_inventory_items(
     farm_id: str = Query(..., min_length=1),
     warehouse_id: UUID | None = None,
@@ -184,6 +201,7 @@ async def list_inventory_items(
 @router.get(
     "/inventory/{item_id}",
     response_model=InventoryItemResponse,
+    dependencies=[Depends(require_authenticated())],
 )
 async def get_inventory_item(
     item_id: UUID,
@@ -201,6 +219,8 @@ async def get_inventory_item(
 @router.patch(
     "/inventory/{item_id}",
     response_model=InventoryItemResponse,
+    # WMOM-20260716-05h：改料件 metadata＝總務庫管（ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.TREASURY))],
 )
 async def update_inventory_metadata(
     item_id: UUID,
@@ -278,6 +298,7 @@ async def adjust_inventory(
 @router.get(
     "/inventory/{item_id}/adjustments",
     response_model=AdjustmentLogListResponse,
+    dependencies=[Depends(require_authenticated())],
 )
 async def list_inventory_adjustments(
     item_id: UUID,

@@ -235,7 +235,12 @@ async def create_material_request(req: CreateMaterialRequest) -> MaterialRequest
     return _build_mr_response(mr, repo)
 
 
-@router.get("/material-requests", response_model=MaterialRequestListResponse)
+@router.get(
+    "/material-requests",
+    response_model=MaterialRequestListResponse,
+    # WMOM-20260716-05h：查詢領料單＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_material_requests(
     farm_id: str = Query(..., min_length=1),
     work_order_id: UUID | None = None,
@@ -257,6 +262,7 @@ async def list_material_requests(
 @router.get(
     "/material-requests/{material_request_id}",
     response_model=MaterialRequestResponse,
+    dependencies=[Depends(require_authenticated())],
 )
 async def get_material_request(
     material_request_id: UUID,
