@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from modules.auth.dependencies import require_authenticated
 from typing import Optional, List
 from datetime import datetime, timedelta
 from server.models import TurbineReading, FarmStatus
@@ -12,19 +13,33 @@ def get_broker():
     return broker
 
 
-@router.get("", response_model=List[TurbineReading])
+@router.get(
+    "",
+    response_model=List[TurbineReading],
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_turbines():
     """List all turbines with latest data."""
     return get_broker().get_all_turbines()
 
 
-@router.get("/farm-status", response_model=FarmStatus)
+@router.get(
+    "/farm-status",
+    response_model=FarmStatus,
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def farm_status():
     """Get farm-level KPIs."""
     return get_broker().get_farm_status()
 
 
-@router.get("/farm-trend")
+@router.get(
+    "/farm-trend",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def farm_trend(
     time_range: str = Query("5m", alias="range", description="Time range: 5m, 1h, 12h, 1d"),
     points: int = Query(150, ge=10, le=500, description="Target data points"),
@@ -117,7 +132,12 @@ async def farm_trend(
     return {"range": time_range, "count": len(series), "data": series}
 
 
-@router.get("/{turbine_id}", response_model=TurbineReading)
+@router.get(
+    "/{turbine_id}",
+    response_model=TurbineReading,
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_turbine(turbine_id: str):
     """Get single turbine current data."""
     reading = get_broker().get_turbine(turbine_id)
@@ -126,7 +146,11 @@ async def get_turbine(turbine_id: str):
     return reading
 
 
-@router.get("/{turbine_id}/history")
+@router.get(
+    "/{turbine_id}/history",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_turbine_history(
     turbine_id: str,
     start: Optional[str] = Query(None, description="ISO datetime start"),
@@ -140,7 +164,11 @@ async def get_turbine_history(
     return {"turbineId": turbine_id, "count": len(rows), "data": rows, "events": events}
 
 
-@router.get("/{turbine_id}/trend")
+@router.get(
+    "/{turbine_id}/trend",
+    # WMOM-20260716-05h-2：監控檢視＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_turbine_trend(
     turbine_id: str,
     tags: str = Query("WTUR_TotPwrAt,WMET_WSpeedNac", description="Comma-separated SCADA tag IDs"),

@@ -4,7 +4,9 @@ Maintenance work order and technician management API.
 Replaces the frontend mock data with real persistent storage.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -43,7 +45,11 @@ class CreateTechnicianRequest(BaseModel):
 
 # ── Work Order Endpoints ──
 
-@router.get("/work-orders")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/work-orders",
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_work_orders(
     status: Optional[str] = Query(None, description="Filter by status"),
     turbine_id: Optional[int] = Query(None, description="Filter by turbine"),
@@ -55,7 +61,11 @@ async def list_work_orders(
     return {"count": len(orders), "data": orders}
 
 
-@router.post("/work-orders")
+# WMOM-20260716-05h-2：建單／改單＝主管
+@router.post(
+    "/work-orders",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def create_work_order(req: CreateWorkOrderRequest):
     """Create a new work order and optionally dispatch a technician."""
     storage = get_broker().storage
@@ -82,7 +92,11 @@ async def create_work_order(req: CreateWorkOrderRequest):
     return wo
 
 
-@router.get("/work-orders/{work_order_id}")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/work-orders/{work_order_id}",
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_work_order(work_order_id: str):
     """Get a single work order by ID."""
     storage = get_broker().storage
@@ -92,7 +106,11 @@ async def get_work_order(work_order_id: str):
     return wo
 
 
-@router.patch("/work-orders/{work_order_id}")
+# WMOM-20260716-05h-2：建單／改單＝主管
+@router.patch(
+    "/work-orders/{work_order_id}",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def update_work_order(work_order_id: str, req: UpdateWorkOrderRequest):
     """Update work order status, notes, or photos."""
     storage = get_broker().storage
@@ -132,7 +150,11 @@ async def update_work_order(work_order_id: str, req: UpdateWorkOrderRequest):
 
 # ── Technician Endpoints ──
 
-@router.get("/technicians")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/technicians",
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_technicians():
     """List all technicians."""
     storage = get_broker().storage
@@ -140,7 +162,11 @@ async def list_technicians():
     return {"count": len(techs), "data": techs}
 
 
-@router.post("/technicians")
+# WMOM-20260716-05h-2：建單／改單＝主管
+@router.post(
+    "/technicians",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def create_technician(req: CreateTechnicianRequest):
     """Create a new technician."""
     storage = get_broker().storage
@@ -148,7 +174,11 @@ async def create_technician(req: CreateTechnicianRequest):
     return tech
 
 
-@router.patch("/technicians/{technician_id}/status")
+# WMOM-20260716-05h-2：建單／改單＝主管
+@router.patch(
+    "/technicians/{technician_id}/status",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def update_technician_status(technician_id: int, req: UpdateTechnicianRequest):
     """Update technician duty status."""
     storage = get_broker().storage
@@ -162,7 +192,11 @@ async def update_technician_status(technician_id: int, req: UpdateTechnicianRequ
 
 # ── Multi-Turbine Event Comparison ──
 
-@router.get("/events/compare")
+# WMOM-20260716-05h-2：檢視＝任何登入者
+@router.get(
+    "/events/compare",
+    dependencies=[Depends(require_authenticated())],
+)
 async def compare_turbine_events(
     turbine_ids: str = Query(..., description="Comma-separated turbine IDs (e.g. WT001,WT002,WT003)"),
     start: Optional[str] = Query(None, description="ISO datetime start"),

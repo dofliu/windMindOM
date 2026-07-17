@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -10,7 +12,11 @@ def get_broker():
     return broker
 
 
-@router.get("")
+@router.get(
+    "",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_config():
     """Get current data source configuration."""
     b = get_broker()
@@ -21,7 +27,11 @@ async def get_config():
     }
 
 
-@router.post("/datasource")
+@router.post(
+    "/datasource",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_datasource(config: DataSourceConfig):
     """Switch data source mode (simulation / opc_da)."""
     b = get_broker()
@@ -29,7 +39,11 @@ async def set_datasource(config: DataSourceConfig):
     return {"status": "ok", "mode": b.mode.value}
 
 
-@router.post("/simulation")
+@router.post(
+    "/simulation",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_simulation(config: SimulationConfig):
     """Update simulation parameters. Only restarts if turbine count changed."""
     b = get_broker()
@@ -57,7 +71,11 @@ async def set_simulation(config: SimulationConfig):
     }
 
 
-@router.get("/wind")
+@router.get(
+    "/wind",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_wind_status():
     """Get current wind model status (auto/manual, override values)."""
     b = get_broker()
@@ -66,7 +84,11 @@ async def get_wind_status():
     return b.simulator.wind_model.get_status()
 
 
-@router.post("/wind")
+@router.post(
+    "/wind",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_wind(req: WindOverrideRequest):
     """Set wind conditions manually, or activate a profile.
 
@@ -98,7 +120,11 @@ async def set_wind(req: WindOverrideRequest):
     return wm.get_status()
 
 
-@router.post("/wind/clear")
+@router.post(
+    "/wind/clear",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def clear_wind():
     """Return to automatic daily pattern wind model."""
     b = get_broker()
@@ -116,7 +142,11 @@ async def clear_wind():
     return {"status": "ok", "mode": "auto"}
 
 
-@router.get("/simulation/time-scale")
+@router.get(
+    "/simulation/time-scale",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_time_scale():
     """Get current simulation time scale."""
     b = get_broker()
@@ -125,7 +155,11 @@ async def get_time_scale():
     return {"time_scale": b.simulator.time_scale}
 
 
-@router.post("/simulation/time-scale")
+@router.post(
+    "/simulation/time-scale",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_time_scale(body: dict):
     """Set simulation time acceleration factor.
 
@@ -143,7 +177,11 @@ async def set_time_scale(body: dict):
     return {"time_scale": b.simulator.time_scale}
 
 
-@router.post("/simulation/generate-bulk")
+@router.post(
+    "/simulation/generate-bulk",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def generate_bulk(body: dict):
     """Generate bulk historical data at maximum speed.
 
@@ -189,7 +227,11 @@ async def generate_bulk(body: dict):
     }
 
 
-@router.get("/grid")
+@router.get(
+    "/grid",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_grid_status():
     """Return current grid model status including mode, profile, and overrides."""
     b = get_broker()
@@ -198,7 +240,11 @@ async def get_grid_status():
     return b.simulator.grid_model.get_status()
 
 
-@router.post("/grid")
+@router.post(
+    "/grid",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_grid(req: GridOverrideRequest):
     """Apply grid profile or manual frequency/voltage override."""
     b = get_broker()
@@ -221,7 +267,11 @@ async def set_grid(req: GridOverrideRequest):
     return gm.get_status()
 
 
-@router.post("/grid/clear")
+@router.post(
+    "/grid/clear",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def clear_grid():
     """Clear grid overrides and return to auto mode."""
     b = get_broker()
@@ -243,7 +293,11 @@ async def clear_grid():
 
 # ─── Storage & Session Info ───────────────────────────────────────────
 
-@router.get("/storage/stats")
+@router.get(
+    "/storage/stats",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_storage_stats():
     """Get database storage statistics (row counts, size)."""
     b = get_broker()
@@ -254,7 +308,11 @@ async def get_storage_stats():
     return stats
 
 
-@router.get("/sessions")
+@router.get(
+    "/sessions",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_sessions():
     """List recent sessions."""
     b = get_broker()
@@ -263,7 +321,11 @@ async def list_sessions():
     return {"active_session_id": active["id"] if active else None, "sessions": sessions}
 
 
-@router.post("/storage/maintenance")
+@router.post(
+    "/storage/maintenance",
+    # WMOM-20260716-05h-2：儲存清理＝系統管理員（破壞性）
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
 async def run_maintenance():
     """Manually trigger downsampling and cleanup."""
     b = get_broker()
@@ -278,7 +340,11 @@ async def run_maintenance():
 
 # ─── Turbine Specification ─────────────────────────────────────────────
 
-@router.get("/turbine-spec")
+@router.get(
+    "/turbine-spec",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_turbine_spec():
     """Get current turbine specification."""
     b = get_broker()
@@ -290,7 +356,11 @@ async def get_turbine_spec():
     return model.spec.to_dict()
 
 
-@router.post("/turbine-spec")
+@router.post(
+    "/turbine-spec",
+    # WMOM-20260716-05h-2：設定變更＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_turbine_spec(spec_dict: dict):
     """Update turbine specifications for all turbines.
 
@@ -338,7 +408,11 @@ async def set_turbine_spec(spec_dict: dict):
     return {"status": "ok", "spec": new_spec.to_dict(), "session_id": b._session_id}
 
 
-@router.get("/turbine-spec/presets")
+@router.get(
+    "/turbine-spec/presets",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_turbine_presets():
     """List available turbine specification presets."""
     from simulator.physics import TURBINE_PRESETS

@@ -1,6 +1,8 @@
 """Turbine operator control API — stop/start/reset/curtail/service mode."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from pydantic import BaseModel
 from typing import Optional
 
@@ -25,7 +27,11 @@ class CurtailCommand(BaseModel):
     powerLimitKw: Optional[float] = None  # None = remove curtailment
 
 
-@router.post("/command")
+@router.post(
+    "/command",
+    # WMOM-20260716-05h-2：操作指令＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def send_command(cmd: TurbineCommand):
     """Send operator command to a turbine.
 
@@ -79,7 +85,11 @@ async def send_command(cmd: TurbineCommand):
     }
 
 
-@router.post("/curtail")
+@router.post(
+    "/curtail",
+    # WMOM-20260716-05h-2：限載＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def set_curtailment(cmd: CurtailCommand):
     """Set per-turbine power curtailment (限載).
 
@@ -111,7 +121,11 @@ async def set_curtailment(cmd: CurtailCommand):
     }
 
 
-@router.get("/{turbine_id}/status")
+@router.get(
+    "/{turbine_id}/status",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_control_status(turbine_id: str):
     """Get current operator control status for a turbine."""
     b = get_broker()

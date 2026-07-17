@@ -3,7 +3,9 @@
 Includes test plan system for automated fault sequences.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from server.models import FaultInjectionRequest, FaultClearRequest
 from simulator.physics.fault_engine import TEST_PLANS
 
@@ -16,7 +18,11 @@ def get_broker():
     return broker
 
 
-@router.get("/scenarios")
+@router.get(
+    "/scenarios",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_scenarios():
     """List all available fault scenarios (for UI dropdown)."""
     b = get_broker()
@@ -38,7 +44,11 @@ async def list_scenarios():
     ]
 
 
-@router.post("/inject")
+@router.post(
+    "/inject",
+    # WMOM-20260716-05h-2：故障注入＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def inject_fault(req: FaultInjectionRequest):
     """Inject a fault into a specific turbine."""
     b = get_broker()
@@ -71,7 +81,11 @@ async def inject_fault(req: FaultInjectionRequest):
     return {"status": "injected", "scenarioId": req.scenarioId, "turbineId": req.turbineId}
 
 
-@router.get("/active")
+@router.get(
+    "/active",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_active_faults():
     """Get status of all active faults across the farm."""
     b = get_broker()
@@ -80,7 +94,11 @@ async def get_active_faults():
     return b.simulator.fault_engine.get_fault_status()
 
 
-@router.post("/clear")
+@router.post(
+    "/clear",
+    # WMOM-20260716-05h-2：清除故障＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def clear_faults(req: FaultClearRequest):
     """Clear faults. Omit both fields to clear all."""
     b = get_broker()
@@ -109,7 +127,11 @@ async def clear_faults(req: FaultClearRequest):
 
 # ─── Test Plans ───────────────────────────────────────────────────────
 
-@router.get("/test-plans")
+@router.get(
+    "/test-plans",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_test_plans():
     """List available fault injection test plans."""
     plans = []
@@ -128,7 +150,11 @@ async def list_test_plans():
     return plans
 
 
-@router.post("/test-plans/{plan_id}/run")
+@router.post(
+    "/test-plans/{plan_id}/run",
+    # WMOM-20260716-05h-2：測試計畫執行＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def run_test_plan(plan_id: str, body: dict = {}):
     """Run a test plan: generate bulk data with scheduled fault injections.
 

@@ -9,8 +9,11 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 
 router = APIRouter(prefix="/api/farms", tags=["farms"])
 
@@ -34,7 +37,11 @@ def _sanitize_id(name: str) -> str:
 
 # ── List / Get ──────────────────────────────────────────────────────────
 
-@router.get("")
+@router.get(
+    "",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_farms():
     """List all wind farm projects."""
     reg = _get_registry()
@@ -46,7 +53,11 @@ async def list_farms():
     }
 
 
-@router.get("/active")
+@router.get(
+    "/active",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_active_farm():
     """Get the currently active wind farm."""
     reg = _get_registry()
@@ -57,7 +68,11 @@ async def get_active_farm():
     return farm.to_dict() | {"is_active": True}
 
 
-@router.get("/{farm_id}")
+@router.get(
+    "/{farm_id}",
+    # WMOM-20260716-05h-2：檢視＝任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_farm(farm_id: str):
     """Get details of a specific wind farm."""
     farm = _get_registry().get_farm(farm_id)
@@ -69,7 +84,11 @@ async def get_farm(farm_id: str):
 
 # ── Create ──────────────────────────────────────────────────────────────
 
-@router.post("")
+@router.post(
+    "",
+    # WMOM-20260716-05h-2：farm 建立＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def create_farm(body: dict):
     """Create a new wind farm project.
 
@@ -113,7 +132,11 @@ async def create_farm(body: dict):
 
 # ── Update ──────────────────────────────────────────────────────────────
 
-@router.patch("/{farm_id}")
+@router.patch(
+    "/{farm_id}",
+    # WMOM-20260716-05h-2：farm 編輯＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def update_farm(farm_id: str, body: dict):
     """Update farm metadata (name, description, location, turbine_spec, etc.)."""
     farm = _get_registry().update_farm(farm_id, **body)
@@ -124,7 +147,11 @@ async def update_farm(farm_id: str, body: dict):
 
 # ── Delete ──────────────────────────────────────────────────────────────
 
-@router.delete("/{farm_id}")
+@router.delete(
+    "/{farm_id}",
+    # WMOM-20260716-05h-2：刪 farm＝系統管理員（破壞性）
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
 async def delete_farm(farm_id: str):
     """Delete a wind farm and all its data. Requires confirmation."""
     reg = _get_registry()
@@ -138,7 +165,11 @@ async def delete_farm(farm_id: str):
 
 # ── Activate ────────────────────────────────────────────────────────────
 
-@router.post("/{farm_id}/activate")
+@router.post(
+    "/{farm_id}/activate",
+    # WMOM-20260716-05h-2：切換啟用 farm＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def activate_farm(farm_id: str):
     """Switch the simulator to this wind farm."""
     b = _get_broker()
@@ -151,7 +182,11 @@ async def activate_farm(farm_id: str):
 
 # ── Clone ───────────────────────────────────────────────────────────────
 
-@router.post("/{farm_id}/clone")
+@router.post(
+    "/{farm_id}/clone",
+    # WMOM-20260716-05h-2：clone farm＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def clone_farm(farm_id: str, body: dict):
     """Clone a farm. Options: new_name (required), new_farm_id, include_data (bool)."""
     reg = _get_registry()
@@ -172,7 +207,11 @@ async def clone_farm(farm_id: str, body: dict):
 
 # ── Export ──────────────────────────────────────────────────────────────
 
-@router.post("/{farm_id}/export")
+@router.post(
+    "/{farm_id}/export",
+    # WMOM-20260716-05h-2：匯出＝讀取，任何登入者
+    dependencies=[Depends(require_authenticated())],
+)
 async def export_farm(farm_id: str, body: dict = {}):
     """Export a farm as a zip file containing CSV data, events, and config.
 
@@ -224,7 +263,11 @@ async def export_farm(farm_id: str, body: dict = {}):
 
 # ── Dataset Generation ──────────────────────────────────────────────────
 
-@router.post("/{farm_id}/datasets/generate")
+@router.post(
+    "/{farm_id}/datasets/generate",
+    # WMOM-20260716-05h-2：產生資料集＝主管
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def generate_dataset(farm_id: str, body: dict):
     """Generate a complete simulated dataset for a farm scenario.
 
