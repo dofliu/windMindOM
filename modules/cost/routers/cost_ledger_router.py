@@ -15,8 +15,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Callable
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from modules.auth.dependencies import require_role
+from modules.auth.roles import Role
 from modules.cost.repository import (
     CostLedgerCategory,
     CostLedgerRepository,
@@ -75,7 +77,12 @@ def _get_repo(farm_id: str) -> CostLedgerRepository:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/ledger", response_model=CostLedgerListResponse)
+@router.get(
+    "/ledger",
+    response_model=CostLedgerListResponse,
+    # WMOM-20260716-05h：成本檢視＝管理層（SUPERVISOR＋，ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def list_ledger_entries(
     farm_id: str = Query(..., min_length=1),
     from_date: datetime | None = Query(default=None, alias="from"),
@@ -111,7 +118,11 @@ async def list_ledger_entries(
     )
 
 
-@router.get("/ledger/summary", response_model=CostLedgerSummaryResponse)
+@router.get(
+    "/ledger/summary",
+    response_model=CostLedgerSummaryResponse,
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def cost_ledger_summary(
     farm_id: str = Query(..., min_length=1),
     from_date: datetime | None = Query(default=None, alias="from"),

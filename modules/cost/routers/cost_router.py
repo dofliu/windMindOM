@@ -20,8 +20,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from modules.auth.dependencies import require_role
+from modules.auth.roles import Role
 from modules.cost.adapter import (
     EngineParams,
     FarmDatasetMeta,
@@ -109,7 +111,12 @@ def _adapter_meta_to_schema(m: FarmDatasetMeta) -> DatasetMeta:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.post("/forecast", response_model=CostForecastResponse)
+@router.post(
+    "/forecast",
+    response_model=CostForecastResponse,
+    # WMOM-20260716-05h：成本檢視＝管理層（SUPERVISOR＋，ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def cost_forecast(req: CostForecastRequest) -> CostForecastResponse:
     """跑 cost calculation，回 6 個 top-level metric + 4 季 breakdown + dataset_meta。
 
@@ -132,7 +139,11 @@ async def cost_forecast(req: CostForecastRequest) -> CostForecastResponse:
     return CostForecastResponse(**cost_result_to_response(result), dataset_meta=meta)
 
 
-@router.post("/lcoe", response_model=LCOEResponse)
+@router.post(
+    "/lcoe",
+    response_model=LCOEResponse,
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def cost_lcoe(req: LCOERequest) -> LCOEResponse:
     """跑 K13 cost + LCOE 計算，回 LCOE + CAPEX + OPEX NPV。
 
@@ -166,7 +177,11 @@ async def cost_lcoe(req: LCOERequest) -> LCOEResponse:
     return LCOEResponse(**lcoe_result_to_response(lcoe), dataset_meta=meta)
 
 
-@router.post("/monte-carlo", response_model=MonteCarloResponse)
+@router.post(
+    "/monte-carlo",
+    response_model=MonteCarloResponse,
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def cost_monte_carlo(req: MonteCarloRequest) -> MonteCarloResponse:
     """跑 Monte Carlo 風險評估，回 deterministic + percentiles (P10/P50/P90)。
 
@@ -191,7 +206,11 @@ async def cost_monte_carlo(req: MonteCarloRequest) -> MonteCarloResponse:
     return MonteCarloResponse(**mc_result_to_response(mc), dataset_meta=meta)
 
 
-@router.post("/var-fluct", response_model=VarFluctResponse)
+@router.post(
+    "/var-fluct",
+    response_model=VarFluctResponse,
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def cost_var_fluct(req: VarFluctRequest) -> VarFluctResponse:
     """跑 lifetime year-by-year 成本模擬，回 20 年 yearly + summary NPV。
 
