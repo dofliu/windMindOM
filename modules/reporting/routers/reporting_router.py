@@ -13,8 +13,11 @@ import logging
 import re
 from typing import Callable, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+
+from modules.auth.dependencies import require_role
+from modules.auth.roles import Role
 
 from modules.cost.repository.cost_ledger_repository import (
     CostLedgerRepository,
@@ -137,7 +140,12 @@ _AVAILABLE_TEMPLATES = [
 ]
 
 
-@router.get("/templates", response_model=ReportTemplateListResponse)
+@router.get(
+    "/templates",
+    response_model=ReportTemplateListResponse,
+    # WMOM-20260716-05h：報表檢視＝管理層（SUPERVISOR＋，ADMIN 全權）。enforce=false 放行。
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def list_templates() -> ReportTemplateListResponse:
     """列出可用 report templates。"""
     return ReportTemplateListResponse(
@@ -146,7 +154,10 @@ async def list_templates() -> ReportTemplateListResponse:
     )
 
 
-@router.post("/monthly")
+@router.post(
+    "/monthly",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def generate_monthly_report(
     farm_id: str = Query(..., min_length=1),
     year: int = Query(..., ge=2000, le=2100),
@@ -204,7 +215,10 @@ async def generate_monthly_report(
     )
 
 
-@router.post("/annual-budget")
+@router.post(
+    "/annual-budget",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
 async def generate_annual_budget(
     farm_id: str = Query(..., min_length=1),
     year: int = Query(..., ge=2000, le=2100),

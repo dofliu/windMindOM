@@ -25,8 +25,9 @@ import logging
 import os
 from collections.abc import Callable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from modules.auth.dependencies import require_authenticated
 from modules.knowledge import (
     build_baseline_alert_handler,
     build_chroma_alert_handler,
@@ -110,7 +111,12 @@ def _get_handler() -> AlertHandler:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.post("/alert", response_model=AlertRagResult)
+@router.post(
+    "/alert",
+    response_model=AlertRagResult,
+    # WMOM-20260716-05h：警報 RAG＝任何登入者（現場工程師必需）。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def query_by_alert(event: AlertEvent) -> AlertRagResult:
     """警報事件 → 自動檢索手冊處置段落（M5-6 核心）。
 
@@ -121,7 +127,11 @@ async def query_by_alert(event: AlertEvent) -> AlertRagResult:
     return handler.on_alert(event)
 
 
-@router.post("/query", response_model=KnowledgeQueryResponse)
+@router.post(
+    "/query",
+    response_model=KnowledgeQueryResponse,
+    dependencies=[Depends(require_authenticated())],
+)
 async def query_knowledge(query: RetrievalQuery) -> KnowledgeQueryResponse:
     """手動檢索（現場工程師自行打關鍵字 / 告警碼查手冊）。"""
     handler = _get_handler()
@@ -135,7 +145,11 @@ async def query_knowledge(query: RetrievalQuery) -> KnowledgeQueryResponse:
     )
 
 
-@router.get("/info", response_model=KnowledgeInfoResponse)
+@router.get(
+    "/info",
+    response_model=KnowledgeInfoResponse,
+    dependencies=[Depends(require_authenticated())],
+)
 async def knowledge_info() -> KnowledgeInfoResponse:
     """回報目前 RAG 策略 / retriever 來源（前端標示 baseline 模式用）。"""
     handler = _get_handler()
