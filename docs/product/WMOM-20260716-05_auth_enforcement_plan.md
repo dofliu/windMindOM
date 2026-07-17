@@ -120,7 +120,14 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 > 原則：**動 stock（出/入庫）= TREASURY**、**現場動作（建單/送簽/收料/開工/回報）= 任何登入者或含 EMPLOYEE**、
 > **派工 / 生命週期管控（結案/取消/駁回/重開）= LEADER/SUPERVISOR**、**建單/完工 = 現場+管理層（庫管除外）**。
 > 4 支 workflow router（inventory / material_request / approval / work_order）皆已依此分類遷移。
-> **讀取端點（各 router 的 list/get）之授權尚未掛**——延後至 -05h，cutover 前補（見計畫 §2 P1-c）。
+
+**-05h-1（workflow 收尾）**：補上 workflow router 的讀取端點與 inventory 料件管理寫入：
+- `work_order` / `material_request` / `inventory` 的 `list` / `get`（含 warehouses / adjustments）→ 任何登入者
+- `inventory` 建倉 `create_warehouse` / 建料件 `create_inventory_item` / 改 metadata `update_inventory_metadata` → `TREASURY`（庫管管理料件主檔）
+
+> **其他 router（monitoring 9 支 / cost / reporting / knowledge，共 73 端點）之授權仍待做**——
+> 原則：讀取（監控檢視 / i18n / 查詢）→ 任何登入者；控制 / 故障注入 / farm 建立 / 設定變更 →
+> `SUPERVISOR`；破壞性 / infra（刪 farm、儲存清理、modbus 起停）→ `ADMIN`。cutover 前補（計畫 §2 P1-c）。
 
 #### 註記：approval 的授權分兩層（-05e）
 

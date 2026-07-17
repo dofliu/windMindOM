@@ -293,7 +293,12 @@ async def create_work_order(req: CreateWorkOrderRequest) -> WorkOrderResponse:
     return WorkOrderResponse.model_validate(wo)
 
 
-@router.get("/work-orders", response_model=WorkOrderListResponse)
+@router.get(
+    "/work-orders",
+    response_model=WorkOrderListResponse,
+    # WMOM-20260716-05h：查詢工單＝任何登入者。enforce=false 放行。
+    dependencies=[Depends(require_authenticated())],
+)
 async def list_work_orders(
     farm_id: str = Query(..., min_length=1),
     turbine_id: str | None = None,
@@ -326,7 +331,11 @@ async def list_work_orders(
     )
 
 
-@router.get("/work-orders/{work_order_id}", response_model=WorkOrderResponse)
+@router.get(
+    "/work-orders/{work_order_id}",
+    response_model=WorkOrderResponse,
+    dependencies=[Depends(require_authenticated())],
+)
 async def get_work_order(
     work_order_id: UUID, farm_id: str = Query(..., min_length=1)
 ) -> WorkOrderResponse:

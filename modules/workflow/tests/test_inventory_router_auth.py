@@ -108,3 +108,35 @@ def test_enforced_admin_ok(client_item, monkeypatch):
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     client, item_id = client_item
     assert _adjust(client, item_id, body_actor=None, headers=_bearer("admin", str(uuid4()))).status_code == 200
+
+
+# ── WMOM-20260716-05h：讀取端點 + 料件管理寫入端點的 gate ──────────────────
+def test_list_read_enforced_no_token_401(client_item, monkeypatch):
+    """查詢料件（read gate）：enforce=true 無 token → 401（-05h）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    client, _ = client_item
+    assert client.get("/api/workflow/inventory", params={"farm_id": "changhua"}).status_code == 401
+
+
+def test_list_read_enforced_token_ok(client_item, monkeypatch):
+    """查詢料件：enforce=true 有 token（任何角色）→ 200。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    client, _ = client_item
+    resp = client.get(
+        "/api/workflow/inventory",
+        params={"farm_id": "changhua"},
+        headers=_bearer("employee", str(uuid4())),
+    )
+    assert resp.status_code == 200
+
+
+def test_create_item_enforced_employee_403(client_item, monkeypatch):
+    """建料件主檔（write gate＝TREASURY）：enforce=true employee → 403（-05h）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    client, _ = client_item
+    resp = client.post(
+        "/api/workflow/inventory",
+        json={"sku": "X", "name": "n", "unit": "piece", "farm_id": "changhua"},
+        headers=_bearer("employee", str(uuid4())),
+    )
+    assert resp.status_code == 403
