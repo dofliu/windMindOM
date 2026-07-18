@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 16 |
-| in_progress | 4 |
+| open | 15 |
+| in_progress | 3 |
 | blocked | 0 |
-| done | 88 |
+| done | 90 |
 | **total (active)** | **108** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
@@ -50,12 +50,16 @@
 > 用戶實測機組資料 → 反映風況設定/呈現 6 點問題 → 深挖出「連續即時模擬 + 持續落地」的架構質疑。
 > 拍板 **DEC-20260718-01：模擬改雙軌（Scenario 批次生成為主 / Live 實接連續落地）**。
 
-**In progress / Open**
+**Done**
 - **WMOM-20260718-01** — 🔵 修「Settings 改風速對 sim 無反應」：`baseWindSpeed` 前端 `simChanged`
-  偵測漏掉 + 後端 in-place 分支丟掉，改用 `wind_model.set_override()`（+6 tests；PR #123，待審 merge）
-- **WMOM-20260718-02** — 🟡 **DEC-20260718-01 模擬運作模式雙軌決策**（本 PR，決策文件，待審）
-- **WMOM-20260718-03** — 🟡 #2 scenario-setup 流程：選風場+風況+時長+故障排程 → `generate_bulk`
-  批次生成（含新增故障排程參數）→ 進場（依 DEC-20260718-01，待 #02 拍板後動工）
+  偵測漏掉 + 後端 in-place 分支丟掉，改用 `wind_model.set_override()`（+6 tests；PR #123 merged）✅
+- **WMOM-20260718-02** — 🟡 **DEC-20260718-01 模擬運作模式雙軌決策**（PR #124 merged，方向拍板）✅
+
+**In progress / Open**
+- **WMOM-20260718-03** — 🟡 #2 scenario-setup 流程。**後端 primitive（本 PR）**：`generate_bulk`
+  新增 `fault_schedule`（於指定 sim-time 注入排定故障）+ `on_fault_injected`；`generate-bulk` 端點
+  接 `_parse_fault_schedule`；`run_test_plan` 重構委派去重（+14 tests）。**待接**：scenario-setup
+  前端 UI（選風場+風況+時長+故障排程 → 生成 → 進場）。
 - **WMOM-20260718-04** — 🔵 #3 狀態可見性：turbine 顯示「為何不發電」（cut-out/故障跳機/停機）+ header 顯示當前風場
 - **WMOM-20260718-05** — 🔵 #5 turbine 顯示重設計：以「發電量 vs 風速 隨時間」為主圖，降級四色 mini-trend
 

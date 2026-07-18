@@ -3,11 +3,14 @@
 Includes test plan system for automated fault sequences.
 """
 
+from datetime import datetime
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import FaultInjectionRequest, FaultClearRequest
-from simulator.physics.fault_engine import TEST_PLANS
+from simulator.physics.fault_engine import TEST_PLANS, TestPlanStep
 
 router = APIRouter(prefix="/api/faults", tags=["faults"])
 
@@ -176,52 +179,39 @@ async def run_test_plan(plan_id: str, body: dict = {}):
     duration = plan["duration_hours"]
     steps = sorted(plan["steps"], key=lambda s: s.offset_seconds)
 
-    # Clear any existing faults
+    # Clear any existing faults for a clean plan run.
     b.simulator.fault_engine.clear()
 
     session_id = b._session_id
-    total_steps = int(duration * 3600 / time_step)
-    step_idx = 0  # next fault step to inject
-    total_readings = 0
-    from datetime import datetime, timedelta
-    sim_time = datetime.now()
 
-    for i in range(total_steps):
-        if not b.simulator._running:
-            break
-
-        sim_seconds = i * time_step
-
-        # Check if any fault steps should be injected at this time
-        while step_idx < len(steps) and steps[step_idx].offset_seconds <= sim_seconds:
-            s = steps[step_idx]
-            b.simulator.fault_engine.inject(
-                scenario_id=s.scenario_id,
-                turbine_id=s.turbine_id,
-                severity_rate=s.severity_rate,
-                initial_severity=s.initial_severity,
-            )
-            b.record_event(
-                event_type="fault",
-                source="test_plan",
-                title=f"Test plan: {s.scenario_id} on {s.turbine_id}",
-                turbine_id=s.turbine_id,
-                detail=s.description,
-                payload={
-                    "plan_id": plan_id,
-                    "scenarioId": s.scenario_id,
-                    "severityRate": s.severity_rate,
-                },
-            )
-            step_idx += 1
-
-        # Run physics step
-        sim_time += timedelta(seconds=time_step)
-        readings = b.simulator._run_one_step(sim_time, time_step)
-        total_readings += len(readings)
-
-        # Store to database
+    def store_cb(readings: List[dict]) -> None:
+        """Persist generated bulk readings to storage."""
         b.storage.store_readings(readings, session_id)
+
+    def on_inject(s: TestPlanStep, sim_time: datetime) -> None:
+        """把測試計畫的排定故障寫成事件（用注入的模擬時間戳），供稽核追溯。"""
+        b.record_event(
+            event_type="fault",
+            source="test_plan",
+            title=f"Test plan: {s.scenario_id} on {s.turbine_id}",
+            turbine_id=s.turbine_id,
+            detail=s.description,
+            timestamp=sim_time.isoformat(),
+            payload={
+                "plan_id": plan_id,
+                "scenarioId": s.scenario_id,
+                "severityRate": s.severity_rate,
+            },
+        )
+
+    # Delegate to the shared scheduled-injection primitive (WMOM-20260718-03).
+    total_readings = b.simulator.generate_bulk(
+        duration_hours=duration,
+        time_step=time_step,
+        callback=store_cb,
+        fault_schedule=steps,
+        on_fault_injected=on_inject,
+    )
 
     # Downsampling after bulk generation
     b.storage.run_downsampling()
