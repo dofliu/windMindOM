@@ -168,12 +168,18 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     setError('');
     setMessage(u('Applying wind & generating scenario…', '套用風況並生成情境資料集…（時長越長越久）'));
     try {
-      // 1. 套風況 profile（讓批次以此風況跑）。
-      await authFetch(`${API_BASE}/api/config/wind`, {
+      // 1. 套風況 profile（讓批次以此風況跑）。若失敗必須中止——否則會用「殘留風況」
+      //    生成卻顯示成功，資料與畫面選的 profile 不符（破壞情境可重現的核心承諾）。
+      const windRes = await authFetch(`${API_BASE}/api/config/wind`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile: windProfile }),
       });
+      if (!windRes.ok) {
+        setError(u('Failed to apply wind profile — nothing generated.', '套用風況失敗，未生成資料。'));
+        setMessage('');
+        return;
+      }
 
       // 2. 批次生成（帶故障排程）。
       const res = await authFetch(`${API_BASE}/api/config/simulation/generate-bulk`, {
@@ -204,7 +210,8 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       }
       const data = (await res.json()) as GenerateResult;
       setResult(data);
-      setMessage(u('Scenario dataset generated.', '情境資料集已生成。'));
+      // 結果卡本身即成功訊號 → 清掉「生成中…」訊息，避免頂部訊息永遠不消失且與結果卡重複。
+      setMessage('');
     } catch {
       setError(u('Network error during generation.', '生成時發生網路錯誤。'));
       setMessage('');
@@ -419,7 +426,13 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
                       min={0.00001}
                       max={0.1}
                       value={String(f.severityRate)}
-                      onChange={v => updateFault(f.key, { severityRate: parseFloat(v) || 0.0002 })}
+                      onChange={v => {
+                        // 夾限到 [0.00001, 0.1]（同 duration/at_hour）。用 Number.isFinite 而非
+                        // `|| 0.0002`：否則使用者輸入 0 會被靜默換成預設、負值更會直接送到後端。
+                        const n = parseFloat(v);
+                        const rate = Number.isFinite(n) ? Math.max(0.00001, Math.min(0.1, n)) : 0.0002;
+                        updateFault(f.key, { severityRate: rate });
+                      }}
                       fullWidth
                       monospace
                       ariaLabel={u('Severity rate', '發展速率')}
