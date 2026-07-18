@@ -5,7 +5,8 @@
  *   - PageHeader 麵包屑（返回風場總覽）+ 機名 · TurState label + 狀態 pill + Curtail/Stop/Inspect actions
  *   - 故障 banner（僅 activeFaults 非空才渲染）
  *   - 4 大 hero 數字（Power / Wind / RPM / Gen °C）
- *   - 左欄：即時趨勢 4 通道、子系統健康 8 格、子系統明細 8 tabs、詳細趨勢（TrendChartPanel）
+ *   - 左欄：主圖（TrendChartPanel，發電量 vs 風速）、子系統健康 8 格、子系統明細 8 tabs、
+ *     四通道即時趨勢（LiveTrendsCard，降級到最下方）
  *   - 右欄：OperatorControlCard（6 指令 + 限載）、最近事件、AI 故障診斷（僅 FAULT 才渲染）
  *
  * 本元件先前零 component 測試。延續既有 render 測試範式（ThemeProvider 包裹 +
@@ -714,9 +715,15 @@ describe('TurbineDetail — 顯示重設計', () => {
     expect(primary.compareDocumentPosition(fourCh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('主圖區塊掛載 TrendChartPanel（預設即 Power & Wind 通道）', async () => {
+  it('主圖區塊掛載 TrendChartPanel（且位於主圖標題之後、四通道之前 → 屬主圖區）', async () => {
     await renderDetail({});
-    expect(screen.getByTestId('trend-chart-panel')).toBeInTheDocument();
+    const primary = screen.getByText('發電量 vs 風速 · 過去到現在');
+    const stub = screen.getByTestId('trend-chart-panel');
+    const fourCh = screen.getByText(/四通道/);
+    expect(stub).toBeInTheDocument();
+    // stub 在主圖標題之後、四通道之前 → 確實掛在主圖區（而非頁面他處）
+    expect(primary.compareDocumentPosition(stub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(stub.compareDocumentPosition(fourCh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('lang=en 主圖標題 = Power vs Wind · over time', async () => {
