@@ -48,17 +48,18 @@ function jsonRes(body: unknown, ok = true, status = 200): Promise<Response> {
 let fetchMock: Mock;
 
 function installFetch(
-  opts: { scenarios?: unknown; farmsBody?: unknown; genOk?: boolean; genBody?: unknown } = {},
+  opts: { scenarios?: unknown; farmsBody?: unknown; genOk?: boolean; genBody?: unknown; windOk?: boolean } = {},
 ) {
   const scenarios = opts.scenarios ?? SCENARIOS;
   const farmsBody = opts.farmsBody ?? FARMS;
   const genOk = opts.genOk ?? true;
   const genBody = opts.genBody ?? GEN_RESULT;
+  const windOk = opts.windOk ?? true;
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (url.includes('/api/faults/scenarios')) return jsonRes(scenarios);
     if (url.includes('/api/config/simulation/generate-bulk')) return jsonRes(genBody, genOk, genOk ? 200 : 400);
-    if (url.includes('/api/config/wind')) return jsonRes({});
+    if (url.includes('/api/config/wind')) return jsonRes({ detail: 'wind fail' }, windOk, windOk ? 200 : 400);
     if (url.includes('/api/farms')) return jsonRes(farmsBody);
     return Promise.reject(new Error(`unexpected fetch: ${method} ${url}`));
   });
@@ -275,5 +276,68 @@ describe('ScenarioPage — 探索跳頁', () => {
       fireEvent.click(screen.getByRole('button', { name: '查看歷史資料' }));
     });
     expect(onExplore).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── code review 補測（WMOM-20260718-03 follow-up）────────────────────────────
+
+describe('ScenarioPage — 風況失敗中止', () => {
+  it('風況 POST 非 ok → 顯示錯誤且不打 generate-bulk', async () => {
+    installFetch({ windOk: false });
+    await renderPage('zh');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/套用風況失敗/));
+    // 核心：風況失敗必須中止，不可再送 generate-bulk（否則用殘留風況生成）
+    expect(calls((u, m) => u.includes('/generate-bulk') && m === 'POST')).toHaveLength(0);
+  });
+});
+
+describe('ScenarioPage — 發展速率夾限', () => {
+  async function generatedSeverity(input: string): Promise<number> {
+    await addFault('zh');
+    fireEvent.change(screen.getByLabelText('發展速率'), { target: { value: input } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(calls((u, m) => u.includes('/generate-bulk') && m === 'POST').length).toBe(1));
+    const gen = bodyOf(u => u.includes('/generate-bulk'));
+    return (gen.fault_schedule as Array<Record<string, number>>)[0].severity_rate;
+  }
+
+  it('輸入 0 → 夾到下界 0.00001（不被 `|| 預設` 靜默換掉）', async () => {
+    expect(await generatedSeverity('0')).toBe(0.00001);
+  });
+
+  it('輸入負值 → 夾到下界 0.00001（不會把負值送到後端）', async () => {
+    expect(await generatedSeverity('-0.5')).toBe(0.00001);
+  });
+
+  it('輸入超上界 → 夾到 0.1', async () => {
+    expect(await generatedSeverity('5')).toBe(0.1);
+  });
+});
+
+describe('ScenarioPage — 邊界防呆', () => {
+  it('情境清單為空 → 「新增故障」與「生成情境」皆 disabled', async () => {
+    installFetch({ scenarios: [] });
+    await renderPage('zh');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '新增故障' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled();
+    });
+  });
+
+  it('時長輸入超上界 99999 → 夾回 8760', async () => {
+    await renderPage('zh');
+    fireEvent.change(screen.getByLabelText('時長小時'), { target: { value: '99999' } });
+    expect(screen.getByLabelText('時長小時')).toHaveValue(8760);
+  });
+
+  it('時長輸入 0 → 夾回 1', async () => {
+    await renderPage('zh');
+    fireEvent.change(screen.getByLabelText('時長小時'), { target: { value: '0' } });
+    expect(screen.getByLabelText('時長小時')).toHaveValue(1);
   });
 });
