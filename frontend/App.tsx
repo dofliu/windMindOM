@@ -28,6 +28,7 @@ import FarmOverview from './components/FarmOverview';
 import TurbineDetail from './components/TurbineDetail';
 import MaintenanceHub from './components/MaintenanceHub';
 import FaultInjectionPanel from './components/FaultInjectionPanel';
+import ScenarioPage from './components/ScenarioPage';
 import DispatchModal from './components/DispatchModal';
 import WorkOrderDetailModal from './components/WorkOrderDetailModal';
 import SettingsPage from './components/SettingsPage';
@@ -56,6 +57,7 @@ type ViewId =
   | 'cost'
   | 'reports'
   | 'field'
+  | 'scenario'
   | 'faults'
   | 'tour'
   | 'settings';
@@ -71,6 +73,7 @@ const PRIMARY_NAV: NavItem[] = [
 ];
 
 const SECONDARY_NAV: NavItem[] = [
+  { id: 'scenario', iconId: 'scenario', labelEn: 'Scenario', labelZh: '情境模擬' },
   { id: 'field', iconId: 'field', labelEn: 'Field', labelZh: '現場查詢' },
   { id: 'faults', iconId: 'faults', labelEn: 'Faults', labelZh: '故障模擬' },
   { id: 'tour', iconId: 'tour', labelEn: 'Guided Tour', labelZh: '情境導覽' },
@@ -302,6 +305,8 @@ const AppShell: React.FC = () => {
         return <ReportsPage lang={lang} />;
       case 'field':
         return <FieldPage lang={lang} />;
+      case 'scenario':
+        return <ScenarioPage lang={lang} onExplore={() => setView('history')} />;
       case 'faults':
         return <FaultInjectionPanel lang={lang} />;
       case 'tour':
