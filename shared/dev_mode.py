@@ -48,7 +48,7 @@ def is_dev_mode_enabled() -> bool:
 
 
 def log_dev_mode_warning_if_enabled(logger: logging.Logger | None = None) -> bool:
-    """若 dev mode 啟用 → log ⚠ warning 並 return True；否則 return False。
+    """若 dev mode 項目啟用 → log [WARNING] 並 return True；否則 return False。
 
     建議在 backend startup（``app.py`` lifespan）呼叫一次，讓任何啟動者都立刻看到
     auth check 被 bypass 的事實，避免誤把 dev_mode build 拿去做客戶 demo。
@@ -60,7 +60,7 @@ def log_dev_mode_warning_if_enabled(logger: logging.Logger | None = None) -> boo
         return False
     log = logger or logging.getLogger(__name__)
     log.warning(
-        "⚠ WMOM_DEV_MODE active — separation-of-duties checks bypassed "
+        "[WARNING] WMOM_DEV_MODE active - separation-of-duties checks bypassed "
         "(dispatcher==assignee allowed, same actor may sign consecutive signoff levels). "
         "DO NOT use this build for production."
     )

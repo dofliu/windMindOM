@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     # aggregator dedupe）。
     from shared.dev_mode import log_dev_mode_warning_if_enabled
     _DEV_MODE_BANNER = (
-        "⚠ WMOM_DEV_MODE active — separation-of-duties checks bypassed "
+        "[WARNING] WMOM_DEV_MODE active - separation-of-duties checks bypassed "
         "(dispatcher==assignee allowed, same actor may sign consecutive signoff levels). "
         "DO NOT use this build for production."
     )
