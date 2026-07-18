@@ -56,10 +56,13 @@
 - **WMOM-20260718-02** — 🟡 **DEC-20260718-01 模擬運作模式雙軌決策**（PR #124 merged，方向拍板）✅
 
 **In progress / Open**
-- **WMOM-20260718-03** — 🟡 #2 scenario-setup 流程。**後端 primitive（本 PR）**：`generate_bulk`
-  新增 `fault_schedule`（於指定 sim-time 注入排定故障）+ `on_fault_injected`；`generate-bulk` 端點
-  接 `_parse_fault_schedule`；`run_test_plan` 重構委派去重（+14 tests）。**待接**：scenario-setup
-  前端 UI（選風場+風況+時長+故障排程 → 生成 → 進場）。
+- **WMOM-20260718-03** — 🟡 #2 scenario-setup 流程（雙 PR）。
+  - **後端 primitive（#125 merged）✅**：`generate_bulk` 新增 `fault_schedule`（於指定 sim-time
+    注入排定故障，事件用模擬時間戳）+ `on_fault_injected`；`generate-bulk` 端點接 `_parse_fault_schedule`；
+    `run_test_plan` 重構委派去重（+19 tests，含 code review 修正）。
+  - **前端情境頁（本 PR）**：新增「情境」nav 獨立頁 `ScenarioPage`（選風況 profile + 時長 + 解析度 +
+    故障排程增刪 → POST wind + generate-bulk → 結果卡 + 跳歷史探索）；`authFetch` enforce-ready；
+    新增 `scenario` nav 圖示（+18 render tests）。
 - **WMOM-20260718-04** — 🔵 #3 狀態可見性：turbine 顯示「為何不發電」（cut-out/故障跳機/停機）+ header 顯示當前風場
 - **WMOM-20260718-05** — 🔵 #5 turbine 顯示重設計：以「發電量 vs 風速 隨時間」為主圖，降級四色 mini-trend
 

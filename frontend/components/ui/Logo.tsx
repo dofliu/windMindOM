@@ -24,6 +24,7 @@ export type NavIconId =
   | 'history'
   | 'field'
   | 'faults'
+  | 'scenario'
   | 'tour'
   | 'settings';
 
@@ -103,6 +104,13 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
       <g {...cap}>
         <path d="M12 3l9 16H3z" />
         <path d="M12 10v4M12 17h.01" />
+      </g>
+    ),
+    scenario: (
+      // 燒瓶：情境批次生成（設定風況/時長/故障 → 一次產出可重現資料集）。
+      <g {...cap}>
+        <path d="M9 3h6M10 3v6l-5 8.5A2 2 0 0 0 6.7 21h10.6a2 2 0 0 0 1.7-3.5L14 9V3" />
+        <path d="M7.5 14h9" />
       </g>
     ),
     settings: (
