@@ -640,16 +640,40 @@ describe('noPowerReason（純函式）', () => {
     expect(r?.zh).toContain('待風');
   });
 
-  it('停機（turState 9）→ amber「停機中」', () => {
-    expect(noPowerReason({ ...base, turState: 9 })?.zh).toContain('停機中');
+  it('正常停機（turState 9）→ amber「正常停機」，且優先於高風（不誤標切出）', () => {
+    const r = noPowerReason({ ...base, turState: 9, windSpeed: 27 });
+    expect(r?.tone).toBe('amber');
+    expect(r?.zh).toContain('正常停機');
+    expect(r?.zh).not.toContain('切出');
   });
 
   it('待機（turState 2）→ amber「待機中」', () => {
     expect(noPowerReason({ ...base, turState: 2 })?.zh).toContain('待機中');
   });
 
-  it('離線（status OFFLINE，無其他線索）→ amber「離線」', () => {
-    expect(noPowerReason({ ...base, status: TurbineStatus.OFFLINE, turState: 6 })?.zh).toContain('離線');
+  it('自動停機（turState 1，正常風速）→ amber「自動停機」', () => {
+    expect(noPowerReason({ ...base, turState: 1, windSpeed: 10 })?.zh).toContain('自動停機');
+  });
+
+  it('離線（status OFFLINE，無其他線索）→ muted「離線」（與 turbineStatusTone 一致）', () => {
+    const r = noPowerReason({ ...base, status: TurbineStatus.OFFLINE, turState: 6, windSpeed: 10 });
+    expect(r?.tone).toBe('muted');
+    expect(r?.zh).toContain('離線');
+  });
+
+  it('待機（IDLE，turState undefined）→ amber「待機」', () => {
+    const r = noPowerReason({ powerOutput: 0, windSpeed: 10, status: TurbineStatus.IDLE, turState: undefined });
+    expect(r?.tone).toBe('amber');
+    expect(r?.zh).toBe('待機');
+  });
+
+  it('generic fallback（OPERATING 但 power 0、turState undefined、風速正常）→「目前未發電」', () => {
+    const r = noPowerReason({ powerOutput: 0, windSpeed: 10, status: TurbineStatus.OPERATING, turState: undefined });
+    expect(r?.zh).toBe('目前未發電');
+  });
+
+  it('資料未就緒（powerOutput NaN）→ null（不臆測）', () => {
+    expect(noPowerReason({ ...base, powerOutput: Number.NaN })).toBeNull();
   });
 });
 

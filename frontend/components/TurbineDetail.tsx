@@ -58,31 +58,49 @@ const fmt = (v: number | undefined | null, digits = 1): string =>
  * 判斷「為何不發電」的原因（WMOM-20260718-04，#3 狀態可見性）。
  *
  * 使用者反映：機組沒發電時看不出原因（cut-out / 故障跳機 / 停機都長一樣）。此函式在
- * 幾乎不發電（<0.05 MW ≈ 50 kW）時回傳一個可讀原因，正常發電回 `null`（不顯示）。
- * 優先序：故障 > 緊急停機 > 切出風速 > 低於切入 > 停機/待機 > 離線/待命。
+ * 幾乎不發電（<0.05 MW ≈ 50 kW）時回傳一個可讀原因，正常發電或資料未就緒回 `null`。
+ *
+ * 優先序（code review 後）：故障 > 緊急停機(7) > 正常停機(9) > 待機(2) > 切出風速 >
+ * 低於切入 > 自動停機(1) > 等待重啟(3) > 離線 > 待命。**人為決定的停機（7/9/2）排在風速
+ * 之前**——它們不是風況造成的，若恰逢高風而誤標「切出風速」比不解釋更糟；風速只解釋
+ * turState 1(自動停機)/3(等待重啟) 這類與風況有因果的狀態。turState 文案複用
+ * `TUR_STATE_LABELS` 保留細緻度。
  *
  * @param t 需含 powerOutput(MW) / windSpeed(m/s) / status / turState。
- * @returns 原因（en/zh + tone）或 null（正常發電）。
+ * @returns 原因（en/zh + tone；OFFLINE 用 muted 與 turbineStatusTone 一致）或 null。
  */
 export function noPowerReason(
   t: Pick<TurbineData, 'powerOutput' | 'windSpeed' | 'status' | 'turState'>,
-): { en: string; zh: string; tone: 'warn' | 'amber' } | null {
+): { en: string; zh: string; tone: 'warn' | 'amber' | 'muted' } | null {
+  // 資料未就緒（NaN/未定義）不臆測原因，比照 fmt() 的有限值防禦。
+  if (!Number.isFinite(t.powerOutput)) return null;
   if (t.powerOutput > 0.05) return null; // 有在發電（>50 kW）→ 不需解釋
+
+  // turState 對應的細緻文案（複用 TUR_STATE_LABELS，避免另造一組更粗的分類）。
+  const stateReason = (
+    ts: number,
+    tone: 'warn' | 'amber',
+  ): { en: string; zh: string; tone: 'warn' | 'amber' } => {
+    const l = TUR_STATE_LABELS[ts];
+    return { en: l?.en ?? `State ${ts}`, zh: l?.zh ?? `狀態 ${ts}`, tone };
+  };
+
+  const hiWind = Number.isFinite(t.windSpeed) && t.windSpeed > 25;
+  const loWind = Number.isFinite(t.windSpeed) && t.windSpeed < 3;
 
   if (t.status === TurbineStatus.FAULT)
     return { en: 'Fault trip — protective shutdown', zh: '故障跳機 — 保護停機中', tone: 'warn' };
-  if (t.turState === 7)
-    return { en: 'Emergency stop', zh: '緊急停機', tone: 'warn' };
-  if (t.windSpeed > 25)
+  if (t.turState === 7) return stateReason(7, 'warn'); // 緊急停機
+  if (t.turState === 9) return stateReason(9, 'amber'); // 正常停機（操作員主動）
+  if (t.turState === 2) return stateReason(2, 'amber'); // 待機中
+  if (hiWind)
     return { en: 'Cut-out wind (>25 m/s) — high-wind protection', zh: '切出風速（>25 m/s）— 高風保護停機', tone: 'amber' };
-  if (t.windSpeed < 3)
+  if (loWind)
     return { en: 'Wind below cut-in (~3 m/s) — waiting for wind', zh: '風速低於切入（~3 m/s）— 待風中', tone: 'amber' };
-  if (t.turState === 1 || t.turState === 9)
-    return { en: 'Stopped', zh: '停機中', tone: 'amber' };
-  if (t.turState === 2 || t.turState === 3)
-    return { en: 'Standby', zh: '待機中', tone: 'amber' };
+  if (t.turState === 1) return stateReason(1, 'amber'); // 自動停機
+  if (t.turState === 3) return stateReason(3, 'amber'); // 等待重啟
   if (t.status === TurbineStatus.OFFLINE)
-    return { en: 'Offline', zh: '離線', tone: 'amber' };
+    return { en: 'Offline', zh: '離線', tone: 'muted' };
   if (t.status === TurbineStatus.IDLE)
     return { en: 'Idle', zh: '待機', tone: 'amber' };
   return { en: 'Not producing', zh: '目前未發電', tone: 'amber' };
