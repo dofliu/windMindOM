@@ -7,7 +7,8 @@
  *   - 警告 Banner（if FAULT）
  *   - 4 大數字（Power / Wind / RPM / GenTemp）
  *   - Grid 2/3 + 1/3：
- *       Left：即時趨勢 4 通道、子系統健康 8 格、子系統 detail tabs（沿用既有 SubsystemPanel 內容、改新樣式）
+ *       Left：**主圖＝發電量 vs 風速 隨時間**（TrendChartPanel，#5 拉到最上）、子系統健康 8 格、
+ *             子系統 detail tabs、四通道即時趨勢（降級到最下方）
  *       Right：操作控制 / 即時告警 / 最近事件 / AI 故障診斷
  *
  * **保留功能**：start/stop/emergency/reset/service/curtail 全部 6 個指令；AI 故障診斷；8 子系統 detail。
@@ -1061,7 +1062,31 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         }}
       >
         <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <LiveTrendsCard t={turbine} tr={tr} />
+          {/* 主圖：發電量 vs 風速 隨時間（#5 顯示重設計，WMOM-20260718-05）。
+              看風機最直接的就是「過去到現在的發電量與風速關係」→ 拉到最上面當主視圖。
+              TrendChartPanel 預設 preset 即 'power'（WTUR_TotPwrAt + WMET_WSpeedNac），
+              下方 preset 鈕可切溫度/振動/葉片角等其他通道。 */}
+          <Card padding={0}>
+            <div
+              style={{
+                padding: '14px 18px',
+                borderBottom: `1px solid ${C.border}`,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                {tr('Power vs Wind · over time', '發電量 vs 風速 · 過去到現在')}
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                {tr(
+                  'The most direct view of a turbine. Switch presets below for temperature / vibration / other channels.',
+                  '看風機最直接的視圖。切換下方預設可看溫度 / 振動 / 其他 SCADA 通道。',
+                )}
+              </div>
+            </div>
+            <div style={{ padding: 12 }}>
+              <TrendChartPanel turbineId={turbineApiId} lang={lang} />
+            </div>
+          </Card>
 
           <Card>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: C.text }}>
@@ -1082,23 +1107,8 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
 
           <SubsystemDetailCard t={turbine} tr={tr} />
 
-          {/* Detailed live trends (existing recharts panel) */}
-          <Card padding={0}>
-            <div
-              style={{
-                padding: '14px 18px',
-                borderBottom: `1px solid ${C.border}`,
-                fontSize: 14,
-                fontWeight: 600,
-                color: C.text,
-              }}
-            >
-              {tr('Detailed live trends', '即時詳細趨勢（SCADA tags）')}
-            </div>
-            <div style={{ padding: 12 }}>
-              <TrendChartPanel turbineId={turbineApiId} lang={lang} />
-            </div>
-          </Card>
+          {/* 四通道即時趨勢（降級到最下方；發電量/風速已在頂端主圖 + hero 數字呈現） */}
+          <LiveTrendsCard t={turbine} tr={tr} />
         </div>
 
         <div style={{ minWidth: 0 }}>

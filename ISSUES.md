@@ -73,7 +73,10 @@
     `noPowerReason` 人為停機(7/9/2)優先於風速（避免正常停機遇高風誤標切出）、OFFLINE tone 對齊
     `turbineStatusTone`(muted)、加 NaN 防禦、複用 `TUR_STATE_LABELS`；抽 `utils/farmHeader.ts`
     （`dataSourceLabel`/`parseActiveFarm`）+ health poll 的 res.json() 失敗不再誤判後端不健康；+14 tests。
-- **WMOM-20260718-05** — 🔵 #5 turbine 顯示重設計：以「發電量 vs 風速 隨時間」為主圖，降級四色 mini-trend
+- **WMOM-20260718-05** — 🔵 #5 turbine 顯示重設計（本 PR）：把 `TrendChartPanel`（預設即 Power & Wind
+  即時趨勢，讀真實 /api/turbines/{id}/trend）從左欄最下**拉到最上**當主圖 + 重下標題「發電量 vs 風速 ·
+  過去到現在」；四色 mini-trend（3/4 為合成假資料）**降級到左欄最下**（發電量/風速已在主圖 + hero 呈現）。
+  +3 render tests（DOM 順序 / 主圖掛載 / en 標題）。**收尾 DEC-20260718-01 全 5 階段**。
 
 ---
 
