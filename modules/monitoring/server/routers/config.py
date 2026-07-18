@@ -1,7 +1,10 @@
+from typing import List, Set
+
 from fastapi import APIRouter, HTTPException, Depends
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
+from simulator.physics.fault_engine import FAULT_SCENARIOS, TestPlanStep
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -10,6 +13,63 @@ def get_broker():
     """Return the shared DataBroker instance from the application."""
     from server.app import broker
     return broker
+
+
+def _parse_fault_schedule(raw: List[dict], valid_turbine_ids: Set[str]) -> List[TestPlanStep]:
+    """把 API body 的 ``fault_schedule`` 轉成排序好且驗證過的 ``TestPlanStep`` 清單。
+
+    Scenario 模式（DEC-20260718-01）用：讓使用者定義「在某 sim-time 對某機組注入某故障」。
+    每筆接受（dict）：
+      - ``scenario_id``（必填，須在 ``FAULT_SCENARIOS``）
+      - ``turbine_id``（必填，須為現有機組）
+      - ``at_hour`` 或 ``offset_seconds``（擇一；注入的 sim-time 位移，預設 0）
+      - ``severity_rate``（選填，預設 0.0002 ≈ 18 小時到滿）
+      - ``initial_severity``（選填，預設 0.0）
+      - ``description``（選填）
+
+    Args:
+        raw: API body 的 fault_schedule 原始清單。
+        valid_turbine_ids: 目前 simulator 的機組 ID 集合，用於驗證 turbine_id。
+
+    Returns:
+        依 ``offset_seconds`` 升冪排序的 ``TestPlanStep`` 清單（空清單代表無排程）。
+
+    Raises:
+        HTTPException: 任何一筆格式錯誤 / 未知情境 / 未知機組 / 負位移時 400 或 404。
+    """
+    steps: List[TestPlanStep] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise HTTPException(400, f"fault_schedule[{i}] 必須是物件")
+
+        scenario_id = item.get("scenario_id")
+        turbine_id = item.get("turbine_id")
+        if scenario_id not in FAULT_SCENARIOS:
+            raise HTTPException(
+                404,
+                f"fault_schedule[{i}]: 未知故障情境 {scenario_id!r}；可用：{sorted(FAULT_SCENARIOS)}",
+            )
+        if turbine_id not in valid_turbine_ids:
+            raise HTTPException(404, f"fault_schedule[{i}]: 未知機組 {turbine_id!r}")
+
+        # offset：優先 offset_seconds（秒），其次 at_hour（小時 × 3600）。
+        if "offset_seconds" in item:
+            offset = float(item["offset_seconds"])
+        else:
+            offset = float(item.get("at_hour", 0.0)) * 3600.0
+        if offset < 0:
+            raise HTTPException(400, f"fault_schedule[{i}]: offset 不可為負")
+
+        steps.append(TestPlanStep(
+            offset_seconds=offset,
+            scenario_id=scenario_id,
+            turbine_id=turbine_id,
+            severity_rate=float(item.get("severity_rate", 0.0002)),
+            initial_severity=float(item.get("initial_severity", 0.0)),
+            description=str(item.get("description", "")),
+        ))
+
+    return sorted(steps, key=lambda s: s.offset_seconds)
 
 
 @router.get(
@@ -195,6 +255,9 @@ async def generate_bulk(body: dict):
     Parameters:
       duration_hours: hours of simulated data (e.g. 720 for 30 days)
       time_step: physics step in seconds (default 10, use 60 for faster)
+      fault_schedule: 選填。Scenario 模式的故障排程（DEC-20260718-01）。每筆
+        ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?}``
+        於指定 sim-time 注入，讓批次資料集包含該故障的發展（見 ``_parse_fault_schedule``）。
 
     The data is written to SQLite via the normal storage pipeline.
     This runs synchronously and may take minutes for large durations.
@@ -208,6 +271,15 @@ async def generate_bulk(body: dict):
     if duration > 8760:
         raise HTTPException(400, "Max 8760 hours (1 year)")
 
+    # Scenario 模式：選填故障排程（WMOM-20260718-03, DEC-20260718-01）。
+    schedule = _parse_fault_schedule(
+        body.get("fault_schedule") or [],
+        set(b.simulator.turbines.keys()),
+    )
+    if schedule:
+        # 乾淨情境：批次前清掉殘留的 runtime 故障，讓資料集只含本情境排定者。
+        b.simulator.fault_engine.clear()
+
     # Use the storage callback directly for bulk writes
     session_id = b._session_id
 
@@ -215,10 +287,29 @@ async def generate_bulk(body: dict):
         """Persist generated bulk readings to storage."""
         b.storage.store_readings(readings, session_id)
 
+    def on_inject(fstep: TestPlanStep):
+        """把排定故障寫成事件，讓情境資料集可被追溯 / 重現。"""
+        b.record_event(
+            event_type="fault",
+            source="scenario",
+            title=f"Scenario fault: {fstep.scenario_id} on {fstep.turbine_id}",
+            turbine_id=fstep.turbine_id,
+            detail=fstep.description or f"Scheduled {fstep.scenario_id} @ {fstep.offset_seconds / 3600:.1f}h",
+            payload={
+                "scenarioId": fstep.scenario_id,
+                "turbineId": fstep.turbine_id,
+                "offsetSeconds": fstep.offset_seconds,
+                "severityRate": fstep.severity_rate,
+                "initialSeverity": fstep.initial_severity,
+            },
+        )
+
     total = b.simulator.generate_bulk(
         duration_hours=duration,
         time_step=step,
         callback=store_cb,
+        fault_schedule=schedule or None,
+        on_fault_injected=on_inject if schedule else None,
     )
 
     # Run downsampling after bulk generation
@@ -230,6 +321,8 @@ async def generate_bulk(body: dict):
         "duration_hours": duration,
         "time_step": step,
         "total_readings": total,
+        "faults_injected": len(schedule),
+        "final_fault_status": b.simulator.fault_engine.get_fault_status() if schedule else [],
         "storage_stats": stats,
     }
 
