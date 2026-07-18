@@ -45,6 +45,7 @@ import { UserProvider } from './hooks/useCurrentUser';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
 import { Btn, Sidebar, type NavItem } from './components/ui';
+import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/farmHeader';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -153,23 +154,25 @@ const AppShell: React.FC = () => {
   // ── Backend health + active farm (poll /api/farms) ──
   // 同一支 /api/farms 順便取當前風場 → header 顯示（#3 狀態可見性，避免另開 fetch）。
   const [backendHealthy, setBackendHealthy] = useState<boolean>(true);
-  const [activeFarm, setActiveFarm] = useState<{ name: string; turbine_count: number } | null>(null);
+  const [activeFarm, setActiveFarm] = useState<ActiveFarmLite | null>(null);
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
+      let res: Response;
       try {
-        const res = await fetch(`${API_BASE}/api/farms`);
-        if (cancelled) return;
-        setBackendHealthy(res.ok);
-        if (res.ok) {
-          const data = await res.json();
-          const active = (data.farms || []).find(
-            (f: { farm_id: string }) => f.farm_id === data.active_farm_id,
-          );
-          setActiveFarm(active ? { name: active.name, turbine_count: active.turbine_count } : null);
-        }
+        res = await fetch(`${API_BASE}/api/farms`);
       } catch {
         if (!cancelled) setBackendHealthy(false);
+        return;
+      }
+      if (cancelled) return;
+      setBackendHealthy(res.ok);
+      if (!res.ok) return;
+      // farm-strip 資料解析獨立包一層 → 其失敗不可反過來把健康的後端標成不健康。
+      try {
+        setActiveFarm(parseActiveFarm(await res.json()));
+      } catch {
+        /* farm strip 資料解析失敗，維持 backendHealthy=res.ok，strip 不更新 */
       }
     };
     check();
@@ -180,13 +183,8 @@ const AppShell: React.FC = () => {
     };
   }, []);
 
-  // 資料來源標籤（header 顯示：模擬 / Demo / 實場 OPC-DA）。
-  const dataSourceLabel =
-    settings.dataSource === DataSourceType.MOCK
-      ? (lang === 'zh' ? 'Demo 資料' : 'Demo data')
-      : settings.dataSource === DataSourceType.OPC_DA
-        ? 'OPC-DA'
-        : (lang === 'zh' ? '模擬' : 'Simulation');
+  // 資料來源標籤（header 顯示）——用涵蓋全 4 值的 lookup（見 utils/farmHeader）。
+  const dsLabel = dataSourceLabel(settings.dataSource, lang);
 
   // ── Nav handlers ──
   const handleSelectTurbine = useCallback((turbine: TurbineData) => {
@@ -420,7 +418,7 @@ const AppShell: React.FC = () => {
             <span style={{ color: C.text, fontWeight: 600 }}>{activeFarm.name}</span>
             <span>· {activeFarm.turbine_count} {lang === 'zh' ? '台' : 'turbines'}</span>
             <span aria-hidden style={{ color: C.border }}>|</span>
-            <span>{dataSourceLabel}</span>
+            <span>{dsLabel}</span>
           </div>
         )}
 
