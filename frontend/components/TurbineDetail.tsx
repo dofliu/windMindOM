@@ -54,6 +54,40 @@ const TUR_STATE_LABELS: Record<number, { en: string; zh: string }> = {
 const fmt = (v: number | undefined | null, digits = 1): string =>
   v != null && Number.isFinite(v) ? v.toFixed(digits) : '—';
 
+/**
+ * 判斷「為何不發電」的原因（WMOM-20260718-04，#3 狀態可見性）。
+ *
+ * 使用者反映：機組沒發電時看不出原因（cut-out / 故障跳機 / 停機都長一樣）。此函式在
+ * 幾乎不發電（<0.05 MW ≈ 50 kW）時回傳一個可讀原因，正常發電回 `null`（不顯示）。
+ * 優先序：故障 > 緊急停機 > 切出風速 > 低於切入 > 停機/待機 > 離線/待命。
+ *
+ * @param t 需含 powerOutput(MW) / windSpeed(m/s) / status / turState。
+ * @returns 原因（en/zh + tone）或 null（正常發電）。
+ */
+export function noPowerReason(
+  t: Pick<TurbineData, 'powerOutput' | 'windSpeed' | 'status' | 'turState'>,
+): { en: string; zh: string; tone: 'warn' | 'amber' } | null {
+  if (t.powerOutput > 0.05) return null; // 有在發電（>50 kW）→ 不需解釋
+
+  if (t.status === TurbineStatus.FAULT)
+    return { en: 'Fault trip — protective shutdown', zh: '故障跳機 — 保護停機中', tone: 'warn' };
+  if (t.turState === 7)
+    return { en: 'Emergency stop', zh: '緊急停機', tone: 'warn' };
+  if (t.windSpeed > 25)
+    return { en: 'Cut-out wind (>25 m/s) — high-wind protection', zh: '切出風速（>25 m/s）— 高風保護停機', tone: 'amber' };
+  if (t.windSpeed < 3)
+    return { en: 'Wind below cut-in (~3 m/s) — waiting for wind', zh: '風速低於切入（~3 m/s）— 待風中', tone: 'amber' };
+  if (t.turState === 1 || t.turState === 9)
+    return { en: 'Stopped', zh: '停機中', tone: 'amber' };
+  if (t.turState === 2 || t.turState === 3)
+    return { en: 'Standby', zh: '待機中', tone: 'amber' };
+  if (t.status === TurbineStatus.OFFLINE)
+    return { en: 'Offline', zh: '離線', tone: 'amber' };
+  if (t.status === TurbineStatus.IDLE)
+    return { en: 'Idle', zh: '待機', tone: 'amber' };
+  return { en: 'Not producing', zh: '目前未發電', tone: 'amber' };
+}
+
 interface TurbineDetailProps {
   turbine: TurbineData;
   onBack: () => void;
@@ -958,6 +992,19 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
 
       {/* Active fault banner */}
       {hasFaults && <FaultBanner faults={turbine.activeFaults!} tr={tr} />}
+
+      {/* 為何不發電（#3 狀態可見性）：功率≈0 時說明 cut-out / 跳機 / 停機 */}
+      {(() => {
+        const reason = noPowerReason(turbine);
+        if (!reason) return null;
+        return (
+          <div style={{ marginBottom: 16 }} role="status">
+            <StatusPill tone={reason.tone} size="md">
+              {tr('Why no power', '為何不發電')}：{tr(reason.en, reason.zh)}
+            </StatusPill>
+          </div>
+        );
+      })()}
 
       {/* 4 hero metrics */}
       <div

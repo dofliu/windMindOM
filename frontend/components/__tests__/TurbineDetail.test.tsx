@@ -52,7 +52,7 @@ vi.mock('../TrendChartPanel', () => ({
   ),
 }));
 
-import TurbineDetail from '../TurbineDetail';
+import TurbineDetail, { noPowerReason } from '../TurbineDetail';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 
 type Lang = 'en' | 'zh';
@@ -604,5 +604,75 @@ describe('TurbineDetail — AI 故障診斷卡', () => {
     await renderDetail({ turbine: makeTurbine({ status: TurbineStatus.FAULT }), lang: 'en' });
     expect(screen.getByText('AI Fault Diagnosis')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dispatch technician' })).toBeInTheDocument();
+  });
+});
+
+// ─── 為何不發電（#3 狀態可見性，WMOM-20260718-04）───────────────────────────
+
+describe('noPowerReason（純函式）', () => {
+  const base = { powerOutput: 0, windSpeed: 10, status: TurbineStatus.IDLE, turState: 1 };
+
+  it('有發電（>0.05 MW）→ null（不解釋）', () => {
+    expect(noPowerReason({ ...base, powerOutput: 1.5 })).toBeNull();
+  });
+
+  it('故障 → warn「故障跳機」（優先於風速/狀態）', () => {
+    const r = noPowerReason({ ...base, status: TurbineStatus.FAULT, windSpeed: 27 });
+    expect(r?.tone).toBe('warn');
+    expect(r?.zh).toContain('故障跳機');
+  });
+
+  it('緊急停機（turState 7）→ warn', () => {
+    const r = noPowerReason({ ...base, turState: 7 });
+    expect(r?.tone).toBe('warn');
+    expect(r?.zh).toContain('緊急停機');
+  });
+
+  it('切出風速（>25）→ amber「切出風速」', () => {
+    const r = noPowerReason({ ...base, windSpeed: 27 });
+    expect(r?.tone).toBe('amber');
+    expect(r?.zh).toContain('切出風速');
+  });
+
+  it('低於切入（<3）→ amber「待風」', () => {
+    const r = noPowerReason({ ...base, windSpeed: 2 });
+    expect(r?.tone).toBe('amber');
+    expect(r?.zh).toContain('待風');
+  });
+
+  it('停機（turState 9）→ amber「停機中」', () => {
+    expect(noPowerReason({ ...base, turState: 9 })?.zh).toContain('停機中');
+  });
+
+  it('待機（turState 2）→ amber「待機中」', () => {
+    expect(noPowerReason({ ...base, turState: 2 })?.zh).toContain('待機中');
+  });
+
+  it('離線（status OFFLINE，無其他線索）→ amber「離線」', () => {
+    expect(noPowerReason({ ...base, status: TurbineStatus.OFFLINE, turState: 6 })?.zh).toContain('離線');
+  });
+});
+
+describe('TurbineDetail — 為何不發電 chip', () => {
+  it('正常發電 → 不顯示 chip', async () => {
+    await renderDetail({ turbine: makeTurbine({ powerOutput: 2.34 }) });
+    expect(screen.queryByText(/為何不發電/)).not.toBeInTheDocument();
+  });
+
+  it('切出風速（power 0 + wind 27）→ 顯示 chip 說明', async () => {
+    await renderDetail({ turbine: makeTurbine({ powerOutput: 0, windSpeed: 27, status: TurbineStatus.IDLE }) });
+    expect(screen.getByText(/為何不發電/)).toBeInTheDocument();
+    expect(screen.getByText(/切出風速/)).toBeInTheDocument();
+  });
+
+  it('故障跳機（power 0 + FAULT）→ 顯示 chip', async () => {
+    await renderDetail({ turbine: makeTurbine({ powerOutput: 0, status: TurbineStatus.FAULT }) });
+    expect(screen.getByText(/故障跳機/)).toBeInTheDocument();
+  });
+
+  it('lang=en cut-out → 英文說明', async () => {
+    await renderDetail({ turbine: makeTurbine({ powerOutput: 0, windSpeed: 27, status: TurbineStatus.IDLE }), lang: 'en' });
+    expect(screen.getByText(/Why no power/)).toBeInTheDocument();
+    expect(screen.getByText(/Cut-out wind/)).toBeInTheDocument();
   });
 });

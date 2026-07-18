@@ -150,14 +150,24 @@ const AppShell: React.FC = () => {
   const [faultAnalysisForDispatch, setFaultAnalysisForDispatch] = useState('');
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null);
 
-  // ── Backend health (poll /api/farms 一次) ──
+  // ── Backend health + active farm (poll /api/farms) ──
+  // 同一支 /api/farms 順便取當前風場 → header 顯示（#3 狀態可見性，避免另開 fetch）。
   const [backendHealthy, setBackendHealthy] = useState<boolean>(true);
+  const [activeFarm, setActiveFarm] = useState<{ name: string; turbine_count: number } | null>(null);
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/farms`);
-        if (!cancelled) setBackendHealthy(res.ok);
+        if (cancelled) return;
+        setBackendHealthy(res.ok);
+        if (res.ok) {
+          const data = await res.json();
+          const active = (data.farms || []).find(
+            (f: { farm_id: string }) => f.farm_id === data.active_farm_id,
+          );
+          setActiveFarm(active ? { name: active.name, turbine_count: active.turbine_count } : null);
+        }
       } catch {
         if (!cancelled) setBackendHealthy(false);
       }
@@ -169,6 +179,14 @@ const AppShell: React.FC = () => {
       clearInterval(id);
     };
   }, []);
+
+  // 資料來源標籤（header 顯示：模擬 / Demo / 實場 OPC-DA）。
+  const dataSourceLabel =
+    settings.dataSource === DataSourceType.MOCK
+      ? (lang === 'zh' ? 'Demo 資料' : 'Demo data')
+      : settings.dataSource === DataSourceType.OPC_DA
+        ? 'OPC-DA'
+        : (lang === 'zh' ? '模擬' : 'Simulation');
 
   // ── Nav handlers ──
   const handleSelectTurbine = useCallback((turbine: TurbineData) => {
@@ -379,6 +397,32 @@ const AppShell: React.FC = () => {
             .wmom-mobile-menu-btn { display: inline-flex !important; }
           }
         `}</style>
+
+        {/* Farm context strip（#3 狀態可見性：header 顯示當前風場 + 資料來源） */}
+        {activeFarm && (
+          <div
+            aria-label={lang === 'zh' ? '當前風場' : 'Active farm'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+              marginBottom: 18,
+              padding: '6px 12px',
+              background: C.panelMuted,
+              border: `1px solid ${C.border}`,
+              borderRadius: 999,
+              fontSize: 12,
+              color: C.sub,
+            }}
+          >
+            <span aria-hidden>🌊</span>
+            <span style={{ color: C.text, fontWeight: 600 }}>{activeFarm.name}</span>
+            <span>· {activeFarm.turbine_count} {lang === 'zh' ? '台' : 'turbines'}</span>
+            <span aria-hidden style={{ color: C.border }}>|</span>
+            <span>{dataSourceLabel}</span>
+          </div>
+        )}
 
         {renderContent()}
       </main>
