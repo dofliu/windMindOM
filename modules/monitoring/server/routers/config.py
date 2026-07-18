@@ -51,8 +51,15 @@ async def set_simulation(config: SimulationConfig):
     # Only restart if turbine count actually changed
     current_count = len(b.turbine_ids) if b.simulator else 0
     if b.simulator and b.simulator.is_running and config.turbineCount == current_count:
-        # Just update wind model parameters without restarting
-        b.simulator.wind_model.turbulence_intensity = config.turbulenceIntensity
+        # WMOM-20260718-01 fix：base wind speed 之前在此被丟掉（只套 turbulence），
+        # 導致 Settings 改風速對跑著的 sim 完全無反應。改用 wind override 一併套用
+        # base wind + turbulence，讓「改風速 → farm 基準風速改變 → 發電對應」成立
+        # （各機組仍由 turbulence / wake 在此基準上變化）。返回自動日變風況請用
+        # Wind Control 的 `auto` profile（/api/config/wind/clear）。
+        b.simulator.wind_model.set_override(
+            wind_speed=config.baseWindSpeed,
+            turbulence=config.turbulenceIntensity,
+        )
         return {
             "status": "ok",
             "turbineCount": config.turbineCount,
