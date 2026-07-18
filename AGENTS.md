@@ -6,8 +6,8 @@
 
 ## 一句話
 
-**離岸風場運維廠商工具**：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢。
-Monolithic 5 modules（monitoring / cost / workflow / reporting / knowledge），從 digiWindTurbine 商業化升級而來。
+**離岸風場運維廠商工具**：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢 + 權限驗證。
+Monolithic 6 modules（monitoring / cost / workflow / reporting / knowledge / auth），從 digiWindTurbine 商業化升級而來。
 
 ## 必讀順序
 
@@ -28,5 +28,8 @@ Monolithic 5 modules（monitoring / cost / workflow / reporting / knowledge）�
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt && python run.py   # backend :8100
 cd frontend && npm install && npm run dev                                  # frontend :3100
-python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/   # 570 passed / 1 xfailed
+# 測試執行指令 (含 6 模組 + e2e 測試，基準約 998 案)
+python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ \
+                  modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ \
+                  tests/ -q
 ```

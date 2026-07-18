@@ -201,7 +201,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 進度檢視 dashboard
 
-> 狀態快照（2026-07-16）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+> 狀態快照（2026-07-18）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
 
 | Month | Module | Done criteria | Status |
 |-------|--------|--------------|:------:|
@@ -210,7 +210,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 | 3 (2026-07) | Workflow Part 1 | Work Order + Approval 跑通 | ✅ done |
 | 4 (2026-08) | Workflow Part 2 + Reporting | Inventory + 月報 PDF | ✅ done |
 | 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~75%) |
-| 6 (2026-10) | PoC + 合約 | 第一筆收入 | ⚪ 未開始 |
+| 6 (2026-10) | PoC + 合約 | 第一筆收入（M6-4 auth 全面完成） | 🟡 in_progress (~20%) |
 
 每月最後一個 session 更新本表 + work-log + STATUS.yaml。
 

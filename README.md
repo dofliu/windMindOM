@@ -5,13 +5,13 @@
 > 從 [digiWindTurbine](https://github.com/dofliu/digiWindTurbine)（物理模擬器 + SCADA 平台）商業化升級而來。
 
 - **產品版本**：v0.8.1（2026-05 baseline）
-- **目前進度**：M1–M4 done；M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%；M6（PoC + 合約）未開始。以 [`STATUS.yaml`](STATUS.yaml) 為準
+- **目前進度**：M1–M4 done；M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%；M6（PoC + 合約）auth 基礎層 + 全 router 授權已完成。以 [`STATUS.yaml`](STATUS.yaml) 為準
 - **第一個目標客戶**：Z72 機型運維廠商 / 2026 Q4 PoC + 第一筆合約
 - **設計原則**：Simulator-first —— 所有功能都能在純模擬模式下 demo（無實場是 sales killer feature）
 
 ---
 
-## 五大功能 module
+## 六大功能 module
 
 | Module | 內容 | 狀態 |
 |---|---|---|
@@ -20,6 +20,7 @@
 | **workflow** | 工單 + 多階簽核 + 庫存 + 領料派工（雙寫交易模型 + 狀態機） | ✅ M3-M4 done |
 | **reporting** | 月報 PDF + 年度預算，KPI + iframe HTML preview | ✅ M4 done |
 | **knowledge** | RAG 警報查手冊（研究端策略檔 + 預計算向量檔，平台只載入 + query） | 🟡 M5 進行中 ~75% |
+| **auth** | JWT（HS256）+ RBAC 角色授權 + DB-backed user store + 前端真登入（M6 前提） | ✅ M6-4 done |
 
 詳細產品脈絡見 [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md)；一張圖看全貌見 [`docs/architecture/windMindOM-architecture.md`](docs/architecture/windMindOM-architecture.md)。
 
@@ -41,9 +42,21 @@ npm install
 npm run dev
 ```
 
-開 [http://localhost:3100](http://localhost:3100)。左側選單可看到工單管理（建單→派工→完工→簽核全 lifecycle）、報表、成本、監控等頁。
+開 [http://localhost:3100](http://localhost:3100)。
 
-> **Demo mock login**：`WMOM_DEV_MODE=true python run.py` 可一人扮 Alice/Bob/Carol/Owner 跑完整三階簽核 lifecycle（見 `frontend/services/mockUsers.ts`）。
+> **登入方式**：前端已實作真登入頁（JWT），dev 模式預設帳號：
+> | 帳號 | 密碼 | 角色 |
+> |------|------|------|
+> | `alice` | `alice123` | EMPLOYEE（現場工程師） |
+> | `bob` | `bob123` | LEADER（班長） |
+> | `carol` | `carol123` | SUPERVISOR（主管） |
+> | `owner` | `owner123` | TREASURY（業主代表） |
+>
+> 生產環境需設 `WMOM_JWT_SECRET` 環境變數，未設會 raise（安全預設）。
+
+左側選單可看到工單管理（建單→派工→完工→簽核全 lifecycle）、報表、成本、監控、情境導覽等頁。
+
+> **Demo mock login（legacy）**：`WMOM_DEV_MODE=true python run.py` 可在無 JWT token 時 fallback dev 行為（向下相容）。
 
 ### Docker Compose
 
@@ -59,12 +72,14 @@ Backend port 8100、Frontend 3100、Modbus TCP 5020。port 設定在 `.env`（�
 ## 測試
 
 ```bash
-# Backend（workflow + cost + reporting baseline）
-python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/
-# baseline：570 passed, 1 xfailed
+# Backend（6 module + monitoring/physics + e2e）
+python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ \
+                  modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ \
+                  tests/ -q
+# baseline：998 collected（含 auth 授權 + router enforcement 測試）
 
 # Frontend（vitest + RTL）
-cd frontend && npx vitest run        # 59 passed
+cd frontend && npx vitest run        # ~797 passed（含 LoginPage、GuidedTour 等）
 cd frontend && npx tsc --noEmit && npx vite build   # type check + production build
 ```
 
@@ -76,10 +91,11 @@ cd frontend && npx tsc --noEmit && npx vite build   # type check + production bu
 |------|------|
 | [`CLAUDE.md`](CLAUDE.md) | **開發守則**、repo 角色、commit 規範（任何 AI / 新 session 第一個讀） |
 | [`docs/architecture/windMindOM-architecture.md`](docs/architecture/windMindOM-architecture.md) | 一張圖看全貌 + 7 張細節圖（系統 / 模組分層 / 工單狀態機 / 簽核 / DB schema / Gantt） |
-| [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md) | 產品願景、ICP、5 大功能、商業模式、競品 |
-| [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) | 5 modules 設計、外部介接、技術選型 |
+| [`docs/product/PRODUCT_VISION.md`](docs/product/PRODUCT_VISION.md) | 產品願景、ICP、功能模組、商業模式、競品 |
+| [`docs/product/MVP_ARCHITECTURE.md`](docs/product/MVP_ARCHITECTURE.md) | modules 設計、外部介接、技術選型 |
 | [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) | M1-M6 六個月路線圖 |
-| [`docs/product/decision_log.md`](docs/product/decision_log.md) | 重大決策 ADR 紀錄 |
+| [`docs/product/decision_log.md`](docs/product/decision_log.md) | 重大決策 ADR 紀錄（含 DEC-20260716-01 auth / DEC-20260716-02 footprint） |
+| [`docs/product/PROJECT_REVIEW_2026-07-16.md`](docs/product/PROJECT_REVIEW_2026-07-16.md) | 2026-07-16 專案全面檢視報告（F1–F6 發現與建議） |
 | [`STATUS.yaml`](STATUS.yaml) / [`ISSUES.md`](ISSUES.md) / [`TODO.md`](TODO.md) | 進度 / 工作清單 / 短期 dashboard |
 | [`docs/API_GUIDE.md`](docs/API_GUIDE.md) | digiWT 既有 40+ REST/WS endpoints 規格 |
 | [`docs/physics_model_status.md`](docs/physics_model_status.md) | 物理模型完成度（動 monitoring 層時讀） |
@@ -91,19 +107,25 @@ cd frontend && npx tsc --noEmit && npx vite build   # type check + production bu
 
 ```
 windMindOM/
-├── api/                  ← FastAPI
-├── modules/              ← 5 大功能 module
-│   ├── monitoring/       ← digiWT SCADA + simulator
-│   ├── cost/             ← ECN K13 成本模型
-│   ├── workflow/         ← 工單 + 簽核 + 庫存派工
-│   ├── reporting/        ← 月報 / 年度預算
-│   └── knowledge/        ← RAG 警報查手冊（M5）
+├── modules/              ← 6 大功能 module
+│   ├── monitoring/       ← digiWT SCADA + simulator（104 tags、11 fault scenarios）
+│   ├── cost/             ← ECN K13 成本模型（LCOE / Monte Carlo / 20yr var-fluct）
+│   ├── workflow/         ← 工單 + 簽核 + 庫存派工（雙寫交易模型 + 狀態機）
+│   ├── reporting/        ← 月報 PDF / 年度預算 / KPI
+│   ├── knowledge/        ← RAG 警報查手冊（ChromaDB + Z72 手冊向量檔）
+│   └── auth/             ← JWT + RBAC 授權（HS256 / PBKDF2 純 stdlib）
 ├── shared/               ← canonical schema、PLC clients、共用 domain model
-├── frontend/             ← React + responsive（admin + field 雙路徑）
-├── tests/                ← pytest（含 physics 驗證）
+├── frontend/             ← React + responsive（admin + field 雙路徑 + 真登入頁）
+│   ├── components/       ← 含 LoginPage / GuidedTourPage / workflow / reporting / field / tour
+│   ├── hooks/            ← useAuth（AuthProvider + JWT token 管理）
+│   └── services/         ← authClient + 各模組 API client（自動帶 JWT token）
+├── tests/                ← pytest（含 physics 驗證 + e2e lifecycle）
 ├── docs/                 ← 產品 / 架構 / 設計 / legacy 文件
 ├── work-logs/            ← 每日 routine 紀錄
-└── deploys/              ← docker-compose
+├── tools/                ← 工具腳本（vacuum_db 等）
+├── templates/            ← work-log / issue / decision 模板
+├── .github/workflows/    ← CI（ci.yml: 6 module pytest + vitest/tsc/build；auto-merge.yml）
+└── z72SCADA_New/         ← Z72 SCADA 新版資料
 ```
 
 完整 architecture 與其他 7 個來源 repo（digiWindTurbine / ECN / z72_etech / windAILab / RAG_Ultimate / InduSpect / z72hmiNew）的關係，見 [`CLAUDE.md`](CLAUDE.md) §4-5。

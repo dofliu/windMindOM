@@ -42,14 +42,15 @@
 ```
 windMindOM/                          ← 本 repo（從 digiWindTurbine 進化）
 ├── api/                             ← FastAPI（既有 + 擴充）
-├── modules/                         ← 5 大功能 module（M1 起逐月建立）
+├── modules/                         ← 6 大功能 module（M1 起逐月建立）
 │   ├── monitoring/                  ← digiWT 既有 SCADA + simulator（M1 搬入）
 │   ├── workflow/                    ← 庫存 + 派工 + 簽核（M3-M4 新做）
 │   ├── cost/                        ← ECN 移植（M2）
 │   ├── reporting/                   ← 報表生成（M4）
-│   └── knowledge/                   ← RAG 警報查手冊（M5）
+│   ├── knowledge/                   ← RAG 警報查手冊（M5）
+│   └── auth/                        ← JWT + RBAC 授權（M6-4，純 stdlib）
 ├── shared/                          ← canonical schema、PLC clients、共用 domain model
-├── frontend/                        ← React + responsive design（admin + field 雙路徑）
+├── frontend/                        ← React + responsive design（admin + field 雙路徑 + 真登入頁）
 ├── opc_bachmann/                    ← Z72 OPC client（既有，M1 抽到 shared/plc_clients/）
 ├── tests/                           ← pytest
 ├── docs/
@@ -58,8 +59,7 @@ windMindOM/                          ← 本 repo（從 digiWindTurbine 進化�
 │   ├── routines/                    ← daily-workflow.md（M1 從 v0.5 搬入）
 │   ├── API_GUIDE.md                 ← digiWT 既有 API 規格（沿用）
 │   ├── physics_model_status.md      ← digiWT 既有物理模型狀態（沿用）
-│   ├── __Z72UserManual.pdf          ← Z72 手冊（M5 餵 RAG）
-│   └── 1040610-Z72_PLC_OPC_TAG_1040510.xlsx ← Z72 PLC tag 對映表
+│   └── __Z72UserManual.pdf          ← Z72 手冊（M5 餵 RAG）
 ├── work-logs/                       ← 每日 routine 紀錄（M1 起每日新建）
 ├── templates/                       ← work-log / issue / decision 模板
 ├── deploys/                         ← docker-compose（single-farm / multi-farm）
@@ -133,9 +133,10 @@ WMOM = WindMindOM 縮寫。
 > 進度以 [`STATUS.yaml`](STATUS.yaml) 為準；本節為快照，更新時請同步。
 
 - **產品版本**：v0.8.1（2026-05-02 baseline）
-- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）未開始
-- **下次工作**：M5 收尾（客戶手冊擴充 + 一年警報 csv 灌入）+ M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
+- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）auth 全面完成（JWT + RBAC + 全 router 授權 + 前端真登入，#108-#122）
+- **下次工作**：WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾（客戶手冊擴充 + 一年警報 csv 灌入）+ M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
 - **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
+- **Backend 測試**：998 tests collected（含 6 module + monitoring/physics + e2e + auth enforcement）
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

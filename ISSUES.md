@@ -13,13 +13,13 @@
 
 | Status | Count |
 |--------|------|
-| open | 14 |
+| open | 13 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 87 |
+| done | 88 |
 | **total (active)** | **103** |
 
-最後更新：2026-07-16（**專案檢視 session — 4 PR 進 main #105-108**）。全 repo 檢視 → `docs/product/PROJECT_REVIEW_2026-07-16.md`（F1-F6）；P0 文件真相對齊 + CI 補 monitoring/physics（#106）；M6 決策簡報 + openopc2 GPL 標示（#107）；**M6-4 真 auth 基礎層 done**（#108，stdlib JWT+RBAC+login，非破壞，+34 tests，DEC-20260716-01）。全 backend **899 passed / 0 failed**。新增 issue：done WMOM-20260716-01/02/03、open WMOM-20260716-04/05/06（見下方 EPIC-M6）。**下一步**：auth follow-up（DB user store → router 強制授權 + 前端真登入）+ footprint CPU-torch pin（DEC-20260716-02）+ 客戶接觸（WMOM-20260503-05）。
+最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。
 
 > 📁 前一筆詳細 changelog（2026-06-07/08，FarmSelector render 測試 + M5 大推進）已封存到 work-logs/2026-06/；各 issue 詳細紀錄保留於下方 `### WMOM-*` 區段。
 
@@ -33,14 +33,14 @@
 
 ## 📌 2026-07-16 session 新增 issue（專案檢視 follow-up）
 
-**Done（#105-108）**
+**Done（#105-108, #110, #112-#113, #115-#122）**
 - **WMOM-20260716-01** — 專案檢視（`PROJECT_REVIEW_2026-07-16.md` F1-F6）+ P0 onboarding 文件真相對齊 + CI 補 monitoring/physics（#105 #106）✅
 - **WMOM-20260716-02** — M6 部署決策簡報（auth/footprint）+ openopc2 GPL/體積標示 + footprint 量測（#107）✅
 - **WMOM-20260716-03** — M6-4 真 auth 基礎層：stdlib JWT + RBAC + login，非破壞（#108，DEC-20260716-01）✅
+- **WMOM-20260716-04** — auth follow-up：DB-backed user store（`SqlUserStore`）+ admin 建帳/列帳 API（`/api/auth/users`）+ env bootstrap 首個 admin，非破壞（+17 tests, #110）✅
+- **WMOM-20260716-05** — auth follow-up：全 5 module router（含 monitoring 9 支 + workflow + cost + reporting + knowledge）授權強制遷移 + 前端真登入頁與 AuthProvider（#112-#113, #115-#122）✅
 
-**Open（auth / footprint follow-up）**
-- **WMOM-20260716-04** — auth follow-up：DB-backed user store（`SqlUserStore`）+ admin 建帳/列帳 API（`/api/auth/users`）+ env bootstrap 首個 admin，非破壞（+17 tests）✅ done
-- **WMOM-20260716-05** — 🟡 auth follow-up：router 逐支改 `get_current_actor`/`require_roles` 強制授權 + 前端 mock login 換真 `/api/auth/login`（**②③配套、會改行為，需劉老師在場排**）
+**Open（footprint follow-up）**
 - **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 
 ---
@@ -74,7 +74,7 @@
 | M6-1 | **Friendly 運維廠商現場部署**（docker-compose 在客戶端跑起來） | 🟡 | 需客戶現場 |
 | M6-2 | **Z72 PLC 連線測試**（客戶端 OPC tunnel） | 🟡 | 需客戶 PLC |
 | M6-3 | **PostgreSQL backend 切換 + row-lock 驗證**（WMOM-20260509-F6） | 🔵 | 部署前；需 docker postgres |
-| M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login）— **基礎層 done**（#108 WMOM-20260716-03，DEC-20260716-01）；剩 DB user store（-04）+ router 強制授權/前端真登入（-05）+ HTTPS | 🔵 | 基礎層非破壞已進 main；②③配套需在場排 |
+| M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login）— **全部 done**（含基礎層 -03、DB user store -04、全 router 授權與前端真登入 -05）；剩餘 HTTPS 部署配置 | 🔵 | M6-4 auth 強制授權與前端真登入已於 PR #110-#122 完整合入 |
 | M6-5 | **培訓 + 第一個月運轉 + 收反饋** | 🟡 | 需客戶 |
 | M6-6 | **第一份自動月報交業主** | 🔵 | reporting module 已 ready，需真資料驗證 |
 
@@ -2662,13 +2662,17 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
-### WMOM-20260513-02 — Demo Orchestrator full impl + simulator integration（A10 follow-up）
+### WMOM-20260513-02 — app 內情境導覽模式（GuidedTourPage）
 
-- **Status**: open
+- **Status**: done（2026-07-17 完成）
 - **Milestone**: M5（2026-09）
-- **Priority**: medium（demo polish；客戶 demo 時若想一鍵 replay lifecycle 需要這個）
-- **Estimate**: 2-3 工作天
-- **Source**: 2026-05-13 A10 (WMOM-20260509-10) 收尾留下的兩個延伸缺口
+- **Priority**: medium（demo polish；對運維廠商展示時，以真實 UI 元件演練 5 個情境，跑通一條龍 demo）
+- **Owner**: Claude (session 2026-07-17)
+- **Completion summary**:
+  - ✅ **`frontend/components/tour/GuidedTourPage.tsx`**：建立 app 內情境導覽頁面，使用真實 UI 元件庫（Card / Stat / StatusPill / Btn / MiniSparkline）與 sage/emerald 雙色主題。
+  - ✅ **5 大導覽情境**：(1) 監控總覽 (2) 告警查手冊 (3) 工單閉環 (4) 安全庫存自動叫料 (5) 運維月報與 LCOE。
+  - ✅ **鍵盤與按鈕前進**：支援鍵盤左右方向鍵與上方章節選單切換步驟。
+  - ✅ **tests/vitest**：補上對應的 React components render 測試。
 
 #### Description
 

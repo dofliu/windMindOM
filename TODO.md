@@ -9,14 +9,14 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-07-16（P0 文件真相對齊 + CI 補 monitoring/physics 測試；依 2026-07 專案檢視建議 P0 項）
+最後更新：2026-07-18（auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122）
 
 ---
 
 ## 現況（2026-07）
 
-- **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）
-- **baseline 綠**：backend 全套（5 module + monitoring/physics + e2e）→ **865 passed / 1 skipped（需 embed 模型）/ 1 xfailed**；frontend vitest **~797 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics（先前缺）
+- **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
+- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **997 passed / 1 xfailed**（共 998 collected）；frontend vitest **~797 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試。
 - **節奏提醒**：autonomous 飛輪自 2026-06-08 後暫停；重啟時挑題準則建議改為「對 M6 critical path 有貢獻優先」（見 2026-07 專案檢視 F3）
 
 ---
@@ -31,12 +31,12 @@
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
 - [ ] **前端 component render 測試**（CostPage / FarmOverview / workflow Panel）—— 需先補 `vitest.config.ts` jsdom setupFiles + `npm i -D @testing-library/jest-dom`
+- [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 - [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
 
 ### 需劉老師決策才能開工
 
 - [ ] **WMOM-20260519-01** — `add_return` 超量退料 domain guard（需會計語意決策）
-- [ ] **WMOM-20260513-02** — Demo Orchestrator full impl（含 INSPECTION over-use product decision）
 - [ ] **WMOM-20260513-01** — UI 改版 v2（placeholder — 等劉老師補新設計交接書）
 
 ### 客戶接觸（持續）

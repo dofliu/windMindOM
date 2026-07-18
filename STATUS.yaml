@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-07-16"  # 專案檢視 session：review→P0→auth 基礎層，4 PR 進 main（#105-108）
-next_milestone: "【2026-07-16 — 專案檢視 session，4 PR 進 main #105-108】(1) 全 repo 檢視 → docs/product/PROJECT_REVIEW_2026-07-16.md（F1-F6 發現）#105；(2) P0：onboarding 文件真相對齊（M1→M5 75%）+ CI 補 monitoring/physics（+188 tests）#106；(3) M6 決策簡報（auth/footprint）+ openopc2 GPL 標示 #107；(4) M6-4 真 auth 基礎層 #108（stdlib JWT+RBAC+login，非破壞，+34 tests，DEC-20260716-01）。全 backend 899 passed / 0 failed。**下一步**：auth follow-up — WMOM-20260716-04（DB user store + 建帳 API）/ -05（router 逐支強制授權 + 前端真登入）/ -06（footprint CPU-torch pin，DEC-20260716-02）；M6 客戶接觸 WMOM-20260503-05（素材齊、待執行）。詳見 PROJECT_REVIEW_2026-07-16.md 與 decision_log DEC-20260716-01/02。歷史脈絡見 work-logs/。"
+last_updated: "2026-07-18"  # auth 全面完成：14 PR 進 main（#109-#122），全 router JWT 授權 + 前端真登入
+next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**下一步**：WMOM-20260716-06（footprint CPU-torch pin Dockerfile）→ M5 收尾（客戶手冊擴充 + 一年警報 csv）→ M6 客戶接觸 WMOM-20260503-05（素材齊、待執行）。"
 technologies:
   - FastAPI
   - React
@@ -58,14 +58,14 @@ milestones:
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
-    status: planned
-    progress: 5  # M6-4 auth 基礎層 done（WMOM-20260716-03，DEC-20260716-01，非破壞）；deployment / PLC / 客戶接觸未開始
+    status: in_progress
+    progress: 20  # auth 全面完成（基礎層 + DB store + 全 router 授權 + 前端真登入，#108-#122）；剩 footprint / deployment / PLC / 客戶接觸
 
 issue_stats:
-  open: 15   # +3 auth/footprint follow-up (WMOM-20260716-04/05/06)
+  open: 13   # -04 done / -05 done → 原 open 15 - 2 done
   in_progress: 2   # WMOM-20260504-12（記憶體長跑驗收）+ WMOM-20260503-05（客戶接觸）
   blocked: 0
-  done: 86  # +3 (2026-07-16): WMOM-20260716-01 檢視+P0 + -02 M6 決策簡報 + -03 M6-4 auth 基礎層
+  done: 88  # +2 (2026-07-18): WMOM-20260716-04 DB user store + WMOM-20260716-05 全 router 授權 + 前端真登入
 
 inherited_baseline:
   source: digiWindTurbine
