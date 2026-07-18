@@ -33,6 +33,7 @@ export const useSettings = () => {
             if (newSettings.dataSource === DataSourceType.SIMULATION) {
                 const simChanged =
                     prevSettings.simulation.turbineCount !== newSettings.simulation.turbineCount ||
+                    prevSettings.simulation.baseWindSpeed !== newSettings.simulation.baseWindSpeed ||
                     prevSettings.simulation.turbulenceIntensity !== newSettings.simulation.turbulenceIntensity;
                 if (simChanged) {
                     fetch(`${API_BASE}/api/config/simulation`, {
