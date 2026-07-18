@@ -700,3 +700,27 @@ describe('TurbineDetail — 為何不發電 chip', () => {
     expect(screen.getByText(/Cut-out wind/)).toBeInTheDocument();
   });
 });
+
+// ─── 顯示重設計（#5，WMOM-20260718-05）───────────────────────────────────────
+
+describe('TurbineDetail — 顯示重設計', () => {
+  it('主圖「發電量 vs 風速」置頂，四通道趨勢降級到其後（DOM 順序）', async () => {
+    await renderDetail({});
+    const primary = screen.getByText('發電量 vs 風速 · 過去到現在');
+    const fourCh = screen.getByText(/四通道/); // 全形空格易致 exact 比對失敗，用 regex
+    expect(primary).toBeInTheDocument();
+    expect(fourCh).toBeInTheDocument();
+    // 主圖在四通道之前 → primary.compareDocumentPosition(fourCh) 含 FOLLOWING(4)
+    expect(primary.compareDocumentPosition(fourCh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('主圖區塊掛載 TrendChartPanel（預設即 Power & Wind 通道）', async () => {
+    await renderDetail({});
+    expect(screen.getByTestId('trend-chart-panel')).toBeInTheDocument();
+  });
+
+  it('lang=en 主圖標題 = Power vs Wind · over time', async () => {
+    await renderDetail({ lang: 'en' });
+    expect(screen.getByText('Power vs Wind · over time')).toBeInTheDocument();
+  });
+});
