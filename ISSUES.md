@@ -66,7 +66,9 @@
   - **情境頁 code review 修正（本 PR）**：風況 POST 檢查 `res.ok`（原未檢查 → 可能用殘留風況生成卻
     顯示成功）；`severityRate` 夾限 [0.00001, 0.1]（原 `|| 預設` 會把 0 靜默換掉、負值直送後端）；
     成功後清「生成中」訊息；補 7 tests（風況失敗中止 / 速率 0/負/超界夾限 / 空清單 disabled / 時長越界）。
-- **WMOM-20260718-04** — 🔵 #3 狀態可見性：turbine 顯示「為何不發電」（cut-out/故障跳機/停機）+ header 顯示當前風場
+- **WMOM-20260718-04** — 🔵 #3 狀態可見性（本 PR）：turbine 詳情在功率≈0 時顯示「為何不發電」chip
+  （`noPowerReason`：故障跳機 / 緊急停機 / 切出風速 / 低於切入 / 停機 / 待機 / 離線）+ App header 加
+  當前風場 context strip（風場名 + 台數 + 資料來源；復用既有 /api/farms health poll）。+12 tests。
 - **WMOM-20260718-05** — 🔵 #5 turbine 顯示重設計：以「發電量 vs 風速 隨時間」為主圖，降級四色 mini-trend
 
 ---
