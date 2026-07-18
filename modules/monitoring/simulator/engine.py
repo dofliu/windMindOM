@@ -262,7 +262,7 @@ class WindFarmSimulator:
                       callback: Optional[Callable[[List[Dict]], None]] = None,
                       progress_callback: Optional[Callable[[float, float], None]] = None,
                       fault_schedule: Optional[List[TestPlanStep]] = None,
-                      on_fault_injected: Optional[Callable[[TestPlanStep], None]] = None) -> int:
+                      on_fault_injected: Optional[Callable[[TestPlanStep, datetime], None]] = None) -> int:
         """Generate bulk historical data without real-time waiting.
 
         Runs the full physics simulation at maximum speed, writing data
@@ -277,8 +277,11 @@ class WindFarmSimulator:
                 （相對本次批次起點）被注入。讓 Scenario 模式的批次資料集能包含
                 「在指定 sim-time 才發生」的故障（WMOM-20260718-03, DEC-20260718-01）。
                 本方法不會先清除既有 active fault——要乾淨情境請先 ``fault_engine.clear()``。
-            on_fault_injected: 選填。每支故障被注入的當下以該 ``TestPlanStep`` 回呼，
-                讓呼叫端持久化故障事件（如 ``broker.record_event``），使情境可重現。
+            on_fault_injected: 選填。每支故障**成功注入**的當下，以
+                ``(step, sim_time)`` 回呼（``sim_time`` 為該注入的模擬時間）。讓呼叫端
+                以正確的模擬時間戳持久化故障事件（如 ``broker.record_event(timestamp=...)``），
+                使事件標記與批次資料的時間軸對齊、情境可重現。未知 scenario（``inject``
+                回 False）不會觸發此回呼。
 
         Returns:
             Total number of readings generated
@@ -297,17 +300,19 @@ class WindFarmSimulator:
                 break
 
             # 注入所有已到 offset 的排程故障（可能同一 step 注入多支）。
+            # sim_time 此刻尚未加上本步 dt，正是此故障的注入模擬時間。
             elapsed_seconds = step_i * time_step
             while sched_idx < len(schedule) and schedule[sched_idx].offset_seconds <= elapsed_seconds:
                 fstep = schedule[sched_idx]
-                self.fault_engine.inject(
+                injected = self.fault_engine.inject(
                     scenario_id=fstep.scenario_id,
                     turbine_id=fstep.turbine_id,
                     severity_rate=fstep.severity_rate,
                     initial_severity=fstep.initial_severity,
                 )
-                if on_fault_injected is not None:
-                    on_fault_injected(fstep)
+                # 僅在真的注入成功時回呼（inject 對未知 scenario 回 False 且不注入）。
+                if injected and on_fault_injected is not None:
+                    on_fault_injected(fstep, sim_time)
                 sched_idx += 1
 
             sim_time += timedelta(seconds=time_step)

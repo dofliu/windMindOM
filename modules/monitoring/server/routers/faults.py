@@ -3,11 +3,14 @@
 Includes test plan system for automated fault sequences.
 """
 
+from datetime import datetime
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import FaultInjectionRequest, FaultClearRequest
-from simulator.physics.fault_engine import TEST_PLANS
+from simulator.physics.fault_engine import TEST_PLANS, TestPlanStep
 
 router = APIRouter(prefix="/api/faults", tags=["faults"])
 
@@ -181,16 +184,19 @@ async def run_test_plan(plan_id: str, body: dict = {}):
 
     session_id = b._session_id
 
-    def store_cb(readings):
+    def store_cb(readings: List[dict]) -> None:
+        """Persist generated bulk readings to storage."""
         b.storage.store_readings(readings, session_id)
 
-    def on_inject(s):
+    def on_inject(s: TestPlanStep, sim_time: datetime) -> None:
+        """把測試計畫的排定故障寫成事件（用注入的模擬時間戳），供稽核追溯。"""
         b.record_event(
             event_type="fault",
             source="test_plan",
             title=f"Test plan: {s.scenario_id} on {s.turbine_id}",
             turbine_id=s.turbine_id,
             detail=s.description,
+            timestamp=sim_time.isoformat(),
             payload={
                 "plan_id": plan_id,
                 "scenarioId": s.scenario_id,

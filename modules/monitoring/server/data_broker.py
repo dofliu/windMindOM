@@ -565,8 +565,15 @@ class DataBroker:
 
     def record_event(self, event_type: str, source: str, title: str,
                      turbine_id: Optional[str] = None, detail: Optional[str] = None,
-                     payload: Optional[Dict] = None, end_timestamp: Optional[str] = None):
-        """Persist a history event (fault, grid change, operator action, etc.) to storage."""
+                     payload: Optional[Dict] = None, timestamp: Optional[str] = None,
+                     end_timestamp: Optional[str] = None):
+        """Persist a history event (fault, grid change, operator action, etc.) to storage.
+
+        Args:
+            timestamp: 事件發生時刻（ISO）。批次生成的排定故障須傳「模擬時間」而非
+                wall-clock——否則事件標記會落在真實時間、與資料的模擬時間窗對不上
+                （WMOM-20260718-03）。預設 None → storage 落地為 ``datetime.now()``。
+        """
         self.storage.record_event(
             event_type=event_type,
             source=source,
@@ -574,6 +581,7 @@ class DataBroker:
             turbine_id=turbine_id,
             detail=detail,
             payload=payload,
+            timestamp=timestamp,
             end_timestamp=end_timestamp,
         )
 

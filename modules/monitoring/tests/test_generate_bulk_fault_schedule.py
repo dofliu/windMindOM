@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -63,19 +64,54 @@ def test_scheduled_fault_not_injected_before_its_offset():
     assert sim.fault_engine.active_faults == []
 
 
-def test_on_fault_injected_callback_fires_once_with_step():
-    """注入當下以該 PlanStep 回呼一次（端點用它寫 record_event 使情境可追溯）。"""
+def test_on_fault_injected_callback_fires_once_with_step_and_simtime():
+    """注入當下以 (step, sim_time) 回呼一次；sim_time 為 datetime，端點用它寫模擬時間戳。"""
     sim = _running_sim()
-    injected: list[PlanStep] = []
+    injected: list[tuple[PlanStep, datetime]] = []
     schedule = [PlanStep(offset_seconds=0.0, scenario_id="yaw_sensor_drift",
                          turbine_id="WT003", severity_rate=0.001)]
 
-    sim.generate_bulk(duration_hours=0.05, time_step=10.0,
-                      fault_schedule=schedule, on_fault_injected=injected.append)
+    sim.generate_bulk(duration_hours=0.05, time_step=10.0, fault_schedule=schedule,
+                      on_fault_injected=lambda step, st: injected.append((step, st)))
 
     assert len(injected) == 1
-    assert injected[0].scenario_id == "yaw_sensor_drift"
-    assert injected[0].turbine_id == "WT003"
+    step, sim_time = injected[0]
+    assert step.scenario_id == "yaw_sensor_drift"
+    assert step.turbine_id == "WT003"
+    assert isinstance(sim_time, datetime), "sim_time 應為 datetime，供 record_event 用模擬時間戳"
+
+
+def test_multiple_faults_at_same_offset_all_injected_in_one_step():
+    """同一 offset 的多支故障於同一 step 全部注入（守住 engine 的 while 迴圈，不是 if）。"""
+    sim = _running_sim()
+    schedule = [
+        PlanStep(offset_seconds=0.0, scenario_id="bearing_wear", turbine_id="WT001", severity_rate=0.001),
+        PlanStep(offset_seconds=0.0, scenario_id="yaw_sensor_drift", turbine_id="WT002", severity_rate=0.001),
+        PlanStep(offset_seconds=0.0, scenario_id="hydraulic_leak", turbine_id="WT003", severity_rate=0.001),
+    ]
+
+    sim.generate_bulk(duration_hours=0.02, time_step=10.0, fault_schedule=schedule)
+
+    active = {(f.scenario_id, f.turbine_id) for f in sim.fault_engine.active_faults}
+    assert active == {
+        ("bearing_wear", "WT001"),
+        ("yaw_sensor_drift", "WT002"),
+        ("hydraulic_leak", "WT003"),
+    }
+
+
+def test_unknown_scenario_in_schedule_is_skipped_without_callback():
+    """引擎層防禦：未知 scenario → inject 回 False → 不注入也不回呼。"""
+    sim = _running_sim()
+    injected: list[PlanStep] = []
+    schedule = [PlanStep(offset_seconds=0.0, scenario_id="does_not_exist",
+                         turbine_id="WT001", severity_rate=0.001)]
+
+    sim.generate_bulk(duration_hours=0.02, time_step=10.0, fault_schedule=schedule,
+                      on_fault_injected=lambda step, st: injected.append(step))
+
+    assert sim.fault_engine.active_faults == []
+    assert injected == []
 
 
 def test_no_schedule_generates_data_without_faults():
@@ -166,4 +202,26 @@ def test_parse_negative_offset_raises_400():
 def test_parse_non_dict_entry_raises_400():
     with pytest.raises(HTTPException) as ei:
         _parse_fault_schedule(["not-a-dict"], _ids())
+    assert ei.value.status_code == 400
+
+
+def test_parse_raw_not_a_list_raises_400():
+    with pytest.raises(HTTPException) as ei:
+        _parse_fault_schedule(123, _ids())  # type: ignore[arg-type]
+    assert ei.value.status_code == 400
+
+
+def test_parse_non_numeric_offset_raises_400():
+    """畸形數值（字串）→ 乾淨 400，而非未預期 500。"""
+    with pytest.raises(HTTPException) as ei:
+        _parse_fault_schedule(
+            [{"scenario_id": "bearing_wear", "turbine_id": "WT001", "offset_seconds": "soon"}], _ids())
+    assert ei.value.status_code == 400
+
+
+def test_parse_none_severity_rate_raises_400():
+    """畸形數值（None）→ 乾淨 400，而非未預期 500。"""
+    with pytest.raises(HTTPException) as ei:
+        _parse_fault_schedule(
+            [{"scenario_id": "bearing_wear", "turbine_id": "WT001", "severity_rate": None}], _ids())
     assert ei.value.status_code == 400
