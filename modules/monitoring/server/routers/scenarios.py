@@ -36,6 +36,7 @@ async def list_scenarios(limit: int = 50):
 
 @router.get(
     "/{scenario_id}",
+    # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
 async def get_scenario(scenario_id: int):
@@ -49,12 +50,20 @@ async def get_scenario(scenario_id: int):
 
 @router.get(
     "/{scenario_id}/turbines/{turbine_id}/history",
+    # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
 async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit: int = 2000):
     """調閱某情境某機組的資料——只回該情境 session 的 turbine_data（與 Live/歷史隔離）。
 
     另附該情境模擬時間窗內的事件（故障注入等），供時間軸標記；窗未知時回空清單。
+
+    ⚠️ 限制：``history_events`` 無 ``session_id`` 欄位，事件只能靠情境的
+    ``sim_start..sim_end`` 時間窗撈取。因情境的 sim-time 皆從生成當下的 wall-clock 起算，
+    **短時間內連續產生的情境時間窗會大幅重疊**，此時回傳的 ``events`` 可能混入其他情境的
+    事件（``readings`` 走 session_id 隔離，不受影響）。徹底解法是為 ``history_events`` 補
+    ``session_id``（見 DEC-20260719-01 trade-off）。故回傳帶 ``events_by_time_window`` 旗標
+    提醒前端此清單非 session 隔離。
     """
     b = get_broker()
     sc = b.storage.get_scenario(scenario_id)
@@ -72,15 +81,17 @@ async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit:
     return {
         "scenario_id": scenario_id,
         "turbine_id": turbine_id,
-        "readings": readings,
-        "events": events,
+        "readings": readings,            # 走 session_id 隔離
+        "events": events,                # 走時間窗，非 session 隔離（見下旗標）
+        "events_by_time_window": True,   # 提醒：events 可能混入時間窗重疊的其他情境
     }
 
 
 @router.delete(
     "/{scenario_id}",
-    # 刪除＝主管（不可逆、會清資料列）
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    # 刪除情境＝系統管理員（不可逆、會清 5 張表的資料列）——對齊 farms/config/modbus
+    # 破壞性端點的既定慣例（皆 ADMIN）。
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def delete_scenario(scenario_id: int):
     """刪除情境 session 及其所有資料列；非情境 session 不受影響（回 404）。"""

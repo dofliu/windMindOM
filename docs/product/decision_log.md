@@ -559,8 +559,10 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
 
 - 沿用 `sessions` 表存情境（不另立 scenarios 表）：零 schema 遷移、複用既有清理/aggregation；
   代價是情境與 Live session 同表、靠 `config_json.kind` 區分。
-- events 靠時間窗而非 session_id 關聯：省一次 schema 遷移，代價是跨情境窗重疊的邊界（低風險，
-  可日後補 `history_events.session_id` 收斂）。
+- events 靠時間窗而非 session_id 關聯：省一次 schema 遷移。代價**不小**——情境的 sim-time 皆從
+  生成當下 wall-clock 起算，**短時間內連續產生的情境時間窗會大幅重疊**，調閱時 events 可能混入
+  其他情境（readings 走 session_id 隔離、不受影響）。故 `/api/scenarios/{id}/.../history` 回傳帶
+  `events_by_time_window: true` 旗標明示此限制；徹底解法是補 `history_events.session_id`（follow-up）。
 
 ---
 

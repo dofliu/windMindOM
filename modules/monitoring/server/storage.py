@@ -141,6 +141,13 @@ class Storage:
             ON turbine_snapshots (turbine_id, timestamp)
         """)
 
+        # session_id 索引（WMOM-20260719-02）：情境保存讓「依 session 過濾/刪除」成為第一手
+        # 查詢模式（query_history(session_id=...) / delete_scenario），補索引避免全表掃描。
+        for _tbl in ("turbine_data", "turbine_data_1m", "turbine_data_10m", "turbine_snapshots"):
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{_tbl}_session ON {_tbl} (session_id)"
+            )
+
         # ── Sessions table ──
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -287,21 +294,22 @@ class Storage:
         return result
 
     def get_active_session(self) -> Optional[dict]:
-        """Return the latest session that has not ended, or None."""
-        """Return the most recent session that has not ended, or None."""
+        """Return the most recent non-ended *Live* session, or None.
+
+        主動排除情境 session（config_json.kind == "scenario"）：情境本應在生成後被
+        end_session，但即使中途失敗、或未來改多 worker / 背景任務，也不能讓一個尚未
+        結束的情境 session 頂替 Live 被當成 active（防禦性，不依賴呼叫時機）。
+        """
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT * FROM sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+            "SELECT * FROM sessions "
+            "WHERE ended_at IS NULL "
+            "  AND (json_extract(config_json, '$.kind') IS NULL "
+            "       OR json_extract(config_json, '$.kind') != ?) "
+            "ORDER BY id DESC LIMIT 1",
+            (self.SCENARIO_KIND,),
         ).fetchone()
-        if row:
-            d = dict(row)
-            if d.get("config_json"):
-                try:
-                    d["config"] = json.loads(d["config_json"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            return d
-        return None
+        return self._session_row_to_dict(row) if row else None
 
     # ── Scenario sessions（DEC-20260718-01 情境保存）──────────────────
     # 情境＝一個以 config_json.kind == "scenario" 標記的專屬 session；批次生成的
@@ -309,7 +317,7 @@ class Storage:
     SCENARIO_KIND = "scenario"
 
     @staticmethod
-    def _session_row_to_dict(row) -> dict:
+    def _session_row_to_dict(row: sqlite3.Row) -> dict:
         """把 sessions 資料列轉 dict，並把 config_json 解析到 ``config``。"""
         d = dict(row)
         if d.get("config_json"):
@@ -378,6 +386,9 @@ class Storage:
         ).fetchone()
         if row is None:
             return False
+        # 注意：history_events 無 session_id 欄位（見 DEC-20260719-01 trade-off），故本情境的
+        # 故障注入事件會成為孤兒留在 history_events。TODO：若日後補 history_events.session_id，
+        # 這裡要一併 DELETE。
         for table in ("turbine_data", "turbine_data_1m",
                       "turbine_data_10m", "turbine_snapshots"):
             conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (scenario_id,))
@@ -536,6 +547,11 @@ class Storage:
         """Create 1-minute and 10-minute aggregates from raw data.
 
         Called periodically by the background maintenance task.
+
+        注意（WMOM-20260719-02）：GROUP BY 只含 turbine_id + 分鐘桶，未含 session_id——同一
+        turbine 同一實際分鐘桶內若混有多個 session 的列，聚合列的 session_id 由 SQLite 任選、
+        不保證。目前無任何查詢以 session_id 讀 1m/10m（query_history 只讀 raw turbine_data），
+        故不影響現況；日後若要對 1m/10m 做 session 隔離查詢，GROUP BY 需補 session_id。
         """
         conn = self._get_conn()
         now = datetime.now()

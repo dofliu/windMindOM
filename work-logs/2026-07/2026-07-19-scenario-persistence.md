@@ -40,9 +40,27 @@
 - **不帶 name 沿用舊行為**：保留 FaultInjectionPanel/快速批次「寫進 active session」用法，非破壞。
 - **情境 session 生成後 end_session**：避免被 `get_active_session` 當成 Live。
 
+## code review 結果（code-reviewer subagent）
+
+- **Needs revision → 已收**：2 Must-fix + 6 Should-fix + 4 Nice-to-have，reviewer 以 repro script
+  實證兩個 Must-fix。全數處理：
+  - **Must-fix #1**：情境生成中途失敗會讓 scenario session 卡 `ended_at IS NULL` → 被
+    `get_active_session` 誤認成 Live。修：generate-bulk 的生成段包 try/except，失敗也
+    `update_session_config(status=error)` + `end_session` 再 raise。
+  - **Must-fix #2**：`offset=0` 注入的故障事件時間戳早於首筆 reading 一個 `time_step` → 被自己情境
+    的時間窗 `timestamp >= sim_start` 排除。修：`on_inject` 也把注入時間納入 `sim_window` 下界。
+  - **Should-fix**：`get_active_session` 主動排除 kind==scenario（防禦，不依賴呼叫時機）；DELETE
+    情境改 ADMIN（對齊 farms/config/modbus 破壞性端點）；scenario history docstring + 回傳
+    `events_by_time_window` 旗標明示 events 非 session 隔離；generate-bulk docstring 補物理 state
+    併發風險；**新增 `test_scenario_endpoints.py` 4 個 endpoint 層測試**（直呼 async endpoint，
+    守住兩個 Must-fix）；強化 delete 測試驗證五張表全清。
+  - **Nice-to-have**：補 4 張表的 `session_id` 索引；`_session_row_to_dict` 型別標註；
+    delete_scenario / run_downsampling 補 landmine 註解（history_events 孤兒、1m/10m GROUP BY）。
+- monitoring **89 全綠**（+4 endpoint tests）。
+
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR（#4 後端）**：draft + `hold`（待 code review）→ 收 review → 移除 hold → flywheel 自動合。
+- **本 PR（#4 後端）**：review 收完 → 移除 hold → flywheel CI 綠自動合。
 - **接下來 #4 前端（PR B）**：ScenarioPage 加「情境命名」欄（生成時帶 `name`）+ 「過去情境」清單
   （打 `GET /api/scenarios`）+ 點選調閱（打 `/{id}/turbines/{tid}/history`，餵進趨勢/分析視圖）+
   刪除。API 契約見 `scenarios.py` 頂部註解。

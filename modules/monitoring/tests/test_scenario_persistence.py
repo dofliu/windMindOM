@@ -117,18 +117,39 @@ def test_update_session_config_missing_session_is_noop(storage):
 
 # ─── delete ────────────────────────────────────────────────────────────────
 
-def test_delete_scenario_removes_session_and_its_rows(storage):
+def _count_session_rows(storage, table: str, session_id: int) -> int:
+    return storage._get_conn().execute(
+        f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", (session_id,)
+    ).fetchone()[0]
+
+
+def test_delete_scenario_removes_session_and_all_five_tables(storage):
+    """delete_scenario 要連 turbine_data / _1m / _10m / snapshots + sessions 全清。
+
+    1m/10m 沒有便捷公開寫入路徑（需等 run_downsampling），故直接以原生 SQL 塞 session 列，
+    守住「宣稱刪五張表」不因日後漏掉某張表名而破功（漏刪仍是合法 SQL，不會 raise）。
+    """
     sc_sid = _scenario(storage, "del")
     storage.store_readings([
         _reading("WT001", "2026-03-01T00:00:00"),
         _reading("WT002", "2026-03-01T00:00:10"),
     ], sc_sid)
-    assert len(storage.query_history("WT001", session_id=sc_sid)) == 1
+    storage.store_snapshot(_reading("WT001", "2026-03-01T00:00:01"), "ev:del:1", sc_sid)
+    conn = storage._get_conn()
+    for tbl in ("turbine_data_1m", "turbine_data_10m"):
+        conn.execute(
+            f"INSERT INTO {tbl} (timestamp, turbine_id, session_id) VALUES (?, ?, ?)",
+            ("2026-03-01T00:00:00", "WT001", sc_sid),
+        )
+    conn.commit()
+
+    for tbl in ("turbine_data", "turbine_data_1m", "turbine_data_10m", "turbine_snapshots"):
+        assert _count_session_rows(storage, tbl, sc_sid) > 0, f"{tbl} 前置應有列"
 
     assert storage.delete_scenario(sc_sid) is True
     assert storage.get_scenario(sc_sid) is None
-    assert storage.query_history("WT001", session_id=sc_sid) == []
-    assert storage.query_history("WT002", session_id=sc_sid) == []
+    for tbl in ("turbine_data", "turbine_data_1m", "turbine_data_10m", "turbine_snapshots"):
+        assert _count_session_rows(storage, tbl, sc_sid) == 0, f"{tbl} 應被清空"
     # 已不存在 → 再刪回 False
     assert storage.delete_scenario(sc_sid) is False
 
