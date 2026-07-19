@@ -88,6 +88,11 @@
   太鬆），3.11+ 重寫 datastore 令 `ModbusSequentialDataBlock(0,…)` → `TypeError: 0 <= address < 65535`、
   app 啟動失敗。requirements 改 `pymodbus>=3.5,<3.8`（3.5–3.7 用舊 datastore、code 已相容 3.7）。
   用戶本機需 `pip install "pymodbus==3.6.9"` 降回相容版。
+- **WMOM-20260718-09** — 🔴 non-finite 防呆：某風場的風機規格讓上游物理發散成 inf/nan →
+  `[Simulator] Error: cannot convert float infinity to integer`（Modbus int() 崩）+ fatigue numpy
+  warning + 前端 recharts 畫壞。修：`RainflowCounter.add_sample` 忽略非有限；`engine._zero_non_finite`
+  每步把 SCADA 的 inf/nan 就地歸零（單一 choke point + 印一次警告指向風機規格）。+4 tests。
+  註：根因為該風場規格異常（欄位 0/空），建議用戶從 preset 重建該風場。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

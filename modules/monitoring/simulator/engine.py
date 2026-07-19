@@ -20,6 +20,24 @@ from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 
 
+def _zero_non_finite(scada: Dict[str, float]) -> List[str]:
+    """把 SCADA dict 內的非有限數值（inf/nan）就地歸零，回傳被歸零的 tag 名清單。
+
+    非有限值（通常源自異常風機規格導致上游物理發散）會打爆 Modbus 的 int() 轉換、
+    JSON 序列化與前端 recharts，故在此單一 choke point 攔下——讓一顆壞 tag 不至於
+    弄垮整個模擬迴圈（WMOM-20260718-09）。非數值 tag（如字串）略過。
+    """
+    hit: List[str] = []
+    for k, v in scada.items():
+        try:
+            if not math.isfinite(v):
+                scada[k] = 0.0
+                hit.append(k)
+        except (TypeError, ValueError):
+            pass  # 非數值 tag（字串等）→ 跳過
+    return hit
+
+
 class WindFarmSimulator:
     """Wind farm simulator engine — produces realistic SCADA data via callbacks.
 
@@ -51,6 +69,7 @@ class WindFarmSimulator:
         self._thread: Optional[threading.Thread] = None
         self._callbacks: List[Callable] = []
         self._lock = threading.Lock()
+        self._warned_non_finite = False  # non-finite SCADA 警告只印一次
 
         # Initialize turbines
         for i in range(1, turbine_count + 1):
@@ -192,6 +211,16 @@ class WindFarmSimulator:
                 ambient_pressure_pa=ambient_pressure,
                 effective_ti=effective_ti,
             )
+
+            # 防呆：非有限值（inf/nan）歸零，避免打爆 Modbus int() / JSON / 前端圖表。
+            # 通常源自異常風機規格；印一次警告讓根因可見（WMOM-20260718-09）。
+            bad_tags = _zero_non_finite(scada_output)
+            if bad_tags and not self._warned_non_finite:
+                print(
+                    f"[Simulator] WARNING: non-finite SCADA zeroed on {tid}: {bad_tags[:6]} "
+                    f"— 檢查該風場的風機規格（rotor_diameter / 額定等欄位是否為 0 或空）"
+                )
+                self._warned_non_finite = True
 
             # Capture yaw_error (deg) for this step; fed back next step to drive
             # wake-steering deflection.
