@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { useTheme } from '../theme/ThemeProvider';
+import { rightAxisTags } from '../utils/chartAxes';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 
@@ -101,6 +102,16 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
   const { C } = useTheme();
   const lineColors = [C.accent, C.amber, C.ok, C.warn, C.info, C.chartState, C.accent, C.amber];
 
+  // 雙 Y 軸：把量級差一個數量級以上的 tag 分到右軸（功率 vs 風速才能同時看清）。
+  const rightTags = useMemo(() => rightAxisTags(activeTags, chartData), [activeTags, chartData]);
+  const hasRightAxis = rightTags.size > 0;
+  const colorFor = (tag: string) => lineColors[activeTags.indexOf(tag) % lineColors.length];
+  const leftOnly = activeTags.filter(t => !rightTags.has(t));
+  const rightOnly = activeTags.filter(t => rightTags.has(t));
+  // 單一條線的軸就用該線顏色標示（一眼看出哪軸配哪線）；多條則用中性色。
+  const leftAxisColor = leftOnly.length === 1 ? colorFor(leftOnly[0]) : C.sub;
+  const rightAxisColor = rightOnly.length === 1 ? colorFor(rightOnly[0]) : C.sub;
+
   return (
     <div>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 10 }}>
@@ -184,7 +195,25 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
               axisLine={false}
               tickLine={false}
             />
-            <YAxis stroke={C.sub} fontSize={10} axisLine={false} tickLine={false} />
+            <YAxis
+              yAxisId="left"
+              stroke={leftAxisColor}
+              fontSize={10}
+              axisLine={false}
+              tickLine={false}
+              width={44}
+            />
+            {hasRightAxis && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                stroke={rightAxisColor}
+                fontSize={10}
+                axisLine={false}
+                tickLine={false}
+                width={44}
+              />
+            )}
             <Tooltip
               contentStyle={{
                 backgroundColor: C.panel,
@@ -202,6 +231,7 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
             {activeTags.map((tag, i) => (
               <Line
                 key={tag}
+                yAxisId={rightTags.has(tag) ? 'right' : 'left'}
                 type="monotone"
                 dataKey={tag}
                 stroke={lineColors[i % lineColors.length]}
