@@ -80,8 +80,10 @@
 - **WMOM-20260718-06** — 🔵 趨勢圖雙 Y 軸（本 PR，#5 follow-up）：用戶反映功率（數百 kW）與風速
   （個位數 m/s）同軸 → 風速被壓貼底看不見。`TrendChartPanel` 加雙 Y 軸——量級差一個數量級以上的
   tag（`rightAxisTags` 純函式判定）移右軸、各自 auto-scale；單一線的軸用該線顏色標示。+8 unit tests。
-
----
+- **WMOM-20260718-07** — 🔴 CORS：情境模擬「生成情境」JSON POST 被瀏覽器 CORS 擋（`OPTIONS ... 400`）。
+  根因＝舊版 Starlette（<0.19）不展開 `allow_methods=["*"]` → POST preflight 落空（GET 不 preflight 故正常）。
+  `server.app` CORS methods/headers 改**明列**（跨 Starlette 版本穩定，利客戶部署）+3 preflight regression tests。
+  註：用戶本機另需 `pip install -U -r requirements.txt` 拿新 Starlette 才立即生效。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

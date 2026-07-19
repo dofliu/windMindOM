@@ -114,12 +114,19 @@ _cors_origins = (
     else _default_cors_origins
 )
 
+# methods / headers 明列（不用 ["*"]）——舊版 Starlette（< 0.19）不會把 ["*"] 展開成實際
+# methods，導致 JSON POST 的 preflight（OPTIONS）在 method 檢查落空被判 400、被瀏覽器 CORS
+# 擋下（GET 不觸發 preflight 故正常，只有 POST/PUT/PATCH 掛）。明列可跨 Starlette 版本穩定，
+# 也是帶 credentials 時 CORS 的較安全寫法（利客戶現場部署，環境版本不一）。
+CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+CORS_ALLOW_HEADERS = ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=CORS_ALLOW_METHODS,
+    allow_headers=CORS_ALLOW_HEADERS,
 )
 
 # Register routers (after app creation to avoid circular imports)
