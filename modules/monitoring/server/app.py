@@ -139,6 +139,7 @@ from server.routers.modbus import router as modbus_router  # noqa: E402
 from server.routers.control import router as control_router  # noqa: E402
 from server.routers.maintenance import router as maintenance_router  # noqa: E402
 from server.routers.farms import router as farms_router  # noqa: E402
+from server.routers.scenarios import router as scenarios_router  # noqa: E402
 
 # WMOM-20260504-07 + -20260509-05: cost module routers (M2 cost API + ledger query)
 from modules.cost.routers import (  # noqa: E402
@@ -172,6 +173,7 @@ app.include_router(modbus_router)
 app.include_router(control_router)
 app.include_router(maintenance_router)
 app.include_router(farms_router)
+app.include_router(scenarios_router)
 app.include_router(cost_router)
 app.include_router(cost_ledger_router)
 app.include_router(workflow_router)

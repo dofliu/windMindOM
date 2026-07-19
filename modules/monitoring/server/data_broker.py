@@ -554,9 +554,14 @@ class DataBroker:
         return None
 
     def get_history(self, turbine_id: str, start: Optional[str] = None,
-                    end: Optional[str] = None, limit: int = 1000) -> List[dict]:
-        """Query stored SCADA history for a turbine within an optional time range."""
-        return self.storage.query_history(turbine_id, start, end, limit)
+                    end: Optional[str] = None, limit: int = 1000,
+                    session_id: Optional[int] = None) -> List[dict]:
+        """Query stored SCADA history for a turbine within an optional time range.
+
+        給 ``session_id`` 時只回該 session 的資料（情境調閱用）。
+        """
+        return self.storage.query_history(turbine_id, start, end, limit,
+                                          session_id=session_id)
 
     def get_history_events(self, turbine_id: Optional[str] = None, start: Optional[str] = None,
                            end: Optional[str] = None, limit: int = 500) -> List[dict]:

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Set
+from typing import List, Optional, Set
 
 from fastapi import APIRouter, HTTPException, Depends
 from modules.auth.dependencies import require_authenticated, require_role
@@ -274,10 +274,14 @@ async def generate_bulk(body: dict):
     The data is written to SQLite via the normal storage pipeline.
     This runs synchronously and may take minutes for large durations.
 
-    ⚠️ 帶 ``fault_schedule`` 時，會先 ``fault_engine.clear()`` 求乾淨情境——這會清掉
-    **目前所有 active fault，包含 Live 自由跑模式正在展示的故障**（Live 與 Scenario 共用
-    同一個 simulator instance）。Live/Scenario 的並行取捨屬 scenario-setup 設計範疇，
-    待該階段（前端精靈）再處理停 Live→跑 Scenario 的流程。
+    ⚠️ 本呼叫與 Live 背景迴圈共用同一個 simulator instance：
+    - 帶 ``fault_schedule`` 時會先 ``fault_engine.clear()`` 求乾淨情境——這會清掉**目前所有
+      active fault，包含 Live 自由跑正在展示的故障**。
+    - 更深一層：``generate_bulk`` 同步跑在 request thread，與 Live 背景 thread 併發呼叫同一批
+      ``model.step()`` / ``fault_engine.step()``——`engine._lock` 只保護 ``latest_data`` 寫入、
+      不含 ``model.step()`` 本身，故 Live 跑的當下跑情境，兩者物理 state 都可能被弄髒。
+    資料落地已隔離（情境寫專屬 session_id，見 ``name`` 參數）；但「停 Live → 跑 Scenario」的
+    完整流程屬 scenario-setup 設計範疇，待前端精靈階段處理。
     """
     b = get_broker()
     if not b.simulator:
@@ -298,18 +302,63 @@ async def generate_bulk(body: dict):
         # 注意：此舉也會清掉 Live 自由跑的 active fault（見上方 docstring 警告）。
         b.simulator.fault_engine.clear()
 
-    # Use the storage callback directly for bulk writes
-    session_id = b._session_id
+    # 情境保存（DEC-20260718-01 #4）：帶 name 時把這批資料寫進一個「專屬情境 session」，
+    # 與 Live/其他歷史隔離、事後可 list / load / delete；不帶 name 則沿用舊行為（寫進當前
+    # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
+    scenario_name = body.get("name")
+    scenario_name = scenario_name.strip() if isinstance(scenario_name, str) else ""
+    wind_profile = body.get("wind_profile")
+
+    if scenario_name:
+        scenario_id: Optional[int] = b.storage.create_session(
+            data_source="simulation",  # 情境資料一律模擬產生；情境判別靠 config.kind
+            turbine_count=len(b.simulator.turbines),
+            config={
+                "kind": b.storage.SCENARIO_KIND,
+                "name": scenario_name,
+                "wind_profile": wind_profile,
+                "duration_hours": duration,
+                "time_step": step,
+                "fault_schedule": [
+                    {
+                        "scenario_id": s.scenario_id,
+                        "turbine_id": s.turbine_id,
+                        "offset_seconds": s.offset_seconds,
+                        "severity_rate": s.severity_rate,
+                    }
+                    for s in schedule
+                ],
+            },
+        )
+        session_id = scenario_id
+    else:
+        scenario_id = None
+        session_id = b._session_id
+
     injected_count = 0  # 實際注入數（offset 超過批次總長者不會注入 → 不計入）
+    sim_window: dict = {"start": None, "end": None}  # 情境的模擬時間窗（供調閱設範圍）
 
     def store_cb(readings: List[dict]) -> None:
-        """Persist generated bulk readings to storage."""
+        """Persist generated bulk readings to storage（情境模式寫進專屬 session）。"""
+        for r in readings:
+            ts = r.get("timestamp")
+            if ts:  # ISO 字串可字典序比較
+                if sim_window["start"] is None or ts < sim_window["start"]:
+                    sim_window["start"] = ts
+                if sim_window["end"] is None or ts > sim_window["end"]:
+                    sim_window["end"] = ts
         b.storage.store_readings(readings, session_id)
 
     def on_inject(fstep: TestPlanStep, sim_time: datetime) -> None:
         """把排定故障寫成事件（用注入的**模擬時間戳**），讓事件標記與資料時間軸對齊、可追溯。"""
         nonlocal injected_count
         injected_count += 1
+        # 注入時間戳早於本 step 的首筆 reading（on_inject 在物理子步推進「前」觸發），
+        # 故 offset=0 的事件會落在首筆 reading 前一個 time_step。把注入時間也納入 sim_window
+        # 下界，否則調閱時 `timestamp >= sim_start` 會把「情境一開始就注入」的故障事件排除掉。
+        inj_ts = sim_time.isoformat()
+        if sim_window["start"] is None or inj_ts < sim_window["start"]:
+            sim_window["start"] = inj_ts
         b.record_event(
             event_type="fault",
             source="scenario",
@@ -326,20 +375,40 @@ async def generate_bulk(body: dict):
             },
         )
 
-    total = b.simulator.generate_bulk(
-        duration_hours=duration,
-        time_step=step,
-        callback=store_cb,
-        fault_schedule=schedule or None,
-        on_fault_injected=on_inject if schedule else None,
-    )
+    try:
+        total = b.simulator.generate_bulk(
+            duration_hours=duration,
+            time_step=step,
+            callback=store_cb,
+            fault_schedule=schedule or None,
+            on_fault_injected=on_inject if schedule else None,
+        )
+        # Run downsampling after bulk generation
+        b.storage.run_downsampling()
+    except Exception:
+        # 生成中途失敗（如物理發散）也必須收尾情境 session，否則它會卡在 ended_at IS NULL、
+        # 被 get_active_session 誤認成 Live、並以殘破項目出現在 list_scenarios。
+        if scenario_id is not None:
+            b.storage.update_session_config(scenario_id, {"status": "error"})
+            b.storage.end_session(scenario_id)
+        raise
 
-    # Run downsampling after bulk generation
-    b.storage.run_downsampling()
+    if scenario_id is not None:
+        # 回填生成後才知道的統計 + 模擬時間窗，並結束該情境 session（已完成的資料集，
+        # 不應被 get_active_session 當成 Live）。
+        b.storage.update_session_config(scenario_id, {
+            "status": "ok",
+            "total_readings": total,
+            "faults_injected": injected_count,
+            "sim_start": sim_window["start"],
+            "sim_end": sim_window["end"],
+        })
+        b.storage.end_session(scenario_id)
 
     stats = b.storage.get_db_stats()
     return {
         "status": "ok",
+        "scenario_id": scenario_id,
         "duration_hours": duration,
         "time_step": step,
         "total_readings": total,
