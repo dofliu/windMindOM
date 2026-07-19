@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Set
+from typing import List, Optional, Set
 
 from fastapi import APIRouter, HTTPException, Depends
 from modules.auth.dependencies import require_authenticated, require_role
@@ -298,12 +298,51 @@ async def generate_bulk(body: dict):
         # 注意：此舉也會清掉 Live 自由跑的 active fault（見上方 docstring 警告）。
         b.simulator.fault_engine.clear()
 
-    # Use the storage callback directly for bulk writes
-    session_id = b._session_id
+    # 情境保存（DEC-20260718-01 #4）：帶 name 時把這批資料寫進一個「專屬情境 session」，
+    # 與 Live/其他歷史隔離、事後可 list / load / delete；不帶 name 則沿用舊行為（寫進當前
+    # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
+    scenario_name = body.get("name")
+    scenario_name = scenario_name.strip() if isinstance(scenario_name, str) else ""
+    wind_profile = body.get("wind_profile")
+
+    if scenario_name:
+        scenario_id: Optional[int] = b.storage.create_session(
+            data_source="simulation",  # 情境資料一律模擬產生；情境判別靠 config.kind
+            turbine_count=len(b.simulator.turbines),
+            config={
+                "kind": b.storage.SCENARIO_KIND,
+                "name": scenario_name,
+                "wind_profile": wind_profile,
+                "duration_hours": duration,
+                "time_step": step,
+                "fault_schedule": [
+                    {
+                        "scenario_id": s.scenario_id,
+                        "turbine_id": s.turbine_id,
+                        "offset_seconds": s.offset_seconds,
+                        "severity_rate": s.severity_rate,
+                    }
+                    for s in schedule
+                ],
+            },
+        )
+        session_id = scenario_id
+    else:
+        scenario_id = None
+        session_id = b._session_id
+
     injected_count = 0  # 實際注入數（offset 超過批次總長者不會注入 → 不計入）
+    sim_window: dict = {"start": None, "end": None}  # 情境的模擬時間窗（供調閱設範圍）
 
     def store_cb(readings: List[dict]) -> None:
-        """Persist generated bulk readings to storage."""
+        """Persist generated bulk readings to storage（情境模式寫進專屬 session）。"""
+        for r in readings:
+            ts = r.get("timestamp")
+            if ts:  # ISO 字串可字典序比較
+                if sim_window["start"] is None or ts < sim_window["start"]:
+                    sim_window["start"] = ts
+                if sim_window["end"] is None or ts > sim_window["end"]:
+                    sim_window["end"] = ts
         b.storage.store_readings(readings, session_id)
 
     def on_inject(fstep: TestPlanStep, sim_time: datetime) -> None:
@@ -337,9 +376,21 @@ async def generate_bulk(body: dict):
     # Run downsampling after bulk generation
     b.storage.run_downsampling()
 
+    if scenario_id is not None:
+        # 回填生成後才知道的統計 + 模擬時間窗，並結束該情境 session（已完成的資料集，
+        # 不應被 get_active_session 當成 Live）。
+        b.storage.update_session_config(scenario_id, {
+            "total_readings": total,
+            "faults_injected": injected_count,
+            "sim_start": sim_window["start"],
+            "sim_end": sim_window["end"],
+        })
+        b.storage.end_session(scenario_id)
+
     stats = b.storage.get_db_stats()
     return {
         "status": "ok",
+        "scenario_id": scenario_id,
         "duration_hours": duration,
         "time_step": step,
         "total_readings": total,

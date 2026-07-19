@@ -523,6 +523,47 @@ WMOM-20260718-01 修「Settings 改風速對 sim 無反應」時，用戶測試�
 
 ---
 
+## DEC-20260719-01 — 情境保存＝命名 session（承 DEC-20260718-01 #4）；啟動改為登入後選模式（#3，待建）
+
+**Date**: 2026-07-19
+**Status**: accepted
+**Version**: v0.8.1
+**Decision maker**: 劉老師（選「先 #4 再 #3」）／ Claude 設計
+**Trigger**: Scenario 模式上線後用戶實測，回報「產生過的情境調不回來、融進歷史了」（#4）+「進系統就自動跑預設風場」（#3）
+
+### Context
+
+DEC-20260718-01 拍板 Scenario 批次生成後，`generate-bulk` 把資料寫進「當前 active session」、
+無情境識別；`query_history` 也不依 session 過濾 → 每個情境的資料融進同一條歷史，事後無法單獨調閱。
+storage 其實早有 `sessions` 表（每筆帶 `data_source` + 彈性 `config_json`，且 `turbine_data`/1m/10m/
+snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
+
+### Decision
+
+- **情境 ＝ 一個以 `config_json.kind == "scenario"` 標記的專屬、已結束（ended）session。**
+  `generate-bulk` 帶 `name` 時開新情境 session、批次資料寫該 session_id、生成後回填統計/模擬時間窗
+  並 `end_session`（不帶 name 沿用舊行為，保留快速批次用法）。
+- **讀取端以 `session_id` 隔離**：`query_history(session_id=...)` + `/api/scenarios`（list / get /
+  history / delete）讓某情境的資料與 Live/其他歷史分開調閱。events（無 session_id、全域 sim-time 戳）
+  以情境的 `sim_start..sim_end` 時間窗撈取（跨情境窗重疊時可能混入，屬已知取捨）。
+- **#3 啟動流程**（本次未建，先定方向）：開機不再自動跑預設風場模擬；強制登入後先讓使用者選
+  「① 實接 ② 即時模擬 ③ 產生新情境 ④ 調閱過去情境（用本 DEC 的情境清單）」，選定才進 dashboard。
+
+### 交付分階段
+
+1. **#4 後端（PR #A）**：scenario session 模型 + session_id 隔離讀取 + `/api/scenarios` + 7 tests。
+2. **#4 前端**：ScenarioPage 加情境命名 + 「過去情境」清單 + 點選調閱。
+3. **#3 啟動 gate**：後端不自動起模擬 + 前端登入後模式選擇。
+
+### 接受的 trade-off
+
+- 沿用 `sessions` 表存情境（不另立 scenarios 表）：零 schema 遷移、複用既有清理/aggregation；
+  代價是情境與 Live session 同表、靠 `config_json.kind` 區分。
+- events 靠時間窗而非 session_id 關聯：省一次 schema 遷移，代價是跨情境窗重疊的邊界（低風險，
+  可日後補 `history_events.session_id` 收斂）。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown
