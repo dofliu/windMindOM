@@ -39,7 +39,8 @@ async def send_command(cmd: TurbineCommand):
       - stop:        Manual stop (Coil[2], normal shutdown)
       - emergency_stop: Immediate shutdown / trip-style stop
       - start:       Manual start (Coil[1], resume from stop/standby)
-      - reset:       Reset faults & restart (Coil[3])
+      - reset:       Acknowledge latched trip & attempt restart (Coil[3]);
+                     does NOT resolve an active fault (only /api/faults/clear does)
       - service_on:  Enter maintenance/inspection mode (WSRV_SrvOn=1)
       - service_off: Exit maintenance mode (WSRV_SrvOn=0)
     """
@@ -58,9 +59,12 @@ async def send_command(cmd: TurbineCommand):
     elif cmd.command == "start":
         model.cmd_start()
     elif cmd.command == "reset":
+        # 復位＝解除 latched trip 並嘗試重啟，但「不」移除未解決的故障。
+        # 若該機組的故障仍在 fault_engine 且已 tripped，引擎每步會重新
+        # emergency-stop 它（engine._run_one_step），故復位無法讓帶病機組恢復
+        # 發電——這正是現場語意：復位只是「確認並嘗試重啟」，不是「修好」。
+        # 唯一真正清除故障的路徑是維護中心 /api/faults/clear（工單完成）。
         model.cmd_reset()
-        # Also clear faults from fault engine
-        b.simulator.fault_engine.clear(turbine_id=cmd.turbineId)
     elif cmd.command == "service_on":
         model.cmd_service(True)
     elif cmd.command == "service_off":
