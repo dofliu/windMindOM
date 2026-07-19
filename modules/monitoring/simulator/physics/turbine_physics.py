@@ -1104,10 +1104,11 @@ class TurbinePhysicsModel:
     def cmd_reset(self):
         """復位：解除 latched trip 與控制旗標、回到 idle 準備重啟。
 
-        注意：本方法只清本機組的控制狀態與 transient fault_modifiers；
-        由 ``FaultEngine`` 持有的故障「不會」在此被移除——那些故障需經維護中心
-        （``/api/faults/clear``）才會解除。因此若故障仍 active 且 tripped，
-        引擎每步會再次 emergency-stop 本機組，復位無法讓帶病機組恢復發電。
+        本方法清除本機組的控制旗標與電氣/機械暫態讀數（發電量、轉速、電網電壓/頻率、
+        同步進度、傳動扭轉、兩個 grid-trip 累積器，並 ``drivetrain.reset()``），
+        亦含 transient ``fault_modifiers``。但由 ``FaultEngine`` 持有的故障「不會」在此
+        被移除——那些故障需經維護中心（``/api/faults/clear``）才會解除。因此若故障仍
+        active 且 tripped，引擎每步會再次 emergency-stop 本機組，復位無法讓帶病機組恢復發電。
         """
         self.operator_stop = False
         self.service_mode = False

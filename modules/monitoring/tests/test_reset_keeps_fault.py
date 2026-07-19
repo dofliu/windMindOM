@@ -21,6 +21,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, List
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
@@ -32,8 +33,7 @@ if str(MONITORING_ROOT) not in sys.path:
 from simulator.engine import WindFarmSimulator  # noqa: E402
 
 
-PRODUCING = 6      # tur_state：併網發電
-EMERGENCY_STOP = 7  # tur_state：緊急停機（跳機）
+PRODUCING = 6  # tur_state：併網發電（守「復位後不得復電」的不變量核心）
 
 
 def _running_sim(turbine_count: int = 3) -> WindFarmSimulator:
@@ -42,7 +42,7 @@ def _running_sim(turbine_count: int = 3) -> WindFarmSimulator:
     return sim
 
 
-def _step(sim: WindFarmSimulator, t0: datetime, i: int, dt: float = 10.0):
+def _step(sim: WindFarmSimulator, t0: datetime, i: int, dt: float = 10.0) -> List[Dict]:
     return sim._run_one_step(t0 + timedelta(seconds=i * dt), dt)
 
 
@@ -54,7 +54,10 @@ def _inject_and_trip(sim: WindFarmSimulator, tid: str, t0: datetime) -> None:
         _step(sim, t0, i)
     fault = next(f for f in sim.fault_engine.active_faults if f.turbine_id == tid)
     assert fault.tripped, "前置條件：故障應已 tripped"
-    assert sim.turbines[tid].tur_state == EMERGENCY_STOP, "前置條件：機組應被故障壓在跳機"
+    # 故障 tripped 後機組在 7↔3 間擺盪（dt=10 一步就過 state 7 的 4s dwell 門檻），
+    # 故前置條件只守真正的前提：被故障壓著、沒在發電——不綁死單一 state 碼，
+    # 日後調 severity_rate/dt/dwell 常數也不會無端斷裂。
+    assert sim.turbines[tid].tur_state != PRODUCING, "前置條件：機組不應在發電"
 
 
 def test_reset_does_not_remove_fault_or_resume_power():

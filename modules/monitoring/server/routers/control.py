@@ -40,7 +40,7 @@ async def send_command(cmd: TurbineCommand):
       - emergency_stop: Immediate shutdown / trip-style stop
       - start:       Manual start (Coil[1], resume from stop/standby)
       - reset:       Acknowledge latched trip & attempt restart (Coil[3]);
-                     does NOT resolve an active fault (that needs 維護中心 /api/faults/clear)
+                     does NOT resolve an active fault (only /api/faults/clear does)
       - service_on:  Enter maintenance/inspection mode (WSRV_SrvOn=1)
       - service_off: Exit maintenance mode (WSRV_SrvOn=0)
     """

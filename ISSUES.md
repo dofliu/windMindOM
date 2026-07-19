@@ -16,8 +16,8 @@
 | open | 15 |
 | in_progress | 3 |
 | blocked | 0 |
-| done | 90 |
-| **total (active)** | **108** |
+| done | 91 |
+| **total (active)** | **109** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -99,6 +99,25 @@
   CORS**（500 無 ACAO）。修：(a) `generate_bulk` 把每個輸出步拆成 ≤5s 子步跑物理（`_MAX_PHYSICS_DT`），
   輸出仍以 time_step 為節奏；(b) `_apply_sensor_model` 的兩處 `round()` 加非有限防呆（step 內安全網）。
   實測 time_step=60 + moderate profile：rotor speed 穩在 ~20 rpm、零 inf。+1 stability regression test。
+
+## 📌 2026-07-19 session 新增 issue（Scenario 上線實測 follow-up）
+
+> DEC-20260718-01 Scenario 模式上線後，用戶實測跑通完整案例（注入→分析→開單→維護解決→復歸）
+> 並回報 4 點：#1 案例跑通 ✅、#2 復位語意 bug、#3 啟動流程、#4 情境保存。
+
+**Done**
+- **WMOM-20260719-01** — 🔴 復位(reset) 語意 bug：`/api/control/command` 的 reset 分支多做
+  `fault_engine.clear(turbineId)`，一按復位就刪掉未解決故障、帶病機組立刻復電（用戶：照理應不行）。
+  修：移除該 clear；引擎本就每步對 tripped 故障重新 `cmd_emergency_stop`，故復位後帶病機組被
+  重壓在跳機(7)↔重啟等待(3)、永不復電；唯一清故障路徑保持維護中心 `/api/faults/clear`。
+  +3 引擎層 tests；code review Approve（0 must-fix / 4 should-fix 已收）。PR #137。
+
+**待討論（用戶「幾點繼續討論」，皆 DEC 級、相依）**
+- **#3 啟動模式選擇** — 開機即自動跑預設風場模擬（`app.py` lifespan），與登入無關。擬改：開機
+  不自動模擬、強制登入後選「實接 / 模擬 / 產生情境 / 過去情境」。**待用戶定方向**。
+- **#4 情境保存/調閱** — `generate-bulk` 把資料寫進當前 active session、無情境識別 → 融進歷史。
+  擬把情境建模成命名 session（`data_source="SCENARIO"` + `config_json`）+ list/load/delete API +
+  前端過去情境清單。**待用戶定方向**（#3 的過去情境選項依賴此）。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

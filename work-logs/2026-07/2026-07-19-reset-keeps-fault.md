@@ -41,7 +41,20 @@
 - 兩者皆 DEC 級（改 app 進入契約 + 加保存層），且相依（#3 的「過去情境」需 #4）。→ 先對齊
   方向（擬寫 DEC 補遺 / 設計 note）再分階段 build；#4 為基礎、#3 為進入流程。
 
+## code review 結果（code-reviewer subagent）
+
+- **Approve — 0 must-fix / 4 should-fix / 4 nice-to-have**。reviewer 另寫反演腳本重演修復前行為，
+  實證舊碼同一組步驟會讓機組回到 PRODUCING(6)，修復後三測試 PRODUCING 從未出現。
+- **已收的 4 個 should-fix**（同 PR 第二 commit）：
+  1. `_step` helper 補回傳型別 `-> List[Dict]`（CLAUDE.md §7）。
+  2. `_inject_and_trip` 前置 assert 從 `== EMERGENCY_STOP` 放寬為 `!= PRODUCING`——tripped 後機組
+     在 7↔3 擺盪，綁死單一 state 碼日後調 severity_rate/dt/dwell 會無端斷裂（改守真正不變量）。
+  3. `cmd_reset` docstring 精確化——列出實際歸零的電氣/機械暫態（非只「控制狀態 + fault_modifiers」）。
+  4. ISSUES.md / STATUS.yaml 同步（本次補上 WMOM-20260719-01 done + 統計 +1）。
+- nice-to-have（執行緒鎖、fault_modifiers 死欄位）屬既有現況、範圍外，未動。
+
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR 待審 merge**（draft，clean bug-fix 不加 hold → flywheel CI 綠自動合）。
+- **PR #137**：draft + 暫掛 `hold`（待 review）→ review Approve + should-fix 收完 → **移除 hold**
+  讓 flywheel CI 綠自動合。
 - **#3/#4 待使用者拍板方向**後開 issue/DEC 分階段實作（建議順序：#4 情境保存 → #3 啟動 gate）。
