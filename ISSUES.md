@@ -83,7 +83,11 @@
 - **WMOM-20260718-07** — 🔴 CORS：情境模擬「生成情境」JSON POST 被瀏覽器 CORS 擋（`OPTIONS ... 400`）。
   根因＝舊版 Starlette（<0.19）不展開 `allow_methods=["*"]` → POST preflight 落空（GET 不 preflight 故正常）。
   `server.app` CORS methods/headers 改**明列**（跨 Starlette 版本穩定，利客戶部署）+3 preflight regression tests。
-  註：用戶本機另需 `pip install -U -r requirements.txt` 拿新 Starlette 才立即生效。
+  註：用戶本機另需升新 Starlette 才立即生效（但升級要小心 pymodbus，見 -08）。
+- **WMOM-20260718-08** — 🔴 pymodbus 版本上限：`pip install -U` 把 pymodbus 拉到 3.14（`>=3.5` floor
+  太鬆），3.11+ 重寫 datastore 令 `ModbusSequentialDataBlock(0,…)` → `TypeError: 0 <= address < 65535`、
+  app 啟動失敗。requirements 改 `pymodbus>=3.5,<3.8`（3.5–3.7 用舊 datastore、code 已相容 3.7）。
+  用戶本機需 `pip install "pymodbus==3.6.9"` 降回相容版。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
