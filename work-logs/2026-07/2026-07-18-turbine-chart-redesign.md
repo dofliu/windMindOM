@@ -41,3 +41,17 @@ tsc / 883 前端測試 / vite build 全綠。
   CPU-torch pin）+ M6 客戶接觸；或用戶指定新方向。
 - **可選 follow-up**：若用戶要移除四色 mini-trend（合成假資料）→ 刪 `LiveTrendsCard` usage + 定義
   + 清 `MiniSparkline` import（若無其他用途）。
+
+---
+
+## Follow-up：雙 Y 軸（WMOM-20260718-06，同日）
+
+主圖上線後用戶立刻反映：功率（數百 kW）與風速（個位數 m/s）**同一個 Y 軸**，風速被壓到貼底
+完全看不見。修法＝雙 Y 軸：
+
+- 抽 `frontend/utils/chartAxes.ts` 的 `rightAxisTags(tags, data, ratio=10)` 純函式：算每個 tag 的
+  maxAbs，量級 < 全體最大 /10（差一個數量級）的移右軸，其餘左軸；量級相近（多條溫度）則右軸空＝單軸。
+- `TrendChartPanel` 渲染左軸 +（有右軸 tag 時）右軸；每條 Line 依判定給 `yAxisId`；單一線的軸用
+  該線顏色標示（一眼看出哪軸配哪線）。
+- +8 unit tests（功率vs風速分軸 / 溫度單軸 / 最大 tag 恆左 / 無資料 / 全0 / null / ratio 可調 / 負值）。
+- tsc / 891 前端測試 / build 全綠。既有 TrendChartPanel.test（recharts 全 stub）不受影響。

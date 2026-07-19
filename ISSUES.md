@@ -77,6 +77,9 @@
   即時趨勢，讀真實 /api/turbines/{id}/trend）從左欄最下**拉到最上**當主圖 + 重下標題「發電量 vs 風速 ·
   過去到現在」；四色 mini-trend（3/4 為合成假資料）**降級到左欄最下**（發電量/風速已在主圖 + hero 呈現）。
   +3 render tests（DOM 順序 / 主圖掛載 / en 標題）。**收尾 DEC-20260718-01 全 5 階段**。
+- **WMOM-20260718-06** — 🔵 趨勢圖雙 Y 軸（本 PR，#5 follow-up）：用戶反映功率（數百 kW）與風速
+  （個位數 m/s）同軸 → 風速被壓貼底看不見。`TrendChartPanel` 加雙 Y 軸——量級差一個數量級以上的
+  tag（`rightAxisTags` 純函式判定）移右軸、各自 auto-scale；單一線的軸用該線顏色標示。+8 unit tests。
 
 ---
 
