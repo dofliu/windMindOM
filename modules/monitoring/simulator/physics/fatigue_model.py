@@ -75,6 +75,10 @@ class RainflowCounter:
 
     def add_sample(self, value: float):
         """Add a new load sample and extract peaks/valleys."""
+        # 非有限載荷（inf/nan，通常源自異常風機規格導致上游物理發散）不可進 buffer——
+        # 否則 diff = value - last 會噴 numpy warning 並讓後續 DEL/damage 全部污染成 nan。
+        if not math.isfinite(value):
+            return
         if self._last_value is None:
             self._last_value = value
             return
