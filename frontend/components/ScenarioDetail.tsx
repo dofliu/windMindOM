@@ -23,6 +23,7 @@ import { Btn, Card, Field, Select, Stat, StatusPill } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import { rightAxisTags } from '../utils/chartAxes';
+import { windProfileLabel } from '../utils/windProfiles';
 
 // recharts 3.x 未在 type 上露出 React 內建 `key`，比照 HistoryPage 以寬鬆型別轉一次。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,6 +34,10 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 const POWER_TAG = 'WTUR_TotPwrAt';
 const WIND_TAG = 'WMET_WSpeedNac';
 const TAGS = [POWER_TAG, WIND_TAG];
+// 一次抓的上限。刻意設得夠大以覆蓋常見情境「全長」（1週@60s≈1万筆、1天@10s≈8.6千筆），
+// 否則 query_history 的 ORDER BY DESC LIMIT 只回「最新 N 筆」→ 排在中段的排定故障會被截掉、
+// 看不到（正是本頁存在的目的）。超過此量的長情境會截斷，並於 UI 明示（見 truncated）。
+const HISTORY_LIMIT = 12000;
 const TAG_LABEL: Record<string, { en: string; zh: string }> = {
   [POWER_TAG]: { en: 'Power (kW)', zh: '發電量 (kW)' },
   [WIND_TAG]: { en: 'Wind (m/s)', zh: '風速 (m/s)' },
@@ -96,16 +101,20 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
   const [points, setPoints] = useState<Record<string, number | string | null>[]>([]);
   const [events, setEvents] = useState<HistEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
-    authFetch(`${API_BASE}/api/scenarios/${scenario.id}/turbines/${turbineId}/history?limit=3000`, {
+    authFetch(`${API_BASE}/api/scenarios/${scenario.id}/turbines/${turbineId}/history?limit=${HISTORY_LIMIT}`, {
       signal: ctrl.signal,
     })
       .then(r => (r.ok ? r.json() : { readings: [], events: [] }))
       .then(res => {
-        const rows: HistPoint[] = Array.isArray(res.readings) ? [...res.readings].reverse() : [];
+        const raw: HistPoint[] = Array.isArray(res.readings) ? res.readings : [];
+        // 命中上限 → 只拿到最新 N 筆，較早的資料未載入（後端 ORDER BY DESC LIMIT）。
+        setTruncated(raw.length >= HISTORY_LIMIT);
+        const rows = [...raw].reverse(); // 舊→新，餵時間軸由左到右
         const mapped = rows.map(row => {
           let scada = row.scada || {};
           if (!row.scada && row.scada_json) {
@@ -135,7 +144,9 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
       events
         .filter(e => e.event_type === 'fault')
         .map(e => ({ ...e, _time: e.timestamp ? new Date(e.timestamp).getTime() : 0 }))
-        .filter(e => (e._time ?? 0) > 0),
+        .filter(e => (e._time ?? 0) > 0)
+        // 明確由舊到新排序，與趨勢圖左→右方向一致（不依賴 API 回傳順序）。
+        .sort((a, b) => (a._time ?? 0) - (b._time ?? 0)),
     [events],
   );
 
@@ -154,7 +165,7 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
             </div>
             <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>
               {u('Generated', '產生於')} {new Date(scenario.started_at).toLocaleString()}
-              {cfg.wind_profile ? ` · ${u('wind', '風況')} ${cfg.wind_profile}` : ''}
+              {cfg.wind_profile ? ` · ${u('wind', '風況')} ${windProfileLabel(cfg.wind_profile, lang)}` : ''}
               {cfg.status === 'error' && (
                 <StatusPill tone="warn" size="sm">
                   {u('generation failed', '生成失敗')}
@@ -206,6 +217,25 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
             />
           </Field>
         </div>
+
+        {truncated && (
+          <div
+            style={{
+              marginBottom: 10,
+              fontSize: 12,
+              color: C.amber,
+              background: C.panelMuted,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}
+          >
+            {u(
+              `Showing the latest ${HISTORY_LIMIT.toLocaleString()} points — this scenario is longer, so earlier data (and any fault before it) is not loaded.`,
+              `僅顯示最近 ${HISTORY_LIMIT.toLocaleString()} 筆——此情境更長，較早的資料（含其之前的故障）未載入。`,
+            )}
+          </div>
+        )}
 
         {points.length === 0 ? (
           <div style={{ fontSize: 13, color: C.faint, padding: '24px 0', textAlign: 'center' }}>

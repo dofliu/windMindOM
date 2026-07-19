@@ -92,11 +92,23 @@ describe('ScenarioDetail — 詮釋資料 + mount', () => {
     expect(screen.getByText('4,320')).toBeInTheDocument(); // total_readings
   });
 
-  it('mount 時抓該情境某機組的 history', async () => {
+  it('mount 時抓該情境某機組的 history，且 limit 夠大（12000）覆蓋常見情境全長', async () => {
     await renderDetail();
     await waitFor(() =>
       expect(historyCalls().some(u => u.includes('/api/scenarios/7/turbines/WT001/history'))).toBe(true),
     );
+    // Must-fix：limit 太小會把排在中段的排定故障截掉、看不到（本頁存在目的）。
+    expect(historyCalls().some(u => u.includes('limit=12000'))).toBe(true);
+  });
+
+  it('資料達上限 → 顯示截斷提示（不靜默）', async () => {
+    const bigReadings = Array.from({ length: 12000 }, (_, i) => ({
+      timestamp: `2026-07-19T10:${String(i % 60).padStart(2, '0')}:00`,
+      scada: { WTUR_TotPwrAt: 1500, WMET_WSpeedNac: 12 },
+    }));
+    installFetch({ ...HISTORY, readings: bigReadings });
+    await renderDetail();
+    await waitFor(() => expect(screen.getByText(/僅顯示最近/)).toBeInTheDocument());
   });
 
   it('渲染故障事件清單（含事件標題）', async () => {

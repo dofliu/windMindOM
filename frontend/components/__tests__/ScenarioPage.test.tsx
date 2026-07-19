@@ -432,9 +432,12 @@ describe('ScenarioPage — 情境命名', () => {
 });
 
 describe('ScenarioPage — 過去情境清單', () => {
-  it('mount 時 GET /api/scenarios 並渲染已保存情境（名稱 + 統計）', async () => {
+  it('mount 時 GET /api/scenarios 並渲染已保存情境（名稱 + 統計 + 翻譯後風況）', async () => {
     await renderPage('zh');
     await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    expect(screen.getByText(/4,320/)).toBeInTheDocument(); // total_readings 統計
+    // 風況顯示翻譯後標籤而非原始代碼：清單 meta 不應出現「· storm」（會是「· 暴風（…）」）。
+    expect(screen.queryByText(/· storm/)).not.toBeInTheDocument();
     expect(calls((u, m) => u.includes('/api/scenarios') && m === 'GET').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -446,9 +449,9 @@ describe('ScenarioPage — 過去情境清單', () => {
 
   it('點「觀察 →」進情境調閱視圖（抓該情境 history + 顯示返回鈕）', async () => {
     await renderPage('zh');
-    await waitFor(() => expect(screen.getByRole('button', { name: '觀察情境' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /觀察情境/ })).toBeInTheDocument());
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '觀察情境' }));
+      fireEvent.click(screen.getByRole('button', { name: /觀察情境/ }));
     });
     await waitFor(() =>
       expect(
@@ -458,22 +461,48 @@ describe('ScenarioPage — 過去情境清單', () => {
     expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument();
   });
 
-  it('點「刪除」→ DELETE 該情境並從清單移除', async () => {
+  it('點「刪除」→ 確認後 DELETE 該情境並從清單移除', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
     await renderPage('zh');
     await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '刪除情境' }));
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
     });
     await waitFor(() =>
       expect(calls((u, m) => u.includes('/api/scenarios/7') && m === 'DELETE').length).toBe(1),
     );
     await waitFor(() => expect(screen.queryByText('暴風測試')).not.toBeInTheDocument());
   });
+
+  it('刪除確認取消 → 不送 DELETE', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    expect(calls((u, m) => u.includes('/api/scenarios/7') && m === 'DELETE')).toHaveLength(0);
+    expect(screen.getByText('暴風測試')).toBeInTheDocument(); // 仍在清單
+  });
+
+  it('刪除被擋（403）→ 顯示需管理員權限、情境仍在', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installFetch({ deleteOk: false });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/系統管理員權限/));
+    expect(screen.getByText('暴風測試')).toBeInTheDocument();
+  });
 });
 
 describe('ScenarioPage — 生成後觀察此情境', () => {
-  it('結果帶 scenario_id → 「觀察此情境」進調閱視圖', async () => {
-    installFetch({ genBody: { ...GEN_RESULT, scenario_id: 7 } });
+  it('結果帶 scenario_id → 「觀察此情境」進調閱視圖（不依賴清單刷新）', async () => {
+    // saved 故意為空：若「觀察此情境」依賴清單 find 就會 fallback、進不了調閱視圖；
+    // 用 lastScenario（由生成輸入就地組出）才能通過 → 真正守住不假綠。
+    installFetch({ genBody: { ...GEN_RESULT, scenario_id: 7 }, saved: [] });
     await renderPage('zh');
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '生成情境' }));

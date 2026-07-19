@@ -18,6 +18,7 @@ import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type Pil
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
+import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -63,17 +64,6 @@ interface ScheduledFault {
   severityRate: number;
 }
 
-const WIND_PROFILES: { value: string; en: string; zh: string }[] = [
-  { value: 'calm', en: 'Calm (~4 m/s)', zh: '微風（~4 m/s）' },
-  { value: 'moderate', en: 'Moderate (~10 m/s)', zh: '中風（~10 m/s）' },
-  { value: 'rated', en: 'Rated (~13 m/s)', zh: '額定風（~13 m/s）' },
-  { value: 'strong', en: 'Strong (~18 m/s)', zh: '強風（~18 m/s）' },
-  { value: 'storm', en: 'Storm (>25 m/s, cut-out)', zh: '暴風（>25 m/s 停機）' },
-  { value: 'gusty', en: 'Gusty', zh: '陣風' },
-  { value: 'ramp_up', en: 'Ramp up', zh: '風速漸增' },
-  { value: 'ramp_down', en: 'Ramp down', zh: '風速漸減' },
-];
-
 const DURATION_PRESETS: { hours: number; en: string; zh: string }[] = [
   { hours: 24, en: '1 day', zh: '1 天' },
   { hours: 168, en: '1 week', zh: '1 週' },
@@ -118,6 +108,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const [scenarioName, setScenarioName] = useState('');
   const [savedScenarios, setSavedScenarios] = useState<SavedScenario[]>([]);
   const [observing, setObserving] = useState<SavedScenario | null>(null);
+  const [lastScenario, setLastScenario] = useState<SavedScenario | null>(null);
 
   const nextKey = useRef(1);
 
@@ -184,6 +175,18 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
 
   const updateFault = (key: number, patch: Partial<ScheduledFault>) =>
     setFaults(prev => prev.map(f => (f.key === key ? { ...f, ...patch } : f)));
+
+  const requestDelete = (s: SavedScenario) => {
+    // 刪除跨 5 張表、不可逆 → 二次確認（對齊全站破壞性操作的謹慎程度）。
+    const name = s.config?.name ?? `#${s.id}`;
+    if (
+      window.confirm(
+        u(`Delete scenario "${name}"? This cannot be undone.`, `確定刪除情境「${name}」？此操作不可復原。`),
+      )
+    ) {
+      void deleteScenario(s.id);
+    }
+  };
 
   const deleteScenario = async (id: number) => {
     try {
@@ -260,6 +263,26 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       const data = (await res.json()) as GenerateResult;
       setResult(data);
       loadScenarios(); // 新情境即時出現在「過去情境」
+      // 直接用生成輸入 + 回傳組出剛存的情境物件（不依賴 loadScenarios 這個非同步刷新），
+      // 讓結果卡「觀察此情境」不受清單刷新競態影響——一定觀察得到剛生成的那個。
+      if (data.scenario_id != null) {
+        setLastScenario({
+          id: data.scenario_id,
+          started_at: new Date().toISOString(),
+          turbine_count: turbineCount,
+          config: {
+            kind: 'scenario',
+            name: finalName,
+            wind_profile: windProfile,
+            duration_hours: durationHours,
+            time_step: timeStep,
+            total_readings: data.total_readings,
+            faults_injected: data.faults_injected,
+            status: 'ok',
+          },
+        });
+      }
+      setScenarioName(''); // 清空，避免重複點生成疊出多個同名情境
       // 結果卡本身即成功訊號 → 清掉「生成中…」訊息，避免頂部訊息永遠不消失且與結果卡重複。
       setMessage('');
     } catch {
@@ -549,11 +572,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
               <Btn
                 size="sm"
                 variant="primary"
-                onClick={() => {
-                  const found = savedScenarios.find(s => s.id === result.scenario_id);
-                  if (found) setObserving(found);
-                  else onExplore?.();
-                }}
+                onClick={() => (lastScenario ? setObserving(lastScenario) : onExplore?.())}
                 ariaLabel={u('Observe this scenario', '觀察此情境')}
               >
                 {u('Observe this scenario →', '觀察此情境 →')}
@@ -707,7 +726,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
                     </div>
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
                       {new Date(s.started_at).toLocaleString()}
-                      {cfg.wind_profile ? ` · ${cfg.wind_profile}` : ''}
+                      {cfg.wind_profile ? ` · ${windProfileLabel(cfg.wind_profile, lang)}` : ''}
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: C.sub, fontFamily: 'JetBrains Mono, monospace' }}>
@@ -719,15 +738,15 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
                       size="sm"
                       variant="primary"
                       onClick={() => setObserving(s)}
-                      ariaLabel={u('Observe scenario', '觀察情境')}
+                      ariaLabel={u(`Observe scenario: ${cfg.name ?? s.id}`, `觀察情境：${cfg.name ?? s.id}`)}
                     >
                       {u('Observe →', '觀察 →')}
                     </Btn>
                     <Btn
                       size="sm"
-                      variant="ghost"
-                      onClick={() => deleteScenario(s.id)}
-                      ariaLabel={u('Delete scenario', '刪除情境')}
+                      variant="danger"
+                      onClick={() => requestDelete(s)}
+                      ariaLabel={u(`Delete scenario: ${cfg.name ?? s.id}`, `刪除情境：${cfg.name ?? s.id}`)}
                     >
                       {u('Delete', '刪除')}
                     </Btn>

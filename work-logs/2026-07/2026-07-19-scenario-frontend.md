@@ -39,10 +39,25 @@
 - **events 非 session 隔離**：後端回 `events_by_time_window` 旗標（時間窗重疊可能混入），ScenarioDetail
   只取 `event_type==='fault'` 呈現，範圍可控。
 
+## code review 結果（code-reviewer subagent）
+
+- **Needs revision → 已收**：2 Must-fix（1 個是 CI tsc 已於 bac8ddf 修）+ 6 Should-fix + 7 Nice-to-have。
+  - **Must-fix（CI）**：`ScenarioConfig` 漏 `kind` → tsc TS2353 擋 CI（bac8ddf 補 `kind?`）。教訓：**新增/大改
+    test fixture 型別後一定要跑 `tsc --noEmit`**（vitest 不做型別檢查）。
+  - **Must-fix（開放）**：`ScenarioDetail` 寫死 `limit=3000` → 預設 168h/60s 情境=1万筆/機組，只回最新
+    3000（約最後 50h），排在 atHour=84（中段）的故障被靜默截掉、看不到——正打在本頁目的。修：
+    `limit=12000`（覆蓋常見情境全長）+ 命中上限時顯示截斷提示。
+  - **Should-fix**：「觀察此情境」原靠 `savedScenarios.find` 有競態且測試假綠 → 改用生成輸入就地組
+    `lastScenario`（不依賴非同步刷新），測試改 `saved:[]` 真正守住；清單觀察/刪除 aria-label 併入
+    情境名（多列不再撞名）；`wind_profile` 走 `windProfileLabel`（抽 `utils/windProfiles.ts`，兩元件共用，
+    避免顯示原始代碼）；刪除改 `variant="danger"` + `window.confirm` 二次確認；補刪除 403/取消 兩分支
+    測試；`ScenarioDetail` 故障事件明確按時間排序（對齊圖表左→右）。
+  - **Nice-to-have**：生成後清空情境名（避免疊同名）。
+- tsc / 前端 **908 全綠** / build 通過。
+
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR（#4 前端）**：draft + `hold`（待 code review）→ 收 review → 移除 hold → flywheel 自動合。
-  合併後 **#4（WMOM-20260719-02）整個完成**。
+- **本 PR（#4 前端）**：review 收完 → 移除 hold → flywheel 自動合。合併後 **#4 整個完成**。
 - **接下來 #3 啟動 gate**（DEC-20260719-01 交付分階段 3）：`app.py` lifespan 不自動
   `broker.start(SIMULATION)`；前端強制登入後出「選資料來源」頁（實接 / 即時模擬 / 產生情境 /
   調閱過去情境——後者用本 PR 的過去情境清單）。
