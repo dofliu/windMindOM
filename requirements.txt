@@ -4,7 +4,11 @@ uvicorn[standard]>=0.30.0
 websockets>=12.0
 pydantic>=2.0
 numpy>=1.24.0
-pymodbus>=3.5
+# 上限 <3.8：pymodbus 3.11+ 重寫 datastore（改用 SimData），令 ModbusSequentialDataBlock(0, …)
+# 觸發 `TypeError: 0 <= address < 65535`（simulator/modbus_server.py 建 slave context 時崩、
+# 整個 app 啟動失敗）。3.5–3.7 用舊 datastore（accept address 0；code 亦已相容 3.7 的
+# devices=/slaves= 改名）。要升更新版須先改 modbus_server.py 的 datablock 建法。
+pymodbus>=3.5,<3.8
 # workflow / cost / reporting module（M2-M4 新增，先前漏列）
 sqlalchemy>=2.0          # workflow / cost / reporting ORM repository
 pandas>=2.0              # cost waiting_time（weather window / 多項式擬合）
