@@ -29,6 +29,46 @@ const SCENARIOS = [
 
 const FARMS = { farms: [{ farm_id: 'f1', name: '彰化離岸風場', turbine_count: 3 }], active_farm_id: 'f1' };
 
+const SAVED_SCENARIOS = [
+  {
+    id: 7,
+    started_at: '2026-07-19T10:00:00',
+    ended_at: '2026-07-19T10:01:00',
+    turbine_count: 3,
+    config: {
+      kind: 'scenario',
+      name: '暴風測試',
+      wind_profile: 'storm',
+      duration_hours: 24,
+      time_step: 60,
+      total_readings: 4320,
+      faults_injected: 1,
+      sim_start: '2026-07-19T10:00:00',
+      sim_end: '2026-07-20T10:00:00',
+      status: 'ok',
+    },
+  },
+];
+
+const SCENARIO_HISTORY = {
+  scenario_id: 7,
+  turbine_id: 'WT001',
+  readings: [
+    { timestamp: '2026-07-19T10:00:00', scada: { WTUR_TotPwrAt: 1500, WMET_WSpeedNac: 12 } },
+    { timestamp: '2026-07-19T10:01:00', scada: { WTUR_TotPwrAt: 1600, WMET_WSpeedNac: 13 } },
+  ],
+  events: [
+    {
+      id: 1,
+      timestamp: '2026-07-19T10:00:30',
+      turbine_id: 'WT002',
+      event_type: 'fault',
+      title: 'Scenario fault: hydraulic_leak on WT002',
+    },
+  ],
+  events_by_time_window: true,
+};
+
 const GEN_RESULT = {
   status: 'ok',
   duration_hours: 168,
@@ -48,19 +88,36 @@ function jsonRes(body: unknown, ok = true, status = 200): Promise<Response> {
 let fetchMock: Mock;
 
 function installFetch(
-  opts: { scenarios?: unknown; farmsBody?: unknown; genOk?: boolean; genBody?: unknown; windOk?: boolean } = {},
+  opts: {
+    scenarios?: unknown;
+    farmsBody?: unknown;
+    genOk?: boolean;
+    genBody?: unknown;
+    windOk?: boolean;
+    saved?: unknown;
+    scenarioHistory?: unknown;
+    deleteOk?: boolean;
+  } = {},
 ) {
   const scenarios = opts.scenarios ?? SCENARIOS;
   const farmsBody = opts.farmsBody ?? FARMS;
   const genOk = opts.genOk ?? true;
   const genBody = opts.genBody ?? GEN_RESULT;
   const windOk = opts.windOk ?? true;
+  const saved = opts.saved ?? SAVED_SCENARIOS;
+  const scenarioHistory = opts.scenarioHistory ?? SCENARIO_HISTORY;
+  const deleteOk = opts.deleteOk ?? true;
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (url.includes('/api/faults/scenarios')) return jsonRes(scenarios);
     if (url.includes('/api/config/simulation/generate-bulk')) return jsonRes(genBody, genOk, genOk ? 200 : 400);
     if (url.includes('/api/config/wind')) return jsonRes({ detail: 'wind fail' }, windOk, windOk ? 200 : 400);
     if (url.includes('/api/farms')) return jsonRes(farmsBody);
+    // 情境調閱（含 /history）須在 list 判斷之前，因兩者都含 '/api/scenarios'
+    if (url.includes('/api/scenarios/') && url.includes('/history')) return jsonRes(scenarioHistory);
+    if (url.includes('/api/scenarios/') && method === 'DELETE')
+      return jsonRes({ status: 'deleted' }, deleteOk, deleteOk ? 200 : 403);
+    if (url.includes('/api/scenarios')) return jsonRes({ scenarios: saved });
     return Promise.reject(new Error(`unexpected fetch: ${method} ${url}`));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -339,5 +396,121 @@ describe('ScenarioPage — 邊界防呆', () => {
     await renderPage('zh');
     fireEvent.change(screen.getByLabelText('時長小時'), { target: { value: '0' } });
     expect(screen.getByLabelText('時長小時')).toHaveValue(1);
+  });
+});
+
+// ─── 情境命名 + 保存 / 調閱 / 刪除（WMOM-20260719-02 前端）──────────────────────
+
+describe('ScenarioPage — 情境命名', () => {
+  it('渲染「情境名稱」輸入框', async () => {
+    await renderPage('zh');
+    expect(screen.getByLabelText('情境名稱')).toBeInTheDocument();
+  });
+
+  it('generate-bulk body 帶輸入的 name + wind_profile', async () => {
+    await renderPage('zh');
+    fireEvent.change(screen.getByLabelText('情境名稱'), { target: { value: '我的情境' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(calls((u, m) => u.includes('/generate-bulk') && m === 'POST').length).toBe(1));
+    const gen = bodyOf(u => u.includes('/generate-bulk'));
+    expect(gen.name).toBe('我的情境');
+    expect(gen.wind_profile).toBe('moderate');
+  });
+
+  it('name 留空 → 自動帶非空名稱（避免存成不可調閱的無名情境）', async () => {
+    await renderPage('zh');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(calls((u, m) => u.includes('/generate-bulk') && m === 'POST').length).toBe(1));
+    const gen = bodyOf(u => u.includes('/generate-bulk'));
+    expect(typeof gen.name).toBe('string');
+    expect((gen.name as string).length).toBeGreaterThan(0);
+  });
+});
+
+describe('ScenarioPage — 過去情境清單', () => {
+  it('mount 時 GET /api/scenarios 並渲染已保存情境（名稱 + 統計 + 翻譯後風況）', async () => {
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    expect(screen.getByText(/4,320/)).toBeInTheDocument(); // total_readings 統計
+    // 風況顯示翻譯後標籤而非原始代碼：清單 meta 不應出現「· storm」（會是「· 暴風（…）」）。
+    expect(screen.queryByText(/· storm/)).not.toBeInTheDocument();
+    expect(calls((u, m) => u.includes('/api/scenarios') && m === 'GET').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('空清單 → 顯示空狀態提示', async () => {
+    installFetch({ saved: [] });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText(/還沒有保存的情境/)).toBeInTheDocument());
+  });
+
+  it('點「觀察 →」進情境調閱視圖（抓該情境 history + 顯示返回鈕）', async () => {
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByRole('button', { name: /觀察情境/ })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /觀察情境/ }));
+    });
+    await waitFor(() =>
+      expect(
+        calls(u => u.includes('/api/scenarios/7/turbines/') && u.includes('/history')).length,
+      ).toBeGreaterThanOrEqual(1),
+    );
+    expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument();
+  });
+
+  it('點「刪除」→ 確認後 DELETE 該情境並從清單移除', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    await waitFor(() =>
+      expect(calls((u, m) => u.includes('/api/scenarios/7') && m === 'DELETE').length).toBe(1),
+    );
+    await waitFor(() => expect(screen.queryByText('暴風測試')).not.toBeInTheDocument());
+  });
+
+  it('刪除確認取消 → 不送 DELETE', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    expect(calls((u, m) => u.includes('/api/scenarios/7') && m === 'DELETE')).toHaveLength(0);
+    expect(screen.getByText('暴風測試')).toBeInTheDocument(); // 仍在清單
+  });
+
+  it('刪除被擋（403）→ 顯示需管理員權限、情境仍在', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installFetch({ deleteOk: false });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/系統管理員權限/));
+    expect(screen.getByText('暴風測試')).toBeInTheDocument();
+  });
+});
+
+describe('ScenarioPage — 生成後觀察此情境', () => {
+  it('結果帶 scenario_id → 「觀察此情境」進調閱視圖（不依賴清單刷新）', async () => {
+    // saved 故意為空：若「觀察此情境」依賴清單 find 就會 fallback、進不了調閱視圖；
+    // 用 lastScenario（由生成輸入就地組出）才能通過 → 真正守住不假綠。
+    installFetch({ genBody: { ...GEN_RESULT, scenario_id: 7 }, saved: [] });
+    await renderPage('zh');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: '觀察此情境' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '觀察此情境' }));
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument());
   });
 });

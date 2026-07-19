@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-07-19"  # Scenario 實測 follow-up：復位 bug 修復（WMOM-20260719-01, PR #137 merged）+ 情境保存後端（WMOM-20260719-02, DEC-20260719-01）；#4 前端 + #3 啟動 gate 待接
+last_updated: "2026-07-19"  # Scenario 實測 follow-up：復位 bug（WMOM-20260719-01, #137 merged）+ 情境保存/調閱 #4 前後端完成（WMOM-20260719-02, 後端 #138 merged + 前端本 PR, DEC-20260719-01）；下一項 #3 啟動 gate
 next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。"
 technologies:
   - FastAPI
@@ -63,9 +63,9 @@ milestones:
 
 issue_stats:
   open: 13   # -04 done / -05 done → 原 open 15 - 2 done
-  in_progress: 3   # + WMOM-20260719-02（情境保存/調閱：後端 done、前端待接）
+  in_progress: 2   # WMOM-20260719-02 情境保存/調閱前後端皆 done → 移出 in_progress
   blocked: 0
-  done: 89  # +1 (2026-07-19): WMOM-20260719-01 復位不清故障（僅維護解決才清，PR #137）
+  done: 90  # 2026-07-19: +WMOM-20260719-01 復位不清故障（#137）+WMOM-20260719-02 情境保存/調閱（#138 + 前端）
 
 inherited_baseline:
   source: digiWindTurbine

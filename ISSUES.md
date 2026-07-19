@@ -14,9 +14,9 @@
 | Status | Count |
 |--------|------|
 | open | 15 |
-| in_progress | 4 |
+| in_progress | 3 |
 | blocked | 0 |
-| done | 91 |
+| done | 92 |
 | **total (active)** | **110** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
@@ -113,16 +113,18 @@
   +3 引擎層 tests；code review Approve（0 must-fix / 4 should-fix 已收）。PR #137。
 
 **方向已定（用戶選「先 #4 再 #3」，DEC-20260719-01）**
-- **WMOM-20260719-02** — 🟡 #4 情境保存/調閱（雙 PR）。根因＝`generate-bulk` 把資料寫進當前
-  active session、無情境識別 → 融進歷史。情境建模成 `config_json.kind=="scenario"` 的專屬 ended
-  session。
-  - **後端（本 PR）✅**：`query_history` 加 `session_id` 隔離；storage 加 `list/get/delete_scenario`
-    + `update_session_config` + `SCENARIO_KIND`；`generate-bulk` 帶 `name` → 開情境 session 寫入/
-    回填/end、回傳 `scenario_id`；新 `/api/scenarios` router（list/get/history/delete）。+7 storage
-    tests，端到端 verify 通過。
-  - **前端（下個 PR）🔵**：ScenarioPage 加情境命名 + 「過去情境」清單 + 點選調閱 + 刪除。
+- **WMOM-20260719-02** — ✅ **#4 情境保存/調閱（雙 PR，done）**。根因＝`generate-bulk` 把資料寫進
+  當前 active session、無情境識別 → 融進歷史。情境建模成 `config_json.kind=="scenario"` 的專屬
+  ended session。
+  - **後端（#138 merged）✅**：`query_history` 加 `session_id` 隔離；storage 加 `list/get/delete_scenario`
+    + `update_session_config` + `SCENARIO_KIND` + 4 表 session_id 索引；`generate-bulk` 帶 `name` →
+    開情境 session 寫入/回填/end（失敗 try/except 收尾）、回傳 `scenario_id`；新 `/api/scenarios`
+    router（list/get/history/delete，delete=ADMIN）。+11 tests（7 storage + 4 endpoint），端到端 verify。
+  - **前端（本 PR）✅**：ScenarioPage 加情境命名（留空自動命名）+「過去情境」清單（觀察/刪除）+
+    observe 模式；新 `ScenarioDetail`（發電量 vs 風速雙軸趨勢 + 故障事件，複用 `rightAxisTags`）。
+    +14 render tests（ScenarioPage +8 / ScenarioDetail 6），前端 905 全綠。
 - **#3 啟動模式選擇** — 🔵 開機不自動跑預設風場（`app.py` lifespan）；強制登入後選「實接 / 模擬 /
-  產生情境 / 過去情境（用 #4 清單）」。**排在 #4 之後**（DEC-20260719-01 交付分階段 3）。
+  產生情境 / 過去情境（用 #4 清單）」。**排在 #4 之後**（DEC-20260719-01 交付分階段 3）＝下一項。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
