@@ -38,6 +38,11 @@ def _zero_non_finite(scada: Dict[str, float]) -> List[str]:
     return hit
 
 
+# 物理積分的穩定上限：實測 dt≤5s 穩定、dt≥8s rotor speed 會數值發散→inf（WMOM-20260718-10）。
+# generate_bulk 用較大 time_step（10/60s）換速度，故須把每個輸出步拆成 ≤此值的子步跑物理。
+_MAX_PHYSICS_DT = 5.0
+
+
 class WindFarmSimulator:
     """Wind farm simulator engine — produces realistic SCADA data via callbacks.
 
@@ -320,6 +325,11 @@ class WindFarmSimulator:
         total_readings = 0
         report_interval = max(1, total_steps // 100)  # report every 1%
 
+        # 每個輸出步拆成穩定的物理子步（≤_MAX_PHYSICS_DT），避免大 time_step 令 rotor
+        # speed 數值發散（WMOM-20260718-10）。輸出仍以 time_step 為節奏（只落地最後一子步）。
+        n_sub = max(1, math.ceil(time_step / _MAX_PHYSICS_DT))
+        sub_dt = time_step / n_sub
+
         # 依注入時間排序；sched_idx 指向下一支待注入的故障。
         schedule = sorted(fault_schedule or [], key=lambda s: s.offset_seconds)
         sched_idx = 0
@@ -344,8 +354,11 @@ class WindFarmSimulator:
                     on_fault_injected(fstep, sim_time)
                 sched_idx += 1
 
-            sim_time += timedelta(seconds=time_step)
-            readings = self._run_one_step(sim_time, time_step)
+            # 以穩定子步推進物理；只有最後一子步的 readings 落地（輸出節奏＝time_step）。
+            readings: List[Dict] = []
+            for _ in range(n_sub):
+                sim_time += timedelta(seconds=sub_dt)
+                readings = self._run_one_step(sim_time, sub_dt)
             total_readings += len(readings)
 
             if callback:

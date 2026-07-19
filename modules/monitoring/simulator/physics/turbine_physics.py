@@ -1326,7 +1326,8 @@ class TurbinePhysicsModel:
         sensorized: Dict[str, float] = {}
         for tag, value in output.items():
             if tag in _integer_tags:
-                sensorized[tag] = round(value)
+                # round(inf/nan) → OverflowError；非有限值歸零（WMOM-20260718-10）。
+                sensorized[tag] = round(value) if math.isfinite(value) else 0
                 continue
             if tag in _passthrough_tags:
                 sensorized[tag] = value
@@ -1341,6 +1342,13 @@ class TurbinePhysicsModel:
                 sensorized[tag] = self._sensor_last[tag]
                 continue
             measured = value + self._sensor_bias.get(tag, 0.0) + self._rng.normal(0.0, cfg["noise"])
+            # 上游物理若發散成 inf/nan，下一行 round() 會拋 OverflowError 弄垮整個 step()
+            # （這正是「生成情境」500 + 前端誤報 CORS 的根因）。非有限值直接歸零並繼續
+            # （引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
+            if not math.isfinite(measured):
+                self._sensor_last[tag] = 0.0
+                sensorized[tag] = 0.0
+                continue
             resolution = cfg["resolution"]
             if resolution > 0:
                 measured = round(measured / resolution) * resolution

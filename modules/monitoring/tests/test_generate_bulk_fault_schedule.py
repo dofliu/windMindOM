@@ -225,3 +225,37 @@ def test_parse_none_severity_rate_raises_400():
         _parse_fault_schedule(
             [{"scenario_id": "bearing_wear", "turbine_id": "WT001", "severity_rate": None}], _ids())
     assert ei.value.status_code == 400
+
+
+# ─── 大 time_step 數值穩定性（WMOM-20260718-10）──────────────────────────────
+
+def test_generate_bulk_large_timestep_stays_finite():
+    """大 time_step（60s）+ moderate 風況不再讓 rotor speed 數值發散→inf。
+
+    根因：物理積分在 dt>~5s 會發散（rotor speed 爆到 ~1e5 rpm → imbalance **2 overflow →
+    inf → Modbus/round 崩）。修法＝generate_bulk 把每個輸出步拆成 ≤5s 的子步跑物理。
+    本測試用會觸發發散的 moderate profile 跑 30 個 60s 輸出步，守住「輸出全為有限、
+    rotor speed 維持物理範圍」。
+    """
+    import math
+
+    sim = _running_sim(turbine_count=3)
+    sim.wind_model.set_profile("moderate")
+
+    seen = {"bad": 0, "max_rotspd": 0.0}
+
+    def cb(readings):
+        for r in readings:
+            scada = r.get("scada", {})
+            for v in scada.values():
+                if isinstance(v, (int, float)) and not math.isfinite(v):
+                    seen["bad"] += 1
+            rs = scada.get("WROT_RotSpd", 0.0)
+            if isinstance(rs, (int, float)) and math.isfinite(rs):
+                seen["max_rotspd"] = max(seen["max_rotspd"], abs(rs))
+
+    # 0.5h @ 60s = 30 輸出步（每步 12 子步）——遠超原本 <14 步就發散的門檻。
+    sim.generate_bulk(duration_hours=0.5, time_step=60.0, callback=cb)
+
+    assert seen["bad"] == 0, "大 time_step 不應產生非有限值（子步穩定化後）"
+    assert seen["max_rotspd"] < 100.0, f"rotor speed 應維持物理範圍，實得 {seen['max_rotspd']:.0f} rpm"
