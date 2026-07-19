@@ -91,8 +91,14 @@
 - **WMOM-20260718-09** — 🔴 non-finite 防呆：某風場的風機規格讓上游物理發散成 inf/nan →
   `[Simulator] Error: cannot convert float infinity to integer`（Modbus int() 崩）+ fatigue numpy
   warning + 前端 recharts 畫壞。修：`RainflowCounter.add_sample` 忽略非有限；`engine._zero_non_finite`
-  每步把 SCADA 的 inf/nan 就地歸零（單一 choke point + 印一次警告指向風機規格）。+4 tests。
-  註：根因為該風場規格異常（欄位 0/空），建議用戶從 preset 重建該風場。
+  每步把 SCADA 的 inf/nan 就地歸零（單一 choke point）。+4 tests。**註：當時猜「風機規格異常」為
+  根因是錯的——真根因見 -10。而且該防呆放在 model.step 之後，攔不到 step 內部的 round(inf) 崩。**
+- **WMOM-20260718-10** — 🔴 **真根因＋根治**：物理積分在 **dt>~5s 數值發散**（rotor speed 爆到
+  ~1e5 rpm → imbalance `**2` overflow → inf）。generate_bulk 用大 time_step（10/60s）換速度，正好
+  踩進不穩定區 → `_apply_sensor_model` 的 `round(inf)` 拋 OverflowError → 「生成情境」500，前端**誤報
+  CORS**（500 無 ACAO）。修：(a) `generate_bulk` 把每個輸出步拆成 ≤5s 子步跑物理（`_MAX_PHYSICS_DT`），
+  輸出仍以 time_step 為節奏；(b) `_apply_sensor_model` 的兩處 `round()` 加非有限防呆（step 內安全網）。
+  實測 time_step=60 + moderate profile：rotor speed 穩在 ~20 rpm、零 inf。+1 stability regression test。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
