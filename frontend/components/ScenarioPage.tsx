@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type PillTone } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
+import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -44,6 +45,7 @@ interface FinalFaultStatus {
 
 interface GenerateResult {
   status: string;
+  scenario_id?: number | null;
   duration_hours: number;
   time_step: number;
   total_readings: number;
@@ -112,7 +114,21 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
+  // 情境命名 + 過去情境清單（WMOM-20260719-02 前端）
+  const [scenarioName, setScenarioName] = useState('');
+  const [savedScenarios, setSavedScenarios] = useState<SavedScenario[]>([]);
+  const [observing, setObserving] = useState<SavedScenario | null>(null);
+
   const nextKey = useRef(1);
+
+  const loadScenarios = () => {
+    authFetch(`${API_BASE}/api/scenarios`)
+      .then(r => (r.ok ? r.json() : { scenarios: [] }))
+      .then((data: { scenarios?: SavedScenario[] }) =>
+        setSavedScenarios(Array.isArray(data?.scenarios) ? data.scenarios : []),
+      )
+      .catch(() => {});
+  };
 
   useEffect(() => {
     authFetch(`${API_BASE}/api/faults/scenarios`)
@@ -126,6 +142,13 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         const active = data.farms.find(f => f.farm_id === data.active_farm_id) ?? data.farms[0] ?? null;
         setFarm(active);
       })
+      .catch(() => {});
+    // 過去情境清單（GET /api/scenarios）
+    authFetch(`${API_BASE}/api/scenarios`)
+      .then(r => (r.ok ? r.json() : { scenarios: [] }))
+      .then((data: { scenarios?: SavedScenario[] }) =>
+        setSavedScenarios(Array.isArray(data?.scenarios) ? data.scenarios : []),
+      )
       .catch(() => {});
   }, []);
 
@@ -162,6 +185,25 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const updateFault = (key: number, patch: Partial<ScheduledFault>) =>
     setFaults(prev => prev.map(f => (f.key === key ? { ...f, ...patch } : f)));
 
+  const deleteScenario = async (id: number) => {
+    try {
+      const res = await authFetch(`${API_BASE}/api/scenarios/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSavedScenarios(prev => prev.filter(s => s.id !== id));
+        if (observing?.id === id) setObserving(null);
+      } else {
+        // 刪除需 ADMIN；被擋時給提示而非靜默。
+        setError(
+          res.status === 403
+            ? u('Delete needs admin rights.', '刪除情境需要系統管理員權限。')
+            : u(`Delete failed: HTTP ${res.status}`, `刪除失敗：HTTP ${res.status}`),
+        );
+      }
+    } catch {
+      setError(u('Network error while deleting.', '刪除時發生網路錯誤。'));
+    }
+  };
+
   const handleGenerate = async () => {
     setGenerating(true);
     setResult(null);
@@ -181,11 +223,18 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         return;
       }
 
-      // 2. 批次生成（帶故障排程）。
+      // 2. 批次生成（帶故障排程 + 情境名稱 → 存成可調閱的專屬 session）。
+      //    ScenarioPage 的產物一律存成命名情境（名稱留空則自動帶時間戳），這樣使用者事後
+      //    才能在「過去情境」把它調回來——正是本次要修的「產生過的情境調不回來」。
+      const finalName =
+        scenarioName.trim() ||
+        `${u('Scenario', '情境')} ${new Date().toLocaleString(lang === 'zh' ? 'zh-TW' : 'en-US')}`;
       const res = await authFetch(`${API_BASE}/api/config/simulation/generate-bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          name: finalName,
+          wind_profile: windProfile,
           duration_hours: durationHours,
           time_step: timeStep,
           fault_schedule: faults.map(f => ({
@@ -210,6 +259,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       }
       const data = (await res.json()) as GenerateResult;
       setResult(data);
+      loadScenarios(); // 新情境即時出現在「過去情境」
       // 結果卡本身即成功訊號 → 清掉「生成中…」訊息，避免頂部訊息永遠不消失且與結果卡重複。
       setMessage('');
     } catch {
@@ -219,6 +269,11 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       setGenerating(false);
     }
   };
+
+  // 觀察模式：選了某過去情境 → 顯示該情境的隔離調閱視圖（ScenarioDetail）。
+  if (observing) {
+    return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
+  }
 
   const canGenerate = !generating && scenarios.length > 0;
 
@@ -280,6 +335,21 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
           <span style={{ color: C.faint, marginLeft: 8 }}>
             {u('· switch via the sidebar', '· 用側邊欄切換風場')}
           </span>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <Field label={u('Scenario name', '情境名稱')}>
+            <Input
+              value={scenarioName}
+              onChange={setScenarioName}
+              placeholder={u(
+                'e.g. Storm + hydraulic leak (auto-named if blank)',
+                '例：暴風 + 液壓洩漏（留空會自動命名）',
+              )}
+              fullWidth
+              ariaLabel={u('Scenario name', '情境名稱')}
+            />
+          </Field>
         </div>
 
         <div
@@ -475,10 +545,25 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
             <div style={{ fontSize: 14, fontWeight: 600, color: C.accent }}>
               {u('Scenario dataset', '情境資料集')}
             </div>
-            {onExplore && (
-              <Btn size="sm" variant="primary" onClick={onExplore} ariaLabel={u('View history', '查看歷史資料')}>
-                {u('Explore history →', '查看歷史資料 →')}
+            {result.scenario_id != null ? (
+              <Btn
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  const found = savedScenarios.find(s => s.id === result.scenario_id);
+                  if (found) setObserving(found);
+                  else onExplore?.();
+                }}
+                ariaLabel={u('Observe this scenario', '觀察此情境')}
+              >
+                {u('Observe this scenario →', '觀察此情境 →')}
               </Btn>
+            ) : (
+              onExplore && (
+                <Btn size="sm" variant="primary" onClick={onExplore} ariaLabel={u('View history', '查看歷史資料')}>
+                  {u('Explore history →', '查看歷史資料 →')}
+                </Btn>
+              )
             )}
           </div>
           <div
@@ -571,6 +656,88 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
           )}
         </Card>
       )}
+
+      {/* ── 過去情境（可調閱 / 刪除）── */}
+      <Card style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: C.text }}>
+          {u('Saved scenarios', '過去情境')}{' '}
+          <span style={{ color: C.faint, fontWeight: 400 }}>({savedScenarios.length})</span>
+        </div>
+        {savedScenarios.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.faint, padding: '8px 0' }}>
+            {u(
+              'No saved scenarios yet — generate one above to keep it here for later observation.',
+              '還沒有保存的情境 — 上方生成一個，之後就能在這裡調回來觀察分析。',
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {savedScenarios.map(s => {
+              const cfg = s.config ?? {};
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.4fr) auto',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: C.panelMuted,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: C.text,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {cfg.name || u('(unnamed)', '（未命名）')}
+                      {cfg.status === 'error' && (
+                        <StatusPill tone="warn" size="sm">
+                          {u('failed', '失敗')}
+                        </StatusPill>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                      {new Date(s.started_at).toLocaleString()}
+                      {cfg.wind_profile ? ` · ${cfg.wind_profile}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, fontFamily: 'JetBrains Mono, monospace' }}>
+                    {cfg.duration_hours ?? '—'}h · {(cfg.total_readings ?? 0).toLocaleString()}{' '}
+                    {u('rows', '筆')} · {cfg.faults_injected ?? 0} {u('faults', '故障')}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Btn
+                      size="sm"
+                      variant="primary"
+                      onClick={() => setObserving(s)}
+                      ariaLabel={u('Observe scenario', '觀察情境')}
+                    >
+                      {u('Observe →', '觀察 →')}
+                    </Btn>
+                    <Btn
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => deleteScenario(s.id)}
+                      ariaLabel={u('Delete scenario', '刪除情境')}
+                    >
+                      {u('Delete', '刪除')}
+                    </Btn>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </div>
   );
 };

@@ -551,9 +551,11 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
 
 ### 交付分階段
 
-1. **#4 後端（PR #A）**：scenario session 模型 + session_id 隔離讀取 + `/api/scenarios` + 7 tests。
-2. **#4 前端**：ScenarioPage 加情境命名 + 「過去情境」清單 + 點選調閱。
-3. **#3 啟動 gate**：後端不自動起模擬 + 前端登入後模式選擇。
+1. **#4 後端（#138 merged）✅**：scenario session 模型 + session_id 隔離讀取 + `/api/scenarios` +
+   11 tests（7 storage + 4 endpoint）。
+2. **#4 前端（本 PR）✅**：ScenarioPage 加情境命名 + 「過去情境」清單 + observe 模式 + `ScenarioDetail`
+   調閱視圖（發電量 vs 風速雙軸 + 故障事件）+ 14 render tests。
+3. **#3 啟動 gate**（下一項）：後端不自動起模擬 + 前端登入後模式選擇。
 
 ### 接受的 trade-off
 
