@@ -39,6 +39,7 @@ const TAG_LABEL: Record<string, { en: string; zh: string }> = {
 };
 
 export interface ScenarioConfig {
+  kind?: string; // 後端以 config_json.kind === 'scenario' 標記情境 session
   name?: string;
   wind_profile?: string;
   duration_hours?: number;
