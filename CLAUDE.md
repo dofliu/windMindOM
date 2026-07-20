@@ -134,9 +134,10 @@ WMOM = WindMindOM 縮寫。
 
 - **產品版本**：v0.8.1（2026-05-02 baseline）
 - **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）auth 全面完成（JWT + RBAC + 全 router 授權 + 前端真登入，#108-#122）
-- **下次工作**：WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾（客戶手冊擴充 + 一年警報 csv 灌入）+ M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
+- **2026-07-20 情境模式深化 arc**（實測驅動）：DB-lock 根治（WMOM-20260720-01, #142）→ **DEC-20260720-01 情境＝凍結資料集**（設定依來源 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：**A0** 情境摘要端點 `GET /api/scenarios/{id}/summary`（#148 merged）+ **A1** 同情境內比較視圖（faulted vs healthy，PR #150 in review）
+- **下次工作**：#150（A1）收尾合併 → **A2 跨情境比較**（相對時間對齊）或 **PR C**（檢視情境掛載 app，需先寫 broker 子設計）；並行 WMOM-20260720-04（含併入的 -08 生命週期硬化）+ WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
 - **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
-- **Backend 測試**：998 tests collected（含 6 module + monitoring/physics + e2e + auth enforcement）
+- **測試**：backend 情境層 +（A0 storage 聚合/端點、-07 run_loop、-01 DB-lock）；frontend 957 passed（+A1 比較視圖/純函式）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
