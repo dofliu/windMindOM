@@ -321,11 +321,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   const isSim = formData.dataSource === DataSourceType.SIMULATION;
   // 只在「明確知道」目前來源是 view / live 時才擋（fail-open：載入中/查不到就照常顯示，
   // 不因狀態查詢失敗而把即時模擬使用者的控制藏掉）。
-  const liveTuningBlocked = sourceKind === 'view' || sourceKind === 'live';
+  // scenario（產生情境）也擋：情境風況於生成時（情境頁）設定，設定頁的即時調整在此無意義；且
+  // 與 view/live 同理——在此改 sim 參數並儲存會觸發後端 switch_mode 把來源切回即時模擬（DEC-20260720-01）。
+  const liveTuningBlocked =
+    sourceKind === 'view' || sourceKind === 'live' || sourceKind === 'scenario';
   const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
     if (kind === 'view') return u('a past scenario (view mode)', '調閱過去情境');
     if (kind === 'live') return u('the live data connection', '實際資料對接');
-    // 防禦性 fallback：目前唯一呼叫點在 liveTuningBlocked（kind 必為 view/live），不會走到這裡。
+    if (kind === 'scenario') return u('scenario generation', '產生情境');
+    // 防禦性 fallback：唯一呼叫點在 liveTuningBlocked（kind 必為 view/live/scenario），不會走到這裡。
     return u('the current source', '目前來源');
   };
 

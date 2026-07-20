@@ -14,7 +14,9 @@ import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-export type SourceMode = 'simulation' | 'live' | 'view';
+// 'simulation'＝即時模擬（自由跑）；'scenario'＝產生情境（simulator 供批次、不自由跑，
+// DEC-20260720-01 PR B）；'live'＝實接 OPC；'view'＝調閱過去情境（不起來源）。
+export type SourceMode = 'simulation' | 'scenario' | 'live' | 'view';
 
 /** 啟動來源的結果；`status` 供 UI 對 403（權限不足）等給明確回饋而非靜默。 */
 export interface SelectResult {

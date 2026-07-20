@@ -189,7 +189,10 @@ const AppShell: React.FC = () => {
   // 後端開機 idle（不自動起來源）。狀態機抽到 useSourceGate（可測 + 含登出防呆）。
   const { sourceActive, selectMode } = useSourceGate(auth.isAuthenticated);
   const handleSelectSource = async (id: SourceCardId): Promise<SelectResult> => {
-    const mode: SourceMode = id === 'live' ? 'live' : id === 'observe' ? 'view' : 'simulation';
+    // 'scenario' 卡（產生新情境）→ scenario 模式（simulator 供批次、不自由跑，DEC-20260720-01 PR B）；
+    // 'simulation' 卡（即時模擬）→ simulation（自由跑）；observe→view；live→live。
+    const mode: SourceMode =
+      id === 'live' ? 'live' : id === 'observe' ? 'view' : id === 'scenario' ? 'scenario' : 'simulation';
     const targetView: ViewId = id === 'scenario' || id === 'observe' ? 'scenario' : 'overview';
     const result = await selectMode(mode);
     if (result.ok) setView(targetView);

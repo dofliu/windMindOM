@@ -447,6 +447,14 @@ describe('SettingsPage 系統設定面板', () => {
     expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
   });
 
+  it('來源為 scenario（產生情境）→ 同樣擋掉即時調整（情境風況於生成時設定）', async () => {
+    fetchMock.mockImplementation(sourceKindFetch('scenario'));
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬設定目前不可調整' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '風況控制' })).not.toBeInTheDocument();
+  });
+
   it('來源為 simulation → 顯示模擬參數/風況/電網/機組區塊、不顯示 gate 提示', async () => {
     // defaultFetch 已回 kind=simulation。
     await renderSettings(makeSettings(DataSourceType.SIMULATION));

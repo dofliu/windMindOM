@@ -96,10 +96,12 @@ def _start_modbus_for(simulator: 'Optional[WindFarmSimulator]') -> None:
         print(f"[Server] Warning: Modbus TCP server not started: {e}")
 
 
-def activate_simulation() -> None:
-    """啟動即時模擬來源（使用者選「即時模擬 / 產生情境」）：起 simulator + 套風場 spec + Modbus。
+def activate_simulation(run_loop: bool = True) -> None:
+    """啟動模擬來源：起 simulator + 套風場 spec（+ Modbus）。由 ``/api/source/select`` 呼叫、可重入。
 
-    由 ``/api/source/select`` 呼叫。可重入（切換來源時會先停舊 Modbus 再起新的）。
+    ``run_loop=True``（「即時模擬」）＝自由跑連續產資料 + 起 Modbus TCP（給外部 client 讀即時值）。
+    ``run_loop=False``（「產生情境」，DEC-20260720-01 PR B）＝只建 simulator 供批次生成、**不自由跑**、
+    **不起 Modbus**（沒有連續即時值可讀）。source_kind 由 broker 依 run_loop 設為 simulation / scenario。
     """
     farm_id = farm_registry.ensure_default_farm()
     farm = farm_registry.get_farm(farm_id)
@@ -109,6 +111,7 @@ def activate_simulation() -> None:
     broker.switch_mode(
         DataSourceConfig(mode=DataSourceMode.SIMULATION),
         SimulationConfig(turbineCount=turbine_count),
+        run_loop=run_loop,
     )
 
     if farm and farm.turbine_spec and broker.simulator:
@@ -120,8 +123,10 @@ def activate_simulation() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[Server] Warning: could not apply farm spec: {e}")
 
-    _start_modbus_for(broker.simulator)
-    print(f"[Server] Simulation source active ({turbine_count} turbines)")
+    if run_loop:
+        _start_modbus_for(broker.simulator)
+    kind = "simulation (live free-run)" if run_loop else "scenario (batch, no free-run)"
+    print(f"[Server] Simulation source active — {kind}, {turbine_count} turbines")
 
 
 def activate_live(mode: DataSourceMode = DataSourceMode.OPC_DA) -> None:

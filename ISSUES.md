@@ -170,22 +170,34 @@
   live（`select {mode:simulation}`）無角色檢查、但起 live 需 SUPERVISOR 之不對稱（前端 confirm 只防手滑
   不防繞 API）。皆 live 路徑、simulator-first 現階段不觸及。修法草案：`stop()` 補
   `self._opc_adapter.stop(); self._opc_adapter=None` + 單元測。
+  - **(3) `config.py::set_simulation` 靜默 switch_mode（#146 review 殘留）**：active source 非
+    running-sim（view/live/scenario）時，改 sim 參數並儲存會落到 `switch_mode(SIMULATION)` 悄悄切回
+    simulation（live 斷 SCADA）。#146 前端 gate 只能 best-effort（≤5s 輪詢窗蓋不到）；**definitive
+    fix 在後端**——`set_simulation` 應在 source 非即時模擬時拒絕/要求明確確認，不該靜默切換。
+
+- **WMOM-20260720-05** — 🟡 **設定頁改任何選項就跳回頁頂 → PR #145 merged**：`Section` 元件定義在
+  `SettingsPage` render body 內 → 每次 re-render 生出新元件 identity → React 卸載並重建整個表單 DOM →
+  捲動/焦點被重置回 top。修：`Section` 移到 module scope。純前端 +1 回歸測試（哨兵 heading `toBe`）。
+
+- **WMOM-20260720-06** — 🟡 **情境=凍結資料集 · PR A：設定依實際來源 gate → PR #146 merged**（DEC-
+  20260720-01）：設定頁查 `/api/source/status`，view/live/scenario 時把**模擬參數/風況/電網/機組**以說明
+  取代（fail-open）。**兩輪 review 各抓一 Must-fix**：(1) 模擬參數初版沒 gate，但 view/live 下按儲存若
+  sim 參數有變 → `POST /api/config/simulation` → 後端 `switch_mode` 悄悄切回 simulation（live 斷 SCADA）；
+  (2) gate 只藏 UI 不 reset `formData`，編輯到一半來源被切走仍會夾帶 stale 值送出——`handleSubmit` 送出
+  點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
 **In progress**
-- **WMOM-20260720-05** — 🟡 **設定頁改任何選項就跳回頁頂**：`Section` 元件定義在 `SettingsPage` render
-  body 內 → 每次 re-render（改設定 / 每 5 秒刷新 wind/grid 狀態）都生出新元件 identity → React 卸載並
-  重建整個表單 DOM → 捲動位置/輸入焦點被重置回 top。修：`Section` 移到 module scope（identity 穩定、
-  就地 reconcile、不再重建）。純前端 +1 回歸測試（恆在的 heading 當哨兵、`toBe` 同節點；mutation 自驗：
-  退回 inline 即轉紅）。
-
-- **WMOM-20260720-06** — 🟡 **情境=凍結資料集 · PR A：設定依實際來源 gate**（DEC-20260720-01）：使用者
-  定案把「情境」收斂為凍結資料集（產生完不自由跑、進入情境整個 app 掛上去、設定依模式 gate）。本 PR
-  是第一個增量（純前端）：設定頁 mount 查 `/api/source/status`，`sourceKind` 為 view/live 時把**風況/
-  電網/機組**三個即時 POST 區塊以「即時調整只在即時模擬下生效」說明取代（fail-open：查不到不擋）。
-  +3 vitest（view 隱藏 + simulation 顯示 + fail-open；mutation 自驗）。**stack 在 #145 上**、掛 hold
-  待 #145 先合。
-  - **後續增量（DEC-20260720-01）**：PR B 產生情境不自由跑（後端）；PR C 檢視情境把 app 掛上去
-    （broker 情境檢視來源，最大、需子設計）；PR D `GuidedTourPage` 同款 inline-component remount 修。
+- **WMOM-20260720-07** — 🟡 **情境=凍結資料集 · PR B：產生情境不自由跑**（DEC-20260720-01）：選「產生新
+  情境」不再自由跑連續產資料。後端 `broker.start/switch_mode/_start_simulator` 加 `run_loop`，False 時建
+  simulator 供批次但**不起自由跑迴圈**；新 `source_kind='scenario'`（app.py `activate_simulation(run_loop)`、
+  source.py `mode=='scenario'`、不起 Modbus）。前端 `SourceMode +'scenario'`、App 情境卡→scenario、
+  ScenarioPage 生成 gate 放行 scenario + 一鍵啟動改走 scenario、SettingsPage 一併擋 scenario。+8 測
+  （backend 4 + 前端 4）。
+  - **後續（DEC-20260720-01）**：PR C 檢視情境把 app 掛上去（broker，最大、需子設計）；PR D
+    `GuidedTourPage` 同款 remount 修。
+  - **並行 epic（DEC-20260720-02）情境比較分析**：A0 情境摘要端點 → A1 同情境內比較 → A2 跨情境比較
+    （相對時間對齊）→ A3 事件 session 化/匯出。物理資料已全落地（`scada_json`），純讀取/聚合/UI。
+    順序：**B → A0 → C 與 A1/A2 並進**。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

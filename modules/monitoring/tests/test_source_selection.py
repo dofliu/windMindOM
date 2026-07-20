@@ -85,6 +85,35 @@ def test_stop_clears_source_flags(broker):
     assert broker.source_kind is None
 
 
+# ─── 產生情境不自由跑（WMOM-20260720-07 / DEC-20260720-01 PR B）──────────────────
+
+def test_start_scenario_mode_creates_simulator_without_freerun_loop(broker):
+    """產生情境（run_loop=False）：建 simulator 供批次生成，但**不起自由跑迴圈**（不持續產資料）；
+    source_kind=scenario。這是「情境＝凍結資料集」的核心——選了不會一直產新資料。"""
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    try:
+        assert broker.simulator is not None, "情境模式仍需 simulator 供批次生成"
+        assert broker.simulator.is_running is False, "情境模式不該有自由跑迴圈"
+        assert broker.source_kind == "scenario"
+        assert broker.source_active is True
+    finally:
+        broker.stop()
+
+
+def test_start_simulation_mode_runs_freerun_loop(broker):
+    """即時模擬（run_loop=True，預設）：起自由跑迴圈、source_kind=simulation（與情境對照）。"""
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=True)
+    try:
+        assert broker.simulator is not None and broker.simulator.is_running is True
+        assert broker.source_kind == "simulation"
+    finally:
+        broker.stop()
+
+
 # ─── pause_live_for_batch（WMOM-20260720-01：批次期間暫停 Live 的共用 context）──────
 
 def test_pause_live_for_batch_noop_without_simulator(broker):
@@ -140,6 +169,30 @@ def test_select_view_activates_view_only(client, broker):
 
 def test_select_unknown_mode_returns_400(client):
     assert client.post("/api/source/select", json={"mode": "banana"}).status_code == 400
+
+
+def test_select_scenario_activates_simulation_without_freerun(client, monkeypatch):
+    """mode=scenario → activate_simulation(run_loop=False)（產生情境不自由跑）。"""
+    called = {}
+    monkeypatch.setattr(
+        "server.app.activate_simulation",
+        lambda run_loop=True: called.__setitem__("run_loop", run_loop),
+    )
+    r = client.post("/api/source/select", json={"mode": "scenario"})
+    assert r.status_code == 200
+    assert called.get("run_loop") is False
+
+
+def test_select_simulation_activates_freerun(client, monkeypatch):
+    """mode=simulation → activate_simulation(run_loop=True)（即時模擬自由跑；與 scenario 對照）。"""
+    called = {}
+    monkeypatch.setattr(
+        "server.app.activate_simulation",
+        lambda run_loop=True: called.__setitem__("run_loop", run_loop),
+    )
+    r = client.post("/api/source/select", json={"mode": "simulation"})
+    assert r.status_code == 200
+    assert called.get("run_loop") is True
 
 
 def test_status_enforced_requires_auth(client, monkeypatch):

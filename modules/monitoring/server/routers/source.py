@@ -60,8 +60,14 @@ async def select_source(req: SourceSelect, request: Request):
     b = get_broker()
     mode = (req.mode or "").strip().lower()
     if mode == "simulation":
+        # 即時模擬：自由跑連續產資料（source_kind=simulation）。
         from server.app import activate_simulation
-        activate_simulation()
+        activate_simulation(run_loop=True)
+    elif mode == "scenario":
+        # 產生情境（DEC-20260720-01 PR B）：起 simulator 供批次生成，但**不自由跑**——情境是可重現
+        # 的凍結資料集，不該持續產生新資料（source_kind=scenario）。
+        from server.app import activate_simulation
+        activate_simulation(run_loop=False)
     elif mode == "live":
         # live 影響全域且會嘗試對外 OPC 握手 → 比照 farm-activate 需 SUPERVISOR。
         # 重用 enforce-aware 的 require_role（過渡期放行、cutover 後強制），不手刻第二份角色判斷。
@@ -71,6 +77,6 @@ async def select_source(req: SourceSelect, request: Request):
     elif mode == "view":
         b.select_view_only()
     else:
-        raise HTTPException(400, f"Unknown source mode: {req.mode!r}. Use: simulation, live, view")
+        raise HTTPException(400, f"Unknown source mode: {req.mode!r}. Use: simulation, scenario, live, view")
 
     return {"status": "ok", "active": b.source_active, "kind": b.source_kind}

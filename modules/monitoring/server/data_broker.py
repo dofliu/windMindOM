@@ -313,8 +313,14 @@ class DataBroker:
         return self._active_farm_id
 
     def start(self, config: Optional[DataSourceConfig] = None,
-              sim_config: Optional[SimulationConfig] = None):
-        """Start the data broker in simulation or OPC mode and launch background maintenance."""
+              sim_config: Optional[SimulationConfig] = None,
+              run_loop: bool = True):
+        """Start the data broker in simulation or OPC mode and launch background maintenance.
+
+        ``run_loop`` 只在 SIMULATION 有意義：True＝即時模擬（自由跑連續產資料，source_kind
+        ``simulation``）；False＝產生情境（simulator 供批次、不自由跑，source_kind ``scenario``，
+        DEC-20260720-01 PR B）。
+        """
         if sim_config:
             self._sim_config = sim_config
         if config:
@@ -324,8 +330,8 @@ class DataBroker:
             self._init_farm_storage()
 
         if self.mode == DataSourceMode.SIMULATION:
-            self._start_simulator()
-            self._source_kind = "simulation"
+            self._start_simulator(run_loop=run_loop)
+            self._source_kind = "simulation" if run_loop else "scenario"
         else:
             self._start_opc(config)
             self._source_kind = "live"
@@ -391,7 +397,10 @@ class DataBroker:
         """已選來源種類：simulation / live / view / None（未選）。"""
         return self._source_kind
 
-    def _start_simulator(self):
+    def _start_simulator(self, run_loop: bool = True):
+        """建立 simulator。``run_loop=True``＝即時模擬（起自由跑背景 thread、連續產資料）；
+        ``run_loop=False``＝**產生情境**（DEC-20260720-01 PR B）：只建 simulator 供批次生成用，
+        **不起自由跑迴圈**——情境是可重現的凍結資料集，不該持續產生新資料。"""
         if self.simulator and self.simulator.is_running:
             self.simulator.stop()
 
@@ -429,7 +438,8 @@ class DataBroker:
 
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)
-        self.simulator.start(time_step=self._sim_config.timeStep)
+        if run_loop:
+            self.simulator.start(time_step=self._sim_config.timeStep)
 
     def _start_opc(self, config: Optional[DataSourceConfig]):
         # OPC DA adapter - lazy import to avoid dependency issues
@@ -552,11 +562,15 @@ class DataBroker:
         self._source_kind = None
 
     def switch_mode(self, config: DataSourceConfig,
-                    sim_config: Optional[SimulationConfig] = None):
-        """Switch between simulation and OPC data source modes."""
+                    sim_config: Optional[SimulationConfig] = None,
+                    run_loop: bool = True):
+        """Switch between simulation and OPC data source modes.
+
+        ``run_loop`` 傳給 ``start``（SIMULATION 時：True＝即時模擬自由跑、False＝產生情境不自由跑）。
+        """
         self.stop()
         self.mode = config.mode
-        self.start(config, sim_config)
+        self.start(config, sim_config, run_loop=run_loop)
 
     # ── Background maintenance ──
 
