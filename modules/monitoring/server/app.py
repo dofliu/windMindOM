@@ -41,41 +41,14 @@ async def lifespan(app: FastAPI):
     if migrated:
         print(f"[Server] Migrated legacy database to farm '{migrated}'")
 
-    # Determine active farm and its config
+    # Determine active farm (used when a source is later selected). WMOM-20260719-04：
+    # 開機**不再自動啟動任何資料來源**——使用者登入後於「選擇資料來源」頁挑（實接/即時模擬/
+    # 產生情境/調閱過去情境），選定才由 /api/source/select 呼叫 activate_* 啟動。這修掉
+    # 「一進系統就自動以預設風場產生資料」。
     farm_id = farm_registry.ensure_default_farm()
-    farm = farm_registry.get_farm(farm_id)
-    turbine_count = farm.turbine_count if farm else 14
-    print(f"[Server] Active farm: {farm_id} ({turbine_count} turbines)")
+    print(f"[Server] Active farm: {farm_id} (idle — awaiting source selection)")
 
-    # Startup: start simulator with active farm
-    config = DataSourceConfig(mode=DataSourceMode.SIMULATION)
-    sim_config = SimulationConfig(turbineCount=turbine_count)
-    broker.start(config, sim_config)
-
-    # Apply farm turbine spec if defined
-    if farm and farm.turbine_spec and broker.simulator:
-        from simulator.physics.turbine_physics import TurbineSpec
-        try:
-            spec = TurbineSpec.from_dict(farm.turbine_spec)
-            for model in broker.simulator.turbines.values():
-                model.update_spec(spec)
-            print("[Server] Applied turbine spec from farm config")
-        except Exception as e:
-            print(f"[Server] Warning: could not apply farm spec: {e}")
-
-    print(f"[Server] Wind farm simulator started with {turbine_count} turbines")
-
-    # Auto-start Modbus TCP server
-    if broker.simulator:
-        from simulator.modbus_server import ModbusSimServer
-        modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
-        broker.simulator.modbus_server = ModbusSimServer(
-            port=modbus_port, turbine_count=len(broker.simulator.turbines)
-        )
-        broker.simulator.modbus_server.start()
-        print(f"[Server] Modbus TCP server started on port {modbus_port}")
-
-    # Start WebSocket broadcast task
+    # Start WebSocket broadcast task（未選來源前 broker.get_all_turbines() 回空、不廣播）
     task = asyncio.create_task(_ws_broadcast_loop())
 
     yield
@@ -86,6 +59,56 @@ async def lifespan(app: FastAPI):
         broker.simulator.modbus_server.stop()
     broker.stop()
     print("[Server] Shutdown complete")
+
+
+def _stop_modbus() -> None:
+    """停掉目前 simulator 綁的 Modbus server（換來源前避免 port 佔用）。"""
+    if broker.simulator and broker.simulator.modbus_server:
+        try:
+            broker.simulator.modbus_server.stop()
+        except Exception as e:  # noqa: BLE001 — 停 server 失敗不該擋住切換
+            print(f"[Server] Warning: could not stop Modbus server: {e}")
+
+
+def activate_simulation() -> None:
+    """啟動即時模擬來源（使用者選「即時模擬 / 產生情境」）：起 simulator + 套風場 spec + Modbus。
+
+    由 ``/api/source/select`` 呼叫。可重入（切換來源時會先停舊 Modbus 再起新的）。
+    """
+    farm_id = farm_registry.ensure_default_farm()
+    farm = farm_registry.get_farm(farm_id)
+    turbine_count = farm.turbine_count if farm else 14
+
+    _stop_modbus()  # 舊 simulator 若有 Modbus，先停（switch_mode 會換掉 simulator 物件）
+    broker.switch_mode(
+        DataSourceConfig(mode=DataSourceMode.SIMULATION),
+        SimulationConfig(turbineCount=turbine_count),
+    )
+
+    if farm and farm.turbine_spec and broker.simulator:
+        from simulator.physics.turbine_physics import TurbineSpec
+        try:
+            spec = TurbineSpec.from_dict(farm.turbine_spec)
+            for model in broker.simulator.turbines.values():
+                model.update_spec(spec)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Server] Warning: could not apply farm spec: {e}")
+
+    if broker.simulator and not broker.simulator.modbus_server:
+        from simulator.modbus_server import ModbusSimServer
+        modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
+        broker.simulator.modbus_server = ModbusSimServer(
+            port=modbus_port, turbine_count=len(broker.simulator.turbines)
+        )
+        broker.simulator.modbus_server.start()
+    print(f"[Server] Simulation source active ({turbine_count} turbines)")
+
+
+def activate_live(mode: DataSourceMode = DataSourceMode.OPC_DA) -> None:
+    """啟動實際資料對接來源（OPC DA）。"""
+    _stop_modbus()
+    broker.switch_mode(DataSourceConfig(mode=mode))
+    print(f"[Server] Live source active ({mode.value})")
 
 
 app = FastAPI(
@@ -140,6 +163,7 @@ from server.routers.control import router as control_router  # noqa: E402
 from server.routers.maintenance import router as maintenance_router  # noqa: E402
 from server.routers.farms import router as farms_router  # noqa: E402
 from server.routers.scenarios import router as scenarios_router  # noqa: E402
+from server.routers.source import router as source_router  # noqa: E402
 
 # WMOM-20260504-07 + -20260509-05: cost module routers (M2 cost API + ledger query)
 from modules.cost.routers import (  # noqa: E402
@@ -174,6 +198,7 @@ app.include_router(control_router)
 app.include_router(maintenance_router)
 app.include_router(farms_router)
 app.include_router(scenarios_router)
+app.include_router(source_router)
 app.include_router(cost_router)
 app.include_router(cost_ledger_router)
 app.include_router(workflow_router)

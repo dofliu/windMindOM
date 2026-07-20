@@ -555,7 +555,8 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
    11 tests（7 storage + 4 endpoint）。
 2. **#4 前端（本 PR）✅**：ScenarioPage 加情境命名 + 「過去情境」清單 + observe 模式 + `ScenarioDetail`
    調閱視圖（發電量 vs 風速雙軸 + 故障事件）+ 14 render tests。
-3. **#3 啟動 gate**（下一項）：後端不自動起模擬 + 前端登入後模式選擇。
+3. **#3 啟動 gate（本 PR）✅**：後端 lifespan idle（不自動起模擬）+ `/api/source`（status/select）+
+   broker `source_active/kind` 狀態機 + 前端 `SourceSelectPage` 四卡全屏 + App gate。**三階段全完成。**
 
 ### 接受的 trade-off
 

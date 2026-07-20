@@ -257,6 +257,10 @@ class DataBroker:
         self._last_fatigue_alarm: Dict[str, tuple] = {}
         # Session tracking
         self._session_id: Optional[int] = None
+        # 資料來源選擇（WMOM-20260719-04）：開機不自動起模擬，由使用者登入後選定才啟動。
+        # source_kind：None（未選）/ "simulation" / "live" / "view"（僅調閱過去情境、不起任何來源）。
+        self._source_active: bool = False
+        self._source_kind: Optional[str] = None
         # Write throttle state
         self._last_write_time: float = 0
         # Snapshot state: when an event occurs, capture 1s data for a window
@@ -320,11 +324,35 @@ class DataBroker:
 
         if self.mode == DataSourceMode.SIMULATION:
             self._start_simulator()
+            self._source_kind = "simulation"
         else:
             self._start_opc(config)
+            self._source_kind = "live"
+        self._source_active = True
 
         # Start background maintenance (downsampling + cleanup)
         self._start_maintenance()
+
+    def select_view_only(self):
+        """僅調閱過去情境：停掉任何在跑的來源、標記已選但**不啟動**任何資料生成。
+
+        情境調閱只讀 storage（session 隔離），不需要跑 simulator——避免又開始產生預設風場
+        資料（正是使用者不想要的）。overview/live 視圖在此狀態下自然為空。
+        """
+        self.stop()
+        self.simulator = None
+        self._source_active = True
+        self._source_kind = "view"
+
+    @property
+    def source_active(self) -> bool:
+        """是否已選定資料來源（未選＝開機 idle，前端顯示來源選擇頁）。"""
+        return self._source_active
+
+    @property
+    def source_kind(self) -> Optional[str]:
+        """已選來源種類：simulation / live / view / None（未選）。"""
+        return self._source_kind
 
     def _start_simulator(self):
         if self.simulator and self.simulator.is_running:
@@ -483,6 +511,8 @@ class DataBroker:
         if self._session_id is not None:
             self.storage.end_session(self._session_id)
             self._session_id = None
+        self._source_active = False
+        self._source_kind = None
 
     def switch_mode(self, config: DataSourceConfig,
                     sim_config: Optional[SimulationConfig] = None):

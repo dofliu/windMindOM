@@ -44,8 +44,10 @@ import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { UserProvider } from './hooks/useCurrentUser';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import LoginPage from './components/LoginPage';
+import SourceSelectPage, { type SourceCardId } from './components/SourceSelectPage';
 import { Btn, Sidebar, type NavItem } from './components/ui';
 import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/farmHeader';
+import { authFetch } from './services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -182,6 +184,44 @@ const AppShell: React.FC = () => {
       clearInterval(id);
     };
   }, []);
+
+  // ── 資料來源選擇 gate（WMOM-20260719-04, DEC-20260719-01 #3）──
+  // 後端開機 idle（不自動起來源）。登入後查 /api/source/status：未選 → 顯示 SourceSelectPage。
+  // 依 auth.isAuthenticated 重查（enforce 下先登入才拿得到狀態；登入後自動重取）。
+  const [sourceActive, setSourceActive] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    authFetch(`${API_BASE}/api/source/status`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!cancelled) setSourceActive(data ? !!data.active : false);
+      })
+      .catch(() => {
+        if (!cancelled) setSourceActive(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.isAuthenticated]);
+
+  const handleSelectSource = async (id: SourceCardId) => {
+    const mode = id === 'live' ? 'live' : id === 'observe' ? 'view' : 'simulation';
+    const targetView: ViewId = id === 'scenario' || id === 'observe' ? 'scenario' : 'overview';
+    try {
+      const res = await authFetch(`${API_BASE}/api/source/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      if (res.ok) {
+        setSourceActive(true);
+        setView(targetView);
+      }
+      // 非 ok（如 401 未登入）→ authClient 已彈登入頁；使用者登入後再選一次。
+    } catch {
+      /* 網路錯誤：維持在選擇頁 */
+    }
+  };
 
   // 資料來源標籤（header 顯示）——用涵蓋全 4 值的 lookup（見 utils/farmHeader）。
   const dsLabel = dataSourceLabel(settings.dataSource, lang);
@@ -333,6 +373,45 @@ const AppShell: React.FC = () => {
         return null;
     }
   };
+
+  // ── 資料來源 gate：未選 → 全屏來源選擇頁（開機 idle 的入口，取代 dashboard）──
+  if (sourceActive === null) {
+    return (
+      <div
+        style={{
+          background: C.bg,
+          color: C.sub,
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'Manrope, system-ui, sans-serif',
+          fontSize: 14,
+        }}
+      >
+        {lang === 'zh' ? '載入中…' : 'Loading…'}
+      </div>
+    );
+  }
+  if (!sourceActive) {
+    return (
+      <>
+        <SourceSelectPage
+          lang={lang}
+          onSelect={handleSelectSource}
+          onToggleLang={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+        />
+        {auth.loginOpen && (
+          <LoginPage
+            lang={lang}
+            onLogin={auth.login}
+            onClose={auth.closeLogin}
+            sessionExpired={auth.sessionExpired}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div
