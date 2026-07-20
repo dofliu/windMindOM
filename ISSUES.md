@@ -186,13 +186,36 @@
   (2) gate 只藏 UI 不 reset `formData`，編輯到一半來源被切走仍會夾帶 stale 值送出——`handleSubmit` 送出
   點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
-**In progress**
-- **WMOM-20260720-10** — 🟡 **情境比較分析 · A1：同情境內比較**（DEC-20260720-02）：消費 A0 summary 端點的
+**In progress / 下次接手**
+- **WMOM-20260720-13** — 🟡 **A1 pre-merge follow-up（round-2 review 於合併後回報，0 Must / 4 Should）**：
+  A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix（功能無損），但點出 4 個 Should-fix，
+  其中 2 個是 round-1 修正時**新引入的小回歸**。下次接手優先處理（新分支 follow-up PR）：
+  - 🟡 **(1) `scheduleMissing` 防呆 banner 誤報**（`ScenarioCompareView.tsx:108-111`）：現以
+    `faultedIds.size===0 && 有機組 faultEvents>0` 判定，無法區分「`fault_schedule` 真的缺」與「存在但正確
+    為空陣列 `[]`（刻意的純風況基準情境）」。緊接在有故障情境後生成乾淨情境時，`faultEvents` 被時間窗污染
+    → 對乾淨情境誤報「未帶排程」。修：改判 `scenario.config?.fault_schedule === undefined`；與既有
+    `eventsByTimeWindow` 提示職責統一。
+  - 🟡 **(2) 抽出 `ScenarioTrendView` 後切頁籤丟失所選機組 + 多打一次 API**（`ScenarioDetail.tsx` 的
+    `{tab==='trend' && <ScenarioTrendView/>}`）：條件式渲染使切頁籤時子元件 unmount → `turbineId`/已抓資料
+    連同 state 銷毀，切回趨勢頁重設回 WT001 並重抓 history（打在 A1「比較↔趨勢來回」核心動線）。修：
+    turbineId 提升到 ScenarioDetail（controlled）或兩頁常駐 + `display` 切換（keep-alive，注意 recharts
+    ResponsiveContainer display 切換尺寸）。
+  - 🟡 **(3) Must-fix 現場（`ScenarioPage.handleGenerate`）缺回歸測試**：新測都在 ScenarioCompareView 層、
+    繞過 handleGenerate；若 `lastScenario.config.fault_schedule` 補丁被改壞無測抓。修：ScenarioPage.test
+    加斷言（mock ScenarioDetail 攔 prop 或點進比較頁）。
+  - 🟡 **(4) `fault_schedule` 在 handleGenerate 映射兩次、形狀不同**（request body `at_hour` vs lastScenario
+    `offset_seconds`）→ 漂移風險（正是本次 bug 成因模式）。修：抽共用 `toFaultScheduleEntries` helper，
+    兩處共用（後端優先吃 `offset_seconds`，單一形狀即可）。
+  - 🟢 Nice：abort-race 專屬測；`ScenarioConfig`/`SavedScenario` 抽 `types.ts` 消循環 import；
+    ScenarioDetail 加 `key={scenario.id}` 讓 tab 重置不依賴呼叫端 control flow。
+
+- **WMOM-20260720-10** — ✅ **情境比較分析 · A1：同情境內比較 → PR #150 merged**（DEC-20260720-02）：消費 A0 summary 端點的
   前端比較視圖——單一情境內比較不同機組，凸顯「有故障 vs 健康機組」的差異（每台機組跨指標比較圖表 +
   faulted/healthy 分群著色 + 風場層 headline）。**faulted 判別由情境 `fault_schedule`（注入排程，session
   隔離、可靠）**，非 summary 的 `faultEvents`（後者走時間窗、`eventsByTimeWindow` 可能混入重疊情境）；
   `faultEvents` 另作為「實際觀測到的故障次數」並列顯示。純函式（判別/排序/分群平均）抽出便於測試、
-  mutation-verified。附帶折入 A0 round-2 遺留：`count_scenario_fault_events` docstring 補 `Args:`（§7）。
+  mutation-verified。2 輪 review（pre-push round-1 抓 happy-path faulted Must-fix；round-2 於合併後回報
+  4 Should → 見 WMOM-20260720-13）。附帶折入 A0 round-2 遺留：`count_scenario_fault_events` docstring 補 `Args:`。
 
 - **WMOM-20260720-09** — ✅ **情境比較分析 · A0：情境摘要端點 → PR #148 merged**（DEC-20260720-02）：`GET /api/scenarios/
   {id}/summary`——給定情境 id，聚合該 session 的物理資料出「每台機組（發電量/容量因數/生產佔比/累積損傷/
