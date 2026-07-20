@@ -193,6 +193,17 @@
   source.py `mode=='scenario'`、不起 Modbus）。前端 `SourceMode +'scenario'`、App 情境卡→scenario、
   ScenarioPage 生成 gate 放行 scenario + 一鍵啟動改走 scenario、SettingsPage 一併擋 scenario。+8 測
   （backend 4 + 前端 4）。
+  - **PR #147 review round-1（1 Must-fix + 4 Should-fix + 2 Nice-to-have，皆已處理）**：
+    - 🔴 **Must-fix**：`get_all_turbines()` 在 scenario 穩態（simulator 已建、尚未跑過 step）回傳 N 筆
+      重複假 `WT001`（engine `latest_data` 空 dict 佔位 + `_sim_output_to_reading({})` 把 tid fallback 成
+      常數）。run_loop=True 下此空窗僅毫秒級無害，scenario 讓它變長效穩態故必現——餵給 `/api/turbines`、
+      farm-status、WS 廣播。修：比照 `get_turbine()` 加 `if not output: continue`。+1 mutation-verified 測。
+    - 🟡 App.tsx id→mode 抽成純函式 `utils/sourceMode.ts`（+1 測，守住 scenario 卡不得退回 simulation）；
+      `activate_simulation(run_loop=False)` 不起 Modbus 補整合測（+2）；source.py/data_broker.py/
+      SourceSelectPage 文件補 `scenario`；ScenarioPage sourceKindLabel + data_broker 型別標註。
+    - 🟢 **順帶修既有 bug**：`_maintenance_loop` 的 `time.sleep(300)` 不可中斷 → `stop()` 每次卡滿 join
+      timeout 5 秒（打在本 PR 主打的「一鍵啟動/切換來源」體驗上，且本 PR 新測是首批觸發它者、+10s CI）。
+      改 `threading.Event().wait(300)` 可中斷睡眠，`stop()` 由 5.0s → ~0s。+1 mutation-verified 測。
   - **後續（DEC-20260720-01）**：PR C 檢視情境把 app 掛上去（broker，最大、需子設計）；PR D
     `GuidedTourPage` 同款 remount 修。
   - **並行 epic（DEC-20260720-02）情境比較分析**：A0 情境摘要端點 → A1 同情境內比較 → A2 跨情境比較

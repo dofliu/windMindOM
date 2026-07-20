@@ -259,7 +259,9 @@ class DataBroker:
         # Session tracking
         self._session_id: Optional[int] = None
         # 資料來源選擇（WMOM-20260719-04）：開機不自動起模擬，由使用者登入後選定才啟動。
-        # source_kind：None（未選）/ "simulation" / "live" / "view"（僅調閱過去情境、不起任何來源）。
+        # source_kind：None（未選）/ "simulation"（即時模擬自由跑）/ "scenario"（產生情境：
+        # simulator 供批次、不自由跑，DEC-20260720-01 PR B）/ "live"（實接 OPC）/ "view"
+        # （僅調閱過去情境、不起任何來源）。
         self._source_active: bool = False
         self._source_kind: Optional[str] = None
         # Write throttle state
@@ -273,6 +275,10 @@ class DataBroker:
         # Background maintenance thread
         self._maintenance_thread: Optional[threading.Thread] = None
         self._maintenance_running = False
+        # 可中斷睡眠旗標：讓 maintenance thread 從 5 分鐘週期睡眠中被 stop() 立刻喚醒。
+        # 用 Event.wait(timeout) 取代 time.sleep(300)，否則 _stop_maintenance 的 join(5) 幾乎
+        # 必 timeout（thread 還在睡），害每次切換來源的 stop() 固定卡 5 秒（打在「一鍵啟動」體驗上）。
+        self._maintenance_wake = threading.Event()
 
     def _init_farm_storage(self):
         """Point storage at the active farm's database."""
@@ -314,7 +320,7 @@ class DataBroker:
 
     def start(self, config: Optional[DataSourceConfig] = None,
               sim_config: Optional[SimulationConfig] = None,
-              run_loop: bool = True):
+              run_loop: bool = True) -> None:
         """Start the data broker in simulation or OPC mode and launch background maintenance.
 
         ``run_loop`` 只在 SIMULATION 有意義：True＝即時模擬（自由跑連續產資料，source_kind
@@ -394,10 +400,11 @@ class DataBroker:
 
     @property
     def source_kind(self) -> Optional[str]:
-        """已選來源種類：simulation / live / view / None（未選）。"""
+        """已選來源種類：simulation（即時模擬）/ scenario（產生情境、不自由跑）/ live / view /
+        None（未選）。"""
         return self._source_kind
 
-    def _start_simulator(self, run_loop: bool = True):
+    def _start_simulator(self, run_loop: bool = True) -> None:
         """建立 simulator。``run_loop=True``＝即時模擬（起自由跑背景 thread、連續產資料）；
         ``run_loop=False``＝**產生情境**（DEC-20260720-01 PR B）：只建 simulator 供批次生成用，
         **不起自由跑迴圈**——情境是可重現的凍結資料集，不該持續產生新資料。"""
@@ -563,7 +570,7 @@ class DataBroker:
 
     def switch_mode(self, config: DataSourceConfig,
                     sim_config: Optional[SimulationConfig] = None,
-                    run_loop: bool = True):
+                    run_loop: bool = True) -> None:
         """Switch between simulation and OPC data source modes.
 
         ``run_loop`` 傳給 ``start``（SIMULATION 時：True＝即時模擬自由跑、False＝產生情境不自由跑）。
@@ -574,27 +581,32 @@ class DataBroker:
 
     # ── Background maintenance ──
 
-    def _start_maintenance(self):
+    def _start_maintenance(self) -> None:
         """Start background thread for downsampling and cleanup."""
         if self._maintenance_running:
             return
         self._maintenance_running = True
+        self._maintenance_wake.clear()  # 重入啟動：清掉上次 stop 設的喚醒旗標
         self._maintenance_thread = threading.Thread(
             target=self._maintenance_loop, daemon=True, name="storage-maintenance"
         )
         self._maintenance_thread.start()
 
-    def _stop_maintenance(self):
+    def _stop_maintenance(self) -> None:
         self._maintenance_running = False
+        self._maintenance_wake.set()  # 立刻喚醒睡眠中的 thread，讓 join 幾乎瞬間完成（非卡滿 5 秒）
         if self._maintenance_thread:
             self._maintenance_thread.join(timeout=5)
             self._maintenance_thread = None
 
-    def _maintenance_loop(self):
+    def _maintenance_loop(self) -> None:
         """Run downsampling every 5 minutes, cleanup every hour."""
         last_cleanup = 0
         while self._maintenance_running:
-            _time.sleep(300)  # 5 minutes
+            # 可中斷睡眠：wait 回傳 True＝被 stop 喚醒（提早結束）；False＝睡滿 300 秒（做維護）。
+            # 取代原本的 time.sleep(300)——那會讓 stop() 一律卡到 join timeout（5 秒）才回。
+            if self._maintenance_wake.wait(300):
+                break
             if not self._maintenance_running:
                 break
             try:
@@ -617,6 +629,15 @@ class DataBroker:
             fault_status = self.simulator.fault_engine.get_fault_status()
             result = []
             for tid, output in current.items():
+                # 比照 get_turbine() 的 `if output:` 防線跳過空 output。engine 會替每台機組
+                # 先佔位 latest_data[tid]={}；scenario 模式（run_loop=False，DEC-20260720-01
+                # PR B）下 simulator 已建但**尚未跑過任何 step**，第一次成功 generate_bulk 前
+                # 這些佔位會持續是空 dict。少了這道防線時 `_sim_output_to_reading({})` 會把每台
+                # 機組的 turbine_id 都 fallback 成常數 'WT001'，回傳 N 筆重複假資料（餵給
+                # /api/turbines、farm-status、WS 廣播）。run_loop=True 下此空窗僅毫秒級、過去無害，
+                # scenario 讓它變成長效穩態故必須擋。
+                if not output:
+                    continue
                 hist = self.simulator.get_history(tid, limit=30)
                 tid_faults = [f for f in fault_status if f['turbine_id'] == tid]
                 result.append(_sim_output_to_reading(output, hist, tid_faults or None))

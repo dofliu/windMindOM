@@ -114,6 +114,41 @@ def test_start_simulation_mode_runs_freerun_loop(broker):
         broker.stop()
 
 
+def test_get_all_turbines_empty_in_scenario_before_first_generate(broker):
+    """Must-fix（PR #147 review）：scenario 模式下 simulator 已建但**尚未跑過任何 step**時，
+    engine 的 latest_data 是「每台機組→空 dict」佔位。get_all_turbines() 必須跳過空 output 回空清單，
+    而非讓 _sim_output_to_reading({}) 把每台 turbine_id 都 fallback 成常數 'WT001'、回 N 筆重複假資料
+    （會餵給 /api/turbines、farm-status、WS 廣播）。turbineCount=3 → 少了防線會回 3 筆假 WT001。"""
+    from server.models import DataSourceConfig, DataSourceMode, SimulationConfig
+
+    broker.start(
+        DataSourceConfig(mode=DataSourceMode.SIMULATION),
+        SimulationConfig(turbineCount=3),
+        run_loop=False,
+    )
+    try:
+        assert broker.simulator is not None and broker.simulator.is_running is False
+        assert broker.get_all_turbines() == [], "尚未生成前不該回任何（更不該回重複假 WT001）資料"
+        # 與 get_turbine() 既有 `if output:` 防線一致：單機查詢空 output 亦回 None。
+        assert broker.get_turbine("WT001") is None
+    finally:
+        broker.stop()
+
+
+def test_stop_returns_promptly_after_maintenance_started(broker):
+    """Should-fix（PR #147 review）：maintenance thread 的週期睡眠改為可中斷（Event.wait）後，
+    start() 過一次再 stop() 應近乎瞬間完成，而非固定卡到 join timeout（舊 time.sleep(300) 害每次
+    切換來源的 stop() 都卡滿 5 秒）。門檻取 3 秒：舊 bug 精確 5.0s、修好後 ~0s，區隔充裕。"""
+    import time as _t
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    t0 = _t.time()
+    broker.stop()
+    elapsed = _t.time() - t0
+    assert elapsed < 3.0, f"stop() 應近乎瞬間（maintenance 睡眠可中斷）；實測 {elapsed:.2f}s"
+
+
 # ─── pause_live_for_batch（WMOM-20260720-01：批次期間暫停 Live 的共用 context）──────
 
 def test_pause_live_for_batch_noop_without_simulator(broker):
@@ -295,3 +330,50 @@ def test_start_modbus_noop_when_already_started(monkeypatch):
     monkeypatch.setattr("simulator.modbus_server.ModbusSimServer", _should_not_construct)
     app_module._start_modbus_for(sim)
     assert sim.modbus_server is sentinel
+
+
+# ─── activate_simulation：scenario 不起 Modbus 的整合覆蓋（PR #147 review）──────────
+
+@pytest.fixture
+def app_broker(tmp_path, monkeypatch):
+    """把 server.app 的 module-global broker/farm_registry 換成 tmp 隔離實例，讓
+    activate_simulation（直接引用 module global，非經 get_broker()）能安全在測試中真跑其函式體。"""
+    from server import app as app_module
+
+    reg = FarmRegistry(data_dir=tmp_path)
+    b = DataBroker(farm_registry=reg)
+    monkeypatch.setattr(app_module, "broker", b)
+    monkeypatch.setattr(app_module, "farm_registry", reg)
+    try:
+        yield app_module, b
+    finally:
+        b.stop()
+
+
+def test_activate_simulation_scenario_skips_modbus(app_broker, monkeypatch):
+    """產生情境（run_loop=False）：activate_simulation 走真正函式體，`if run_loop:` guard 應
+    **不呼叫 _start_modbus_for**（情境無連續即時值可供外部 Modbus client 讀），且 source_kind=scenario、
+    simulator 不自由跑。守住「拿掉 guard 讓 Modbus 永遠嘗試啟動」的 mutation 會被抓。"""
+    app_module, b = app_broker
+    calls = []
+    monkeypatch.setattr(app_module, "_start_modbus_for", lambda sim: calls.append(sim))
+
+    app_module.activate_simulation(run_loop=False)
+
+    assert calls == [], "產生情境不該起 Modbus"
+    assert b.source_kind == "scenario"
+    assert b.simulator is not None and b.simulator.is_running is False
+
+
+def test_activate_simulation_freerun_starts_modbus(app_broker, monkeypatch):
+    """即時模擬（run_loop=True）：對照組——應呼叫 _start_modbus_for 一次、source_kind=simulation、
+    simulator 自由跑。與 scenario test 成對，守住「guard 不會誤吞正常的 Modbus 啟動」。"""
+    app_module, b = app_broker
+    calls = []
+    monkeypatch.setattr(app_module, "_start_modbus_for", lambda sim: calls.append(sim))
+
+    app_module.activate_simulation(run_loop=True)
+
+    assert len(calls) == 1, "即時模擬應起 Modbus 一次"
+    assert b.source_kind == "simulation"
+    assert b.simulator is not None and b.simulator.is_running is True

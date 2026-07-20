@@ -3,7 +3,9 @@
 開機不再自動啟動任何資料來源（修「一進系統就自動以預設風場產資料」）。使用者強制登入後，
 前端顯示「選擇資料來源」頁，選定才由本 router 啟動：
 
-- ``simulation``：即時模擬（起 simulator 連續生成）——「即時模擬」與「產生情境」皆用此。
+- ``simulation``：即時模擬（起 simulator 連續自由跑生成）。
+- ``scenario``：產生情境（DEC-20260720-01 PR B）——起 simulator 供批次生成，但**不自由跑**、
+  **不起 Modbus**（情境是可重現的凍結資料集，不該持續產生新資料）。
 - ``live``：實際資料對接（OPC DA）。
 - ``view``：僅調閱過去情境——**不啟動任何來源**（情境調閱只讀 storage），避免又開始產資料。
 
@@ -26,7 +28,7 @@ def get_broker():
 
 
 class SourceSelect(BaseModel):
-    """來源選擇 payload。mode ∈ simulation / live / view。"""
+    """來源選擇 payload。mode ∈ simulation / scenario / live / view。"""
     mode: str
 
 

@@ -228,6 +228,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
     if (kind === 'view') return u('viewing past scenarios', '調閱過去情境');
     if (kind === 'live') return u('live data connection', '實際資料對接');
+    // scenario：目前唯一呼叫點被 `!simActive`（已含 scenario）保護、走不到這裡，但補上分支求穩，
+    // 避免此 helper 日後被重用時 scenario 悄悄 fall through 成「尚未啟動來源」的錯誤文案。
+    if (kind === 'scenario') return u('generating a scenario', '產生情境');
     return u('none started', '尚未啟動來源');
   };
 
