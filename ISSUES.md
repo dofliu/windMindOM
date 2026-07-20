@@ -210,6 +210,20 @@
     （相對時間對齊）→ A3 事件 session 化/匯出。物理資料已全落地（`scada_json`），純讀取/聚合/UI。
     順序：**B → A0 → C 與 A1/A2 並進**。
 
+**Open（PR #147 round-2 review 主動壓測發現，皆 pre-existing、非本 PR 引入、與情境路徑無關，故未塞進 #147）**
+- **WMOM-20260720-08** — 🟢 **切換來源生命週期硬化（stop() 響應性 + 併發）**：round-2 reviewer 用壓力測
+  在既有碼發現兩處同類「不可中斷睡眠 / 無鎖」問題（#147 只修了 maintenance thread 那一處）：
+  - **(1) `DataBroker.start/stop/switch_mode` 全程無鎖**：真多執行緒併發呼叫（如使用者連點兩下
+    `/api/source/select`）可撞出 `RuntimeError: cannot join thread before it is started`（`_stop_maintenance`
+    讀到 thread 已賦值但 `.start()` 未呼叫的半初始化態）→ 該 request 500 且 broker 短暫不一致。**非 #147
+    引入**（HEAD~1 同款壓測亦重現，症狀因時序而異）；且 #147 的共用單一 `Event` 反而讓殘留 thread 由 6→0。
+    修法草案：`start`/`stop`/`switch_mode` 外包一層 `threading.Lock`，或 API 層 debounce。
+  - **(2) `simulator/engine.py:310` `_loop` 的 `time.sleep(time_step)` 同款不可中斷**：`run_loop=True`（即時
+    模擬）下 `stop()` 若撞上該次 sleep，`join(5)` 得等 sleep 自然結束（實測單次 stop() 達 ~1002ms）。與
+    #147 修的 maintenance 是同一根因、不同檔案；scenario 路徑（`run_loop=False`、never `.start()`）**不受
+    影響**。修法比照 #147：`time.sleep(time_step)` → `threading.Event().wait(time_step)`。
+  - 排 M6 實接前與 WMOM-20260720-04（live/OPC 後端硬化）一起做；simulator-first 現階段不阻擋。
+
 ## 🎯 未來大目標（M5 / M6 epics）
 
 > M1-M4 已 100%。以下是接下來的「大局目標」拆解，給 session 規劃用。
