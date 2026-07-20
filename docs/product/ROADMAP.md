@@ -201,7 +201,9 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 進度檢視 dashboard
 
-> 狀態快照（2026-07-18）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+> 狀態快照（2026-07-20）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+>
+> **2026-07-20 情境模式深化 arc**（實測驅動，跨 M5/monitoring）：DB-lock 根治（#142）→ **DEC-20260720-01 情境＝凍結資料集**（設定 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：A0 摘要端點 #148 merged、A1 同情境內比較 PR #150 in review。詳見 [`decision_log.md`](decision_log.md) DEC-20260720-01/-02 與 [`ISSUES.md`](../../ISSUES.md) WMOM-20260720-*。
 
 | Month | Module | Done criteria | Status |
 |-------|--------|--------------|:------:|

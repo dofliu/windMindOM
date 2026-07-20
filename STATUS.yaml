@@ -3,8 +3,8 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-07-19"  # Scenario 實測 follow-up 收尾：復位 bug（WMOM-20260719-01, #137）+ 情境保存/調閱 #4（WMOM-20260719-02, #138+#139）+ 啟動 gate #3（WMOM-20260719-04, 本 PR）＝DEC-20260719-01 三階段全完成
-next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。"
+last_updated: "2026-07-20"  # 情境模式深化 arc：DB-lock 根治（WMOM-20260720-01, #142）+ 情境=凍結資料集 DEC-20260720-01（設定 gate #146 / 產生情境不自由跑 #147）+ 情境比較分析 epic DEC-20260720-02（A0 摘要端點 #148 merged / A1 同情境內比較 PR #150 in review）
+next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。 **2026-07-20 情境模式深化 arc**：(a) generate-bulk 並發 writer 撞 SQLite `database is locked` 根治——decouple `_bulk_running` + `pause_live_for_batch` context + 單交易 `store_readings`（WMOM-20260720-01, #142 merged）；(b) 定 **DEC-20260720-01「情境＝凍結資料集」**：設定頁依實際來源 gate（view/live/scenario 時停用模擬參數，#146）+ 選「產生情境」不再自由跑連續產資料（`run_loop` 貫穿、新 `source_kind='scenario'`、不起 Modbus，#147）；(c) 立 **DEC-20260720-02 情境比較分析 epic**（序列 B→A0→C 與 A1/A2 並進）：**A0 情境摘要端點** `GET /api/scenarios/{id}/summary`（每台機組物理聚合〔容量因數/累積損傷/結束 RUL/極限負載/DEL/故障數〕+ 風場 rollup，storage 層 SQL 聚合，#148 merged）、**A1 同情境內比較視圖**（消費 A0、faulted vs healthy 分群比較圖表，PR #150 draft+hold in review）。**backlog**：WMOM-20260720-08 切換來源生命週期硬化（`stop()` 響應性 maintenance thread 可中斷 + start/stop 併發鎖 + simulator `_loop` 可中斷睡眠）併入 -04，排 M6 實接前。**下次接手**：#150 round-2 review + CI 綠 → 移 hold → 合；續 A2 跨情境比較（相對時間對齊）或 PR C（檢視情境掛載 app，需先寫 broker 子設計）。"
 technologies:
   - FastAPI
   - React
@@ -62,10 +62,10 @@ milestones:
     progress: 20  # auth 全面完成（基礎層 + DB store + 全 router 授權 + 前端真登入，#108-#122）；剩 footprint / deployment / PLC / 客戶接觸
 
 issue_stats:
-  open: 13   # -04 done / -05 done → 原 open 15 - 2 done
-  in_progress: 2   # WMOM-20260719-02 情境保存/調閱前後端皆 done → 移出 in_progress
+  open: 13   # 含 WMOM-20260720-04（live/OPC 後端硬化，含併入的 -08 生命週期硬化）等
+  in_progress: 1   # WMOM-20260720-10 A1 同情境內比較（PR #150 draft+hold，round-2 review + CI in flight）
   blocked: 0
-  done: 92  # 2026-07-19: +-01 復位（#137）+ -02 情境保存/調閱（#138+#139）+ -04 啟動 gate（#140）+ -05 view-storage fix
+  done: 100  # 2026-07-20 情境模式深化：+WMOM-20260720-01 DB-lock（#142）/-02 sim-gate（#143）/-03 一鍵啟動（#144）/-05 設定捲動（#145）/-06 設定 gate（#146）/-07 產生情境不自由跑（#147）/-09 A0 摘要端點（#148）
 
 inherited_baseline:
   source: digiWindTurbine
