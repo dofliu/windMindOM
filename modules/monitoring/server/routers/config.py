@@ -274,14 +274,14 @@ async def generate_bulk(body: dict):
     The data is written to SQLite via the normal storage pipeline.
     This runs synchronously and may take minutes for large durations.
 
-    ⚠️ 本呼叫與 Live 背景迴圈共用同一個 simulator instance：
-    - 帶 ``fault_schedule`` 時會先 ``fault_engine.clear()`` 求乾淨情境——這會清掉**目前所有
-      active fault，包含 Live 自由跑正在展示的故障**。
-    - 更深一層：``generate_bulk`` 同步跑在 request thread，與 Live 背景 thread 併發呼叫同一批
-      ``model.step()`` / ``fault_engine.step()``——`engine._lock` 只保護 ``latest_data`` 寫入、
-      不含 ``model.step()`` 本身，故 Live 跑的當下跑情境，兩者物理 state 都可能被弄髒。
-    資料落地已隔離（情境寫專屬 session_id，見 ``name`` 參數）；但「停 Live → 跑 Scenario」的
-    完整流程屬 scenario-setup 設計範疇，待前端精靈階段處理。
+    本呼叫與 Live 背景迴圈共用同一個 simulator instance，故批次全程以
+    ``DataBroker.pause_live_for_batch()`` **暫停 Live 自由跑迴圈**（結束後恢復）。否則
+    ``generate_bulk`` 同步跑在 request thread，會與 Live 背景 thread 併發呼叫同一批
+    ``model.step()`` / ``fault_engine.step()``（``engine._lock`` 只保護 ``latest_data``、不含
+    ``model.step()`` 本身）並同時寫同一 SQLite → Windows 上實測撞 ``database is locked``。
+    暫停期間才 ``fault_engine.clear()``（帶 ``fault_schedule`` 時求乾淨情境）＋ 生成 ＋ 收尾寫入，
+    確保無第二個 writer。資料落地另以專屬 ``session_id`` 隔離（見 ``name`` 參數）。
+    註：姊妹端點 ``faults.py::run_test_plan`` 亦共用 ``pause_live_for_batch``。
     """
     b = get_broker()
     if not b.simulator:
@@ -297,11 +297,6 @@ async def generate_bulk(body: dict):
         body.get("fault_schedule") or [],
         set(b.simulator.turbines.keys()),
     )
-    if schedule:
-        # 乾淨情境：批次前清掉殘留的 runtime 故障，讓資料集只含本情境排定者。
-        # 注意：此舉也會清掉 Live 自由跑的 active fault（見上方 docstring 警告）。
-        b.simulator.fault_engine.clear()
-
     # 情境保存（DEC-20260718-01 #4）：帶 name 時把這批資料寫進一個「專屬情境 session」，
     # 與 Live/其他歷史隔離、事後可 list / load / delete；不帶 name 則沿用舊行為（寫進當前
     # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
@@ -375,44 +370,43 @@ async def generate_bulk(body: dict):
             },
         )
 
-    # 批次生成前先停 Live 自由跑迴圈。否則 live thread 會與批次「同時 step 同一組物理模型」
-    # （race）並「同時寫同一 SQLite」→ Windows 上實測 generate-bulk 撞 ``database is locked``。
-    # 批次（含情境收尾寫入）全程 Live 停著，最後於 finally 恢復——確保所有寫入無並行 writer。
+    # 批次生成前先停 Live 自由跑迴圈，全程（清故障 + 生成 + 收尾寫入）Live 都停著，離開 context
+    # 才恢復。否則 live thread 會與批次「同時 step 同一組物理模型」（race）並「同時寫同一 SQLite」
+    # → Windows 上實測 generate-bulk 撞 ``database is locked``。停 / 恢復集中在
+    # DataBroker.pause_live_for_batch（faults.py::run_test_plan 共用同一套，避免漏套）。
     sim = b.simulator
-    live_was_running = sim.stop_live_loop()  # 停 live thread（若在跑）、保持 _running 供批次續跑
-    try:
-        total = sim.generate_bulk(
-            duration_hours=duration,
-            time_step=step,
-            callback=store_cb,
-            fault_schedule=schedule or None,
-            on_fault_injected=on_inject if schedule else None,
-        )
-        # Run downsampling after bulk generation
-        b.storage.run_downsampling()
-        if scenario_id is not None:
-            # 回填統計 + 模擬時間窗並結束情境 session。趁 Live 仍停時寫（避免與恢復的 live 搶鎖）。
-            b.storage.update_session_config(scenario_id, {
-                "status": "ok",
-                "total_readings": total,
-                "faults_injected": injected_count,
-                "sim_start": sim_window["start"],
-                "sim_end": sim_window["end"],
-            })
-            b.storage.end_session(scenario_id)
-    except Exception:
-        # 生成中途失敗（如物理發散）也必須收尾情境 session，否則它會卡在 ended_at IS NULL、
-        # 被 get_active_session 誤認成 Live、並以殘破項目出現在 list_scenarios。
-        if scenario_id is not None:
-            b.storage.update_session_config(scenario_id, {"status": "error"})
-            b.storage.end_session(scenario_id)
-        raise
-    finally:
-        # 恢復 Live 自由跑（若批次前在跑）；time_step 僅在需恢復時取（fake broker 測試無 _sim_config）。
-        sim.restore_live_loop(
-            live_was_running,
-            b._sim_config.timeStep if live_was_running else 1.0,
-        )
+    with b.pause_live_for_batch():
+        if schedule:
+            # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
+            # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
+            b.simulator.fault_engine.clear()
+        try:
+            total = sim.generate_bulk(
+                duration_hours=duration,
+                time_step=step,
+                callback=store_cb,
+                fault_schedule=schedule or None,
+                on_fault_injected=on_inject if schedule else None,
+            )
+            # Run downsampling after bulk generation
+            b.storage.run_downsampling()
+            if scenario_id is not None:
+                # 回填統計 + 模擬時間窗並結束情境 session。趁 Live 仍停時寫（避免與恢復的 live 搶鎖）。
+                b.storage.update_session_config(scenario_id, {
+                    "status": "ok",
+                    "total_readings": total,
+                    "faults_injected": injected_count,
+                    "sim_start": sim_window["start"],
+                    "sim_end": sim_window["end"],
+                })
+                b.storage.end_session(scenario_id)
+        except Exception:
+            # 生成中途失敗（如物理發散）也必須收尾情境 session，否則它會卡在 ended_at IS NULL、
+            # 被 get_active_session 誤認成 Live、並以殘破項目出現在 list_scenarios。
+            if scenario_id is not None:
+                b.storage.update_session_config(scenario_id, {"status": "error"})
+                b.storage.end_session(scenario_id)
+            raise
 
     stats = b.storage.get_db_stats()
     return {

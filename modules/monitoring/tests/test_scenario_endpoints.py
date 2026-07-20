@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 import pytest
 
@@ -37,6 +38,16 @@ class _FakeBroker:
         self.storage = storage
         self.simulator = simulator
         self._session_id = session_id
+
+    @contextmanager
+    def pause_live_for_batch(self) -> "Iterator[bool]":
+        """對齊真 DataBroker：批次期間暫停 Live（實呼引擎的 stop/restore）。本 fake 的 sim 從未
+        start() 故無 thread → 等同 no-op pass-through，但仍走過真正的退場/恢復程式路徑。"""
+        was_running = self.simulator.stop_live_loop()
+        try:
+            yield was_running
+        finally:
+            self.simulator.restore_live_loop(was_running, 1.0)
 
     def record_event(self, **kwargs) -> None:
         self.storage.record_event(**kwargs)

@@ -42,11 +42,46 @@
 
 - **#1 選「調閱過去情境」但無情境 → 完全沒資料**：**預期**。view 模式不起任何來源、只讀
   storage 的過去情境；第一次用沒有情境就是空（ScenarioPage 已有「還沒有保存的情境」空狀態）。
-- **#2 未選風場就產生情境 → 無法啟用**：待釐清。理論上「產生新情境」→ activate_simulation 會
-  `ensure_default_farm`，不需先選風場。需使用者補充「無法啟用」的具體樣子（按鈕 disabled？錯誤訊息？）
-  再對症。**本 PR 先修已確認的 crash（#4）。**
+- **#2 未選風場就產生情境 → 無法啟用**：**已定位根因（非風場問題）**。使用者從「調閱過去情境」
+  進來 → `select_view_only()` 把 `simulator=None`（view 只讀 storage、不起模擬）。此時到情境頁按
+  「生成」→ `generate-bulk` 命中 `if not b.simulator: raise 400 "Simulator not running"`
+  （config.py:288）→ 前端顯示「生成失敗：Simulator not running」＝使用者說的「無法啟用」。
+  之後「選某個風場」→ `switch_farm()` → `start()` → `_start_simulator()` **順帶起了 live 迴圈**
+  → 才能生成（#3），**但那個 live 迴圈正是害 #4 撞 db-lock 的併發 writer**（本 PR #142 修）。
+  → **本 PR（#142）先修已確認的 crash（#4）**；#2 留作 follow-up：情境頁若尚未起模擬，給明確
+  提示 +「一鍵啟動模擬以生成」按鈕（呼叫 `/api/source/select {mode:simulation}`），讓「產生情境」
+  不必繞「先 activate 一個 farm 順帶起 live 迴圈」這條會撞 #4 的路。待 #142 合併後接著做。
+
+## Code review 補強（第一輪 review 收斂）
+
+code-reviewer 對本 PR 找到 3 Must-fix（皆用 scratch 實驗 + git-worktree mutation test 佐證），已全數修正：
+
+1. **Must-fix #1 姊妹端點漏保護**：`faults.py::run_test_plan`（`/api/faults/test-plans/{id}/run`）
+   與 generate-bulk 同一套「同步 generate_bulk + store_readings」模式，也可在 Live 跑著時被叫，
+   卻沒停 Live → 同樣會撞 lock。→ 抽共用 context manager **`DataBroker.pause_live_for_batch()`**，
+   config.py 與 faults.py 都改用它（集中一處、避免未來第三個呼叫點漏套）。
+2. **Must-fix #2 借屍還魂 + thread 洩漏**：舊 `stop_live_loop` 把**共用**的 `_running` 設回 True，
+   若 `stop()` 的 `join(timeout=5)` 逾時（Live 單步在鎖競爭下 >5s，正是本 bug 情境），尚未退出的
+   舊 thread 會續跑成第二個 writer，`restore_live_loop` 又 `start()` 新 thread → 舊 thread + 其
+   SQLite connection 洩漏。→ (a) 批次改用**獨立** `_bulk_running` 旗標與 `_running` **解耦**；
+   (b) `stop_live_loop` 於 `stop()` 後**阻塞式再 join** 保證舊 thread 死透才返回。
+   已用 slow-step（單步 6s）scratch 驗證：stop 耗 5.8s、舊 thread `is_alive()=False`、0 洩漏。
+3. **Must-fix #3 假綠測試**：舊測試只用「沒 start() 過」的 sim（`_thread=None`），mutation test 證實
+   `was_running=True` 主流程完全沒蓋到。→ 補**真 thread** 測試（start → stop_live_loop 斷言 thread
+   真的死 → restore 斷言起新 thread）+ store_readings **中途失敗 rollback** 測試 + 解耦旗標回歸測試。
+
+順帶收斂的 Should-fix：`fault_engine.clear()` 挪到停 Live 之後（消去與 Live `fault_engine.step()`
+的物理狀態 race）；config.py 過時 docstring 更新；`restore_live_loop` 補 `-> None` + Args；
+app.py Modbus 降級抽成可測的 `_start_modbus_for()`（+3 test）並修正註解（實際攔的是 pymodbus 建構
+失敗，非 port 佔用）；storage 三個簽名補 `Optional[int]`。
+
+**測試**：monitoring **109** passed（102 + 7 新）、physics + e2e **127** passed；ruff 全綠。
 
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR**：draft + `hold` 待 review（concurrency 改動）→ 收 review → 移除 hold → 自動合。
-- 追：#2 farm-context UX（待使用者補充）；view 模式可考慮隱藏註定 400 的 nav。
+- **本 PR**：review 修正已折入 + 驗證；再過一輪 focused re-review（新的 concurrency 改動）後移除
+  `hold` → CI 綠自動合。
+- **#2 follow-up（已定approach）**：使用者選「一鍵啟動提示」——情境頁若尚未起模擬，顯示明確提示 +
+  「啟動模擬以生成」按鈕（呼叫 `/api/source/select {mode:simulation}`），不繞會撞 #4 的 farm-activate。
+  待 #142 合併後接著做（避免與本 PR 改到的 generate_bulk 衝突）。
+- 追：view 模式可考慮隱藏註定 400 的 nav（Faults/Settings）。

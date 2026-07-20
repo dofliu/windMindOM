@@ -3,8 +3,9 @@ import sys
 import os
 import threading
 import time as _time
+from contextlib import contextmanager
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Iterator, List, Optional, Dict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -349,6 +350,34 @@ class DataBroker:
         self.simulator = None
         self._source_active = True
         self._source_kind = "view"
+
+    @contextmanager
+    def pause_live_for_batch(self) -> "Iterator[bool]":
+        """批次生成期間暫停 Live 自由跑迴圈，結束後恢復——供所有「同步在 request thread 跑
+        ``simulator.generate_bulk`` + ``store_readings``」的端點共用。
+
+        任何這類端點（``config.py::generate_bulk``、``faults.py::run_test_plan`` …）都應把
+        「清故障 + generate_bulk + downsampling + 收尾寫入」整段包在本 context 內：確保批次全程
+        **沒有第二個 writer**（Live thread 與批次同時 step 物理 / 並寫同一 SQLite 是 Windows 上
+        ``database is locked`` 的根因）。集中一處避免各端點各自漏套或寫法分歧。
+
+        Yields:
+            批次前 Live thread 是否在跑（少數呼叫端可據此微調行為；一般忽略即可）。
+        """
+        sim = self.simulator
+        if sim is None:
+            # 無 simulator（view/idle）：呼叫端自身會處理（如回 400），這裡不介入。
+            yield False
+            return
+        was_running = sim.stop_live_loop()
+        try:
+            yield was_running
+        finally:
+            # time_step 僅在需恢復時取；用 broker 的 sim_config（Live 自由跑的節奏）。
+            sim.restore_live_loop(
+                was_running,
+                self._sim_config.timeStep if was_running else 1.0,
+            )
 
     @property
     def source_active(self) -> bool:

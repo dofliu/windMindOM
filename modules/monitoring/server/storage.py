@@ -456,7 +456,7 @@ class Storage:
         conn.commit()
 
     @staticmethod
-    def _insert_reading(conn: sqlite3.Connection, reading: dict, session_id: int = None) -> None:
+    def _insert_reading(conn: sqlite3.Connection, reading: dict, session_id: Optional[int] = None) -> None:
         """執行單筆 turbine_data INSERT（**不 commit**）。
 
         供 ``store_reading``（單筆）與 ``store_readings``（批次一次 commit）共用，讓批次能包在
@@ -500,13 +500,13 @@ class Storage:
             scada_json,
         ))
 
-    def store_reading(self, reading: dict, session_id: int = None):
+    def store_reading(self, reading: dict, session_id: Optional[int] = None):
         """Store a single turbine reading (from simulator output dict)."""
         conn = self._get_conn()
         self._insert_reading(conn, reading, session_id)
         conn.commit()
 
-    def store_readings(self, readings: List[dict], session_id: int = None):
+    def store_readings(self, readings: List[dict], session_id: Optional[int] = None):
         """批次寫入：整批包在**單一 transaction**（一次 commit）。
 
         逐列 commit 在與 Live 迴圈 / maintenance thread 並行寫同一 SQLite 檔時會累積大量寫鎖

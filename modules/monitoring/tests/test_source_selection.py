@@ -85,6 +85,34 @@ def test_stop_clears_source_flags(broker):
     assert broker.source_kind is None
 
 
+# ─── pause_live_for_batch（WMOM-20260720-01：批次期間暫停 Live 的共用 context）──────
+
+def test_pause_live_for_batch_noop_without_simulator(broker):
+    """view / idle（simulator 為 None）→ context 安全 no-op（yield False、不拋）。
+    對應 generate-bulk 在無 simulator 時由端點自身回 400 的分支。"""
+    assert broker.simulator is None
+    with broker.pause_live_for_batch() as was:
+        assert was is False
+
+
+def test_pause_live_for_batch_stops_during_and_restores_after(broker):
+    """有在跑的 Live simulator → 進 context 時 thread 停掉、離開 context 時恢復（新 thread）。
+    這是 config.py/faults.py 批次端點賴以「批次全程無第二個 writer」的共用機制。"""
+    from simulator.engine import WindFarmSimulator
+
+    sim = WindFarmSimulator(turbine_count=1)
+    broker.simulator = sim
+    sim.start(time_step=0.02)
+    assert sim.is_running and sim._thread.is_alive()
+
+    with broker.pause_live_for_batch() as was:
+        inside_alive = sim._thread.is_alive()
+    assert was is True
+    assert inside_alive is False, "context 內 Live thread 應已停（無並行 writer）"
+    assert sim.is_running and sim._thread.is_alive(), "離開 context 應恢復 Live 自由跑"
+    sim.stop()
+
+
 # ─── 端點 ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -153,3 +181,64 @@ def test_select_live_allows_supervisor(client, monkeypatch):
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 200
+
+
+# ─── Modbus 選配起不來時的降級（WMOM-20260720-01）───────────────────────────
+
+class _FakeSim:
+    """activate_simulation 用到的最小 simulator 表面：modbus_server 槽 + turbines dict。"""
+
+    def __init__(self):
+        self.modbus_server = None
+        self.turbines = {"WT001": object()}
+
+
+def test_start_modbus_degrades_when_construction_fails(monkeypatch):
+    """pymodbus 版本不相容 / 未裝 → ModbusSimServer 建構丟例外時，_start_modbus_for 應吞掉、
+    把 modbus_server 設回 None（降級為無 Modbus 模擬），而**不**讓 activate 500。"""
+    from server import app as app_module
+
+    class _BoomModbus:
+        def __init__(self, *a, **k):
+            raise RuntimeError("pymodbus 3.14 incompatible: 0 <= address < 65535")
+
+    monkeypatch.setattr("simulator.modbus_server.ModbusSimServer", _BoomModbus)
+    sim = _FakeSim()
+    app_module._start_modbus_for(sim)  # 不應拋
+    assert sim.modbus_server is None
+
+
+def test_start_modbus_sets_server_on_success(monkeypatch):
+    """成功路徑：ModbusSimServer 建得起來 → 綁到 simulator 並呼叫 start()。
+    與降級 test 成對，守住「降級分支不會誤吞正常啟動」。"""
+    from server import app as app_module
+
+    started = {"v": False}
+
+    class _OKModbus:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            started["v"] = True
+
+    monkeypatch.setattr("simulator.modbus_server.ModbusSimServer", _OKModbus)
+    sim = _FakeSim()
+    app_module._start_modbus_for(sim)
+    assert sim.modbus_server is not None and started["v"] is True
+
+
+def test_start_modbus_noop_when_already_started(monkeypatch):
+    """已有 modbus_server（重入切換來源）→ 不重複建構。"""
+    from server import app as app_module
+
+    sim = _FakeSim()
+    sentinel = object()
+    sim.modbus_server = sentinel
+
+    def _should_not_construct(*a, **k):
+        raise AssertionError("已存在 modbus_server 時不應再建構")
+
+    monkeypatch.setattr("simulator.modbus_server.ModbusSimServer", _should_not_construct)
+    app_module._start_modbus_for(sim)
+    assert sim.modbus_server is sentinel
