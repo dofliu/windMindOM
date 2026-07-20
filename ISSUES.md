@@ -187,7 +187,13 @@
   點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
 **In progress**
-- **WMOM-20260720-09** — 🟡 **情境比較分析 · A0：情境摘要端點**（DEC-20260720-02）：`GET /api/scenarios/
+- **WMOM-20260720-10** — 🟡 **情境比較分析 · A1：同情境內比較**（DEC-20260720-02）：消費 A0 summary 端點的
+  前端比較視圖——單一情境內比較不同機組，凸顯「有故障 vs 健康機組」的差異（每台機組跨指標比較圖表 +
+  faulted/healthy 分群著色 + 風場層 headline）。faulted 判別由 `turbines[].faultEvents > 0`。純函式（判別/
+  排序/標記）抽出便於測試、mutation-verified。附帶折入 A0 round-2 遺留：`count_scenario_fault_events`
+  docstring 補 `Args:`（§7）。
+
+- **WMOM-20260720-09** — ✅ **情境比較分析 · A0：情境摘要端點 → PR #148 merged**（DEC-20260720-02）：`GET /api/scenarios/
   {id}/summary`——給定情境 id，聚合該 session 的物理資料出「每台機組（發電量/容量因數/生產佔比/累積損傷/
   結束 RUL/極限負載/DEL/跳機數/故障事件數）+ 風場層 rollup」。聚合放 storage 層（可測、與端點解耦），
   端點只組裝 + 權限（比照 list/get scenario）。是 A1/A2 的資料基礎，可獨立出價值（前端情境總覽）。
