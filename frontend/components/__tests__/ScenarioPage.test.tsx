@@ -97,6 +97,8 @@ function installFetch(
     saved?: unknown;
     scenarioHistory?: unknown;
     deleteOk?: boolean;
+    sourceKind?: string | null; // /api/source/status 回的 kind；預設 'simulation'（生成需 simulation 來源）
+    selectOk?: boolean; // /api/source/select 是否成功；預設 true
   } = {},
 ) {
   const scenarios = opts.scenarios ?? SCENARIOS;
@@ -107,9 +109,15 @@ function installFetch(
   const saved = opts.saved ?? SAVED_SCENARIOS;
   const scenarioHistory = opts.scenarioHistory ?? SCENARIO_HISTORY;
   const deleteOk = opts.deleteOk ?? true;
+  const sourceKind = opts.sourceKind === undefined ? 'simulation' : opts.sourceKind;
+  const selectOk = opts.selectOk ?? true;
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (url.includes('/api/faults/scenarios')) return jsonRes(scenarios);
+    if (url.includes('/api/source/status'))
+      return jsonRes({ active: sourceKind != null, kind: sourceKind, mode: sourceKind === 'view' ? null : sourceKind });
+    if (url.includes('/api/source/select'))
+      return jsonRes({ status: 'ok', active: true, kind: 'simulation' }, selectOk, selectOk ? 200 : 403);
     if (url.includes('/api/config/simulation/generate-bulk')) return jsonRes(genBody, genOk, genOk ? 200 : 400);
     if (url.includes('/api/config/wind')) return jsonRes({ detail: 'wind fail' }, windOk, windOk ? 200 : 400);
     if (url.includes('/api/farms')) return jsonRes(farmsBody);
@@ -512,5 +520,56 @@ describe('ScenarioPage — 生成後觀察此情境', () => {
       fireEvent.click(screen.getByRole('button', { name: '觀察此情境' }));
     });
     await waitFor(() => expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument());
+  });
+});
+
+// ─── 未起模擬時引導一鍵啟動（WMOM-20260720-02）─────────────────────────────────
+// 使用者從「調閱過去情境」(view) 進到本頁時 simulator=None → 生成會 400「Simulator not running」
+// （＝回報的「無法啟用」）。本頁應偵測來源、停用生成並提供一鍵啟動 simulation。
+
+describe('ScenarioPage — 未起模擬引導一鍵啟動', () => {
+  it('來源為 view → 顯示提示、「生成情境」停用（但「新增故障」啟用，證明是來源 gate 非場景 gate）', async () => {
+    installFetch({ sourceKind: 'view' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText(/需要「即時模擬」引擎/)).toBeInTheDocument());
+    // 場景已載入（新增故障啟用）但生成停用 → 純粹卡在「來源非 simulation」，非場景數。
+    expect(screen.getByRole('button', { name: '新增故障' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled();
+    expect(screen.getByText(/調閱過去情境/)).toBeInTheDocument();
+  });
+
+  it('來源為 simulation → 不顯示提示、「生成情境」啟用', async () => {
+    installFetch({ sourceKind: 'simulation' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText(/彰化離岸風場（3 台）/)).toBeInTheDocument());
+    expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();
+  });
+
+  it('點「啟動模擬以生成」→ POST /api/source/select {mode:simulation}，提示消失、生成啟用', async () => {
+    installFetch({ sourceKind: 'view' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByRole('button', { name: '啟動模擬以生成' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '啟動模擬以生成' }));
+    });
+    await waitFor(() =>
+      expect(calls((u, m) => u.includes('/api/source/select') && m === 'POST').length).toBe(1),
+    );
+    expect(bodyOf(u => u.includes('/api/source/select')).mode).toBe('simulation');
+    // 啟動成功 → 提示消失、生成啟用（不必再繞「先選風場」）。
+    await waitFor(() => expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();
+  });
+
+  it('啟動失敗（select 非 ok）→ 顯示錯誤且仍停用生成', async () => {
+    installFetch({ sourceKind: 'view', selectOk: false });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByRole('button', { name: '啟動模擬以生成' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '啟動模擬以生成' }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/啟動模擬失敗/));
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled();
   });
 });
