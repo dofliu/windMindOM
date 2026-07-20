@@ -16,11 +16,17 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 
 export type SourceMode = 'simulation' | 'live' | 'view';
 
+/** 啟動來源的結果；`status` 供 UI 對 403（權限不足）等給明確回饋而非靜默。 */
+export interface SelectResult {
+  ok: boolean;
+  status?: number;
+}
+
 export interface SourceGate {
   /** null＝尚未查得（載入中）；true＝已選來源；false＝未選（顯示選擇頁）。 */
   sourceActive: boolean | null;
-  /** 啟動指定來源；成功回 true 並把 sourceActive 設 true。 */
-  selectMode: (mode: SourceMode) => Promise<boolean>;
+  /** 啟動指定來源；成功時把 sourceActive 設 true。 */
+  selectMode: (mode: SourceMode) => Promise<SelectResult>;
 }
 
 export function useSourceGate(isAuthenticated: boolean): SourceGate {
@@ -47,7 +53,7 @@ export function useSourceGate(isAuthenticated: boolean): SourceGate {
     };
   }, [isAuthenticated]);
 
-  const selectMode = async (mode: SourceMode): Promise<boolean> => {
+  const selectMode = async (mode: SourceMode): Promise<SelectResult> => {
     try {
       const res = await authFetch(`${API_BASE}/api/source/select`, {
         method: 'POST',
@@ -56,13 +62,13 @@ export function useSourceGate(isAuthenticated: boolean): SourceGate {
       });
       if (res.ok) {
         setSourceActive(true);
-        return true;
+        return { ok: true };
       }
-      // 非 ok（如 401 未登入）→ authClient 已彈登入頁；維持在選擇頁。
+      // 非 ok：401（未登入）由 authClient 彈登入頁；403（如 live 需主管）由呼叫端顯示訊息。
+      return { ok: false, status: res.status };
     } catch {
-      /* 網路錯誤：維持在選擇頁 */
+      return { ok: false }; // 網路錯誤
     }
-    return false;
   };
 
   return { sourceActive, selectMode };

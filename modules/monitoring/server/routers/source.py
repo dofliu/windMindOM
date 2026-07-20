@@ -12,7 +12,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from modules.auth.dependencies import get_current_actor, is_auth_enforced, require_authenticated
+from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from pydantic import BaseModel
 
@@ -63,10 +63,9 @@ async def select_source(req: SourceSelect, request: Request):
         from server.app import activate_simulation
         activate_simulation()
     elif mode == "live":
-        if is_auth_enforced():
-            actor = get_current_actor(request)  # enforce 下無 token 已由 require_authenticated 擋
-            if actor.role is not Role.ADMIN and actor.role is not Role.SUPERVISOR:
-                raise HTTPException(403, "實際資料對接需要主管以上權限")
+        # live 影響全域且會嘗試對外 OPC 握手 → 比照 farm-activate 需 SUPERVISOR。
+        # 重用 enforce-aware 的 require_role（過渡期放行、cutover 後強制），不手刻第二份角色判斷。
+        require_role(Role.SUPERVISOR)(request)
         from server.app import activate_live
         activate_live()
     elif mode == "view":

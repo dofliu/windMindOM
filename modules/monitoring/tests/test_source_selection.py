@@ -134,3 +134,22 @@ def test_select_live_requires_supervisor(client, monkeypatch):
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 403
+
+
+def test_select_live_allows_supervisor(client, monkeypatch):
+    """positive path：SUPERVISOR 通過角色閘門（activate_live 以 no-op mock，避免真 OPC 連線）。
+
+    守住「角色判斷若被寫壞成連 SUPERVISOR 都擋，測試會抓到」——與 negative test 成對。
+    """
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    monkeypatch.setattr("server.app.activate_live", lambda: None)
+    from modules.auth.tokens import create_access_token
+
+    tok = create_access_token(subject="u2", role="supervisor", name="S")
+    r = client.post(
+        "/api/source/select",
+        json={"mode": "live"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 200

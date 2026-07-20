@@ -32,10 +32,22 @@ legacy → `list_scenarios()`/`get_history` 全讀到空的錯 DB → **情境�
     selectMode 成敗 / 登出不重查）。
 - **Nice-to-have**：`/api/health` 加回 `sourceActive` / `sourceKind`（idle 期 `mode` 會誤導）。
 
+## code review 結果（code-reviewer subagent）
+
+- **Approve — 0 Must-fix / 3 Should-fix / 3 Nice-to-have**。reviewer 用 git worktree 做 mutation test
+  實證三個回歸測試都非假綠（拿掉修復 → 對應測試正確 fail）。3 個 should-fix 已全收：
+  1. **live 403 靜默失敗**：`selectMode` 原本吞掉非 2xx、UI 無回饋 → 改回傳 `{ok, status}`，
+     `SourceSelectPage` 對 403 顯示「此來源需要主管以上權限」（比照 ScenarioPage 刪除 403 慣例）。
+  2. **重用 `require_role`**：live 的 SUPERVISOR 檢查改用既有 enforce-aware `require_role(SUPERVISOR)(request)`
+     （＝farm-activate 同一份邏輯），不再手刻 is_auth_enforced+get_current_actor+角色比對兩份。
+  3. **authz 正向測試缺口**：補 `test_select_live_allows_supervisor`（mock activate_live），與 negative
+     test 成對——守住「角色判斷若寫壞成連 SUPERVISOR 都擋，測試會抓到」。
+  - nice-to-have：刪 useSourceGate 測試的 dead assertion、補「初次掛載即未登入」案例。
+- backend **99** / 前端 **921** / tsc / build / e2e 全綠。
+
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR**：draft + `hold`（本次無另跑 review——變更皆為 reviewer 已明列的修正 + 對應測試；
-  backend 98 / 前端 919 / tsc / build / e2e 全綠）。CI 綠 → 移除 hold → flywheel 自動合。
+- **本 PR**：review Approve + 3 should-fix 收完 → 移除 hold → flywheel CI 綠自動合。
 - 仍未收的 #140 nice-to-have（皆非阻塞、可另案）：`activate_*` 用 `asyncio.to_thread` 避免阻塞
   event loop；view 模式隱藏註定 400 的 nav（Faults/Settings）；`settings.dataSource`(MOCK) 與新
   gate 的一致性校正。

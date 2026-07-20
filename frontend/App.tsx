@@ -47,7 +47,7 @@ import LoginPage from './components/LoginPage';
 import SourceSelectPage, { type SourceCardId } from './components/SourceSelectPage';
 import { Btn, Sidebar, type NavItem } from './components/ui';
 import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/farmHeader';
-import { useSourceGate, type SourceMode } from './hooks/useSourceGate';
+import { useSourceGate, type SourceMode, type SelectResult } from './hooks/useSourceGate';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -188,10 +188,12 @@ const AppShell: React.FC = () => {
   // ── 資料來源選擇 gate（WMOM-20260719-04/-05, DEC-20260719-01 #3）──
   // 後端開機 idle（不自動起來源）。狀態機抽到 useSourceGate（可測 + 含登出防呆）。
   const { sourceActive, selectMode } = useSourceGate(auth.isAuthenticated);
-  const handleSelectSource = async (id: SourceCardId) => {
+  const handleSelectSource = async (id: SourceCardId): Promise<SelectResult> => {
     const mode: SourceMode = id === 'live' ? 'live' : id === 'observe' ? 'view' : 'simulation';
     const targetView: ViewId = id === 'scenario' || id === 'observe' ? 'scenario' : 'overview';
-    if (await selectMode(mode)) setView(targetView);
+    const result = await selectMode(mode);
+    if (result.ok) setView(targetView);
+    return result; // 交回 SourceSelectPage 顯示失敗回饋（如 403）
   };
 
   // 資料來源標籤（header 顯示）——用涵蓋全 4 值的 lookup（見 utils/farmHeader）。
