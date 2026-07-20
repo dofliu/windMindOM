@@ -24,6 +24,9 @@ import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import { rightAxisTags } from '../utils/chartAxes';
 import { windProfileLabel } from '../utils/windProfiles';
+import ScenarioCompareView from './ScenarioCompareView';
+
+type DetailTab = 'trend' | 'compare';
 
 // recharts 3.x 未在 type 上露出 React 內建 `key`，比照 HistoryPage 以寬鬆型別轉一次。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,6 +100,7 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
     () => Array.from({ length: turbineCount }, (_, i) => `WT${String(i + 1).padStart(3, '0')}`),
     [turbineCount],
   );
+  const [tab, setTab] = useState<DetailTab>('trend');
   const [turbineId, setTurbineId] = useState(turbineOptions[0] ?? 'WT001');
   const [points, setPoints] = useState<Record<string, number | string | null>[]>([]);
   const [events, setEvents] = useState<HistEvent[]>([]);
@@ -193,6 +197,50 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
         </div>
       </Card>
 
+      {/* ── 頁籤：趨勢（單機）｜比較（跨機組，A1）── */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 4,
+          flexWrap: 'wrap',
+          marginBottom: 14,
+          padding: 4,
+          background: C.panelMuted,
+          borderRadius: 8,
+        }}
+      >
+        {([
+          { id: 'trend' as const, en: 'Trend', zh: '趨勢' },
+          { id: 'compare' as const, en: 'Compare', zh: '機組比較' },
+        ]).map(t => {
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              aria-pressed={active}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                borderRadius: 6,
+                border: 'none',
+                background: active ? C.accent : 'transparent',
+                color: active ? C.accentInk : C.sub,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontWeight: active ? 600 : 500,
+              }}
+            >
+              {u(t.en, t.zh)}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'compare' && <ScenarioCompareView scenario={scenario} lang={lang} />}
+
+      {tab === 'trend' && (
+        <>
       {/* ── 發電量 vs 風速 趨勢（含故障事件標記）── */}
       <Card style={{ marginBottom: 14 }}>
         <div
@@ -337,6 +385,8 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
           </div>
         )}
       </Card>
+        </>
+      )}
     </div>
   );
 };

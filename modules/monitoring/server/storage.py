@@ -504,6 +504,10 @@ class Storage:
         旗標）。時間窗邊界比照 ``query_events``（``COALESCE(end_timestamp, timestamp) >= start`` /
         ``timestamp <= end``）。
 
+        Args:
+            start: 時間窗下界（含端點，比照 query_events）；None 表不限制下界。
+            end: 時間窗上界（含端點）；None 表不限制上界。
+
         Returns:
             ``{turbine_id: count}``；窗內無 fault 事件的機組不出現在 dict 中（呼叫端取 0）。
         """
