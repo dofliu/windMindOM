@@ -259,3 +259,40 @@ def test_generate_bulk_large_timestep_stays_finite():
 
     assert seen["bad"] == 0, "大 time_step 不應產生非有限值（子步穩定化後）"
     assert seen["max_rotspd"] < 100.0, f"rotor speed 應維持物理範圍，實得 {seen['max_rotspd']:.0f} rpm"
+
+
+# ─── Live 迴圈退場（WMOM-20260720-01：generate-bulk 前停 Live 避免 race/DB-lock）───────
+
+def test_stop_live_loop_without_thread_keeps_running_for_batch():
+    """沒有活著的 Live thread 時（測試/剛建），stop_live_loop 不誤動 thread，且保持
+    _running=True 讓 generate_bulk 能續跑——這是端點在 fake broker 下安全的關鍵。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    was = sim.stop_live_loop()
+    assert was is False
+    assert sim._running is True
+
+
+def test_restore_live_loop_does_not_restart_when_not_previously_running():
+    """批次前 Live 沒在跑 → restore 不應起 live thread（只把 _running 收回 False）。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    sim._running = True
+    sim.restore_live_loop(False)
+    assert sim._running is False
+    assert sim._thread is None
+
+
+def test_store_readings_batch_is_atomic_and_persists_all():
+    """store_readings 批次寫入：整批進得去（單一 transaction）。"""
+    import tempfile
+    from server.storage import Storage
+
+    db = str(Path(tempfile.mkdtemp()) / "batch.db")
+    st = Storage(db_path=db)
+    sid = st.create_session(data_source="simulation", turbine_count=2)
+    rows = [
+        {"timestamp": f"2026-03-01T00:00:{i:02d}", "turbine_id": "WT001",
+         "scada": {"WTUR_TurSt": 6}} for i in range(5)
+    ]
+    st.store_readings(rows, sid)
+    assert len(st.query_history("WT001", session_id=sid)) == 5
+    st.store_readings([], sid)  # 空批次 no-op、不炸

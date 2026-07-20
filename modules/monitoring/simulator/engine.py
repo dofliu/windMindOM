@@ -108,6 +108,29 @@ class WindFarmSimulator:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
 
+    def stop_live_loop(self) -> bool:
+        """批次生成前用：停掉 Live 自由跑背景 thread（若在跑），但保持 ``_running=True`` 讓後續
+        ``generate_bulk`` 能續跑。
+
+        目的：避免 Live thread 與同步的 ``generate_bulk`` (a) 同時 step 同一組物理模型（race）、
+        (b) 同時寫同一 SQLite（``database is locked``）。以 thread 是否 alive 判斷（``_running`` 同時
+        被 loop 與 generate_bulk 當旗標，語意不足以區分）。呼叫端負責批次後 ``restore_live_loop``。
+
+        Returns:
+            批次前 Live thread 是否在跑（供 ``restore_live_loop`` 決定是否恢復）。
+        """
+        was_running = self._thread is not None and self._thread.is_alive()
+        if was_running:
+            self.stop()          # _running=False + join thread
+        self._running = True      # generate_bulk 迴圈的續跑條件
+        return was_running
+
+    def restore_live_loop(self, was_running: bool, time_step: float = 1.0):
+        """``generate_bulk`` 後恢復 Live 自由跑（若批次前在跑）。"""
+        self._running = False
+        if was_running:
+            self.start(time_step=time_step)
+
     @property
     def time_scale(self) -> float:
         """Current time acceleration factor. 1.0=real-time, 60=1min/s."""

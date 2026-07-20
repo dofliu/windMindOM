@@ -95,12 +95,18 @@ def activate_simulation() -> None:
             print(f"[Server] Warning: could not apply farm spec: {e}")
 
     if broker.simulator and not broker.simulator.modbus_server:
-        from simulator.modbus_server import ModbusSimServer
-        modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
-        broker.simulator.modbus_server = ModbusSimServer(
-            port=modbus_port, turbine_count=len(broker.simulator.turbines)
-        )
-        broker.simulator.modbus_server.start()
+        # Modbus TCP 是選配（給外部 Modbus client 讀）；起不來（pymodbus 版本 / port 佔用）
+        # 不該擋住整個模擬來源的啟動——降級為「沒有 Modbus 的模擬」而非 500。
+        try:
+            from simulator.modbus_server import ModbusSimServer
+            modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
+            broker.simulator.modbus_server = ModbusSimServer(
+                port=modbus_port, turbine_count=len(broker.simulator.turbines)
+            )
+            broker.simulator.modbus_server.start()
+        except Exception as e:  # noqa: BLE001
+            broker.simulator.modbus_server = None
+            print(f"[Server] Warning: Modbus TCP server not started: {e}")
     print(f"[Server] Simulation source active ({turbine_count} turbines)")
 
 

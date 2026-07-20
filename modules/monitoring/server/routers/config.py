@@ -375,8 +375,13 @@ async def generate_bulk(body: dict):
             },
         )
 
+    # 批次生成前先停 Live 自由跑迴圈。否則 live thread 會與批次「同時 step 同一組物理模型」
+    # （race）並「同時寫同一 SQLite」→ Windows 上實測 generate-bulk 撞 ``database is locked``。
+    # 批次（含情境收尾寫入）全程 Live 停著，最後於 finally 恢復——確保所有寫入無並行 writer。
+    sim = b.simulator
+    live_was_running = sim.stop_live_loop()  # 停 live thread（若在跑）、保持 _running 供批次續跑
     try:
-        total = b.simulator.generate_bulk(
+        total = sim.generate_bulk(
             duration_hours=duration,
             time_step=step,
             callback=store_cb,
@@ -385,6 +390,16 @@ async def generate_bulk(body: dict):
         )
         # Run downsampling after bulk generation
         b.storage.run_downsampling()
+        if scenario_id is not None:
+            # 回填統計 + 模擬時間窗並結束情境 session。趁 Live 仍停時寫（避免與恢復的 live 搶鎖）。
+            b.storage.update_session_config(scenario_id, {
+                "status": "ok",
+                "total_readings": total,
+                "faults_injected": injected_count,
+                "sim_start": sim_window["start"],
+                "sim_end": sim_window["end"],
+            })
+            b.storage.end_session(scenario_id)
     except Exception:
         # 生成中途失敗（如物理發散）也必須收尾情境 session，否則它會卡在 ended_at IS NULL、
         # 被 get_active_session 誤認成 Live、並以殘破項目出現在 list_scenarios。
@@ -392,18 +407,12 @@ async def generate_bulk(body: dict):
             b.storage.update_session_config(scenario_id, {"status": "error"})
             b.storage.end_session(scenario_id)
         raise
-
-    if scenario_id is not None:
-        # 回填生成後才知道的統計 + 模擬時間窗，並結束該情境 session（已完成的資料集，
-        # 不應被 get_active_session 當成 Live）。
-        b.storage.update_session_config(scenario_id, {
-            "status": "ok",
-            "total_readings": total,
-            "faults_injected": injected_count,
-            "sim_start": sim_window["start"],
-            "sim_end": sim_window["end"],
-        })
-        b.storage.end_session(scenario_id)
+    finally:
+        # 恢復 Live 自由跑（若批次前在跑）；time_step 僅在需恢復時取（fake broker 測試無 _sim_config）。
+        sim.restore_live_loop(
+            live_was_running,
+            b._sim_config.timeStep if live_was_running else 1.0,
+        )
 
     stats = b.storage.get_db_stats()
     return {
