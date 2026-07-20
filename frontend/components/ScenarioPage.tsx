@@ -19,6 +19,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
 import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
+import type { SourceMode } from '../hooks/useSourceGate';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -113,8 +114,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   // 來源種類（WMOM-20260720-02）：情境生成需 simulation 來源（後端要有 simulator）。若使用者
   // 從「調閱過去情境」(view) 或其他來源進到本頁，simulator=None → 生成會 400 "Simulator not
   // running"（＝使用者回報的「無法啟用」）。故偵測來源種類，非 simulation 時停用生成並提供一鍵啟動。
-  // undefined＝載入中（不顯示提示、避免閃動）；null＝尚未起任何來源。
-  const [sourceKind, setSourceKind] = useState<string | null | undefined>(undefined);
+  // undefined＝載入中（不顯示提示、避免閃動）；null＝尚未起任何來源。用 SourceMode 而非裸 string
+  // → 比對字串打錯（如 'Live'/'veiw'）會被 tsc 抓到，不會安靜落到 default 分支。
+  const [sourceKind, setSourceKind] = useState<SourceMode | null | undefined>(undefined);
   const [activating, setActivating] = useState(false);
 
   const nextKey = useRef(1);
@@ -148,7 +150,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     // 目前來源種類（GET /api/source/status）——決定是否需要提示「啟動模擬以生成」。
     authFetch(`${API_BASE}/api/source/status`)
       .then(r => (r.ok ? r.json() : null))
-      .then((data: { kind?: string | null } | null) => setSourceKind(data ? data.kind ?? null : null))
+      .then((data: { kind?: SourceMode | null } | null) => setSourceKind(data ? data.kind ?? null : null))
       .catch(() => setSourceKind(null));
     // 過去情境清單（GET /api/scenarios）
     authFetch(`${API_BASE}/api/scenarios`)
@@ -223,15 +225,40 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     }
   };
 
-  const sourceKindLabel = (kind: string | null | undefined): string => {
+  const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
     if (kind === 'view') return u('viewing past scenarios', '調閱過去情境');
     if (kind === 'live') return u('live data connection', '實際資料對接');
     return u('none started', '尚未啟動來源');
   };
 
+  /** 從非 ok response 盡量解析後端 detail；失敗則回退 HTTP 狀態碼（與 handleGenerate 共用）。 */
+  const parseErrorDetail = async (res: Response): Promise<string> => {
+    try {
+      const body = await res.json();
+      if (body?.detail) return typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    } catch {
+      /* ignore parse error */
+    }
+    return `HTTP ${res.status}`;
+  };
+
   // 一鍵啟動即時模擬（WMOM-20260720-02）：讓使用者不必繞「先 activate 一個風場（順帶起 live
   // 迴圈、正是撞 #4 的路）」——直接於情境頁把 simulation 來源起來即可生成。
   const handleActivateSim = async () => {
+    // ⚠️ 若目前是「實際資料對接」(live)：切到 simulation 會 stop() 掉現場 SCADA 連線，且介面上
+    // 沒有再切回 live 的入口（App 只在 sourceActive===false 時顯示選源頁）。故對 live 加二次確認，
+    // 比照本檔刪除情境的謹慎程度——避免現場工程師手滑點到、無預警斷掉真實監控（WMOM-20260720-03）。
+    if (
+      sourceKind === 'live' &&
+      !window.confirm(
+        u(
+          'You are on the live SCADA connection. Starting simulation will disconnect it, and there is no in-app way to switch back to live. Continue?',
+          '目前為「實際資料對接」。啟動模擬將中斷與現場 SCADA 的連線，且介面上無法再切回實接。確定要繼續嗎？',
+        )
+      )
+    ) {
+      return;
+    }
     setActivating(true);
     setError('');
     try {
@@ -244,8 +271,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         setSourceKind('simulation');
         loadFarm(); // activate_simulation 會 ensure_default_farm → 風場資訊即時更新
       } else {
-        // 401 由 authClient 攔（彈登入）；其餘給明確回饋而非靜默。
-        setError(u(`Could not start simulation: HTTP ${res.status}`, `啟動模擬失敗：HTTP ${res.status}`));
+        // 401 由 authClient 攔（彈登入）；其餘給明確回饋而非靜默（解析後端 detail，與生成一致）。
+        const detail = await parseErrorDetail(res);
+        setError(u(`Could not start simulation: ${detail}`, `啟動模擬失敗：${detail}`));
       }
     } catch {
       setError(u('Network error while starting simulation.', '啟動模擬時發生網路錯誤。'));
@@ -296,13 +324,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         }),
       });
       if (!res.ok) {
-        let detail = `HTTP ${res.status}`;
-        try {
-          const body = await res.json();
-          if (body?.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
-        } catch {
-          /* ignore parse error */
-        }
+        const detail = await parseErrorDetail(res);
         setError(u(`Generation failed: ${detail}`, `生成失敗：${detail}`));
         setMessage('');
         return;
