@@ -6,12 +6,14 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import React from 'react';
-import SourceSelectPage, { type SourceCardId } from '../SourceSelectPage';
+import SourceSelectPage, { type SourceCardId, type SelectOutcome } from '../SourceSelectPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 
-function renderPage(onSelect: (id: SourceCardId) => void | Promise<void>, lang: 'en' | 'zh' = 'zh') {
+type OnSelect = (id: SourceCardId) => void | SelectOutcome | Promise<void | SelectOutcome>;
+
+function renderPage(onSelect: OnSelect, lang: 'en' | 'zh' = 'zh') {
   return render(
     <ThemeProvider>
       <SourceSelectPage lang={lang} onSelect={onSelect} onToggleLang={() => {}} />
@@ -56,6 +58,15 @@ describe('SourceSelectPage', () => {
   it('lang=en 標題 = Choose a data source', () => {
     renderPage(vi.fn(), 'en');
     expect(screen.getByText('Choose a data source')).toBeInTheDocument();
+  });
+
+  it('onSelect 回 {ok:false, status:403} → 顯示需主管權限（不靜默）', async () => {
+    const onSelect = vi.fn(() => Promise.resolve({ ok: false, status: 403 }));
+    renderPage(onSelect);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '選擇：實際資料對接' }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/主管以上權限/));
   });
 
   it('選擇進行中其他卡禁用（避免重複啟動）', async () => {

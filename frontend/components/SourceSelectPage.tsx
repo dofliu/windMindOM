@@ -61,9 +61,15 @@ const CARDS: SourceCard[] = [
   },
 ];
 
+/** onSelect 回傳選源結果（`status` 供顯示 403 等失敗回饋）；回 void 視為成功（不顯示錯誤）。 */
+export interface SelectOutcome {
+  ok: boolean;
+  status?: number;
+}
+
 interface Props {
   lang?: 'en' | 'zh';
-  onSelect: (id: SourceCardId) => void | Promise<void>;
+  onSelect: (id: SourceCardId) => void | SelectOutcome | Promise<void | SelectOutcome>;
   onToggleLang?: () => void;
 }
 
@@ -71,12 +77,22 @@ const SourceSelectPage: React.FC<Props> = ({ lang = 'zh', onSelect, onToggleLang
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
   const [busy, setBusy] = useState<SourceCardId | null>(null);
+  const [error, setError] = useState('');
 
   const handle = async (id: SourceCardId) => {
     if (busy) return;
     setBusy(id);
+    setError('');
     try {
-      await onSelect(id);
+      const outcome = await onSelect(id);
+      // 明確失敗（如 live 需主管的 403）→ 給回饋，而非按鈕靜默恢復。
+      if (outcome && !outcome.ok) {
+        setError(
+          outcome.status === 403
+            ? u('This source needs supervisor rights.', '此來源需要主管以上權限。')
+            : u('Could not start this source. Please try again.', '無法啟動此來源，請再試一次。'),
+        );
+      }
     } finally {
       setBusy(null);
     }
@@ -113,6 +129,23 @@ const SourceSelectPage: React.FC<Props> = ({ lang = 'zh', onSelect, onToggleLang
             '先選這次要怎麼用——在你選擇前，系統不會自動產生任何資料。',
           )}
         </div>
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 16,
+              background: C.warnSoft,
+              color: C.warn,
+              border: `1px solid ${C.warn}`,
+              borderRadius: 8,
+              padding: '10px 14px',
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <div
           style={{

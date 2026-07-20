@@ -11,8 +11,9 @@
 - ``POST /api/source/select``  選定並啟動來源
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from modules.auth.dependencies import require_authenticated
+from fastapi import APIRouter, Depends, HTTPException, Request
+from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.roles import Role
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/source", tags=["source"])
@@ -49,14 +50,22 @@ async def source_status():
     # 選來源＝任何登入者（這是登入後的必經入口，含現場工程師）
     dependencies=[Depends(require_authenticated())],
 )
-async def select_source(req: SourceSelect):
-    """選定並啟動資料來源。"""
+async def select_source(req: SourceSelect, request: Request):
+    """選定並啟動資料來源。
+
+    simulation / view＝任何登入者（含現場工程師的必經入口）；live（實際對接，會嘗試對外 OPC
+    握手且影響全域）比照 farm-activate 要求 SUPERVISOR 以上——但僅在 enforce 開時強制（過渡期
+    enforce 關時維持與其他 mode 一致開放，不破壞現行 no-token 操作）。
+    """
     b = get_broker()
     mode = (req.mode or "").strip().lower()
     if mode == "simulation":
         from server.app import activate_simulation
         activate_simulation()
     elif mode == "live":
+        # live 影響全域且會嘗試對外 OPC 握手 → 比照 farm-activate 需 SUPERVISOR。
+        # 重用 enforce-aware 的 require_role（過渡期放行、cutover 後強制），不手刻第二份角色判斷。
+        require_role(Role.SUPERVISOR)(request)
         from server.app import activate_live
         activate_live()
     elif mode == "view":

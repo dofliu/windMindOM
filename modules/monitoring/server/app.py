@@ -216,6 +216,8 @@ async def health():
     return {
         "status": "ok",
         "mode": broker.mode.value,
+        "sourceActive": broker.source_active,
+        "sourceKind": broker.source_kind,
         "turbineCount": len(broker.turbine_ids),
         "activeFarmId": broker.active_farm_id,
     }
