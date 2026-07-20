@@ -52,8 +52,33 @@ Explore 已確認**所有物理輸出已落地 `scada_json`**（累積損傷/DEL
 - **mutation-verified**：storage `MAX→MIN`（極限負載）、純函式 `×1000→×1`（功率換算）各自撤修即轉紅。
 - monitoring **120→130**、repo e2e **151** passed、ruff 全綠。
 
+## PR #148 review round-1（3 Must-fix + 6 Should-fix + 4 Nice-to-have）
+
+reviewer 用**真 physics engine** 實測，抓到三個落在聚合核心的真 bug（RUL/DEL 語意 + 阻塞）：
+
+- 🔴 **RUL 用 MIN 冒充末值錯**：`WLOD_RulHours` 是外推估計（`prod_h·(1-dmg)/dmg`），暖機回 sentinel
+  `-1.0`、之後隨 prod_h **上升**（實測 3h 情境 97% 為上升 step）。`MIN` 會鎖在 -1.0 sentinel。
+  **修**：改取每台機組**最後一列**（`ROW_NUMBER() OVER (PARTITION BY turbine_id ORDER BY timestamp
+  DESC)`）真實值；sentinel(<0)→None。farm rollup 改用 rulHours 取 min。
+- 🔴 **DEL 用 MAX 冒充末值錯**：`WLOD_Del*` 每 10 分鐘視窗**重算覆蓋**（非累積），MAX 取到「最差視窗」
+  非情境結束值（實測 MAX 599 vs 末值 344）。**修**：同 RUL 取末列。
+- 🔴 **async 端點內同步阻塞 SQLite**：長情境（上限 8760h × 多機組）掃描外插達 ~7 分鐘，會卡住整個
+  event loop。**修**：聚合/事件計數/get_scenario 全丟 `asyncio.to_thread`。
+- 🟡 **額定功率非 Z72 誤算**：情境從未存 rated_power_kw → 恆 fallback 2000；切 3MW/8MW 機型後容量因數
+  可 >100%。**修**：`generate_bulk` 建情境時把機型 `spec.rated_power_kw` 釘進 session。
+- 🟡 **`availability` 命名撞 reporting 模組**（其 = 1−downtime/total）→ 改名 `productionRate` + 註明。
+- 🟡 **故障計數 LIMIT 5000 靜默截斷** → 改 storage SQL `COUNT ... GROUP BY`（無 LIMIT）。
+- 🟡 **測試抓不到假設錯**（合成資料剛好落在 MAX/MIN 成立區）→ storage 測改用**非單調** RUL/DEL
+  （末值≠MIN/MAX）+ sentinel→None 專測，deterministic 守住語意。
+- 🟡 `_max_ignore_none` 補 docstring；🟡 `estop_steps` 算了沒回 → 加 `estopSteps` 欄位。
+- 🟢 rounding 說明對齊；🟢 加 `status` 欄位（error 情境提示）。deferred（記 ISSUES）：TypedDict、
+  情境凍結後 summary 快取。
+
+**驗證**：final-row 選取以 `ORDER BY DESC→ASC` mutation 兩測轉紅（RUL 900→1000、sentinel None→500）；
+monitoring 130→**131**、repo e2e **151**、ruff 綠。
+
 ## 卡在哪 / 下次怎麼接手
 
-- 本 PR #148：draft + `hold`；實作完成 → code-review → 移除 `hold` → 合。
+- 本 PR #148：draft + `hold`；round-1 已處理 → 待 review 覆核 → 移除 `hold` → 合。
 - A0 是**後端 only**（資料基礎）；前端情境總覽/比較 UI 屬 A1。下一步 **A1 同情境內比較**（不同機組、
   有故障 vs 健康機組）——可直接吃本端點回傳。PR C（檢視情境把 app 掛上去）前仍需寫 broker 子設計。

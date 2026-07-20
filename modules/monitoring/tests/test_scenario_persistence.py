@@ -184,17 +184,20 @@ def _phys_reading(tid: str, ts: str, power_w: float, tur_st: int,
 
 
 def test_scenario_turbine_aggregates_computes_per_turbine_physics(storage):
-    """A0 聚合：每台機組一列，功率 AVG/MAX、累積損傷/生產時數末值＝MAX、RUL 末值＝MIN、
-    極限負載＝彎矩 MAX、DEL＝MAX、生產步數＝tur_state==6 計數。四部位偏移抓 column 錯置。"""
+    """A0 聚合：每台機組一列。**累積量（損傷/生產時數）與峰值（極限負載）用 MAX；RUL/DEL 非單調 →
+    取情境結束（最後一列）真實值**。四部位偏移抓 column 錯置。
+
+    刻意讓 RUL/DEL 非單調，且末值≠MIN/MAX，以直接證明「取末列」而非 MIN/MAX（PR #148 review Must-fix）：
+    RUL 1000→500→900（末值 900、MIN 500）；DEL 100→599→344（末值 344、MAX 599）。
+    彎矩 500→700→600（極限負載＝MAX 700，非末值 600）。
+    """
     sid = _scenario(storage, "聚合測試", duration_hours=1.0, time_step=10.0)
-    # WT001：功率 1→2→3 MW；累積量遞增（末值＝MAX）、RUL 遞減（末值＝MIN）；前兩步生產(6)、末步 estop(7)。
-    # 彎矩故意非單調（500→700→600）以驗「極限負載＝MAX（700）」而非末值(600)。
     storage.store_readings([
         _phys_reading("WT001", "2026-03-01T00:00:00", 1_000_000, 6, 1000, 0.1, 0.001, 500, 100),
-        _phys_reading("WT001", "2026-03-01T00:00:10", 2_000_000, 6, 900,  0.2, 0.002, 700, 110),
-        _phys_reading("WT001", "2026-03-01T00:00:20", 3_000_000, 7, 850,  0.2, 0.003, 600, 115),
+        _phys_reading("WT001", "2026-03-01T00:00:10", 2_000_000, 6, 500,  0.2, 0.002, 700, 599),
+        _phys_reading("WT001", "2026-03-01T00:00:20", 3_000_000, 7, 900,  0.2, 0.003, 600, 344),
     ], sid)
-    # WT002：單步，供「分組正確」與跨機組 min-RUL 對照。
+    # WT002：單步，供「分組正確」與跨機組對照。
     storage.store_readings([
         _phys_reading("WT002", "2026-03-01T00:00:00", 500_000, 6, 2000, 0.05, 0.0005, 300, 90),
     ], sid)
@@ -207,8 +210,7 @@ def test_scenario_turbine_aggregates_computes_per_turbine_physics(storage):
     assert a1["n"] == 3
     assert a1["avg_power_mw"] == pytest.approx(2.0)          # (1+2+3)/3
     assert a1["max_power_mw"] == pytest.approx(3.0)
-    assert a1["min_rul_hours"] == pytest.approx(850)         # MIN（最壞）
-    assert a1["prod_hours"] == pytest.approx(0.2)            # MAX（末值）
+    assert a1["prod_hours"] == pytest.approx(0.2)            # MAX（單調累積末值）
     assert a1["dmg_tower_fa"] == pytest.approx(0.003)        # MAX＝結束時累積末值
     assert a1["dmg_tower_ss"] == pytest.approx(0.006)        # 0.003×2 → 抓 column 錯置
     assert a1["dmg_blade_flap"] == pytest.approx(0.009)
@@ -216,17 +218,50 @@ def test_scenario_turbine_aggregates_computes_per_turbine_physics(storage):
     assert a1["max_tower_fa_moment"] == pytest.approx(700)   # MAX（極限負載）非末值 600
     assert a1["max_tower_ss_moment"] == pytest.approx(750)
     assert a1["max_blade_edge_moment"] == pytest.approx(850)  # 700+150
-    assert a1["del_tower_fa"] == pytest.approx(115)          # MAX
-    assert a1["del_blade_edge"] == pytest.approx(145)        # 115+30
+    # RUL/DEL 取末列（00:00:20），非 MIN/MAX：
+    assert a1["rul_hours"] == pytest.approx(900), "RUL 應取情境結束末值 900，非 MIN 500"
+    assert a1["del_tower_fa"] == pytest.approx(344), "DEL 應取情境結束末值 344，非 MAX 599"
+    assert a1["del_blade_edge"] == pytest.approx(374)        # 末列 344+30
     assert a1["production_steps"] == 2                       # 兩步 tur_state==6
     assert a1["estop_steps"] == 1
 
     a2 = by_id["WT002"]
     assert a2["n"] == 1
-    assert a2["min_rul_hours"] == pytest.approx(2000)
+    assert a2["rul_hours"] == pytest.approx(2000)
     assert a2["production_steps"] == 1
+
+
+def test_scenario_aggregates_rul_sentinel_maps_to_none(storage):
+    """RUL sentinel（-1.0，暖機不足無法估計）在末列時應映射為 None，不得污染成「最低 RUL」。"""
+    sid = _scenario(storage, "sentinel", duration_hours=0.01, time_step=10.0)
+    storage.store_readings([
+        _phys_reading("WT001", "2026-03-01T00:00:00", 1_000_000, 6, 500,  0.05, 0.001, 400, 50),
+        _phys_reading("WT001", "2026-03-01T00:00:10", 1_000_000, 6, -1.0, 0.05, 0.001, 400, 50),
+    ], sid)
+    a = storage.scenario_turbine_aggregates(sid)[0]
+    assert a["rul_hours"] is None, "末列 RUL 為 sentinel -1.0 → None（非 -1.0、非 500）"
 
 
 def test_scenario_turbine_aggregates_empty_for_unknown_session(storage):
     """不存在的 session → 空 list（不炸）。"""
     assert storage.scenario_turbine_aggregates(99_999) == []
+
+
+def test_count_scenario_fault_events_by_window(storage):
+    """時間窗內每台機組 fault 事件數：只計有 turbine_id 的 fault，排除非 fault 與 farm-wide；無 LIMIT。"""
+    storage.record_event(event_type="fault", source="scenario", title="f1",
+                         turbine_id="WT001", timestamp="2026-03-01T00:00:05")
+    storage.record_event(event_type="fault", source="scenario", title="f2",
+                         turbine_id="WT001", timestamp="2026-03-01T00:00:15")
+    storage.record_event(event_type="fault", source="scenario", title="f3",
+                         turbine_id="WT002", timestamp="2026-03-01T00:00:20")
+    storage.record_event(event_type="state", source="scenario", title="s1",
+                         turbine_id="WT001", timestamp="2026-03-01T00:00:06")  # 非 fault
+    storage.record_event(event_type="fault", source="scenario", title="farm",
+                         turbine_id=None, timestamp="2026-03-01T00:00:07")     # farm-wide
+    storage.record_event(event_type="fault", source="scenario", title="outside",
+                         turbine_id="WT001", timestamp="2026-03-01T01:00:00")  # 窗外
+
+    counts = storage.count_scenario_fault_events(
+        start="2026-03-01T00:00:00", end="2026-03-01T00:00:30")
+    assert counts == {"WT001": 2, "WT002": 1}

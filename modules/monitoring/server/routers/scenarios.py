@@ -11,7 +11,8 @@
 - ``DELETE /api/scenarios/{id}``                              刪除情境（含資料列）
 """
 
-from typing import Dict, List, Optional
+import asyncio
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,12 +22,10 @@ from modules.auth.roles import Role
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
-# 情境 session 未存 rated_power_kw（generate_bulk 只傳 data_source/turbine_count/config），
-# 容量因數的額定功率以第一個客戶機型 Z72-2000-MV（2000 kW）為預設；回傳帶 ratedPowerKw 讓
-# 這個假設對前端透明（日後情境若回填自身額定功率則優先採用，見 _scenario_rated_power_kw）。
+# 容量因數的額定功率預設值。generate_bulk 現於建情境時就把 simulator 機型的 rated_power_kw 存進
+# session（見 config.py），故正常情況會採用 session 值；此預設只在舊情境（未回填）/取值失敗時兜底，
+# 取第一個客戶機型 Z72-2000-MV（2000 kW）。回傳帶 ratedPowerKw 讓實際採用值對前端透明。
 DEFAULT_RATED_POWER_KW = 2000.0
-# 故障事件計數的撈取上限（事件無 session_id，只能靠時間窗；見 summary 端點 eventsByTimeWindow）。
-_FAULT_EVENT_QUERY_LIMIT = 5000
 
 
 def get_broker():
@@ -57,13 +56,17 @@ class ScenarioTurbineSummary(BaseModel):
     maxPowerKw: float
     energyKwh: float                   # avgPowerKw × 總時數（samples × timeStep / 3600）
     capacityFactor: float              # avgPowerKw / ratedPowerKw（0..1）
-    availability: float                # 生產步數 / 樣本步數（tur_state==6 佔比，0..1）
+    # 生產步數（tur_state==6）/ 樣本步數。刻意不叫 availability——與 reporting 模組
+    # kpi_calculator.time_availability（1 − downtime/total）定義不同（本值把低風速正常待機也算成
+    # 非生產），避免同 repo 一詞兩義。
+    productionRate: float              # 0..1
+    estopSteps: int                    # 緊急停機步數（tur_state==7；跳機訊號，DEC-20260720-02 指標）
     productionHours: Optional[float] = None   # WLOD_ProdHours 末值（物理模型自身的生產時數計數）
-    cumulativeDamage: ComponentLoads          # 累積損傷末值（情境結束時）
+    cumulativeDamage: ComponentLoads          # 累積損傷末值（情境結束時，單調累積 → MAX）
     worstDamage: Optional[float] = None       # 四部位損傷取最大（最嚴重部位）
-    minRulHours: Optional[float] = None       # 最終剩餘壽命（最壞）
-    extremeLoad: ComponentLoads               # 瞬時彎矩 MAX（極限負載）
-    damageEquivalentLoad: ComponentLoads      # DEL
+    rulHours: Optional[float] = None          # 情境結束時的剩餘壽命估計（最後一列；暖機不足 → None）
+    extremeLoad: ComponentLoads               # 瞬時彎矩 MAX（情境中經歷的極限負載）
+    damageEquivalentLoad: ComponentLoads      # DEL（情境結束時的最後一個 10 分鐘視窗值，非累積）
     faultEvents: int                          # 該機組在情境時間窗內的 fault 事件數
 
 
@@ -72,12 +75,12 @@ class ScenarioFarmSummary(BaseModel):
     turbineCount: int
     totalEnergyKwh: float
     avgCapacityFactor: float
-    avgAvailability: float
+    avgProductionRate: float
     totalFaultEvents: int
     maxTurbinePowerKw: float
-    worstDamage: Optional[float] = None
+    worstDamage: Optional[float] = None       # 各機組 worstDamage 取最大（最嚴重機組）
     worstDamageTurbineId: Optional[str] = None
-    minRulHours: Optional[float] = None
+    minRulHours: Optional[float] = None        # 各機組 rulHours 取最小（剩餘壽命最短＝最耗損機組）
     minRulTurbineId: Optional[str] = None
 
 
@@ -85,10 +88,11 @@ class ScenarioSummary(BaseModel):
     """情境物理摘要端點回傳：情境詮釋 + 風場層 rollup + 每台機組明細。"""
     scenarioId: int
     name: Optional[str] = None
+    status: Optional[str] = None       # 情境生成狀態（config.status：ok / error）——error 時摘要僅涵蓋已寫入的部分資料
     windProfile: Optional[str] = None
     durationHours: Optional[float] = None
     timeStepSeconds: float
-    ratedPowerKw: float                # 容量因數分母（透明化預設假設，見 DEFAULT_RATED_POWER_KW）
+    ratedPowerKw: float                # 容量因數分母（實際採用值，見 DEFAULT_RATED_POWER_KW）
     faultsInjected: Optional[int] = None
     # 故障事件數走時間窗（history_events 無 session_id）→ 可能混入時間窗重疊的其他情境，
     # 比照 history 端點以此旗標提醒前端（readings/物理聚合走 session_id 隔離，不受影響）。
@@ -105,6 +109,7 @@ def _round(value: Optional[float], digits: int) -> Optional[float]:
 
 
 def _max_ignore_none(values: List[Optional[float]]) -> Optional[float]:
+    """忽略 None 取最大值；全為 None（或空清單）回 None。"""
     present = [v for v in values if v is not None]
     return max(present) if present else None
 
@@ -119,24 +124,14 @@ def _scenario_rated_power_kw(scenario: dict) -> float:
     return rated_f if rated_f > 0 else DEFAULT_RATED_POWER_KW
 
 
-def _fault_counts_by_turbine(events: List[dict]) -> Dict[str, int]:
-    """從事件清單數出每台機組的 fault 事件數（只計有 turbine_id 的 fault，忽略 farm-wide）。"""
-    counts: Dict[str, int] = {}
-    for ev in events:
-        if ev.get("event_type") == "fault":
-            tid = ev.get("turbine_id")
-            if tid:
-                counts[tid] = counts.get(tid, 0) + 1
-    return counts
-
-
 def _build_turbine_summary(agg: dict, time_step_s: float, rated_power_kw: float,
                            fault_events: int) -> ScenarioTurbineSummary:
-    """把 storage 的一列聚合（MW/原始物理量）換算成機組摘要（kW/能量/容量因數/可用率）。
+    """把 storage 的一列聚合（MW/原始物理量）換算成機組摘要（kW/能量/容量因數/生產佔比）。
 
     純函式（不碰 DB/HTTP）便於 mutation-verify 換算數學。功率欄位（avg/max_power_mw）為 MW，
     ×1000 轉 kW；能量＝平均功率 × 總時數（樣本步數 × time_step / 3600）；容量因數＝平均功率 /
-    額定功率；可用率＝生產步數（tur_state==6）/ 樣本步數。
+    額定功率；生產佔比＝生產步數（tur_state==6）/ 樣本步數。RUL/DEL 由 storage 取自末列（含
+    sentinel 過濾），此處原樣帶出。
     """
     n = int(agg.get("n") or 0)
     avg_power_kw = (agg.get("avg_power_mw") or 0.0) * 1000.0
@@ -145,7 +140,7 @@ def _build_turbine_summary(agg: dict, time_step_s: float, rated_power_kw: float,
     energy_kwh = avg_power_kw * total_hours
     capacity_factor = avg_power_kw / rated_power_kw if rated_power_kw > 0 else 0.0
     production_steps = int(agg.get("production_steps") or 0)
-    availability = production_steps / n if n > 0 else 0.0
+    production_rate = production_steps / n if n > 0 else 0.0
 
     damage = ComponentLoads(
         towerFa=agg.get("dmg_tower_fa"),
@@ -163,11 +158,12 @@ def _build_turbine_summary(agg: dict, time_step_s: float, rated_power_kw: float,
         maxPowerKw=round(max_power_kw, 2),
         energyKwh=round(energy_kwh, 2),
         capacityFactor=round(capacity_factor, 4),
-        availability=round(availability, 4),
+        productionRate=round(production_rate, 4),
+        estopSteps=int(agg.get("estop_steps") or 0),
         productionHours=_round(agg.get("prod_hours"), 3),
         cumulativeDamage=damage,
         worstDamage=worst_damage,
-        minRulHours=_round(agg.get("min_rul_hours"), 1),
+        rulHours=_round(agg.get("rul_hours"), 1),
         extremeLoad=ComponentLoads(
             towerFa=agg.get("max_tower_fa_moment"),
             towerSs=agg.get("max_tower_ss_moment"),
@@ -190,7 +186,7 @@ def _build_farm_summary(turbines: List[ScenarioTurbineSummary],
     if not turbines:
         return ScenarioFarmSummary(
             turbineCount=turbine_count or 0,
-            totalEnergyKwh=0.0, avgCapacityFactor=0.0, avgAvailability=0.0,
+            totalEnergyKwh=0.0, avgCapacityFactor=0.0, avgProductionRate=0.0,
             totalFaultEvents=0, maxTurbinePowerKw=0.0,
         )
     worst_damage_t = max(
@@ -198,20 +194,20 @@ def _build_farm_summary(turbines: List[ScenarioTurbineSummary],
         key=lambda t: t.worstDamage, default=None,
     )
     min_rul_t = min(
-        (t for t in turbines if t.minRulHours is not None),
-        key=lambda t: t.minRulHours, default=None,
+        (t for t in turbines if t.rulHours is not None),
+        key=lambda t: t.rulHours, default=None,
     )
     count = len(turbines)
     return ScenarioFarmSummary(
         turbineCount=turbine_count or count,
         totalEnergyKwh=round(sum(t.energyKwh for t in turbines), 2),
         avgCapacityFactor=round(sum(t.capacityFactor for t in turbines) / count, 4),
-        avgAvailability=round(sum(t.availability for t in turbines) / count, 4),
+        avgProductionRate=round(sum(t.productionRate for t in turbines) / count, 4),
         totalFaultEvents=sum(t.faultEvents for t in turbines),
         maxTurbinePowerKw=round(max(t.maxPowerKw for t in turbines), 2),
         worstDamage=worst_damage_t.worstDamage if worst_damage_t else None,
         worstDamageTurbineId=worst_damage_t.turbineId if worst_damage_t else None,
-        minRulHours=min_rul_t.minRulHours if min_rul_t else None,
+        minRulHours=min_rul_t.rulHours if min_rul_t else None,
         minRulTurbineId=min_rul_t.turbineId if min_rul_t else None,
     )
 
@@ -255,7 +251,8 @@ async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
     旗標提醒此計數可能混入時間窗重疊的其他情境（物理聚合走 session_id 隔離，不受影響）。
     """
     b = get_broker()
-    scenario = b.storage.get_scenario(scenario_id)
+    # get_scenario 也是同步 SQLite；與後續重查詢一致丟到 thread（見下 to_thread 說明）。
+    scenario = await asyncio.to_thread(b.storage.get_scenario, scenario_id)
     if not scenario:
         raise HTTPException(404, f"Scenario {scenario_id} not found")
 
@@ -264,17 +261,19 @@ async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
     time_step = float(config.get("time_step") or 10.0)
     rated_power_kw = _scenario_rated_power_kw(scenario)
 
-    aggregates = b.storage.scenario_turbine_aggregates(scenario_id)
+    # 聚合與事件計數皆為同步阻塞 SQLite，且長情境（duration 上限 8760h × 多機組）掃描量可達數千萬列、
+    # 實測外插達分鐘級——若直接在此 async 端點內同步執行會卡住整個 event loop（含 Live WS 推播與其他
+    # 請求）。丟到 worker thread 執行，讓 event loop 期間仍可服務其他協程。
+    aggregates = await asyncio.to_thread(b.storage.scenario_turbine_aggregates, scenario_id)
 
-    # 故障事件計數：走情境 sim 時間窗（config.sim_start..sim_end，缺則退回 session started/ended）。
+    # 故障事件計數：走情境 sim 時間窗（config.sim_start..sim_end，缺則退回 session started/ended）；
+    # 用 storage 的 SQL COUNT（不設 LIMIT，避免長/密集情境靜默截斷），非 session 隔離（見 eventsByTimeWindow）。
     start = config.get("sim_start") or scenario.get("started_at")
     end = config.get("sim_end") or scenario.get("ended_at")
-    events = (
-        b.get_history_events(turbine_id=None, start=start, end=end,
-                             limit=_FAULT_EVENT_QUERY_LIMIT)
-        if start and end else []
+    fault_counts = (
+        await asyncio.to_thread(b.storage.count_scenario_fault_events, start, end)
+        if start and end else {}
     )
-    fault_counts = _fault_counts_by_turbine(events)
 
     turbines = [
         _build_turbine_summary(agg, time_step, rated_power_kw,
@@ -286,6 +285,7 @@ async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
     return ScenarioSummary(
         scenarioId=scenario_id,
         name=config.get("name"),
+        status=config.get("status"),
         windProfile=config.get("wind_profile"),
         durationHours=config.get("duration_hours"),
         timeStepSeconds=time_step,

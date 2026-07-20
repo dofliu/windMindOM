@@ -188,11 +188,17 @@
 
 **In progress**
 - **WMOM-20260720-09** — 🟡 **情境比較分析 · A0：情境摘要端點**（DEC-20260720-02）：`GET /api/scenarios/
-  {id}/summary`——給定情境 id，讀該 session 的 `query_history`（session 隔離）逐筆掃 `scada_json` 聚合出
-  「每台機組（總發電量/容量因數/max·mean 功率/最終累積損傷/最小 RUL/極限負載 MAX/DEL/故障事件數/各狀態
-  時數）+ 風場層 rollup（總能量/平均容量因數/最嚴重機組/總故障數）」。物理資料已全落地，純讀取/聚合。
-  聚合放 storage 層（可測、與端點解耦），端點只組裝 + 權限（比照 list/get scenario）。測試 mutation-verified。
-  是 A1（同情境內比較）/A2（跨情境）的資料基礎，可獨立出價值（前端情境總覽）。
+  {id}/summary`——給定情境 id，聚合該 session 的物理資料出「每台機組（發電量/容量因數/生產佔比/累積損傷/
+  結束 RUL/極限負載/DEL/跳機數/故障事件數）+ 風場層 rollup」。聚合放 storage 層（可測、與端點解耦），
+  端點只組裝 + 權限（比照 list/get scenario）。是 A1/A2 的資料基礎，可獨立出價值（前端情境總覽）。
+  - **PR #148 review round-1（3 Must + 6 Should + 4 Nice，皆已處理）**：reviewer 用真 physics engine 實測
+    抓到聚合語意 bug——🔴 RUL 非單調 + `-1.0` sentinel（不可用 MIN）、🔴 DEL 每 10 分鐘重算覆蓋（不可用
+    MAX）→ 兩者改取**每台機組最後一列**真實值（`ROW_NUMBER`），sentinel→None；🔴 async 端點同步阻塞
+    SQLite（長情境外插 ~7 分鐘卡 event loop）→ `asyncio.to_thread`。🟡 額定功率釘進情境 session（非 Z72
+    機型容量因數才不會 >100%）；🟡 `availability`→`productionRate`（避免撞 reporting 模組定義）；🟡 故障
+    計數改 SQL COUNT（無 LIMIT 截斷）；🟡 storage 測改非單調資料守住「取末列」語意。
+  - **deferred（本 issue 後續 / 小優化，不阻擋）**：`scenario_turbine_aggregates` 回傳改 TypedDict；情境凍結後
+    summary 可預先算好快取（DEC-20260720-01 情境為凍結資料集，算一次終身重用，兼緩解阻塞）。
 
 - **WMOM-20260720-07** — ✅ **情境=凍結資料集 · PR B：產生情境不自由跑 → PR #147 merged**（DEC-20260720-01）：選「產生新
   情境」不再自由跑連續產資料。後端 `broker.start/switch_mode/_start_simulator` 加 `run_loop`，False 時建
