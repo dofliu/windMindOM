@@ -137,14 +137,25 @@
 ## 📌 2026-07-20 session 新增 issue（#3 上線後實測 bug）
 
 **Done**
-- **WMOM-20260720-01** — 🔴 **generate-bulk「database is locked」（Windows 實測 500）**：選「即時模擬/
-  產生情境」後 Live 迴圈與批次並行（`_running` 同為兩者旗標）→ 兩 writer 並寫同一 SQLite +
-  `store_reading` 逐列 commit → Windows 鎖競爭耗盡 busy_timeout。修：(1) 批次前
-  `engine.stop_live_loop`（停 Live thread、保 `_running` 供批次）、收尾趁 Live 停時寫、`finally`
-  `restore_live_loop`；(2) `store_readings` 改單一 transaction；(3) Modbus 起不來降級不擋來源啟動。
-  端到端 verify（Live 跑著時 generate-bulk → 200、情境存入可調閱、Live 恢復）+3 tests；
-  monitoring 102 / physics 121 全綠。
-  - 使用者其餘：#1 view 無情境＝空（預期）；#2 未選風場產生情境「無法啟用」待補充細節再修。
+- **WMOM-20260720-01** — 🔴 **generate-bulk「database is locked」（Windows 實測 500）→ PR #142 merged**：
+  選「即時模擬/產生情境」後 Live 迴圈與批次並行（`_running` 同為兩者旗標）→ 兩 writer 並寫同一
+  SQLite + `store_reading` 逐列 commit → Windows 鎖競爭耗盡 busy_timeout。修：(1) 批次期間暫停 Live
+  迴圈，抽共用 context manager `DataBroker.pause_live_for_batch()`（config.py generate-bulk +
+  faults.py run_test_plan 共用），批次續跑改用**獨立 `_bulk_running` 旗標**與 `_running` 解耦、`stop()`
+  後**阻塞式再 join** 消除「join 逾時 → 舊 thread 借屍還魂 + 洩漏」；(2) `store_readings` 改單一
+  transaction；(3) Modbus 起不來降級（抽 `_start_modbus_for`）。**兩輪 code review**（round 1 修 3
+  Must-fix；round 2 確認 production 正確 + 補齊測試假綠並逐一 mutation 驗證）。monitoring 112 /
+  physics+e2e 127 全綠。
+  - 使用者其餘：#1 view 無情境＝空（**預期**，已有空狀態文案）；#2 未選風場產生情境「無法啟用」
+    → **已定位根因**（view 模式不起 simulator），拆為 **WMOM-20260720-02**。
+
+**In progress**
+- **WMOM-20260720-02** — 🟡 **#2 情境頁「未起模擬就生成」guided activation**：使用者從「調閱過去情境」
+  （view，`simulator=None`）進來到情境頁按生成 → `400 Simulator not running`＝「無法啟用」；後來「選
+  風場」順帶起了 live 迴圈才能生成（正是撞 #4 的路）。approach 已選「**一鍵啟動提示**」：情境頁偵測
+  來源種類（`/api/source/status`），若非 simulation 則停用「生成」並顯示明確提示 +「啟動模擬以生成」
+  按鈕（呼叫 `/api/source/select {mode:simulation}`），避免繞「先 activate farm 順帶起 live」的路。
+  純前端（ScenarioPage）+ vitest。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

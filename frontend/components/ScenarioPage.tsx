@@ -110,6 +110,13 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const [observing, setObserving] = useState<SavedScenario | null>(null);
   const [lastScenario, setLastScenario] = useState<SavedScenario | null>(null);
 
+  // 來源種類（WMOM-20260720-02）：情境生成需 simulation 來源（後端要有 simulator）。若使用者
+  // 從「調閱過去情境」(view) 或其他來源進到本頁，simulator=None → 生成會 400 "Simulator not
+  // running"（＝使用者回報的「無法啟用」）。故偵測來源種類，非 simulation 時停用生成並提供一鍵啟動。
+  // undefined＝載入中（不顯示提示、避免閃動）；null＝尚未起任何來源。
+  const [sourceKind, setSourceKind] = useState<string | null | undefined>(undefined);
+  const [activating, setActivating] = useState(false);
+
   const nextKey = useRef(1);
 
   const loadScenarios = () => {
@@ -121,11 +128,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       .catch(() => {});
   };
 
-  useEffect(() => {
-    authFetch(`${API_BASE}/api/faults/scenarios`)
-      .then(r => (r.ok ? r.json() : []))
-      .then((data: ScenarioOption[]) => setScenarios(Array.isArray(data) ? data : []))
-      .catch(() => {});
+  const loadFarm = () => {
     authFetch(`${API_BASE}/api/farms`)
       .then(r => (r.ok ? r.json() : null))
       .then((data: { farms?: FarmLite[]; active_farm_id?: string } | null) => {
@@ -134,6 +137,19 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         setFarm(active);
       })
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    authFetch(`${API_BASE}/api/faults/scenarios`)
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: ScenarioOption[]) => setScenarios(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    loadFarm();
+    // 目前來源種類（GET /api/source/status）——決定是否需要提示「啟動模擬以生成」。
+    authFetch(`${API_BASE}/api/source/status`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { kind?: string | null } | null) => setSourceKind(data ? data.kind ?? null : null))
+      .catch(() => setSourceKind(null));
     // 過去情境清單（GET /api/scenarios）
     authFetch(`${API_BASE}/api/scenarios`)
       .then(r => (r.ok ? r.json() : { scenarios: [] }))
@@ -204,6 +220,37 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       }
     } catch {
       setError(u('Network error while deleting.', '刪除時發生網路錯誤。'));
+    }
+  };
+
+  const sourceKindLabel = (kind: string | null | undefined): string => {
+    if (kind === 'view') return u('viewing past scenarios', '調閱過去情境');
+    if (kind === 'live') return u('live data connection', '實際資料對接');
+    return u('none started', '尚未啟動來源');
+  };
+
+  // 一鍵啟動即時模擬（WMOM-20260720-02）：讓使用者不必繞「先 activate 一個風場（順帶起 live
+  // 迴圈、正是撞 #4 的路）」——直接於情境頁把 simulation 來源起來即可生成。
+  const handleActivateSim = async () => {
+    setActivating(true);
+    setError('');
+    try {
+      const res = await authFetch(`${API_BASE}/api/source/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'simulation' }),
+      });
+      if (res.ok) {
+        setSourceKind('simulation');
+        loadFarm(); // activate_simulation 會 ensure_default_farm → 風場資訊即時更新
+      } else {
+        // 401 由 authClient 攔（彈登入）；其餘給明確回饋而非靜默。
+        setError(u(`Could not start simulation: HTTP ${res.status}`, `啟動模擬失敗：HTTP ${res.status}`));
+      }
+    } catch {
+      setError(u('Network error while starting simulation.', '啟動模擬時發生網路錯誤。'));
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -298,7 +345,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
   }
 
-  const canGenerate = !generating && scenarios.length > 0;
+  // 生成需 simulation 來源（有 simulator）。非 simulation（view/live/未起）時停用並提示一鍵啟動。
+  const simActive = sourceKind === 'simulation';
+  const canGenerate = !generating && scenarios.length > 0 && simActive;
 
   return (
     <div>
@@ -341,6 +390,40 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
           role="alert"
         >
           {error}
+        </div>
+      )}
+
+      {/* 尚未啟動模擬 → 引導一鍵啟動（WMOM-20260720-02）。undefined＝載入中不顯示。 */}
+      {sourceKind !== undefined && !simActive && (
+        <div
+          style={{
+            marginBottom: 14,
+            background: C.panelMuted,
+            border: `1px solid ${C.accent}`,
+            borderRadius: 8,
+            padding: '12px 14px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 12,
+            justifyContent: 'space-between',
+          }}
+          role="status"
+        >
+          <div style={{ fontSize: 13, color: C.text, flex: 1, minWidth: 220 }}>
+            {u(
+              `Generating a scenario needs the simulation engine — current source: ${sourceKindLabel(sourceKind)}. Start it to generate.`,
+              `產生新情境需要「即時模擬」引擎 — 目前來源：${sourceKindLabel(sourceKind)}。點右側啟動即可生成。`,
+            )}
+          </div>
+          <Btn
+            variant="primary"
+            onClick={handleActivateSim}
+            disabled={activating}
+            ariaLabel={u('Start simulation to generate', '啟動模擬以生成')}
+          >
+            {activating ? u('Starting…', '啟動中…') : u('Start simulation to generate', '啟動模擬以生成')}
+          </Btn>
         </div>
       )}
 
