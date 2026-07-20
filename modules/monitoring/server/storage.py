@@ -3,7 +3,7 @@ import json
 import threading
 import time as _time
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
 
 try:
@@ -395,6 +395,131 @@ class Storage:
         conn.execute("DELETE FROM sessions WHERE id = ?", (scenario_id,))
         conn.commit()
         return True
+
+    def scenario_turbine_aggregates(self, session_id: int) -> List[dict]:
+        """情境（session）內每台機組的物理輸出聚合——A0 情境摘要端點用（DEC-20260720-02）。
+
+        以 ``session_id`` 隔離、掃該情境的 raw ``turbine_data``，用 SQLite ``json_extract`` 直接在
+        SQL 內取值，避免把整個情境（長情境可達數十萬列/機組）載進 Python 再算。**依物理量本質分兩類、
+        各用正確的聚合方式**（這點很關鍵——用錯會得到語意上錯誤的數字）：
+
+        **A. 全情境統計（``GROUP BY``）**
+        - 功率：``AVG``/``MAX``（用 ``power_output`` 欄位，MW；呼叫端 ×1000 轉 kW、算能量/容量因數）。
+        - 累積損傷 / 生產時數（**單調遞增**的累積計數器）→ ``MAX(json_extract)`` 即末值。
+        - 極限負載（瞬時彎矩峰值）→ ``MAX``（情境中經歷過的最大負載）。
+        - 各運轉狀態步數：``SUM(CASE tur_state=...)``。
+
+        **B. 情境結束狀態（每台機組最後一列）**
+        - RUL、DEL **非單調**，不可用 ``MIN``/``MAX`` 冒充「末值」：
+          * ``WLOD_RulHours`` 是外推估計 ``prod_h·(1-dmg)/dmg``（``fatigue_model``），暖機期回 sentinel
+            ``-1.0``、之後隨 prod_h 成長可**上升**——``MIN`` 會鎖在 -1.0 sentinel、``MAX`` 也非末值。
+          * ``WLOD_Del*`` 每 10 分鐘視窗**重算並覆蓋**（非累積）——``MAX`` 取到的是「最差視窗」而非
+            情境結束值。
+          故改取該機組 ``timestamp`` 最大那列的真實值（``ROW_NUMBER() OVER (PARTITION BY turbine_id
+          ORDER BY timestamp DESC)``）。RUL 的 sentinel（<0，暖機不足無法估計）在此映射為 ``None``。
+
+        不可改用 ``turbine_data_1m``/``_10m`` 聚合表：downsampling 的 ``GROUP BY`` 不含 ``session_id``、
+        會跨 session 混算（見 ``run_downsampling`` 註解）。``json_extract`` 對缺鍵/NULL 回 NULL、聚合
+        自動略過；末值列缺鍵時該欄回 None。
+
+        Args:
+            session_id: 情境 session id。
+
+        Returns:
+            每台機組一個 dict（依 ``turbine_id`` 排序），含 ``n``（樣本步數）、A 類聚合、B 類末值；
+            該 session 無資料時回空 list。
+        """
+        conn = self._get_conn()
+        # A. 全情境統計（AVG/MAX/SUM）——僅適用單調累積量、峰值與計數。
+        agg_rows = conn.execute(
+            """
+            SELECT
+                turbine_id,
+                COUNT(*)                                           AS n,
+                AVG(power_output)                                  AS avg_power_mw,
+                MAX(power_output)                                  AS max_power_mw,
+                MAX(json_extract(scada_json, '$.WLOD_ProdHours'))  AS prod_hours,
+                MAX(json_extract(scada_json, '$.WLOD_DmgTwrFa'))   AS dmg_tower_fa,
+                MAX(json_extract(scada_json, '$.WLOD_DmgTwrSs'))   AS dmg_tower_ss,
+                MAX(json_extract(scada_json, '$.WLOD_DmgBldFlap')) AS dmg_blade_flap,
+                MAX(json_extract(scada_json, '$.WLOD_DmgBldEdge')) AS dmg_blade_edge,
+                MAX(json_extract(scada_json, '$.WLOD_TwrFaMom'))   AS max_tower_fa_moment,
+                MAX(json_extract(scada_json, '$.WLOD_TwrSsMom'))   AS max_tower_ss_moment,
+                MAX(json_extract(scada_json, '$.WLOD_BldFlapMom')) AS max_blade_flap_moment,
+                MAX(json_extract(scada_json, '$.WLOD_BldEdgeMom')) AS max_blade_edge_moment,
+                SUM(CASE WHEN tur_state = 6 THEN 1 ELSE 0 END)     AS production_steps,
+                SUM(CASE WHEN tur_state = 7 THEN 1 ELSE 0 END)     AS estop_steps
+            FROM turbine_data
+            WHERE session_id = ?
+            GROUP BY turbine_id
+            ORDER BY turbine_id
+            """,
+            (session_id,),
+        ).fetchall()
+
+        # B. 情境結束狀態：每台機組最後一列（timestamp 最大，id 為同秒的決勝）的 RUL/DEL 真實值。
+        final_rows = conn.execute(
+            """
+            SELECT
+                turbine_id,
+                json_extract(scada_json, '$.WLOD_RulHours')   AS rul_hours,
+                json_extract(scada_json, '$.WLOD_DelTwrFa')   AS del_tower_fa,
+                json_extract(scada_json, '$.WLOD_DelTwrSs')   AS del_tower_ss,
+                json_extract(scada_json, '$.WLOD_DelBldFlap') AS del_blade_flap,
+                json_extract(scada_json, '$.WLOD_DelBldEdge') AS del_blade_edge
+            FROM (
+                SELECT turbine_id, scada_json,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY turbine_id ORDER BY timestamp DESC, id DESC
+                       ) AS rn
+                FROM turbine_data
+                WHERE session_id = ?
+            )
+            WHERE rn = 1
+            """,
+            (session_id,),
+        ).fetchall()
+        final_by_id = {r["turbine_id"]: dict(r) for r in final_rows}
+
+        result = []
+        for row in agg_rows:
+            d = dict(row)
+            final = final_by_id.get(d["turbine_id"], {})
+            rul = final.get("rul_hours")
+            # RUL sentinel（<0：暖機不足 / 損傷過小，無法估計）→ None
+            d["rul_hours"] = rul if (rul is not None and rul >= 0) else None
+            for key in ("del_tower_fa", "del_tower_ss", "del_blade_flap", "del_blade_edge"):
+                d[key] = final.get(key)
+            result.append(d)
+        return result
+
+    def count_scenario_fault_events(self, start: Optional[str] = None,
+                                    end: Optional[str] = None) -> Dict[str, int]:
+        """時間窗內每台機組（有 turbine_id 者）的 ``fault`` 事件數——A0 摘要用。
+
+        ``history_events`` 無 ``session_id``（見 ``delete_scenario`` 註），情境的故障事件只能靠
+        ``sim_start..sim_end`` 時間窗撈。用 SQL ``COUNT ... GROUP BY`` 直接計數（**不設 LIMIT**，
+        避免長/密集情境下靜默截斷少算），並排除 farm-wide（``turbine_id IS NULL``）事件。呼叫端須知
+        此計數非 session 隔離——時間窗重疊的其他情境事件可能混入（故摘要回傳帶 ``eventsByTimeWindow``
+        旗標）。時間窗邊界比照 ``query_events``（``COALESCE(end_timestamp, timestamp) >= start`` /
+        ``timestamp <= end``）。
+
+        Returns:
+            ``{turbine_id: count}``；窗內無 fault 事件的機組不出現在 dict 中（呼叫端取 0）。
+        """
+        conn = self._get_conn()
+        query = ("SELECT turbine_id, COUNT(*) AS cnt FROM history_events "
+                 "WHERE event_type = 'fault' AND turbine_id IS NOT NULL")
+        params: list = []
+        if start:
+            query += " AND COALESCE(end_timestamp, timestamp) >= ?"
+            params.append(start)
+        if end:
+            query += " AND timestamp <= ?"
+            params.append(end)
+        query += " GROUP BY turbine_id"
+        rows = conn.execute(query, params).fetchall()
+        return {r["turbine_id"]: r["cnt"] for r in rows}
 
     # ══════════════════════════════════════════════════════════════════
     #  Data Writing

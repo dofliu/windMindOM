@@ -305,9 +305,18 @@ async def generate_bulk(body: dict):
     wind_profile = body.get("wind_profile")
 
     if scenario_name:
+        # 把當下機型的額定功率釘進情境 session——情境是凍結資料集，容量因數的分母應反映「生成當時的
+        # 機型」而非日後查詢時 simulator 的 spec（見 scenarios.py A0 摘要）。取第一台機組的 spec；
+        # 取不到則留 None，由摘要端點兜底預設。
+        _models = list(b.simulator.turbines.values())
+        scenario_rated_kw: Optional[float] = (
+            getattr(getattr(_models[0], "spec", None), "rated_power_kw", None)
+            if _models else None
+        )
         scenario_id: Optional[int] = b.storage.create_session(
             data_source="simulation",  # 情境資料一律模擬產生；情境判別靠 config.kind
             turbine_count=len(b.simulator.turbines),
+            rated_power_kw=scenario_rated_kw,
             config={
                 "kind": b.storage.SCENARIO_KIND,
                 "name": scenario_name,
