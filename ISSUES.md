@@ -16,8 +16,8 @@
 | open | 15 |
 | in_progress | 3 |
 | blocked | 0 |
-| done | 93 |
-| **total (active)** | **111** |
+| done | 94 |
+| **total (active)** | **112** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -128,6 +128,11 @@
   + `select_view_only`（view 模式不起任何來源）；前端 `SourceSelectPage` 四卡全屏（實接/即時模擬/
   產生情境/調閱過去情境）+ App gate（依 `/api/source/status`，登入後重查）。+12 tests（後端 7 +
   前端 5），e2e verify 開機 idle。**DEC-20260719-01 三階段全完成，Scenario 實測 follow-up 收尾。**
+- **WMOM-20260719-05** — ✅ **#140 review follow-up（done）**：#140 合併後 review 抓到 Must-fix——
+  `select_view_only` 沒把 storage 重指 active farm DB（第一動作就 view → 情境清單讀到空的 legacy
+  DB，即 #4「情境調不回來」新根因）。修：view 補 `_init_farm_storage`；+回歸測試（原會 fail）+
+  app-level verify。連收 should-fix：live 需 SUPERVISOR（enforce 開時）、gate 抽 `useSourceGate` hook
+  ＋登出防呆＋6 測、fixture 隔離修正；nice：health 回 sourceActive/kind。backend 98 / 前端 919 全綠。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

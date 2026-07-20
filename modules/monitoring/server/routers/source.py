@@ -11,8 +11,9 @@
 - ``POST /api/source/select``  選定並啟動來源
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from modules.auth.dependencies import require_authenticated
+from fastapi import APIRouter, Depends, HTTPException, Request
+from modules.auth.dependencies import get_current_actor, is_auth_enforced, require_authenticated
+from modules.auth.roles import Role
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/source", tags=["source"])
@@ -49,14 +50,23 @@ async def source_status():
     # 選來源＝任何登入者（這是登入後的必經入口，含現場工程師）
     dependencies=[Depends(require_authenticated())],
 )
-async def select_source(req: SourceSelect):
-    """選定並啟動資料來源。"""
+async def select_source(req: SourceSelect, request: Request):
+    """選定並啟動資料來源。
+
+    simulation / view＝任何登入者（含現場工程師的必經入口）；live（實際對接，會嘗試對外 OPC
+    握手且影響全域）比照 farm-activate 要求 SUPERVISOR 以上——但僅在 enforce 開時強制（過渡期
+    enforce 關時維持與其他 mode 一致開放，不破壞現行 no-token 操作）。
+    """
     b = get_broker()
     mode = (req.mode or "").strip().lower()
     if mode == "simulation":
         from server.app import activate_simulation
         activate_simulation()
     elif mode == "live":
+        if is_auth_enforced():
+            actor = get_current_actor(request)  # enforce 下無 token 已由 require_authenticated 擋
+            if actor.role is not Role.ADMIN and actor.role is not Role.SUPERVISOR:
+                raise HTTPException(403, "實際資料對接需要主管以上權限")
         from server.app import activate_live
         activate_live()
     elif mode == "view":

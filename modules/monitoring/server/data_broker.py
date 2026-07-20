@@ -340,6 +340,12 @@ class DataBroker:
         資料（正是使用者不想要的）。overview/live 視圖在此狀態下自然為空。
         """
         self.stop()
+        # 關鍵：把 storage 指向 active farm 的 DB。DataBroker.__init__ 的 Storage() 綁預設
+        # legacy 路徑，只有 start()/_init_farm_storage() 會重指。開機 idle 後若第一個動作就是
+        # 「調閱過去情境」（本方法，不經 start），沒重指就會讀到空的預設 DB → 情境清單空掉
+        # （正是 #4 要修的「情境調不回來」以新根因重現）。_init_farm_storage 為 idempotent。
+        if self._active_farm_id is None:
+            self._init_farm_storage()
         self.simulator = None
         self._source_active = True
         self._source_kind = "view"

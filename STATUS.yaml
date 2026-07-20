@@ -65,7 +65,7 @@ issue_stats:
   open: 13   # -04 done / -05 done → 原 open 15 - 2 done
   in_progress: 2   # WMOM-20260719-02 情境保存/調閱前後端皆 done → 移出 in_progress
   blocked: 0
-  done: 91  # 2026-07-19: +WMOM-20260719-01 復位（#137）+ -02 情境保存/調閱（#138+#139）+ -04 啟動 gate（本 PR）
+  done: 92  # 2026-07-19: +-01 復位（#137）+ -02 情境保存/調閱（#138+#139）+ -04 啟動 gate（#140）+ -05 view-storage fix
 
 inherited_baseline:
   source: digiWindTurbine
