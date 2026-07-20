@@ -585,7 +585,7 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
 4. **成本/報表** 在情境模式＝反映該情境（演練 / what-if 定位），可用但非真實營運帳。
 
 ### 拆成小 PR（逐一 review、可獨立合併）
-- **PR A（本 issue WMOM-20260720-06，純前端，低風險先做）**：設定頁的風況/電網/機組區塊依 `/api/source/status` 的 `source_kind` gate——非 `simulation` 時以明確說明取代互動控制。獨立於 B/C，先落地「設定該無作用就真的無作用」。
+- **PR A（本 issue WMOM-20260720-06，純前端，低風險先做）**：設定頁的**模擬參數 / 風況 / 電網 / 機組**四區塊依 `/api/source/status` 的 `source_kind` gate——非 `simulation` 時以明確說明取代互動控制。（模擬參數初版誤判為「不需 gate」，review 指出 view/live 下按儲存若 sim 參數有變 → `POST /api/config/simulation` → 後端 `switch_mode` 悄悄把來源切回 simulation、live 時斷 SCADA，破壞力反而最大，故一併 gate。）獨立於 B/C，先落地「設定該無作用就真的無作用」。
 - **PR B（後端＋小前端）**：`產生新情境` 不啟 free-run 迴圈（simulator 供批次用但不自由跑）；生成後導向「檢視該情境」。需處理 activate/來源狀態機。
 - **PR C（後端 broker＋端點＋前端，最大、需獨立子設計）**：broker 新增「情境檢視」來源狀態——`get_all_turbines/get_turbine` 服務該情境的最終快照、history 預設該 session；總覽/風機細節掛上情境資料。**動核心來源模型，實作前另寫子設計。**
 - **PR D（獨立小修）**：`GuidedTourPage` 同款 inline-component remount（客戶展示頁，#145 review 發現）+ 可選加 `react/no-unstable-nested-components` lint 防同類回歸。

@@ -16,16 +16,26 @@
 - mount 時 GET `/api/source/status` → `sourceKind`（SourceMode 型別）。
 - `liveTuningBlocked = sourceKind === 'view' || sourceKind === 'live'`——**fail-open**：載入中
   (undefined) / 查不到 (null) 不擋（不因狀態查詢失敗就把即時模擬使用者的控制藏掉）。
-- **風況控制 / 電網控制 / 風機規格**（三個會即時 POST `/api/config/*` 去改「正在跑的模擬」的區塊）
-  在 `liveTuningBlocked` 時以一則說明取代：「即時調整只在『即時模擬』來源下生效；情境風況於生成時
-  就固定」。**模擬參數**（存檔用、非即時 POST）不受 gate。
+- **模擬參數 / 風況控制 / 電網控制 / 風機規格**四區塊在 `liveTuningBlocked` 時以一則說明取代。
+  - 初版只 gate 後三個（會即時 POST `/api/config/*`），把**模擬參數**當「存檔用」排除——**review
+    Must-fix 指出這判斷錯了**：view/live 下按「儲存設定」若 sim 參數有變，`useSettings.saveSettings`
+    會 `POST /api/config/simulation` → 後端 `set_simulation` 落到 `switch_mode`，把來源**悄悄切回
+    simulation**（live 時 `b.simulator.is_running` 為 False → 一樣走 restart 分支 = 斷現場 SCADA，
+    正是 #144 的風險）。破壞力比另外三個更大，故**一併 gate**（藏起 → 無從觸發那次 POST）。
+  - 提示文案改寫得更準（點明「改了按儲存會把來源切回即時模擬 / live 時斷 SCADA」），live 時額外標明。
+- **Should-fix 折入**：`sourceKind` 併入既有 5 秒輪詢（gate 是安全網，來源被別處切換要跟得上）。
+- **Nits 折入**：測試 helper `sourceKindFetch` 型別改 `SourceMode`；`sourceKindLabel` fallback 加註
+  「防禦性、目前不會走到」；英文文案改自然。
+- **Should-fix 延後**：`sourceKind`/`sourceKindLabel` 與 ScenarioPage 重複 → 待 PR B/C 前抽共用 hook/util。
 
 ## 驗證
 
 - **tsc --noEmit** 全綠。
-- **vitest**：SettingsPage **21** passed（#145 的 18 + 3 新 gate 測試）；全前端 **933** passed。
-  既有 `defaultFetch` mock 補 `/api/source/status`（預設 simulation，既有 SIMULATION 測試維持有效）。
-- **mutation 自驗**：把 `liveTuningBlocked` 寫死 false → 「來源為 view → 隱藏風況控制」測試轉紅（非假綠）。
+- **vitest**：SettingsPage **22** passed（#145 的 18 + 4 新 gate 測試：view 隱藏四區塊 / live 文案點明
+  斷 SCADA / simulation 顯示 / fail-open）；全前端 **934** passed。既有 `defaultFetch` mock 補
+  `/api/source/status`（預設 simulation，既有 SIMULATION 測試維持有效）。
+- **mutation 自驗**：(a) `liveTuningBlocked` 寫死 false → view 測試轉紅；(b) 把模擬參數的 `!liveTuningBlocked`
+  拿掉 → view 測試（模擬參數應隱藏）轉紅。皆非假綠。
 - **vite build** 成功。含 fail-open 測試（source/status 查詢失敗仍顯示控制）。
 
 ## 分支基底（重要）

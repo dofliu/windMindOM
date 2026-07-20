@@ -29,6 +29,7 @@ import React from 'react';
 import SettingsPage from '../SettingsPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import { type AppSettings, DataSourceType } from '../../types';
+import type { SourceMode } from '../../hooks/useSourceGate';
 
 // ─── fixtures（型別嚴格，不用 as 強轉）─────────────────────────────────────
 
@@ -142,7 +143,7 @@ function statefulConfigFetch(): typeof defaultFetch {
 }
 
 /** defaultFetch 但 /api/source/status 回指定 kind（測「風況/電網/機組依實際來源 gate」）。 */
-function sourceKindFetch(kind: string): typeof defaultFetch {
+function sourceKindFetch(kind: SourceMode): typeof defaultFetch {
   return (input, init) => {
     const url = String(input);
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -424,27 +425,38 @@ describe('SettingsPage 系統設定面板', () => {
     expect(body).toMatchObject({ rated_power_kw: 5000, curtailment_kw: null });
   });
 
-  // ── 風況/電網/機組依實際來源 gate（WMOM-20260720-06 / DEC-20260720-01）───────────
-  it('來源為 view → 顯示「即時調整目前無作用」提示、隱藏風況/電網/機組區塊', async () => {
+  // ── 模擬設定（模擬參數/風況/電網/機組）依實際來源 gate（WMOM-20260720-06 / DEC-20260720-01）──
+  it('來源為 view → 顯示「模擬設定目前不可調整」提示、隱藏模擬參數/風況/電網/機組四區塊', async () => {
     fetchMock.mockImplementation(sourceKindFetch('view'));
     await renderSettings(makeSettings(DataSourceType.SIMULATION));
-    expect(screen.getByRole('heading', { name: '即時調整目前無作用' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '模擬設定目前不可調整' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '風況控制' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '電網控制' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '風機規格' })).not.toBeInTheDocument();
-    // 模擬參數（存檔用、非即時 POST）不受 gate，仍在。
-    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
+    // 模擬參數也一併 gate（review Must-fix）：view/live 下按儲存若 sim 參數有變會 POST
+    // /api/config/simulation → 後端 switch_mode 悄悄把來源切回 simulation。藏起就無從觸發。
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
   });
 
-  it('來源為 simulation → 顯示風況/電網/機組區塊、不顯示 gate 提示', async () => {
+  it('來源為 live → 提示文案點明「會中斷現場 SCADA 連線」', async () => {
+    fetchMock.mockImplementation(sourceKindFetch('live'));
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    const notice = screen.getByRole('heading', { name: '模擬設定目前不可調整' });
+    expect(notice).toBeInTheDocument();
+    expect(screen.getByText(/中斷現場 SCADA 連線/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+  });
+
+  it('來源為 simulation → 顯示模擬參數/風況/電網/機組區塊、不顯示 gate 提示', async () => {
     // defaultFetch 已回 kind=simulation。
     await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '風況控制' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '電網控制' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '即時調整目前無作用' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬設定目前不可調整' })).not.toBeInTheDocument();
   });
 
-  it('來源查詢失敗（fail-open）→ 仍顯示風況/電網控制，不因查不到就藏掉', async () => {
+  it('來源查詢失敗（fail-open）→ 仍顯示模擬參數/風況控制，不因查不到就藏掉', async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -452,8 +464,9 @@ describe('SettingsPage 系統設定面板', () => {
       return defaultFetch(input, init);
     });
     await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '風況控制' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '即時調整目前無作用' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬設定目前不可調整' })).not.toBeInTheDocument();
   });
 
   // ── 改設定不重建表單 DOM（WMOM-20260720-05 回歸：捲動/焦點不被重置回頁頂）─────────

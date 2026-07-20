@@ -145,22 +145,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       .then(setGridStatus)
       .catch(() => {});
   };
-
-  useEffect(() => {
-    refreshWindStatus();
-    refreshGridStatus();
-    const id = setInterval(() => {
-      refreshWindStatus();
-      refreshGridStatus();
-    }, 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
+  // 隨 wind/grid 一起每 5 秒輪詢：gate 是安全網，若使用者開著本頁期間來源被別處切換（如切到
+  // live），這裡要能跟上、及時擋掉即時控制，而非停在 mount 當下的過期狀態（review Should-fix）。
+  const refreshSourceKind = () => {
     fetch(`${API_BASE}/api/source/status`)
       .then(r => (r.ok ? r.json() : null))
       .then((data: { kind?: SourceMode | null } | null) => setSourceKind(data ? data.kind ?? null : null))
       .catch(() => setSourceKind(null));
+  };
+
+  useEffect(() => {
+    refreshWindStatus();
+    refreshGridStatus();
+    refreshSourceKind();
+    const id = setInterval(() => {
+      refreshWindStatus();
+      refreshGridStatus();
+      refreshSourceKind();
+    }, 5000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -313,8 +316,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   // 不因狀態查詢失敗而把即時模擬使用者的控制藏掉）。
   const liveTuningBlocked = sourceKind === 'view' || sourceKind === 'live';
   const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
-    if (kind === 'view') return u('viewing a past scenario', '調閱過去情境');
-    if (kind === 'live') return u('live data connection', '實際資料對接');
+    if (kind === 'view') return u('a past scenario (view mode)', '調閱過去情境');
+    if (kind === 'live') return u('the live data connection', '實際資料對接');
+    // 防禦性 fallback：目前唯一呼叫點在 liveTuningBlocked（kind 必為 view/live），不會走到這裡。
     return u('the current source', '目前來源');
   };
 
@@ -372,8 +376,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         </p>
       </Section>
 
-      {/* Simulation */}
-      {isSim && (
+      {/* Simulation — 亦 gate：view/live 下按「儲存設定」若 sim 參數有變，useSettings 會
+          POST /api/config/simulation → 後端 set_simulation 落到 switch_mode，把來源**悄悄切回
+          simulation**（live 時等於斷現場 SCADA）。故一併藏起、不讓改（review Must-fix）。 */}
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Simulation', '模擬參數')} tone="accent">
           <div
             style={{
@@ -485,13 +491,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         </Section>
       )}
 
-      {/* 情境/檢視/live 下：風況/電網/機組即時調整無作用 → 以說明取代互動控制（DEC-20260720-01）。 */}
+      {/* view/live 下：模擬參數 / 風況 / 電網 / 機組皆以說明取代互動控制（DEC-20260720-01 + review
+          Must-fix）——不只是「無作用」，改了按儲存還會把來源切回 simulation（live 時斷現場連線）。 */}
       {isSim && liveTuningBlocked && (
-        <Section title={u('Live tuning unavailable', '即時調整目前無作用')} tone="info">
+        <Section title={u('Simulation settings unavailable here', '模擬設定目前不可調整')} tone="info">
           <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>
             {u(
-              `Wind / grid / turbine tuning applies only while the live simulation source is running. Current source: ${sourceKindLabel(sourceKind)}. A scenario's wind is fixed at generation time, so changing it here would have no effect.`,
-              `風況 / 電網 / 機組的即時調整只在「即時模擬」來源執行時生效。目前來源：${sourceKindLabel(sourceKind)}。情境的風況於生成時就已固定，在這裡改不會有作用。`,
+              `You're currently on: ${sourceKindLabel(sourceKind)}. Simulation settings (parameters / wind / grid / turbine spec) apply only while the live simulation source is running — and saving a change here would switch the source back to simulation${sourceKind === 'live' ? ', disconnecting the live SCADA feed' : ''}. A scenario's wind is fixed at generation time.`,
+              `目前來源：${sourceKindLabel(sourceKind)}。模擬設定（模擬參數 / 風況 / 電網 / 機組規格）只在「即時模擬」來源執行時有意義——在這裡改動並儲存會把來源切回「即時模擬」${sourceKind === 'live' ? '（實際對接時等於中斷現場 SCADA 連線）' : ''}。情境的風況於生成時就已固定。`,
             )}
           </div>
         </Section>
