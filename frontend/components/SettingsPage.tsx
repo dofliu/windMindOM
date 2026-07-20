@@ -68,6 +68,35 @@ interface TurbineSpec {
   curtailment_kw?: number | null;
 }
 
+/**
+ * Section — 卡片式區塊。**必須定義在 SettingsPage 之外**（module scope）。
+ *
+ * 若定義在 render body 內，每次 SettingsPage re-render（改任何設定的本地 state、或每 5 秒
+ * 刷新 wind/grid 狀態）都會生出**新的元件 identity** → React 視為不同型別 → 卸載並重建整個
+ * 表單 DOM → 捲動位置與輸入焦點被重置回頁頂。這正是使用者回報「改任何設定畫面就跳回 top、
+ * 停不在原地」的根因（WMOM-20260720-05）。移到 module scope 後 identity 穩定，就地 reconcile、
+ * 不再重建。
+ */
+const Section: React.FC<{
+  title: React.ReactNode;
+  tone?: 'accent' | 'amber' | 'info' | 'warn';
+  children: React.ReactNode;
+}> = ({ title, tone = 'accent', children }) => {
+  const { C } = useTheme();
+  const tonePalette = {
+    accent: C.accent,
+    amber: C.amber,
+    info: C.info,
+    warn: C.warn,
+  };
+  return (
+    <Card style={{ marginBottom: 14, borderLeft: `4px solid ${tonePalette[tone]}` }}>
+      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 14 }}>{title}</h3>
+      {children}
+    </Card>
+  );
+};
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'zh' }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
@@ -265,29 +294,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
     onSave(formData);
     setSaveStatus('success');
     setTimeout(() => setSaveStatus('idle'), 2000);
-  };
-
-  // ─── inline section component ───────────────────────────
-
-  const Section: React.FC<{ title: React.ReactNode; tone?: 'accent' | 'amber' | 'info' | 'warn'; children: React.ReactNode }> = ({
-    title,
-    tone = 'accent',
-    children,
-  }) => {
-    const tonePalette = {
-      accent: C.accent,
-      amber: C.amber,
-      info: C.info,
-      warn: C.warn,
-    };
-    return (
-      <Card style={{ marginBottom: 14, borderLeft: `4px solid ${tonePalette[tone]}` }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 14 }}>
-          {title}
-        </h3>
-        {children}
-      </Card>
-    );
   };
 
   const isSim = formData.dataSource === DataSourceType.SIMULATION;

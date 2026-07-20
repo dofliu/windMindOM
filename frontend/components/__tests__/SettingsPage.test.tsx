@@ -409,4 +409,21 @@ describe('SettingsPage 系統設定面板', () => {
     // 空字串的 curtailment_kw 轉 null。
     expect(body).toMatchObject({ rated_power_kw: 5000, curtailment_kw: null });
   });
+
+  // ── 改設定不重建表單 DOM（WMOM-20260720-05 回歸：捲動/焦點不被重置回頁頂）─────────
+  it('改設定觸發 re-render → Section 不被 remount（同一 DOM 節點）', async () => {
+    // 根因：Section 若定義在 render body 內，每次 re-render 產生新元件 identity → React 卸載並
+    // 重建整個表單 DOM → 捲動位置/輸入焦點被重置回頁頂。用「恆在的『資料源』heading」當哨兵：
+    // 觸發一次 re-render 後，若表單被重建，此節點會換成新的 DOM 參照。
+    fetchMock.mockImplementation(statefulConfigFetch());
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    const before = screen.getByRole('heading', { name: '資料源' });
+    // 點一個風況 profile 鈕 → setWindProfile → SettingsPage re-render（不改變區塊顯隱）。
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '平靜 (2 m/s)' }));
+    });
+    const after = screen.getByRole('heading', { name: '資料源' });
+    // Section 穩定（module scope）→ 就地 reconcile → 同一節點；若退回 inline 定義則會是新節點。
+    expect(after).toBe(before);
+  });
 });
