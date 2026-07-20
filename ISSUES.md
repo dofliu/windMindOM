@@ -149,13 +149,22 @@
   - 使用者其餘：#1 view 無情境＝空（**預期**，已有空狀態文案）；#2 未選風場產生情境「無法啟用」
     → **已定位根因**（view 模式不起 simulator），拆為 **WMOM-20260720-02**。
 
+- **WMOM-20260720-02** — 🟡 **#2 情境頁「未起模擬就生成」guided activation → PR #143 merged**：使用者從
+  「調閱過去情境」（view，`simulator=None`）進來到情境頁按生成 → `400 Simulator not running`＝「無法
+  啟用」；後來「選風場」順帶起了 live 迴圈才能生成（正是撞 #4 的路）。approach「**一鍵啟動提示**」：
+  情境頁偵測來源種類（`/api/source/status`），非 simulation 則停用「生成」並顯示提示 +「啟動模擬以生成」
+  按鈕（`/api/source/select {mode:simulation}`）。純前端（ScenarioPage）+4 vitest。
+
 **In progress**
-- **WMOM-20260720-02** — 🟡 **#2 情境頁「未起模擬就生成」guided activation**：使用者從「調閱過去情境」
-  （view，`simulator=None`）進來到情境頁按生成 → `400 Simulator not running`＝「無法啟用」；後來「選
-  風場」順帶起了 live 迴圈才能生成（正是撞 #4 的路）。approach 已選「**一鍵啟動提示**」：情境頁偵測
-  來源種類（`/api/source/status`），若非 simulation 則停用「生成」並顯示明確提示 +「啟動模擬以生成」
-  按鈕（呼叫 `/api/source/select {mode:simulation}`），避免繞「先 activate farm 順帶起 live」的路。
-  純前端（ScenarioPage）+ vitest。
+- **WMOM-20260720-03** — 🔴 **#143 code review Must-fix：live 一鍵切走無確認/無回頭路**：#143 的「啟動
+  模擬以生成」按鈕對**任何**非 simulation 來源都顯示——包含 `live`（實接現場 SCADA）。現場工程師手滑
+  點到會**無預警斷掉真實連線**（`switch_mode` 內 `stop()`），且 App 只在 `sourceActive===false` 時顯示
+  選源頁 → UI 無法切回 live。修：`handleActivateSim` 對 `sourceKind==='live'` 加二次確認（比照本檔刪除
+  情境的 `window.confirm`），文案講清後果；連收 review should-fix：`sourceKind` 改用 `SourceMode` 型別、
+  補 live 分支 + 載入中不閃動 + `loadFarm` 重載三個 mutation-test 抓到的覆蓋缺口、`handleActivateSim`
+  失敗解析後端 detail（與 handleGenerate 共用 `parseErrorDetail`）。純前端 +5 vitest（含 2 組 mutation 自驗）。
+  - 中長期（未做，非阻塞）：`ScenarioPage` 與 `useSourceGate.selectMode` 邏輯重複可整併；後端 `select`
+    切走 live 無角色檢查（起 live 需 SUPERVISOR）之不對稱可考慮補齊。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

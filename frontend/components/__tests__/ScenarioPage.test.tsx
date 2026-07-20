@@ -560,6 +560,8 @@ describe('ScenarioPage — 未起模擬引導一鍵啟動', () => {
     // 啟動成功 → 提示消失、生成啟用（不必再繞「先選風場」）。
     await waitFor(() => expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();
+    // 啟動後重載風場（activate_simulation 會 ensure_default_farm）→ /api/farms 再打一次（mount 1 + 啟動 1）。
+    await waitFor(() => expect(calls((u, m) => u.includes('/api/farms') && m === 'GET').length).toBe(2));
   });
 
   it('啟動失敗（select 非 ok）→ 顯示錯誤且仍停用生成', async () => {
@@ -571,5 +573,63 @@ describe('ScenarioPage — 未起模擬引導一鍵啟動', () => {
     });
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/啟動模擬失敗/));
     expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled();
+  });
+
+  // ─── live 切換安全（WMOM-20260720-03，code review Must-fix）───────────────────
+  // live＝實接現場 SCADA。切到 simulation 會 stop() 掉連線且 UI 無法切回 → 必須二次確認。
+
+  it('來源為 live → 標示「實際資料對接」、生成停用', async () => {
+    installFetch({ sourceKind: 'live' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText(/實際資料對接/)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled();
+  });
+
+  it('live 時點「啟動模擬以生成」→ 跳二次確認；確認後才送 select', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installFetch({ sourceKind: 'live' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByRole('button', { name: '啟動模擬以生成' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '啟動模擬以生成' }));
+    });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(calls((u, m) => u.includes('/api/source/select') && m === 'POST').length).toBe(1),
+    );
+  });
+
+  it('live 時取消二次確認 → 不送 select（不中斷現場連線）', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    installFetch({ sourceKind: 'live' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByRole('button', { name: '啟動模擬以生成' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '啟動模擬以生成' }));
+    });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(calls((u, m) => u.includes('/api/source/select') && m === 'POST')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeDisabled(); // 仍停在 live
+  });
+
+  it('/api/source/status 載入中（未 resolve）→ 不顯示提示（避免閃動）', async () => {
+    // 守住「sourceKind === undefined 時不顯示 banner」——reviewer 用 mutation test 證原本無測試蓋到。
+    installFetch({ sourceKind: 'view' });
+    const base = fetchMock.getMockImplementation()!;
+    let resolveStatus!: (v: Response) => void;
+    const pending = new Promise<Response>(r => {
+      resolveStatus = r;
+    });
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      url.includes('/api/source/status') ? pending : base(url, init),
+    );
+    await renderPage('zh');
+    // status 尚未 resolve（sourceKind===undefined）→ banner 不得出現（否則會閃一下）。
+    expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument();
+    // resolve 成 view → banner 才出現。
+    await act(async () => {
+      resolveStatus({ ok: true, status: 200, json: () => Promise.resolve({ kind: 'view' }) } as Response);
+    });
+    await waitFor(() => expect(screen.getByText(/需要「即時模擬」引擎/)).toBeInTheDocument());
   });
 });
