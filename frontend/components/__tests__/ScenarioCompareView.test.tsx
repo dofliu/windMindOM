@@ -84,11 +84,11 @@ function summaryCalls() {
   return fetchMock.mock.calls.map(c => String(c[0])).filter(u => u.includes('/summary'));
 }
 
-async function renderView(lang: 'en' | 'zh' = 'zh') {
+async function renderView(lang: 'en' | 'zh' = 'zh', scenario: SavedScenario = SCENARIO) {
   await act(async () => {
     render(
       <ThemeProvider>
-        <ScenarioCompareView scenario={SCENARIO} lang={lang} />
+        <ScenarioCompareView scenario={scenario} lang={lang} />
       </ThemeProvider>,
     );
   });
@@ -133,6 +133,31 @@ describe('ScenarioCompareView — 有故障 vs 健康（A1 核心）', () => {
     await waitFor(() => expect(screen.getByText(/有故障機組平均/)).toBeInTheDocument());
     expect(screen.getByText(/健康機組平均/)).toBeInTheDocument();
   });
+
+  it('faulted 判別**只**看 fault_schedule，不看 faultEvents（守住 A1 核心設計）', async () => {
+    // 排程只有 WT001；但 summary 裡 WT001 faultEvents=0（排定未觸發）、WT002 faultEvents=5
+    //（時間窗滲入其他情境的事件）。正確行為：WT001 標「排定未觸發」、WT002 **不**標故障。
+    // 若誤用 faultEvents>0 判別，會反過來（WT002 標故障、WT001 不標）→ 本測抓到。
+    const scenario: SavedScenario = {
+      ...SCENARIO,
+      config: { ...SCENARIO.config, fault_schedule: [{ scenario_id: 'x', turbine_id: 'WT001', offset_seconds: 0 }] },
+    };
+    installFetch({
+      ...SUMMARY,
+      turbines: [
+        { ...SUMMARY.turbines[0], turbineId: 'WT001', faultEvents: 0 },
+        { ...SUMMARY.turbines[1], turbineId: 'WT002', faultEvents: 5 },
+      ],
+    });
+    await renderView('zh', scenario);
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+
+    const wt001Row = screen.getByText('WT001', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt001Row).getByText('排定未觸發')).toBeInTheDocument(); // 排定但 faultEvents=0
+    const wt002Row = screen.getByText('WT002', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt002Row).queryByText('故障')).toBeNull(); // 未排程 → healthy，即使 faultEvents=5
+    expect(within(wt002Row).queryByText('排定未觸發')).toBeNull();
+  });
 });
 
 describe('ScenarioCompareView — 指標切換 + 提示', () => {
@@ -150,6 +175,14 @@ describe('ScenarioCompareView — 指標切換 + 提示', () => {
   it('eventsByTimeWindow → 顯示故障計數時間窗提示', async () => {
     await renderView();
     await waitFor(() => expect(screen.getByText(/故障數走情境時間窗/)).toBeInTheDocument());
+  });
+
+  it('情境無 fault_schedule 但有觀測到故障 → 顯示排程缺失防呆提示（Must-fix）', async () => {
+    // 模擬 ScenarioPage 舊版手組 lastScenario（無 fault_schedule）＋ summary 有 faultEvents。
+    const noSchedule: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, fault_schedule: undefined } };
+    installFetch(SUMMARY); // WT002 faultEvents=2
+    await renderView('zh', noSchedule);
+    await waitFor(() => expect(screen.getByText(/未帶故障排程/)).toBeInTheDocument());
   });
 });
 

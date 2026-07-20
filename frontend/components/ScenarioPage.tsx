@@ -353,6 +353,14 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
             total_readings: data.total_readings,
             faults_injected: data.faults_injected,
             status: 'ok',
+            // 帶上排程——否則「觀察此情境」→ 機組比較（A1）少了 fault_schedule 會把所有機組都當
+            // 健康（faulted 判別靠排程，非時間窗的 faultEvents）。offset_seconds 由 at_hour 換算，
+            // 與後端 generate-bulk 落地的 config_json.fault_schedule 對齊。
+            fault_schedule: faults.map(f => ({
+              scenario_id: f.scenarioId,
+              turbine_id: f.turbineId,
+              offset_seconds: f.atHour * 3600,
+            })),
           },
         });
       }

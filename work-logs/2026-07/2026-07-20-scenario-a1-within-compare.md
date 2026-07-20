@@ -55,6 +55,31 @@ faulted·healthy 計數）→ 指標選擇（容量因數/發電量/生產佔比
   時間窗提示、非 ok → 錯誤狀態。ScenarioDetail 既有 7 測不受頁籤整合影響。
 - 前端 941→**955** passed、tsc/build 綠；backend 情境測 23 passed、ruff 綠（docstring 無邏輯變更）。
 
+## review round-1（pre-push，1 Must-fix + 5 Should-fix + 4 Nice-to-have，皆處理）
+
+本次**先本地 review 再 push**（因近期 PR 秒合，避免又合到未收斂版本）。reviewer 實測抓到：
+
+- 🔴 **Must-fix — 「觀察此情境」happy path 少 fault_schedule → 全部誤判健康**：`ScenarioPage.handleGenerate`
+  手組的 `lastScenario.config` 沒帶 `fault_schedule`（生成後主 CTA 用它）→ faulted 判別靠排程故全空 →
+  分群全落 healthy，靜默錯（正是 A1 存在理由的最短動線；§15 demo 可信度風險）。**修**：(a) `lastScenario.config`
+  補 `fault_schedule`（`offset_seconds = at_hour×3600`，對齊後端落地）；(b) ScenarioCompareView 防呆——
+  faultedIds 空但有機組 faultEvents>0 時明示「未帶排程、分群可能不準」而非靜默呈現全健康。
+- 🟡 **元件測假綠**：fixture 讓 fault_schedule 與 faultEvents 一致，mutate 成用 faultEvents 判別仍全綠。
+  **修**：加「兩者相左」測（WT001 排定但 faultEvents=0→標排定未觸發、WT002 未排但 faultEvents=5→仍 healthy）；
+  mutate faultedIds 改吃 faultEvents → 該測轉紅。
+- 🟡 **fetch 生命週期**：aborted 舊 request 的 finally 會把新 request 的 loading 打回、閃「無摘要」。
+  **修**：比照 hooks/useCostData，`!ctrl.signal.aborted` 才套結果/結束 loading。
+- 🟡 **顏色不一致**：healthy 在 headline/avg 用 `C.ok`、bar/legend 用 `C.accent`（dark mode 兩者相同遮蔽了）。
+  **修**：healthy 一律 `C.ok`，`C.accent` 只留給互動選取。
+- 🟡 **ISSUES.md 寫成被否決的 faultEvents 判別** → 改為 fault_schedule。
+- 🟡 **ScenarioDetail ~140 行未重排縮排**：**改為抽出 `ScenarioTrendView`**（與 ScenarioCompareView 對稱），
+  ScenarioDetail 變乾淨頁籤容器——比重排更好且免縮排風險。既有 7 測不受影響（預設 trend 頁 render 同 DOM）。
+- 🟢 Nice-to-have（缺值 bar 不可見 / 型別比 UI 寬 / 鑽時序橋接 / Cell 非首例）——記錄，未動（缺值由表格 `—`
+  區分已足；鑽時序趨勢頁選機組即可）。
+
+驗證：+2 測（相左 + 排程缺失防呆），2 個 mutation（classifyTurbines faulted、component faultedIds 改吃
+faultEvents）各自轉紅。前端 955→**957** passed、tsc/build 綠。
+
 ## 卡在哪 / 下次怎麼接手
 
 - 本實作分支收斂 → 開 PR（draft + `hold`）→ code-review → 移除 `hold` → 合。

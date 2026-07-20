@@ -71,11 +71,14 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
     setError(null);
     authFetch(`${API_BASE}/api/scenarios/${scenario.id}/summary`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((res: ScenarioSummary) => setSummary(res))
+      // 只有自己仍是最新 request（未被 abort）才套用結果 / 結束 loading——否則切情境（scenario.id
+      // 變）時，被 abort 的舊 request 其 finally 會把新 request 剛設的 loading 打回，短暫閃「無摘要」。
+      // 比照 hooks/useCostData 的 guard。
+      .then((res: ScenarioSummary) => { if (!ctrl.signal.aborted) setSummary(res); })
       .catch((e: Error) => {
         if (e.name !== 'AbortError') setError(u('Failed to load scenario summary.', '載入情境摘要失敗。'));
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
   }, [scenario.id]);
 
@@ -100,6 +103,12 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
     [summary, faultedIds],
   );
   const counts = useMemo(() => faultedHealthyCounts(rows), [rows]);
+  // 排程缺失防呆（Must-fix）：faultedIds 空但有機組實際觸發故障 → 很可能是這條路徑的 scenario 物件
+  // 沒帶 fault_schedule。此時分群會全落在 healthy、誤導；明示提醒而非靜默呈現「全部健康」。
+  const scheduleMissing = useMemo(
+    () => faultedIds.size === 0 && rows.some((r) => r.faultEvents > 0),
+    [faultedIds, rows],
+  );
   const activeMetric = METRICS.find((m) => m.key === metric) ?? METRICS[0];
   const bars = useMemo(() => compareBars(rows, metric), [rows, metric]);
   const means = useMemo(() => groupMeans(rows, metric), [rows, metric]);
@@ -130,6 +139,25 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
 
   return (
     <div>
+      {scheduleMissing && (
+        <div
+          style={{
+            marginBottom: 14,
+            fontSize: 12,
+            color: C.amber,
+            background: C.panelMuted,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            padding: '8px 12px',
+          }}
+        >
+          {u(
+            'Fault schedule unavailable for this scenario — faulted/healthy grouping may be inaccurate (turbines shown as healthy despite observed fault events). Open it from the saved-scenario list to load the schedule.',
+            '此情境未帶故障排程——有故障/健康分群可能不準（雖有觀測到故障事件，機組仍被歸為健康）。請從「過去情境」清單開啟以載入排程。',
+          )}
+        </div>
+      )}
+
       {/* ── 風場層 headline ── */}
       <Card style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>
@@ -249,7 +277,7 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
               />
               <Bar dataKey="value" name={u(activeMetric.en, activeMetric.zh)} isAnimationActive={false}>
                 {bars.map((b) => (
-                  <Cell key={b.turbineId} fill={b.faulted ? C.warn : C.accent} fillOpacity={b.missing ? 0.25 : 1} />
+                  <Cell key={b.turbineId} fill={b.faulted ? C.warn : C.ok} fillOpacity={b.missing ? 0.25 : 1} />
                 ))}
               </Bar>
             </BarChart>
@@ -258,7 +286,7 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
         <div style={{ fontSize: 11, color: C.faint, marginTop: 6 }}>
           <span style={{ color: C.warn }}>■</span> {u('faulted (scheduled injection)', '有故障（排定注入）')}
           {'　'}
-          <span style={{ color: C.accent }}>■</span> {u('healthy', '健康')}
+          <span style={{ color: C.ok }}>■</span> {u('healthy', '健康')}
         </div>
       </Card>
 

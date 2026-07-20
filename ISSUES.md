@@ -189,9 +189,10 @@
 **In progress**
 - **WMOM-20260720-10** — 🟡 **情境比較分析 · A1：同情境內比較**（DEC-20260720-02）：消費 A0 summary 端點的
   前端比較視圖——單一情境內比較不同機組，凸顯「有故障 vs 健康機組」的差異（每台機組跨指標比較圖表 +
-  faulted/healthy 分群著色 + 風場層 headline）。faulted 判別由 `turbines[].faultEvents > 0`。純函式（判別/
-  排序/標記）抽出便於測試、mutation-verified。附帶折入 A0 round-2 遺留：`count_scenario_fault_events`
-  docstring 補 `Args:`（§7）。
+  faulted/healthy 分群著色 + 風場層 headline）。**faulted 判別由情境 `fault_schedule`（注入排程，session
+  隔離、可靠）**，非 summary 的 `faultEvents`（後者走時間窗、`eventsByTimeWindow` 可能混入重疊情境）；
+  `faultEvents` 另作為「實際觀測到的故障次數」並列顯示。純函式（判別/排序/分群平均）抽出便於測試、
+  mutation-verified。附帶折入 A0 round-2 遺留：`count_scenario_fault_events` docstring 補 `Args:`（§7）。
 
 - **WMOM-20260720-09** — ✅ **情境比較分析 · A0：情境摘要端點 → PR #148 merged**（DEC-20260720-02）：`GET /api/scenarios/
   {id}/summary`——給定情境 id，聚合該 session 的物理資料出「每台機組（發電量/容量因數/生產佔比/累積損傷/
