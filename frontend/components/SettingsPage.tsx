@@ -13,6 +13,7 @@ import React, { useEffect, useState } from 'react';
 import { type AppSettings, DataSourceType } from '../types';
 import { Btn, Card, Field, Input, PageHeader, Select, StatusPill } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import type { SourceMode } from '../hooks/useSourceGate';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -68,6 +69,35 @@ interface TurbineSpec {
   curtailment_kw?: number | null;
 }
 
+/**
+ * Section — 卡片式區塊。**必須定義在 SettingsPage 之外**（module scope）。
+ *
+ * 若定義在 render body 內，每次 SettingsPage re-render（改任何設定的本地 state、或每 5 秒
+ * 刷新 wind/grid 狀態）都會生出**新的元件 identity** → React 視為不同型別 → 卸載並重建整個
+ * 表單 DOM → 捲動位置與輸入焦點被重置回頁頂。這正是使用者回報「改任何設定畫面就跳回 top、
+ * 停不在原地」的根因（WMOM-20260720-05）。移到 module scope 後 identity 穩定，就地 reconcile、
+ * 不再重建。
+ */
+const Section: React.FC<{
+  title: React.ReactNode;
+  tone?: 'accent' | 'amber' | 'info' | 'warn';
+  children: React.ReactNode;
+}> = ({ title, tone = 'accent', children }) => {
+  const { C } = useTheme();
+  const tonePalette = {
+    accent: C.accent,
+    amber: C.amber,
+    info: C.info,
+    warn: C.warn,
+  };
+  return (
+    <Card style={{ marginBottom: 14, borderLeft: `4px solid ${tonePalette[tone]}` }}>
+      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 14 }}>{title}</h3>
+      {children}
+    </Card>
+  );
+};
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'zh' }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
@@ -75,6 +105,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   const [formData, setFormData] = useState<AppSettings>(settings);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success'>('idle');
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
+  // 目前實際來源種類（WMOM-20260720-06 / DEC-20260720-01）：風況/電網/機組是「即時模擬」的即時
+  // 調整，只在 simulation 來源下有作用。view/live/情境下應停用（情境風況於生成時就固定）。
+  // undefined＝載入中；null＝查不到（fail-open，不因狀態查詢失敗就把控制藏起來）。
+  const [sourceKind, setSourceKind] = useState<SourceMode | null | undefined>(undefined);
 
   // wind / grid state
   const [windStatus, setWindStatus] = useState<WindStatus | null>(null);
@@ -111,13 +145,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       .then(setGridStatus)
       .catch(() => {});
   };
+  // 隨 wind/grid 一起每 5 秒輪詢：gate 是安全網，若使用者開著本頁期間來源被別處切換（如切到
+  // live），這裡要能跟上、及時擋掉即時控制，而非停在 mount 當下的過期狀態（review Should-fix）。
+  const refreshSourceKind = () => {
+    fetch(`${API_BASE}/api/source/status`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { kind?: SourceMode | null } | null) => setSourceKind(data ? data.kind ?? null : null))
+      .catch(() => setSourceKind(null));
+  };
 
   useEffect(() => {
     refreshWindStatus();
     refreshGridStatus();
+    refreshSourceKind();
     const id = setInterval(() => {
       refreshWindStatus();
       refreshGridStatus();
+      refreshSourceKind();
     }, 5000);
     return () => clearInterval(id);
   }, []);
@@ -262,35 +306,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    // 防守（review Must-fix）：gate 只藏 UI，不擋「編輯到一半、來源在背景被別處切走（5 秒輪詢抓到
+    // → liveTuningBlocked 翻真 → Section 隱藏）後，formData 仍留著剛才的 stale 編輯值」被儲存夾帶
+    // 送出。若目前 blocked，送出時把模擬參數還原成 settings（＝未變動），避免 useSettings 偵測到
+    // simChanged → POST /api/config/simulation → 後端 switch_mode 悄悄把來源切回 simulation（live
+    // 時斷現場 SCADA）。註：只在送出當下還原，formData 本身保留使用者編輯值，來源切回即時模擬時
+    // 編輯不遺失。
+    const payload = liveTuningBlocked ? { ...formData, simulation: settings.simulation } : formData;
+    onSave(payload);
     setSaveStatus('success');
     setTimeout(() => setSaveStatus('idle'), 2000);
   };
 
-  // ─── inline section component ───────────────────────────
-
-  const Section: React.FC<{ title: React.ReactNode; tone?: 'accent' | 'amber' | 'info' | 'warn'; children: React.ReactNode }> = ({
-    title,
-    tone = 'accent',
-    children,
-  }) => {
-    const tonePalette = {
-      accent: C.accent,
-      amber: C.amber,
-      info: C.info,
-      warn: C.warn,
-    };
-    return (
-      <Card style={{ marginBottom: 14, borderLeft: `4px solid ${tonePalette[tone]}` }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 14 }}>
-          {title}
-        </h3>
-        {children}
-      </Card>
-    );
-  };
-
   const isSim = formData.dataSource === DataSourceType.SIMULATION;
+  // 只在「明確知道」目前來源是 view / live 時才擋（fail-open：載入中/查不到就照常顯示，
+  // 不因狀態查詢失敗而把即時模擬使用者的控制藏掉）。
+  const liveTuningBlocked = sourceKind === 'view' || sourceKind === 'live';
+  const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
+    if (kind === 'view') return u('a past scenario (view mode)', '調閱過去情境');
+    if (kind === 'live') return u('the live data connection', '實際資料對接');
+    // 防禦性 fallback：目前唯一呼叫點在 liveTuningBlocked（kind 必為 view/live），不會走到這裡。
+    return u('the current source', '目前來源');
+  };
 
   return (
     <form onSubmit={handleSubmit}>
@@ -346,8 +383,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         </p>
       </Section>
 
-      {/* Simulation */}
-      {isSim && (
+      {/* Simulation — 亦 gate：view/live 下按「儲存設定」若 sim 參數有變，useSettings 會
+          POST /api/config/simulation → 後端 set_simulation 落到 switch_mode，把來源**悄悄切回
+          simulation**（live 時等於斷現場 SCADA）。故一併藏起、不讓改（review Must-fix）。 */}
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Simulation', '模擬參數')} tone="accent">
           <div
             style={{
@@ -459,8 +498,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         </Section>
       )}
 
+      {/* view/live 下：模擬參數 / 風況 / 電網 / 機組皆以說明取代互動控制（DEC-20260720-01 + review
+          Must-fix）——不只是「無作用」，改了按儲存還會把來源切回 simulation（live 時斷現場連線）。 */}
+      {isSim && liveTuningBlocked && (
+        <Section title={u('Simulation settings unavailable here', '模擬設定目前不可調整')} tone="info">
+          <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>
+            {u(
+              `You're currently on: ${sourceKindLabel(sourceKind)}. Simulation settings (parameters / wind / grid / turbine spec) apply only while the live simulation source is running — and saving a change here would switch the source back to simulation${sourceKind === 'live' ? ', disconnecting the live SCADA feed' : ''}. A scenario's wind is fixed at generation time.`,
+              `目前來源：${sourceKindLabel(sourceKind)}。模擬設定（模擬參數 / 風況 / 電網 / 機組規格）只在「即時模擬」來源執行時有意義——在這裡改動並儲存會把來源切回「即時模擬」${sourceKind === 'live' ? '（實際對接時等於中斷現場 SCADA 連線）' : ''}。情境的風況於生成時就已固定。`,
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* Turbine spec */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Turbine specification', '風機規格')} tone="info">
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
@@ -550,7 +602,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       )}
 
       {/* Wind control */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Wind condition control', '風況控制')} tone="info">
           {windStatus && (
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
@@ -658,7 +710,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       )}
 
       {/* Grid control */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Grid control', '電網控制')} tone="amber">
           {gridStatus && (
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>

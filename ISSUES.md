@@ -155,16 +155,37 @@
   情境頁偵測來源種類（`/api/source/status`），非 simulation 則停用「生成」並顯示提示 +「啟動模擬以生成」
   按鈕（`/api/source/select {mode:simulation}`）。純前端（ScenarioPage）+4 vitest。
 
+- **WMOM-20260720-03** — 🔴 **#143 review Must-fix：live 一鍵切走無確認/無回頭路 → PR #144 merged**：#143
+  的「啟動模擬以生成」按鈕對**任何**非 simulation 來源都顯示——包含 `live`（實接現場 SCADA）。現場工程師
+  手滑點到會**無預警斷掉真實連線**（`switch_mode` 內 `stop()`），且 App 只在 `sourceActive===false` 時
+  顯示選源頁 → UI 無法切回 live。修：`handleActivateSim` 對 `sourceKind==='live'` 加二次確認（比照刪除
+  情境的 `window.confirm`）；連收 should-fix：`sourceKind` 改 `SourceMode` 型別、補 live 分支 + 載入中
+  不閃動 + `loadFarm` 重載三個覆蓋缺口、失敗解析後端 detail（共用 `parseErrorDetail`）。純前端 +5 vitest
+  （2 組 mutation 自驗；兩輪 review approve）。
+
+**Open**
+- **WMOM-20260720-04** — 🟡 **live/OPC 後端硬化（#144 review 延後項，排 M6 實接前）**：(1) `DataBroker.stop()`
+  未停 OPC 輪詢 thread（`_opc_adapter.stop()` 沒被呼叫）→ 切走 live 後孤兒 thread 續寫**新** session（與
+  #142 同類 orphan-thread / 並發 writer；且讓 #144 confirm 文案「會中斷現場連線」只成立一半）；(2) 切走
+  live（`select {mode:simulation}`）無角色檢查、但起 live 需 SUPERVISOR 之不對稱（前端 confirm 只防手滑
+  不防繞 API）。皆 live 路徑、simulator-first 現階段不觸及。修法草案：`stop()` 補
+  `self._opc_adapter.stop(); self._opc_adapter=None` + 單元測。
+
 **In progress**
-- **WMOM-20260720-03** — 🔴 **#143 code review Must-fix：live 一鍵切走無確認/無回頭路**：#143 的「啟動
-  模擬以生成」按鈕對**任何**非 simulation 來源都顯示——包含 `live`（實接現場 SCADA）。現場工程師手滑
-  點到會**無預警斷掉真實連線**（`switch_mode` 內 `stop()`），且 App 只在 `sourceActive===false` 時顯示
-  選源頁 → UI 無法切回 live。修：`handleActivateSim` 對 `sourceKind==='live'` 加二次確認（比照本檔刪除
-  情境的 `window.confirm`），文案講清後果；連收 review should-fix：`sourceKind` 改用 `SourceMode` 型別、
-  補 live 分支 + 載入中不閃動 + `loadFarm` 重載三個 mutation-test 抓到的覆蓋缺口、`handleActivateSim`
-  失敗解析後端 detail（與 handleGenerate 共用 `parseErrorDetail`）。純前端 +5 vitest（含 2 組 mutation 自驗）。
-  - 中長期（未做，非阻塞）：`ScenarioPage` 與 `useSourceGate.selectMode` 邏輯重複可整併；後端 `select`
-    切走 live 無角色檢查（起 live 需 SUPERVISOR）之不對稱可考慮補齊。
+- **WMOM-20260720-05** — 🟡 **設定頁改任何選項就跳回頁頂**：`Section` 元件定義在 `SettingsPage` render
+  body 內 → 每次 re-render（改設定 / 每 5 秒刷新 wind/grid 狀態）都生出新元件 identity → React 卸載並
+  重建整個表單 DOM → 捲動位置/輸入焦點被重置回 top。修：`Section` 移到 module scope（identity 穩定、
+  就地 reconcile、不再重建）。純前端 +1 回歸測試（恆在的 heading 當哨兵、`toBe` 同節點；mutation 自驗：
+  退回 inline 即轉紅）。
+
+- **WMOM-20260720-06** — 🟡 **情境=凍結資料集 · PR A：設定依實際來源 gate**（DEC-20260720-01）：使用者
+  定案把「情境」收斂為凍結資料集（產生完不自由跑、進入情境整個 app 掛上去、設定依模式 gate）。本 PR
+  是第一個增量（純前端）：設定頁 mount 查 `/api/source/status`，`sourceKind` 為 view/live 時把**風況/
+  電網/機組**三個即時 POST 區塊以「即時調整只在即時模擬下生效」說明取代（fail-open：查不到不擋）。
+  +3 vitest（view 隱藏 + simulation 顯示 + fail-open；mutation 自驗）。**stack 在 #145 上**、掛 hold
+  待 #145 先合。
+  - **後續增量（DEC-20260720-01）**：PR B 產生情境不自由跑（後端）；PR C 檢視情境把 app 掛上去
+    （broker 情境檢視來源，最大、需子設計）；PR D `GuidedTourPage` 同款 inline-component remount 修。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

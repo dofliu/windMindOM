@@ -29,6 +29,7 @@ import React from 'react';
 import SettingsPage from '../SettingsPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import { type AppSettings, DataSourceType } from '../../types';
+import type { SourceMode } from '../../hooks/useSourceGate';
 
 // ─── fixtures（型別嚴格，不用 as 強轉）─────────────────────────────────────
 
@@ -76,6 +77,8 @@ function defaultFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const url = String(input);
   const method = (init?.method ?? 'GET').toUpperCase();
   if (method === 'GET') {
+    // 預設來源＝simulation → 風況/電網/機組即時調整可用（既有 SIMULATION 測試維持有效）。
+    if (url.includes('/api/source/status')) return Promise.resolve(okJson({ active: true, kind: 'simulation', mode: 'simulation' }));
     if (url.includes('/api/config/wind')) return Promise.resolve(okJson(WIND_STATUS));
     if (url.includes('/api/config/grid')) return Promise.resolve(okJson(GRID_STATUS));
     if (url.includes('/api/config/turbine-spec/presets')) return Promise.resolve(okJson(PRESETS));
@@ -134,6 +137,18 @@ function statefulConfigFetch(): typeof defaultFetch {
     }
     if (method === 'GET' && url.includes('/api/config/grid')) {
       return Promise.resolve(okJson({ mode: 'profile', profile: gridProfile }));
+    }
+    return defaultFetch(input, init);
+  };
+}
+
+/** defaultFetch 但 /api/source/status 回指定 kind（測「風況/電網/機組依實際來源 gate」）。 */
+function sourceKindFetch(kind: SourceMode): typeof defaultFetch {
+  return (input, init) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (method === 'GET' && url.includes('/api/source/status')) {
+      return Promise.resolve(okJson({ active: true, kind, mode: kind === 'view' ? null : kind }));
     }
     return defaultFetch(input, init);
   };
@@ -408,5 +423,100 @@ describe('SettingsPage 系統設定面板', () => {
     // editSpec 由 mount turbine-spec GET（SPEC）填充 → payload 含 rated_power_kw=5000、
     // 空字串的 curtailment_kw 轉 null。
     expect(body).toMatchObject({ rated_power_kw: 5000, curtailment_kw: null });
+  });
+
+  // ── 模擬設定（模擬參數/風況/電網/機組）依實際來源 gate（WMOM-20260720-06 / DEC-20260720-01）──
+  it('來源為 view → 顯示「模擬設定目前不可調整」提示、隱藏模擬參數/風況/電網/機組四區塊', async () => {
+    fetchMock.mockImplementation(sourceKindFetch('view'));
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬設定目前不可調整' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '風況控制' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '電網控制' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '風機規格' })).not.toBeInTheDocument();
+    // 模擬參數也一併 gate（review Must-fix）：view/live 下按儲存若 sim 參數有變會 POST
+    // /api/config/simulation → 後端 switch_mode 悄悄把來源切回 simulation。藏起就無從觸發。
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+  });
+
+  it('來源為 live → 提示文案點明「會中斷現場 SCADA 連線」', async () => {
+    fetchMock.mockImplementation(sourceKindFetch('live'));
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    const notice = screen.getByRole('heading', { name: '模擬設定目前不可調整' });
+    expect(notice).toBeInTheDocument();
+    expect(screen.getByText(/中斷現場 SCADA 連線/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+  });
+
+  it('來源為 simulation → 顯示模擬參數/風況/電網/機組區塊、不顯示 gate 提示', async () => {
+    // defaultFetch 已回 kind=simulation。
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '風況控制' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '電網控制' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬設定目前不可調整' })).not.toBeInTheDocument();
+  });
+
+  it('來源查詢失敗（fail-open）→ 仍顯示模擬參數/風況控制，不因查不到就藏掉', async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET' && url.includes('/api/source/status')) return Promise.reject(new Error('down'));
+      return defaultFetch(input, init);
+    });
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '風況控制' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '模擬設定目前不可調整' })).not.toBeInTheDocument();
+  });
+
+  it('編輯模擬參數後來源在背景被切走（5 秒輪詢翻轉 gate）→ 儲存不夾帶 stale 值', async () => {
+    // review Must-fix 回歸 + 覆蓋 5 秒輪詢：先 simulation（模擬參數可編輯）→ 改風機數 99（未存）→
+    // 輪詢後來源改回 view（gate 翻真、Section 隱藏）→ 儲存時應把模擬參數還原成 settings，避免
+    // useSettings 偵測到 simChanged → POST /api/config/simulation → 後端 switch_mode 切回 simulation。
+    let kind = 'simulation';
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET' && url.includes('/api/source/status')) {
+        return Promise.resolve(okJson({ active: true, kind, mode: kind === 'view' ? null : kind }));
+      }
+      return defaultFetch(input, init);
+    });
+    const { onSave } = await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    // 模擬參數可見 → 把「風機數」改成 99（未存）。
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('風機數'), { target: { value: '99' } });
+    });
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
+    // 來源被別處切走 → view；推進 5 秒讓輪詢抓到 → gate 翻轉、Section 隱藏。
+    kind = 'view';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+    // 按儲存 → onSave 收到的 simulation 應為原始 settings（21），非 stale 的 99。
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const saved = onSave.mock.calls[0][0] as AppSettings;
+    expect(saved.simulation.turbineCount).toBe(21);
+  });
+
+  // ── 改設定不重建表單 DOM（WMOM-20260720-05 回歸：捲動/焦點不被重置回頁頂）─────────
+  it('改設定觸發 re-render → Section 不被 remount（同一 DOM 節點）', async () => {
+    // 根因：Section 若定義在 render body 內，每次 re-render 產生新元件 identity → React 卸載並
+    // 重建整個表單 DOM → 捲動位置/輸入焦點被重置回頁頂。用「恆在的『資料源』heading」當哨兵：
+    // 觸發一次 re-render 後，若表單被重建，此節點會換成新的 DOM 參照。
+    fetchMock.mockImplementation(statefulConfigFetch());
+    await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    const before = screen.getByRole('heading', { name: '資料源' });
+    // 點一個風況 profile 鈕 → setWindProfile → SettingsPage re-render（不改變區塊顯隱）。
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '平靜 (2 m/s)' }));
+    });
+    const after = screen.getByRole('heading', { name: '資料源' });
+    // Section 穩定（module scope）→ 就地 reconcile → 同一節點；若退回 inline 定義則會是新節點。
+    expect(after).toBe(before);
   });
 });
