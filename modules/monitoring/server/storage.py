@@ -396,6 +396,66 @@ class Storage:
         conn.commit()
         return True
 
+    def scenario_turbine_aggregates(self, session_id: int) -> List[dict]:
+        """情境（session）內每台機組的物理輸出聚合——A0 情境摘要端點用（DEC-20260720-02）。
+
+        以單一 ``GROUP BY turbine_id`` 掃該 session 的 ``turbine_data``，用 SQLite ``json_extract``
+        直接在 SQL 內聚合 ``scada_json`` 裡的物理量，避免把整個情境（長情境可達數十萬列/機組）
+        載進 Python 再算：
+
+        - **功率**：``AVG``/``MAX``（用 ``power_output`` 欄位，單位 MW；呼叫端 ×1000 轉 kW、
+          再算能量與容量因數）。
+        - **累積損傷 / 生產時數**（單調遞增）→ ``MAX(json_extract)`` 即末值（＝情境結束時的累積量）。
+        - **RUL**（單調遞減）→ ``MIN`` 即最終剩餘壽命（最壞）。
+        - **極限負載**（瞬時彎矩）→ ``MAX``。
+        - **DEL**（等效損傷負載，累積型）→ ``MAX``。
+        - **各運轉狀態步數**：``SUM(CASE tur_state=...)``（呼叫端 ×time_step 轉時數 / 算可用率）。
+
+        不可改用 ``turbine_data_1m``/``_10m`` 聚合表：其 downsampling 的 ``GROUP BY`` 不含
+        ``session_id``，會跨 session 混算（見 ``run_downsampling`` 註解）。故只走 raw ``turbine_data``
+        並以 ``session_id`` 隔離。``json_extract`` 對缺鍵/NULL 回 NULL，``MAX``/``MIN``/``AVG`` 自動
+        略過，故舊資料缺某物理鍵時該欄回 None、不致報錯。
+
+        Args:
+            session_id: 情境 session id。
+
+        Returns:
+            每台機組一個 dict（依 ``turbine_id`` 排序），含 ``n``（樣本步數）與各聚合值；
+            該 session 無資料時回空 list。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """
+            SELECT
+                turbine_id,
+                COUNT(*)                                           AS n,
+                AVG(power_output)                                  AS avg_power_mw,
+                MAX(power_output)                                  AS max_power_mw,
+                MIN(json_extract(scada_json, '$.WLOD_RulHours'))   AS min_rul_hours,
+                MAX(json_extract(scada_json, '$.WLOD_ProdHours'))  AS prod_hours,
+                MAX(json_extract(scada_json, '$.WLOD_DmgTwrFa'))   AS dmg_tower_fa,
+                MAX(json_extract(scada_json, '$.WLOD_DmgTwrSs'))   AS dmg_tower_ss,
+                MAX(json_extract(scada_json, '$.WLOD_DmgBldFlap')) AS dmg_blade_flap,
+                MAX(json_extract(scada_json, '$.WLOD_DmgBldEdge')) AS dmg_blade_edge,
+                MAX(json_extract(scada_json, '$.WLOD_TwrFaMom'))   AS max_tower_fa_moment,
+                MAX(json_extract(scada_json, '$.WLOD_TwrSsMom'))   AS max_tower_ss_moment,
+                MAX(json_extract(scada_json, '$.WLOD_BldFlapMom')) AS max_blade_flap_moment,
+                MAX(json_extract(scada_json, '$.WLOD_BldEdgeMom')) AS max_blade_edge_moment,
+                MAX(json_extract(scada_json, '$.WLOD_DelTwrFa'))   AS del_tower_fa,
+                MAX(json_extract(scada_json, '$.WLOD_DelTwrSs'))   AS del_tower_ss,
+                MAX(json_extract(scada_json, '$.WLOD_DelBldFlap')) AS del_blade_flap,
+                MAX(json_extract(scada_json, '$.WLOD_DelBldEdge')) AS del_blade_edge,
+                SUM(CASE WHEN tur_state = 6 THEN 1 ELSE 0 END)     AS production_steps,
+                SUM(CASE WHEN tur_state = 7 THEN 1 ELSE 0 END)     AS estop_steps
+            FROM turbine_data
+            WHERE session_id = ?
+            GROUP BY turbine_id
+            ORDER BY turbine_id
+            """,
+            (session_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     # ══════════════════════════════════════════════════════════════════
     #  Data Writing
     # ══════════════════════════════════════════════════════════════════

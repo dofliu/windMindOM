@@ -166,3 +166,148 @@ def test_run_test_plan_stops_live_thread_during_batch_and_restores(tmp_path, mon
         assert sim.is_running and sim._thread.is_alive(), "run_test_plan 後 Live 應恢復（新 thread）"
     finally:
         sim.stop()
+
+
+# ─── 情境摘要端點 A0（DEC-20260720-02 / WMOM-20260720-09）─────────────────────
+
+def test_scenario_summary_endpoint_reports_per_turbine_and_farm(broker):
+    """端點整合：以 generate_bulk 建真情境（真物理）→ get_scenario_summary → 驗回傳結構、
+    每台機組指標合理（樣本>0、max≥avg、可用率∈[0,1]）、風場 rollup 與各機組一致。"""
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.05, "time_step": 10.0, "name": "摘要情境", "wind_profile": "moderate",
+    }))
+    sid = res["scenario_id"]
+
+    summary = asyncio.run(scenarios_ep.get_scenario_summary(sid))
+    assert summary.scenarioId == sid
+    assert summary.name == "摘要情境"
+    assert summary.timeStepSeconds == 10.0
+    assert summary.ratedPowerKw == 2000.0          # 情境未存額定 → 預設 Z72 2000 kW
+    assert summary.eventsByTimeWindow is True
+    assert len(summary.turbines) == 3
+    for t in summary.turbines:
+        assert t.samples > 0
+        assert t.maxPowerKw >= t.avgPowerKw        # rounding 單調 → 恆成立
+        assert 0.0 <= t.capacityFactor
+        assert 0.0 <= t.availability <= 1.0
+
+    # 風場 rollup 與各機組一致
+    assert summary.farm.turbineCount == 3
+    assert summary.farm.totalEnergyKwh == pytest.approx(
+        round(sum(t.energyKwh for t in summary.turbines), 2))
+    assert summary.farm.totalFaultEvents == sum(t.faultEvents for t in summary.turbines)
+    assert summary.farm.maxTurbinePowerKw == pytest.approx(
+        round(max(t.maxPowerKw for t in summary.turbines), 2))
+
+
+def test_scenario_summary_404_for_unknown_scenario(broker):
+    """未知情境 id → 404（比照 get_scenario）。"""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(scenarios_ep.get_scenario_summary(999_999))
+    assert ei.value.status_code == 404
+
+
+# ─── 純函式聚合換算（mutation-verify 商業數學，不經 DB/HTTP）───────────────────
+
+def _agg(turbine_id: str, n: int, avg_mw: float, max_mw: float, production_steps: int,
+         min_rul: float, worst_dmg_edge: float) -> dict:
+    """給純函式測的最小聚合列（dmg_blade_edge 設成最大部位以驗 worstDamage）。"""
+    return {
+        "turbine_id": turbine_id, "n": n, "avg_power_mw": avg_mw, "max_power_mw": max_mw,
+        "min_rul_hours": min_rul, "prod_hours": 1.5,
+        "dmg_tower_fa": 0.001, "dmg_tower_ss": 0.002,
+        "dmg_blade_flap": 0.003, "dmg_blade_edge": worst_dmg_edge,
+        "max_tower_fa_moment": 500.0, "max_tower_ss_moment": 550.0,
+        "max_blade_flap_moment": 600.0, "max_blade_edge_moment": 650.0,
+        "del_tower_fa": 100.0, "del_tower_ss": 110.0,
+        "del_blade_flap": 120.0, "del_blade_edge": 130.0,
+        "production_steps": production_steps, "estop_steps": 0,
+    }
+
+
+def test_build_turbine_summary_math():
+    """換算數學：MW×1000＝kW、能量＝平均功率×總時數、容量因數＝平均/額定、可用率＝生產步數/樣本、
+    worstDamage＝四部位取最大。mutation：任一公式改壞即轉紅。"""
+    s = scenarios_ep._build_turbine_summary(
+        _agg("WT001", n=360, avg_mw=1.8, max_mw=2.0, production_steps=300,
+             min_rul=12345.6, worst_dmg_edge=0.004),
+        time_step_s=10.0, rated_power_kw=2000.0, fault_events=2,
+    )
+    assert s.turbineId == "WT001"
+    assert s.samples == 360
+    assert s.avgPowerKw == 1800.0                       # 1.8 MW ×1000
+    assert s.maxPowerKw == 2000.0
+    # 總時數 = 360×10/3600 = 1.0 h → 能量 = 1800 kW × 1.0 h = 1800 kWh
+    assert s.energyKwh == 1800.0
+    assert s.capacityFactor == 0.9                      # 1800/2000
+    assert s.availability == round(300 / 360, 4)        # 0.8333
+    assert s.worstDamage == pytest.approx(0.004)        # max(0.001,0.002,0.003,0.004)
+    assert s.minRulHours == pytest.approx(12345.6)
+    assert s.faultEvents == 2
+    assert s.cumulativeDamage.bladeEdge == pytest.approx(0.004)
+    assert s.extremeLoad.bladeEdge == pytest.approx(650.0)
+    assert s.damageEquivalentLoad.towerFa == pytest.approx(100.0)
+
+
+def test_build_turbine_summary_handles_zero_samples_and_missing_physics():
+    """空/缺值防護：n=0 不除零（能量/可用率=0）；缺物理鍵 → None（不炸）。"""
+    s = scenarios_ep._build_turbine_summary(
+        {"turbine_id": "WT009", "n": 0, "avg_power_mw": None, "max_power_mw": None,
+         "production_steps": 0},
+        time_step_s=10.0, rated_power_kw=2000.0, fault_events=0,
+    )
+    assert s.samples == 0 and s.energyKwh == 0.0 and s.availability == 0.0
+    assert s.avgPowerKw == 0.0 and s.capacityFactor == 0.0
+    assert s.worstDamage is None and s.minRulHours is None
+    assert s.cumulativeDamage.towerFa is None
+
+
+def test_build_farm_summary_rolls_up_and_picks_worst():
+    """風場 rollup：總能量 Σ、平均容量因數/可用率、故障數 Σ、最嚴重損傷/最小 RUL 取極值並附機組 id。"""
+    t1 = scenarios_ep._build_turbine_summary(
+        _agg("WT001", 360, 1.8, 2.0, 360, min_rul=1000.0, worst_dmg_edge=0.004),
+        10.0, 2000.0, fault_events=1)
+    t2 = scenarios_ep._build_turbine_summary(
+        _agg("WT002", 360, 0.9, 1.0, 180, min_rul=500.0, worst_dmg_edge=0.010),
+        10.0, 2000.0, fault_events=3)
+
+    farm = scenarios_ep._build_farm_summary([t1, t2], turbine_count=2)
+    assert farm.turbineCount == 2
+    assert farm.totalEnergyKwh == pytest.approx(round(t1.energyKwh + t2.energyKwh, 2))
+    assert farm.avgCapacityFactor == round((t1.capacityFactor + t2.capacityFactor) / 2, 4)
+    assert farm.avgAvailability == round((t1.availability + t2.availability) / 2, 4)
+    assert farm.totalFaultEvents == 4
+    assert farm.maxTurbinePowerKw == pytest.approx(2000.0)
+    assert farm.worstDamage == pytest.approx(0.010) and farm.worstDamageTurbineId == "WT002"
+    assert farm.minRulHours == pytest.approx(500.0) and farm.minRulTurbineId == "WT002"
+
+
+def test_build_farm_summary_empty_turbines():
+    """無機組資料 → 全 0、極值欄位 None（不炸）。"""
+    farm = scenarios_ep._build_farm_summary([], turbine_count=5)
+    assert farm.turbineCount == 5 and farm.totalEnergyKwh == 0.0
+    assert farm.worstDamage is None and farm.minRulTurbineId is None
+
+
+def test_fault_counts_by_turbine_counts_only_turbine_faults():
+    """只計有 turbine_id 的 fault 事件；非 fault 與 farm-wide（turbine_id=None）不計。"""
+    events = [
+        {"event_type": "fault", "turbine_id": "WT001"},
+        {"event_type": "fault", "turbine_id": "WT001"},
+        {"event_type": "fault", "turbine_id": "WT002"},
+        {"event_type": "state", "turbine_id": "WT001"},   # 非 fault
+        {"event_type": "fault", "turbine_id": None},        # farm-wide
+    ]
+    assert scenarios_ep._fault_counts_by_turbine(events) == {"WT001": 2, "WT002": 1}
+
+
+def test_scenario_rated_power_default_and_override():
+    """額定功率：session 未存/0/None → 預設 Z72 2000 kW；有正值 → 採用。"""
+    assert scenarios_ep._scenario_rated_power_kw({}) == scenarios_ep.DEFAULT_RATED_POWER_KW
+    assert scenarios_ep._scenario_rated_power_kw({"rated_power_kw": None}) == \
+        scenarios_ep.DEFAULT_RATED_POWER_KW
+    assert scenarios_ep._scenario_rated_power_kw({"rated_power_kw": 0}) == \
+        scenarios_ep.DEFAULT_RATED_POWER_KW
+    assert scenarios_ep._scenario_rated_power_kw({"rated_power_kw": 5500.0}) == 5500.0

@@ -160,3 +160,73 @@ def test_delete_scenario_refuses_live_session(storage):
 
     assert storage.delete_scenario(live_sid) is False, "delete_scenario 不得動 Live session"
     assert len(storage.query_history("WT001", session_id=live_sid)) == 1, "Live 資料不得被誤刪"
+
+
+# ─── 情境物理聚合（A0 摘要，DEC-20260720-02 / WMOM-20260720-09）─────────────────
+
+def _phys_reading(tid: str, ts: str, power_w: float, tur_st: int,
+                  rul: float, prod: float, dmg: float, mom: float, dl: float) -> dict:
+    """帶完整 WLOD 物理量的情境 reading；四部位以固定乘/加偏移區分，抓 SQL column 錯置。"""
+    return {
+        "timestamp": ts, "turbine_id": tid, "operational_state": "PRODUCING",
+        "wind_speed": 8.0, "total_power": power_w,
+        "scada": {
+            "WTUR_TurSt": tur_st, "WTUR_TotPwrAt": power_w / 1000.0,
+            "WLOD_RulHours": rul, "WLOD_ProdHours": prod,
+            "WLOD_DmgTwrFa": dmg, "WLOD_DmgTwrSs": dmg * 2,
+            "WLOD_DmgBldFlap": dmg * 3, "WLOD_DmgBldEdge": dmg * 4,
+            "WLOD_TwrFaMom": mom, "WLOD_TwrSsMom": mom + 50,
+            "WLOD_BldFlapMom": mom + 100, "WLOD_BldEdgeMom": mom + 150,
+            "WLOD_DelTwrFa": dl, "WLOD_DelTwrSs": dl + 10,
+            "WLOD_DelBldFlap": dl + 20, "WLOD_DelBldEdge": dl + 30,
+        },
+    }
+
+
+def test_scenario_turbine_aggregates_computes_per_turbine_physics(storage):
+    """A0 聚合：每台機組一列，功率 AVG/MAX、累積損傷/生產時數末值＝MAX、RUL 末值＝MIN、
+    極限負載＝彎矩 MAX、DEL＝MAX、生產步數＝tur_state==6 計數。四部位偏移抓 column 錯置。"""
+    sid = _scenario(storage, "聚合測試", duration_hours=1.0, time_step=10.0)
+    # WT001：功率 1→2→3 MW；累積量遞增（末值＝MAX）、RUL 遞減（末值＝MIN）；前兩步生產(6)、末步 estop(7)。
+    # 彎矩故意非單調（500→700→600）以驗「極限負載＝MAX（700）」而非末值(600)。
+    storage.store_readings([
+        _phys_reading("WT001", "2026-03-01T00:00:00", 1_000_000, 6, 1000, 0.1, 0.001, 500, 100),
+        _phys_reading("WT001", "2026-03-01T00:00:10", 2_000_000, 6, 900,  0.2, 0.002, 700, 110),
+        _phys_reading("WT001", "2026-03-01T00:00:20", 3_000_000, 7, 850,  0.2, 0.003, 600, 115),
+    ], sid)
+    # WT002：單步，供「分組正確」與跨機組 min-RUL 對照。
+    storage.store_readings([
+        _phys_reading("WT002", "2026-03-01T00:00:00", 500_000, 6, 2000, 0.05, 0.0005, 300, 90),
+    ], sid)
+
+    aggs = storage.scenario_turbine_aggregates(sid)
+    by_id = {a["turbine_id"]: a for a in aggs}
+    assert list(by_id) == ["WT001", "WT002"], "應依 turbine_id 排序、每台一列"
+
+    a1 = by_id["WT001"]
+    assert a1["n"] == 3
+    assert a1["avg_power_mw"] == pytest.approx(2.0)          # (1+2+3)/3
+    assert a1["max_power_mw"] == pytest.approx(3.0)
+    assert a1["min_rul_hours"] == pytest.approx(850)         # MIN（最壞）
+    assert a1["prod_hours"] == pytest.approx(0.2)            # MAX（末值）
+    assert a1["dmg_tower_fa"] == pytest.approx(0.003)        # MAX＝結束時累積末值
+    assert a1["dmg_tower_ss"] == pytest.approx(0.006)        # 0.003×2 → 抓 column 錯置
+    assert a1["dmg_blade_flap"] == pytest.approx(0.009)
+    assert a1["dmg_blade_edge"] == pytest.approx(0.012)
+    assert a1["max_tower_fa_moment"] == pytest.approx(700)   # MAX（極限負載）非末值 600
+    assert a1["max_tower_ss_moment"] == pytest.approx(750)
+    assert a1["max_blade_edge_moment"] == pytest.approx(850)  # 700+150
+    assert a1["del_tower_fa"] == pytest.approx(115)          # MAX
+    assert a1["del_blade_edge"] == pytest.approx(145)        # 115+30
+    assert a1["production_steps"] == 2                       # 兩步 tur_state==6
+    assert a1["estop_steps"] == 1
+
+    a2 = by_id["WT002"]
+    assert a2["n"] == 1
+    assert a2["min_rul_hours"] == pytest.approx(2000)
+    assert a2["production_steps"] == 1
+
+
+def test_scenario_turbine_aggregates_empty_for_unknown_session(storage):
+    """不存在的 session → 空 list（不炸）。"""
+    assert storage.scenario_turbine_aggregates(99_999) == []
