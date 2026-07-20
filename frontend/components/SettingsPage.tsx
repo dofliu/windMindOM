@@ -13,6 +13,7 @@ import React, { useEffect, useState } from 'react';
 import { type AppSettings, DataSourceType } from '../types';
 import { Btn, Card, Field, Input, PageHeader, Select, StatusPill } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import type { SourceMode } from '../hooks/useSourceGate';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -104,6 +105,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   const [formData, setFormData] = useState<AppSettings>(settings);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success'>('idle');
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
+  // 目前實際來源種類（WMOM-20260720-06 / DEC-20260720-01）：風況/電網/機組是「即時模擬」的即時
+  // 調整，只在 simulation 來源下有作用。view/live/情境下應停用（情境風況於生成時就固定）。
+  // undefined＝載入中；null＝查不到（fail-open，不因狀態查詢失敗就把控制藏起來）。
+  const [sourceKind, setSourceKind] = useState<SourceMode | null | undefined>(undefined);
 
   // wind / grid state
   const [windStatus, setWindStatus] = useState<WindStatus | null>(null);
@@ -149,6 +154,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       refreshGridStatus();
     }, 5000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/source/status`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { kind?: SourceMode | null } | null) => setSourceKind(data ? data.kind ?? null : null))
+      .catch(() => setSourceKind(null));
   }, []);
 
   useEffect(() => {
@@ -297,6 +309,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   };
 
   const isSim = formData.dataSource === DataSourceType.SIMULATION;
+  // 只在「明確知道」目前來源是 view / live 時才擋（fail-open：載入中/查不到就照常顯示，
+  // 不因狀態查詢失敗而把即時模擬使用者的控制藏掉）。
+  const liveTuningBlocked = sourceKind === 'view' || sourceKind === 'live';
+  const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
+    if (kind === 'view') return u('viewing a past scenario', '調閱過去情境');
+    if (kind === 'live') return u('live data connection', '實際資料對接');
+    return u('the current source', '目前來源');
+  };
 
   return (
     <form onSubmit={handleSubmit}>
@@ -465,8 +485,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         </Section>
       )}
 
+      {/* 情境/檢視/live 下：風況/電網/機組即時調整無作用 → 以說明取代互動控制（DEC-20260720-01）。 */}
+      {isSim && liveTuningBlocked && (
+        <Section title={u('Live tuning unavailable', '即時調整目前無作用')} tone="info">
+          <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>
+            {u(
+              `Wind / grid / turbine tuning applies only while the live simulation source is running. Current source: ${sourceKindLabel(sourceKind)}. A scenario's wind is fixed at generation time, so changing it here would have no effect.`,
+              `風況 / 電網 / 機組的即時調整只在「即時模擬」來源執行時生效。目前來源：${sourceKindLabel(sourceKind)}。情境的風況於生成時就已固定，在這裡改不會有作用。`,
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* Turbine spec */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Turbine specification', '風機規格')} tone="info">
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
@@ -556,7 +588,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       )}
 
       {/* Wind control */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Wind condition control', '風況控制')} tone="info">
           {windStatus && (
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
@@ -664,7 +696,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       )}
 
       {/* Grid control */}
-      {isSim && (
+      {isSim && !liveTuningBlocked && (
         <Section title={u('Grid control', '電網控制')} tone="amber">
           {gridStatus && (
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>

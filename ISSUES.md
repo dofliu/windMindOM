@@ -178,6 +178,15 @@
   就地 reconcile、不再重建）。純前端 +1 回歸測試（恆在的 heading 當哨兵、`toBe` 同節點；mutation 自驗：
   退回 inline 即轉紅）。
 
+- **WMOM-20260720-06** — 🟡 **情境=凍結資料集 · PR A：設定依實際來源 gate**（DEC-20260720-01）：使用者
+  定案把「情境」收斂為凍結資料集（產生完不自由跑、進入情境整個 app 掛上去、設定依模式 gate）。本 PR
+  是第一個增量（純前端）：設定頁 mount 查 `/api/source/status`，`sourceKind` 為 view/live 時把**風況/
+  電網/機組**三個即時 POST 區塊以「即時調整只在即時模擬下生效」說明取代（fail-open：查不到不擋）。
+  +3 vitest（view 隱藏 + simulation 顯示 + fail-open；mutation 自驗）。**stack 在 #145 上**、掛 hold
+  待 #145 先合。
+  - **後續增量（DEC-20260720-01）**：PR B 產生情境不自由跑（後端）；PR C 檢視情境把 app 掛上去
+    （broker 情境檢視來源，最大、需子設計）；PR D `GuidedTourPage` 同款 inline-component remount 修。
+
 ## 🎯 未來大目標（M5 / M6 epics）
 
 > M1-M4 已 100%。以下是接下來的「大局目標」拆解，給 session 規劃用。
