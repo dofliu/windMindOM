@@ -16,8 +16,8 @@
 | open | 15 |
 | in_progress | 3 |
 | blocked | 0 |
-| done | 92 |
-| **total (active)** | **110** |
+| done | 93 |
+| **total (active)** | **111** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -123,8 +123,11 @@
   - **前端（本 PR）✅**：ScenarioPage 加情境命名（留空自動命名）+「過去情境」清單（觀察/刪除）+
     observe 模式；新 `ScenarioDetail`（發電量 vs 風速雙軸趨勢 + 故障事件，複用 `rightAxisTags`）。
     +14 render tests（ScenarioPage +8 / ScenarioDetail 6），前端 905 全綠。
-- **#3 啟動模式選擇** — 🔵 開機不自動跑預設風場（`app.py` lifespan）；強制登入後選「實接 / 模擬 /
-  產生情境 / 過去情境（用 #4 清單）」。**排在 #4 之後**（DEC-20260719-01 交付分階段 3）＝下一項。
+- **WMOM-20260719-04** — ✅ **#3 啟動 gate（done）**：開機不自動跑預設風場（`app.py` lifespan idle，
+  不建 simulator、不產資料）；新增 `/api/source`（status/select）+ broker `source_active/kind` 狀態機
+  + `select_view_only`（view 模式不起任何來源）；前端 `SourceSelectPage` 四卡全屏（實接/即時模擬/
+  產生情境/調閱過去情境）+ App gate（依 `/api/source/status`，登入後重查）。+12 tests（後端 7 +
+  前端 5），e2e verify 開機 idle。**DEC-20260719-01 三階段全完成，Scenario 實測 follow-up 收尾。**
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
