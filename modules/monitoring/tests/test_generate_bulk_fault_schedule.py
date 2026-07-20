@@ -312,6 +312,61 @@ def test_stop_live_loop_really_stops_running_thread_and_restore_restarts():
         sim.stop()
 
 
+def test_generate_bulk_stops_early_when_bulk_running_cleared_mid_run():
+    """守住 _bulk_running 的**中止語意**：生成途中把旗標清掉（模擬 stop() 於關閉時中止批次），
+    迴圈必須在下一次檢查即停、不跑完全部步數。否則 stop() 清 _bulk_running 的保證形同虛設
+    （這正是 mutation test 會抓的：把 `if not self._bulk_running` 寫死成永不 break）。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    seen = {"n": 0}
+
+    def cb(readings):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            sim._bulk_running = False  # 模擬 stop() 中途清旗標
+
+    # 1h @ 10s = 360 步；旗標若失效會跑滿 360、cb 觸發 360 次。
+    sim.generate_bulk(duration_hours=1.0, time_step=10.0, callback=cb)
+    assert seen["n"] == 2, "清 _bulk_running 後應於下一次迴圈檢查即停（實得 cb 觸發次數應為 2）"
+
+
+def test_stop_live_loop_waits_out_slow_step_even_if_first_join_times_out(monkeypatch):
+    """守住 Must-fix 的關鍵不變式：即使 stop() 的 join(timeout=5) **逾時**（Live 單步 > timeout，
+    正是 Windows 鎖競爭下的實況），stop_live_loop 的第二個**阻塞** join 仍須等到舊 thread 真死。
+
+    用 gate 讓單步卡住，並把「帶 timeout 的 join」縮成 0.05s 來免去真的等 5s——若把 engine.py 的
+    阻塞 join 拿掉（退回 join(timeout=5) only），本測試會轉紅（舊 thread 尚在 gate.wait 卻已返回）。"""
+    import threading
+    import time as _t
+
+    sim = WindFarmSimulator(turbine_count=1)
+    gate = threading.Event()
+    real_step = sim._run_one_step
+
+    def slow_step(sim_time, dt):
+        gate.wait(timeout=2)  # 卡住直到 gate 被 set（模擬單步 > join timeout）
+        return real_step(sim_time, dt)
+
+    monkeypatch.setattr(sim, "_run_one_step", slow_step)
+    sim.start(time_step=0.01)
+    _t.sleep(0.1)  # 等 Live thread 真的進到 slow_step 的 gate.wait
+    assert sim._thread.is_alive()
+
+    real_join = sim._thread.join  # bound method（patch 前先抓真的）
+
+    def fake_join(timeout=None):
+        # 帶 timeout（stop() 的 join(5)）→ 縮成 0.05s 立即逾時；無 timeout（第二個阻塞 join）→ 真阻塞。
+        return real_join(0.05) if timeout is not None else real_join()
+
+    monkeypatch.setattr(sim._thread, "join", fake_join)
+    # 0.2s 後放行單步 → Live 完成該步、下一次 while 檢查 _running=False 退出。
+    threading.Thread(target=lambda: (_t.sleep(0.2), gate.set()), daemon=True).start()
+
+    was = sim.stop_live_loop()
+    assert was is True
+    assert sim._thread.is_alive() is False, \
+        "第一個 join(timeout) 逾時後，第二個阻塞 join 必須等到舊 thread 真死（無此 join 則此處仍 alive）"
+
+
 def test_store_readings_batch_is_atomic_and_persists_all():
     """store_readings 批次寫入：整批進得去（單一 transaction）。"""
     import tempfile

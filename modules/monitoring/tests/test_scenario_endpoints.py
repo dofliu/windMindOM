@@ -28,6 +28,7 @@ if str(MONITORING_ROOT) not in sys.path:
 from server.storage import Storage  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
 from server.routers import config as config_ep  # noqa: E402
+from server.routers import faults as faults_ep  # noqa: E402
 from server.routers import scenarios as scenarios_ep  # noqa: E402
 
 
@@ -40,7 +41,7 @@ class _FakeBroker:
         self._session_id = session_id
 
     @contextmanager
-    def pause_live_for_batch(self) -> "Iterator[bool]":
+    def pause_live_for_batch(self) -> Iterator[bool]:
         """對齊真 DataBroker：批次期間暫停 Live（實呼引擎的 stop/restore）。本 fake 的 sim 從未
         start() 故無 thread → 等同 no-op pass-through，但仍走過真正的退場/恢復程式路徑。"""
         was_running = self.simulator.stop_live_loop()
@@ -134,3 +135,34 @@ def test_generate_bulk_without_name_writes_to_live(broker):
     assert res["scenario_id"] is None
     assert broker.storage.list_scenarios() == []
     assert len(broker.storage.query_history("WT001", session_id=broker._session_id)) > 0
+
+
+def test_run_test_plan_stops_live_thread_during_batch_and_restores(tmp_path, monkeypatch):
+    """Must-fix（姊妹端點）：faults.py::run_test_plan 與 generate-bulk 同模式，也必須在批次期間
+    停 Live thread（避免併發 writer 撞 DB-lock）、事後恢復。用**真 thread** 守住——若哪天 run_test_plan
+    的 pause_live_for_batch 包裹被拿掉，此測試會轉紅（mutation test 已證原本無任何測試會抓到）。"""
+    from server.routers.faults import TEST_PLANS
+
+    storage = Storage(db_path=str(tmp_path / "rtp.db"))
+    sim = WindFarmSimulator(turbine_count=3)
+    sim.start(time_step=0.02)  # 真的起 Live 背景 thread
+    sid = storage.create_session(data_source="simulation", turbine_count=3)
+    b = _FakeBroker(storage, sim, sid)
+    monkeypatch.setattr(faults_ep, "get_broker", lambda: b)
+
+    seen: dict = {}
+    # spy：於 generate_bulk 被呼叫的當下（即 pause context 內）記錄 Live thread 是否已停。
+    # 回傳 0 不真的生成，加速（本測試只驗證 pause 包裹，非生成內容）。
+    def spy(*args, **kwargs):
+        seen["alive_inside"] = sim._thread.is_alive()
+        return 0
+
+    monkeypatch.setattr(sim, "generate_bulk", spy)
+
+    try:
+        plan_id = next(iter(TEST_PLANS))  # 任一內建 plan
+        asyncio.run(faults_ep.run_test_plan(plan_id, {"time_step": 60.0}))
+        assert seen.get("alive_inside") is False, "批次進行時 Live thread 必須已停（無並行 writer）"
+        assert sim.is_running and sim._thread.is_alive(), "run_test_plan 後 Live 應恢復（新 thread）"
+    finally:
+        sim.stop()

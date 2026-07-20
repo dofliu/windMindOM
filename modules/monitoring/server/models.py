@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict
@@ -173,7 +173,10 @@ class SimulationConfig(BaseModel):
     turbineCount: int = 14
     baseWindSpeed: float = 10.0
     turbulenceIntensity: float = 0.1
-    timeStep: float = 1.0
+    # timeStep 是 Live 自由跑迴圈的節奏（秒）。加上界（0, 60]：批次端點會於 finally 阻塞式 join
+    # 等 Live thread 退場，其最壞等待≈一個 timeStep；無上界時一個異常大的 timeStep 會讓同步的批次
+    # 端點卡住單 worker。UI 從不送此值（見 useSettings），僅直呼 API 可達，故上界不影響正常使用。
+    timeStep: float = Field(1.0, gt=0, le=60)
 
 
 class WindOverrideRequest(BaseModel):

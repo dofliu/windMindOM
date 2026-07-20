@@ -352,14 +352,16 @@ class DataBroker:
         self._source_kind = "view"
 
     @contextmanager
-    def pause_live_for_batch(self) -> "Iterator[bool]":
+    def pause_live_for_batch(self) -> Iterator[bool]:
         """批次生成期間暫停 Live 自由跑迴圈，結束後恢復——供所有「同步在 request thread 跑
         ``simulator.generate_bulk`` + ``store_readings``」的端點共用。
 
         任何這類端點（``config.py::generate_bulk``、``faults.py::run_test_plan`` …）都應把
-        「清故障 + generate_bulk + downsampling + 收尾寫入」整段包在本 context 內：確保批次全程
-        **沒有第二個 writer**（Live thread 與批次同時 step 物理 / 並寫同一 SQLite 是 Windows 上
+        「清故障 + generate_bulk + downsampling + 收尾寫入」整段包在本 context 內：消掉 Live 迴圈
+        這個**高頻 writer**（Live thread 與批次同時 step 物理 / 並寫同一 SQLite 是 Windows 上
         ``database is locked`` 的根因）。集中一處避免各端點各自漏套或寫法分歧。
+        註：背景 maintenance thread 的低頻 downsampling/cleanup 寫入不受此暫停影響，但頻率遠低、
+        由 WAL + busy_timeout 緩解，非本 bug 的重現路徑。
 
         Yields:
             批次前 Live thread 是否在跑（少數呼叫端可據此微調行為；一般忽略即可）。

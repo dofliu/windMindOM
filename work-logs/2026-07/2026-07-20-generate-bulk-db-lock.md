@@ -77,10 +77,31 @@ app.py Modbus 降級抽成可測的 `_start_modbus_for()`（+3 test）並修正�
 
 **測試**：monitoring **109** passed（102 + 7 新）、physics + e2e **127** passed；ruff 全綠。
 
+### 第二輪 focused re-review 收斂
+
+re-review 確認**production 邏輯正確**（無 deadlock、無正確性 bug、旗標解耦/reorder/阻塞 join 皆逐行驗過），
+但用 mutation test 抓到我**新測試仍有假綠**（正是第一輪 Must-fix #3 要根除的）：3 個並發安全性質有 2 個
+沒被 pin、`run_test_plan` 端點根本無測試。全數補上並**自行 mutation 驗證**每個測試都真的會抓退化：
+
+1. **姊妹端點 run_test_plan 無測試** → 補真 thread 測試（spy 於批次當下斷言 Live thread 已停、事後恢復）。
+   MUTANT-C（拿掉 pause 包裹）→ 轉紅 ✓。
+2. **`_bulk_running` 中止語意未被證** → 補「生成途中清旗標應即停」測試。MUTANT-B（旗標永不 break）→
+   `assert 360 == 2` 轉紅 ✓。
+3. **阻塞 join 未被 join-timeout 情境證**（原測試 time_step 太短，第一個 join(5) 根本不逾時）→ 補
+   monkeypatch join(timeout)→0.05s + gate 卡住單步的測試。MUTANT-A（拿掉阻塞 join）→ thread 仍 alive
+   轉紅 ✓。
+
+順帶收 Should-fix / nits：`_start_modbus_for` 補型別（TYPE_CHECKING guard）；`Iterator[bool]` 去引號；
+config.py `sim.fault_engine.clear()`；`SimulationConfig.timeStep` 加上界 `Field(gt=0, le=60)`（消掉阻塞
+join 的「理論無上界等待」；UI 從不送此值，僅直呼 API 可達）；docstring 補述 maintenance thread 不受暫停。
+
+**測試（第二輪後）**：monitoring **112** passed（+3 Must-fix 測試，皆 mutation 驗證會抓退化）、
+physics + e2e **127** passed；ruff 全綠。
+
 ## 卡在哪 / 下次怎麼接手
 
-- **本 PR**：review 修正已折入 + 驗證；再過一輪 focused re-review（新的 concurrency 改動）後移除
-  `hold` → CI 綠自動合。
+- **本 PR**：兩輪 review 皆收斂（production 邏輯經第二輪逐行確認正確，測試假綠已補齊並自驗）。
+  移除 `hold` → CI 綠自動合。
 - **#2 follow-up（已定approach）**：使用者選「一鍵啟動提示」——情境頁若尚未起模擬，顯示明確提示 +
   「啟動模擬以生成」按鈕（呼叫 `/api/source/select {mode:simulation}`），不繞會撞 #4 的 farm-activate。
   待 #142 合併後接著做（避免與本 PR 改到的 generate_bulk 衝突）。

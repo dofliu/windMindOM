@@ -379,7 +379,7 @@ async def generate_bulk(body: dict):
         if schedule:
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
-            b.simulator.fault_engine.clear()
+            sim.fault_engine.clear()
         try:
             total = sim.generate_bulk(
                 duration_hours=duration,

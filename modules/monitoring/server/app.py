@@ -4,7 +4,10 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from simulator.engine import WindFarmSimulator
 
 from server.models import DataSourceConfig, DataSourceMode, SimulationConfig
 from server.farm_registry import FarmRegistry
@@ -70,7 +73,7 @@ def _stop_modbus() -> None:
             print(f"[Server] Warning: could not stop Modbus server: {e}")
 
 
-def _start_modbus_for(simulator) -> None:
+def _start_modbus_for(simulator: 'Optional[WindFarmSimulator]') -> None:
     """為 simulator 起選配的 Modbus TCP server；失敗則降級為「無 Modbus 模擬」。
 
     Modbus TCP 是選配（給外部 Modbus client 讀）。建構失敗（pymodbus 未安裝 / 版本不相容導致
