@@ -23,6 +23,14 @@
     simulation**（live 時 `b.simulator.is_running` 為 False → 一樣走 restart 分支 = 斷現場 SCADA，
     正是 #144 的風險）。破壞力比另外三個更大，故**一併 gate**（藏起 → 無從觸發那次 POST）。
   - 提示文案改寫得更準（點明「改了按儲存會把來源切回即時模擬 / live 時斷 SCADA」），live 時額外標明。
+- **Round-2 review 又抓到 Must-fix（更窄但同後果，reviewer 用端到端測試證實）**：gate 只藏 UI、不 reset
+  `formData.simulation`。情境：使用者在 simulation 下編輯風機數（未存）→ 5 秒輪詢抓到來源被**別處**切走
+  （view/live）→ Section 隱藏但 `formData` 仍留 stale 編輯值 → 按儲存 → `useSettings` 偵測 simChanged →
+  `POST /api/config/simulation` → 後端 `switch_mode` 切回 simulation（live 斷 SCADA）。**我加的 5 秒輪詢
+  反而讓此既有缺口更容易在同一次瀏覽踩到。** 修：`handleSubmit` 送出當下若 blocked，把 `simulation`
+  還原成 `settings`（payload guard；formData 本身保留編輯值，來源切回即時模擬時不遺失）→ simChanged
+  false → 不 POST。+1 端到端回歸測試（編輯→advanceTimers 5s 切 view→儲存→斷言 onSave 收到原值 21），
+  同時補上「5 秒輪詢有效」的覆蓋（round-2 Should-fix）。mutation 自驗：拿掉 guard → 該測試轉紅。
 - **Should-fix 折入**：`sourceKind` 併入既有 5 秒輪詢（gate 是安全網，來源被別處切換要跟得上）。
 - **Nits 折入**：測試 helper `sourceKindFetch` 型別改 `SourceMode`；`sourceKindLabel` fallback 加註
   「防禦性、目前不會走到」；英文文案改自然。

@@ -306,7 +306,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    // 防守（review Must-fix）：gate 只藏 UI，不擋「編輯到一半、來源在背景被別處切走（5 秒輪詢抓到
+    // → liveTuningBlocked 翻真 → Section 隱藏）後，formData 仍留著剛才的 stale 編輯值」被儲存夾帶
+    // 送出。若目前 blocked，送出時把模擬參數還原成 settings（＝未變動），避免 useSettings 偵測到
+    // simChanged → POST /api/config/simulation → 後端 switch_mode 悄悄把來源切回 simulation（live
+    // 時斷現場 SCADA）。註：只在送出當下還原，formData 本身保留使用者編輯值，來源切回即時模擬時
+    // 編輯不遺失。
+    const payload = liveTuningBlocked ? { ...formData, simulation: settings.simulation } : formData;
+    onSave(payload);
     setSaveStatus('success');
     setTimeout(() => setSaveStatus('idle'), 2000);
   };

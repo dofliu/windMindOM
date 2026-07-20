@@ -469,6 +469,40 @@ describe('SettingsPage 系統設定面板', () => {
     expect(screen.queryByRole('heading', { name: '模擬設定目前不可調整' })).not.toBeInTheDocument();
   });
 
+  it('編輯模擬參數後來源在背景被切走（5 秒輪詢翻轉 gate）→ 儲存不夾帶 stale 值', async () => {
+    // review Must-fix 回歸 + 覆蓋 5 秒輪詢：先 simulation（模擬參數可編輯）→ 改風機數 99（未存）→
+    // 輪詢後來源改回 view（gate 翻真、Section 隱藏）→ 儲存時應把模擬參數還原成 settings，避免
+    // useSettings 偵測到 simChanged → POST /api/config/simulation → 後端 switch_mode 切回 simulation。
+    let kind = 'simulation';
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET' && url.includes('/api/source/status')) {
+        return Promise.resolve(okJson({ active: true, kind, mode: kind === 'view' ? null : kind }));
+      }
+      return defaultFetch(input, init);
+    });
+    const { onSave } = await renderSettings(makeSettings(DataSourceType.SIMULATION));
+    // 模擬參數可見 → 把「風機數」改成 99（未存）。
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('風機數'), { target: { value: '99' } });
+    });
+    expect(screen.getByRole('heading', { name: '模擬參數' })).toBeInTheDocument();
+    // 來源被別處切走 → view；推進 5 秒讓輪詢抓到 → gate 翻轉、Section 隱藏。
+    kind = 'view';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.queryByRole('heading', { name: '模擬參數' })).not.toBeInTheDocument();
+    // 按儲存 → onSave 收到的 simulation 應為原始 settings（21），非 stale 的 99。
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const saved = onSave.mock.calls[0][0] as AppSettings;
+    expect(saved.simulation.turbineCount).toBe(21);
+  });
+
   // ── 改設定不重建表單 DOM（WMOM-20260720-05 回歸：捲動/焦點不被重置回頁頂）─────────
   it('改設定觸發 re-render → Section 不被 remount（同一 DOM 節點）', async () => {
     // 根因：Section 若定義在 render body 內，每次 re-render 產生新元件 identity → React 卸載並
