@@ -4,7 +4,10 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from simulator.engine import WindFarmSimulator
 
 from server.models import DataSourceConfig, DataSourceMode, SimulationConfig
 from server.farm_registry import FarmRegistry
@@ -70,6 +73,29 @@ def _stop_modbus() -> None:
             print(f"[Server] Warning: could not stop Modbus server: {e}")
 
 
+def _start_modbus_for(simulator: 'Optional[WindFarmSimulator]') -> None:
+    """為 simulator 起選配的 Modbus TCP server；失敗則降級為「無 Modbus 模擬」。
+
+    Modbus TCP 是選配（給外部 Modbus client 讀）。建構失敗（pymodbus 未安裝 / 版本不相容導致
+    ``ModbusSimServer`` 建構或 import 失敗，如本專案 requirements 釘 <3.8 而環境裝了 3.14）
+    不該擋住整個模擬來源的啟動——降級為 ``modbus_server=None`` 而非讓 activate 500。
+    註：port 佔用不會走到這裡——實際綁 port 的 ``StartTcpServer`` 在 ``start()`` 起的背景
+    thread 內跑且自帶 try/except，例外不會往上冒到這條路徑。抽成獨立函式以便單元測試降級行為。
+    """
+    if simulator is None or simulator.modbus_server:
+        return
+    try:
+        from simulator.modbus_server import ModbusSimServer
+        modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
+        simulator.modbus_server = ModbusSimServer(
+            port=modbus_port, turbine_count=len(simulator.turbines)
+        )
+        simulator.modbus_server.start()
+    except Exception as e:  # noqa: BLE001
+        simulator.modbus_server = None
+        print(f"[Server] Warning: Modbus TCP server not started: {e}")
+
+
 def activate_simulation() -> None:
     """啟動即時模擬來源（使用者選「即時模擬 / 產生情境」）：起 simulator + 套風場 spec + Modbus。
 
@@ -94,13 +120,7 @@ def activate_simulation() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[Server] Warning: could not apply farm spec: {e}")
 
-    if broker.simulator and not broker.simulator.modbus_server:
-        from simulator.modbus_server import ModbusSimServer
-        modbus_port = int(os.environ.get("MODBUS_PORT", "5020"))
-        broker.simulator.modbus_server = ModbusSimServer(
-            port=modbus_port, turbine_count=len(broker.simulator.turbines)
-        )
-        broker.simulator.modbus_server.start()
+    _start_modbus_for(broker.simulator)
     print(f"[Server] Simulation source active ({turbine_count} turbines)")
 
 

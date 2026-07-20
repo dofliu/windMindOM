@@ -16,8 +16,8 @@
 | open | 15 |
 | in_progress | 3 |
 | blocked | 0 |
-| done | 94 |
-| **total (active)** | **112** |
+| done | 95 |
+| **total (active)** | **113** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -133,6 +133,18 @@
   DB，即 #4「情境調不回來」新根因）。修：view 補 `_init_farm_storage`；+回歸測試（原會 fail）+
   app-level verify。連收 should-fix：live 需 SUPERVISOR（enforce 開時）、gate 抽 `useSourceGate` hook
   ＋登出防呆＋6 測、fixture 隔離修正；nice：health 回 sourceActive/kind。backend 98 / 前端 919 全綠。
+
+## 📌 2026-07-20 session 新增 issue（#3 上線後實測 bug）
+
+**Done**
+- **WMOM-20260720-01** — 🔴 **generate-bulk「database is locked」（Windows 實測 500）**：選「即時模擬/
+  產生情境」後 Live 迴圈與批次並行（`_running` 同為兩者旗標）→ 兩 writer 並寫同一 SQLite +
+  `store_reading` 逐列 commit → Windows 鎖競爭耗盡 busy_timeout。修：(1) 批次前
+  `engine.stop_live_loop`（停 Live thread、保 `_running` 供批次）、收尾趁 Live 停時寫、`finally`
+  `restore_live_loop`；(2) `store_readings` 改單一 transaction；(3) Modbus 起不來降級不擋來源啟動。
+  端到端 verify（Live 跑著時 generate-bulk → 200、情境存入可調閱、Live 恢復）+3 tests；
+  monitoring 102 / physics 121 全綠。
+  - 使用者其餘：#1 view 無情境＝空（預期）；#2 未選風場產生情境「無法啟用」待補充細節再修。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

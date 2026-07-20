@@ -455,10 +455,13 @@ class Storage:
         conn.execute(query, params)
         conn.commit()
 
-    def store_reading(self, reading: dict, session_id: int = None):
-        """Store a single turbine reading (from simulator output dict)."""
-        conn = self._get_conn()
+    @staticmethod
+    def _insert_reading(conn: sqlite3.Connection, reading: dict, session_id: Optional[int] = None) -> None:
+        """執行單筆 turbine_data INSERT（**不 commit**）。
 
+        供 ``store_reading``（單筆）與 ``store_readings``（批次一次 commit）共用，讓批次能包在
+        單一 transaction 內——把逐列 commit 的鎖競爭降到最低（見 ``store_readings``）。
+        """
         def to_float(v, default=0.0):
             try:
                 return float(v) if v is not None else default
@@ -496,13 +499,30 @@ class Storage:
             to_float(scada.get('WYAW_YwBrkHyPrs', reading.get('hydraulic', {}).get('pressure')), None),
             scada_json,
         ))
+
+    def store_reading(self, reading: dict, session_id: Optional[int] = None):
+        """Store a single turbine reading (from simulator output dict)."""
+        conn = self._get_conn()
+        self._insert_reading(conn, reading, session_id)
         conn.commit()
 
-    def store_readings(self, readings: List[dict], session_id: int = None):
-        """Store a batch of turbine readings."""
-        """Store multiple turbine readings in a single call."""
-        for r in readings:
-            self.store_reading(r, session_id)
+    def store_readings(self, readings: List[dict], session_id: Optional[int] = None):
+        """批次寫入：整批包在**單一 transaction**（一次 commit）。
+
+        逐列 commit 在與 Live 迴圈 / maintenance thread 並行寫同一 SQLite 檔時會累積大量寫鎖
+        取得 → Windows 上實測 generate-bulk 撞 ``database is locked``。一次 commit 大幅降低競爭
+        且更快。批次失敗則整批 rollback（不留半批）。
+        """
+        if not readings:
+            return
+        conn = self._get_conn()
+        try:
+            for r in readings:
+                self._insert_reading(conn, r, session_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def store_snapshot(self, reading: dict, event_ref: str, session_id: int = None):
         """Store a 1s snapshot reading linked to an event."""

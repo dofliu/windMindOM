@@ -179,9 +179,6 @@ async def run_test_plan(plan_id: str, body: dict = {}):
     duration = plan["duration_hours"]
     steps = sorted(plan["steps"], key=lambda s: s.offset_seconds)
 
-    # Clear any existing faults for a clean plan run.
-    b.simulator.fault_engine.clear()
-
     session_id = b._session_id
 
     def store_cb(readings: List[dict]) -> None:
@@ -204,17 +201,23 @@ async def run_test_plan(plan_id: str, body: dict = {}):
             },
         )
 
-    # Delegate to the shared scheduled-injection primitive (WMOM-20260718-03).
-    total_readings = b.simulator.generate_bulk(
-        duration_hours=duration,
-        time_step=time_step,
-        callback=store_cb,
-        fault_schedule=steps,
-        on_fault_injected=on_inject,
-    )
-
-    # Downsampling after bulk generation
-    b.storage.run_downsampling()
+    # 批次全程暫停 Live 自由跑迴圈（與 config.py::generate-bulk 共用 pause_live_for_batch）：
+    # 否則 Live thread 會與此批次併發 step 同一組物理模型並寫同一 SQLite → Windows 上撞
+    # ``database is locked``（與情境生成同根因，此姊妹端點同樣需保護）。
+    with b.pause_live_for_batch():
+        # Clear any existing faults for a clean plan run（挪到停 Live 之後，避免與 Live 的
+        # fault_engine.step() 併發動同一組非 lock 保護的物理狀態）。
+        b.simulator.fault_engine.clear()
+        # Delegate to the shared scheduled-injection primitive (WMOM-20260718-03).
+        total_readings = b.simulator.generate_bulk(
+            duration_hours=duration,
+            time_step=time_step,
+            callback=store_cb,
+            fault_schedule=steps,
+            on_fault_injected=on_inject,
+        )
+        # Downsampling after bulk generation
+        b.storage.run_downsampling()
 
     # Get final fault status
     fault_status = b.simulator.fault_engine.get_fault_status()

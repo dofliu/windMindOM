@@ -70,7 +70,8 @@ class WindFarmSimulator:
         # Previous-step yaw misalignment (rad), fed into wake-steering each step
         self._last_yaw_err_rad = np.zeros(turbine_count)
 
-        self._running = False
+        self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
+        self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
         self._thread: Optional[threading.Thread] = None
         self._callbacks: List[Callable] = []
         self._lock = threading.Lock()
@@ -105,8 +106,48 @@ class WindFarmSimulator:
     def stop(self):
         """Stop the simulation loop and wait for the background thread to finish."""
         self._running = False
+        # 若有同步批次在跑，一併請它停——保留原本「共用 _running 旗標」時 stop() 能中止
+        # generate_bulk 的語意（如伺服器關閉時）。stop_live_loop 會在批次「前」呼叫 stop()，
+        # 之後 generate_bulk 於進入時再把旗標設回 True，故不衝突。
+        self._bulk_running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
+
+    def stop_live_loop(self) -> bool:
+        """批次生成前用：停掉 Live 自由跑背景 thread（若在跑），確保它**真的退場**再返回。
+
+        目的：避免 Live thread 與同步的 ``generate_bulk`` (a) 同時 step 同一組物理模型（race）、
+        (b) 同時寫同一 SQLite（``database is locked``）。批次的續跑改用獨立的 ``_bulk_running``
+        旗標（見 ``generate_bulk``），與 Live 的 ``_running`` **解耦**——故本方法不再把 ``_running``
+        設回 True。這修掉一個隱患：若 ``stop()`` 的 ``join(timeout=5)`` 逾時（Live 單步在鎖競爭下
+        >5s），舊寫法會把共用的 ``_running`` 設回 True，讓尚未退出的舊 thread「借屍還魂」續跑成
+        第二個 writer，而 ``restore_live_loop`` 又會 ``start()`` 一條新 thread → 舊 thread 與其
+        SQLite connection 洩漏。改為解耦旗標 + 阻塞式再 join，保證舊 thread 退場後才返回。
+
+        Returns:
+            批次前 Live thread 是否在跑（供 ``restore_live_loop`` 決定是否恢復）。
+        """
+        was_running = self._thread is not None and self._thread.is_alive()
+        if was_running:
+            self.stop()  # _running=False + join(timeout=5)
+            # join(timeout=5) 可能逾時而 thread 仍活著。此時 _running 已為 False，_loop 會在
+            # 下一次迴圈條件檢查時退出——阻塞式再 join 一次確保它真的結束，避免 restore_live_loop
+            # 又 start() 新 thread 造成舊 thread 洩漏。批次端點本就可能跑數分鐘，這裡多等可接受。
+            if self._thread is not None:
+                self._thread.join()
+        return was_running
+
+    def restore_live_loop(self, was_running: bool, time_step: float = 1.0) -> None:
+        """``generate_bulk`` 後恢復 Live 自由跑（若批次前在跑）。
+
+        Args:
+            was_running: 批次前 Live thread 是否在跑（``stop_live_loop`` 的回傳值）。
+            time_step: 恢復 Live 用的 step 秒數（僅在 ``was_running`` 為 True 時使用）。
+        """
+        # 批次期間 _running 一直是 False（stop_live_loop 停掉、generate_bulk 只動 _bulk_running），
+        # 故這裡不需再手動清 _running；只在原本在跑時重新 start() 一條 Live thread。
+        if was_running:
+            self.start(time_step=time_step)
 
     @property
     def time_scale(self) -> float:
@@ -334,39 +375,46 @@ class WindFarmSimulator:
         schedule = sorted(fault_schedule or [], key=lambda s: s.offset_seconds)
         sched_idx = 0
 
-        for step_i in range(total_steps):
-            if not self._running:
-                break
+        # 批次續跑旗標與 Live 的 _running **解耦**：即使 Live 未在跑（stop_live_loop 後 _running
+        # 為 False）批次仍應執行；且「停 Live」與「跑批次」不再共用旗標互相干擾（見 stop_live_loop
+        # 的 borrow-corpse 隱患）。stop() 會清此旗標以保留「關閉時中止批次」的語意。
+        self._bulk_running = True
+        try:
+            for step_i in range(total_steps):
+                if not self._bulk_running:
+                    break
 
-            # 注入所有已到 offset 的排程故障（可能同一 step 注入多支）。
-            # sim_time 此刻尚未加上本步 dt，正是此故障的注入模擬時間。
-            elapsed_seconds = step_i * time_step
-            while sched_idx < len(schedule) and schedule[sched_idx].offset_seconds <= elapsed_seconds:
-                fstep = schedule[sched_idx]
-                injected = self.fault_engine.inject(
-                    scenario_id=fstep.scenario_id,
-                    turbine_id=fstep.turbine_id,
-                    severity_rate=fstep.severity_rate,
-                    initial_severity=fstep.initial_severity,
-                )
-                # 僅在真的注入成功時回呼（inject 對未知 scenario 回 False 且不注入）。
-                if injected and on_fault_injected is not None:
-                    on_fault_injected(fstep, sim_time)
-                sched_idx += 1
+                # 注入所有已到 offset 的排程故障（可能同一 step 注入多支）。
+                # sim_time 此刻尚未加上本步 dt，正是此故障的注入模擬時間。
+                elapsed_seconds = step_i * time_step
+                while sched_idx < len(schedule) and schedule[sched_idx].offset_seconds <= elapsed_seconds:
+                    fstep = schedule[sched_idx]
+                    injected = self.fault_engine.inject(
+                        scenario_id=fstep.scenario_id,
+                        turbine_id=fstep.turbine_id,
+                        severity_rate=fstep.severity_rate,
+                        initial_severity=fstep.initial_severity,
+                    )
+                    # 僅在真的注入成功時回呼（inject 對未知 scenario 回 False 且不注入）。
+                    if injected and on_fault_injected is not None:
+                        on_fault_injected(fstep, sim_time)
+                    sched_idx += 1
 
-            # 以穩定子步推進物理；只有最後一子步的 readings 落地（輸出節奏＝time_step）。
-            readings: List[Dict] = []
-            for _ in range(n_sub):
-                sim_time += timedelta(seconds=sub_dt)
-                readings = self._run_one_step(sim_time, sub_dt)
-            total_readings += len(readings)
+                # 以穩定子步推進物理；只有最後一子步的 readings 落地（輸出節奏＝time_step）。
+                readings: List[Dict] = []
+                for _ in range(n_sub):
+                    sim_time += timedelta(seconds=sub_dt)
+                    readings = self._run_one_step(sim_time, sub_dt)
+                total_readings += len(readings)
 
-            if callback:
-                callback(readings)
+                if callback:
+                    callback(readings)
 
-            if progress_callback and step_i % report_interval == 0:
-                current_hours = step_i * time_step / 3600
-                progress_callback(current_hours, duration_hours)
+                if progress_callback and step_i % report_interval == 0:
+                    current_hours = step_i * time_step / 3600
+                    progress_callback(current_hours, duration_hours)
+        finally:
+            self._bulk_running = False
 
         return total_readings
 

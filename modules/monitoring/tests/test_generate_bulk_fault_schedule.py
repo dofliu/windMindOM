@@ -31,9 +31,13 @@ from server.routers.config import _parse_fault_schedule  # noqa: E402
 # ─── 引擎層：generate_bulk 排程注入 ────────────────────────────────────────
 
 def _running_sim(turbine_count: int = 3) -> WindFarmSimulator:
-    """建一個可同步跑 generate_bulk 的 simulator（不啟背景 loop 執行緒）。"""
+    """建一個可同步跑 generate_bulk 的 simulator（不啟背景 loop 執行緒）。
+
+    註：generate_bulk 現以自有的 ``_bulk_running`` 為續跑條件（與 Live 的 ``_running`` 解耦），
+    這裡設 ``_running=True`` 已非必要、僅為與歷史測試一致而保留（不影響批次）。
+    """
     sim = WindFarmSimulator(turbine_count=turbine_count)
-    sim._running = True  # generate_bulk 迴圈以此為續跑條件
+    sim._running = True
     return sim
 
 
@@ -259,3 +263,144 @@ def test_generate_bulk_large_timestep_stays_finite():
 
     assert seen["bad"] == 0, "大 time_step 不應產生非有限值（子步穩定化後）"
     assert seen["max_rotspd"] < 100.0, f"rotor speed 應維持物理範圍，實得 {seen['max_rotspd']:.0f} rpm"
+
+
+# ─── Live 迴圈退場（WMOM-20260720-01：generate-bulk 前停 Live 避免 race/DB-lock）───────
+
+def test_stop_live_loop_without_thread_is_noop_and_returns_false():
+    """沒有活著的 Live thread（測試/剛建）→ stop_live_loop 回 False、不誤動 thread。
+    批次續跑改用獨立的 _bulk_running（見下個測試），不再靠 stop_live_loop 設 _running。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    assert sim._thread is None
+    was = sim.stop_live_loop()
+    assert was is False
+    assert sim._thread is None
+
+
+def test_generate_bulk_runs_without_live_running_via_bulk_flag():
+    """回歸（旗標解耦）：即使 _running 為 False（Live 沒在跑），generate_bulk 仍完整跑完
+    ——批次以自有的 _bulk_running 為續跑條件，不再借用 Live 的 _running。且結束後旗標歸位。"""
+    sim = WindFarmSimulator(turbine_count=2)
+    assert sim._running is False
+    total = sim.generate_bulk(duration_hours=0.02, time_step=10.0)  # 7 步 × 2 機
+    assert total > 0
+    assert sim._bulk_running is False, "批次結束後 _bulk_running 應歸位（try/finally）"
+
+
+def test_stop_live_loop_really_stops_running_thread_and_restore_restarts():
+    """**Live 真的在跑**的主流程（正是使用者回報情境：選風場→起 live→產生情境）：
+    - stop_live_loop 必須 (a) 回 True (b) 讓舊 thread **真的退場**（is_alive False），否則會
+      與批次併發成第二個 writer / 造成 thread 洩漏（借屍還魂隱患）。
+    - restore_live_loop(True) 必須起一條**新的**活 thread。
+    mutation test 證實舊測試（只用沒 start() 過的 sim）完全沒蓋到這條，故此測試補上。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    try:
+        sim.start(time_step=0.02)
+        assert sim._thread is not None and sim._thread.is_alive()
+
+        was = sim.stop_live_loop()
+        assert was is True
+        assert sim._thread is not None and sim._thread.is_alive() is False, \
+            "舊 Live thread 必須在 stop_live_loop 返回前真的死透"
+
+        old_thread = sim._thread
+        sim.restore_live_loop(True, time_step=0.02)
+        assert sim._thread is not None and sim._thread is not old_thread, \
+            "restore 應起一條新 thread，而非復用舊的"
+        assert sim._thread.is_alive() is True and sim.is_running is True
+    finally:
+        sim.stop()
+
+
+def test_generate_bulk_stops_early_when_bulk_running_cleared_mid_run():
+    """守住 _bulk_running 的**中止語意**：生成途中把旗標清掉（模擬 stop() 於關閉時中止批次），
+    迴圈必須在下一次檢查即停、不跑完全部步數。否則 stop() 清 _bulk_running 的保證形同虛設
+    （這正是 mutation test 會抓的：把 `if not self._bulk_running` 寫死成永不 break）。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    seen = {"n": 0}
+
+    def cb(readings):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            sim._bulk_running = False  # 模擬 stop() 中途清旗標
+
+    # 1h @ 10s = 360 步；旗標若失效會跑滿 360、cb 觸發 360 次。
+    sim.generate_bulk(duration_hours=1.0, time_step=10.0, callback=cb)
+    assert seen["n"] == 2, "清 _bulk_running 後應於下一次迴圈檢查即停（實得 cb 觸發次數應為 2）"
+
+
+def test_stop_live_loop_waits_out_slow_step_even_if_first_join_times_out(monkeypatch):
+    """守住 Must-fix 的關鍵不變式：即使 stop() 的 join(timeout=5) **逾時**（Live 單步 > timeout，
+    正是 Windows 鎖競爭下的實況），stop_live_loop 的第二個**阻塞** join 仍須等到舊 thread 真死。
+
+    用 gate 讓單步卡住，並把「帶 timeout 的 join」縮成 0.05s 來免去真的等 5s——若把 engine.py 的
+    阻塞 join 拿掉（退回 join(timeout=5) only），本測試會轉紅（舊 thread 尚在 gate.wait 卻已返回）。"""
+    import threading
+    import time as _t
+
+    sim = WindFarmSimulator(turbine_count=1)
+    gate = threading.Event()
+    real_step = sim._run_one_step
+
+    def slow_step(sim_time, dt):
+        gate.wait(timeout=2)  # 卡住直到 gate 被 set（模擬單步 > join timeout）
+        return real_step(sim_time, dt)
+
+    monkeypatch.setattr(sim, "_run_one_step", slow_step)
+    sim.start(time_step=0.01)
+    _t.sleep(0.1)  # 等 Live thread 真的進到 slow_step 的 gate.wait
+    assert sim._thread.is_alive()
+
+    real_join = sim._thread.join  # bound method（patch 前先抓真的）
+
+    def fake_join(timeout=None):
+        # 帶 timeout（stop() 的 join(5)）→ 縮成 0.05s 立即逾時；無 timeout（第二個阻塞 join）→ 真阻塞。
+        return real_join(0.05) if timeout is not None else real_join()
+
+    monkeypatch.setattr(sim._thread, "join", fake_join)
+    # 0.2s 後放行單步 → Live 完成該步、下一次 while 檢查 _running=False 退出。
+    threading.Thread(target=lambda: (_t.sleep(0.2), gate.set()), daemon=True).start()
+
+    was = sim.stop_live_loop()
+    assert was is True
+    assert sim._thread.is_alive() is False, \
+        "第一個 join(timeout) 逾時後，第二個阻塞 join 必須等到舊 thread 真死（無此 join 則此處仍 alive）"
+
+
+def test_store_readings_batch_is_atomic_and_persists_all():
+    """store_readings 批次寫入：整批進得去（單一 transaction）。"""
+    import tempfile
+    from server.storage import Storage
+
+    db = str(Path(tempfile.mkdtemp()) / "batch.db")
+    st = Storage(db_path=db)
+    sid = st.create_session(data_source="simulation", turbine_count=2)
+    rows = [
+        {"timestamp": f"2026-03-01T00:00:{i:02d}", "turbine_id": "WT001",
+         "scada": {"WTUR_TurSt": 6}} for i in range(5)
+    ]
+    st.store_readings(rows, sid)
+    assert len(st.query_history("WT001", session_id=sid)) == 5
+    st.store_readings([], sid)  # 空批次 no-op、不炸
+
+
+def test_store_readings_rolls_back_whole_batch_on_midway_failure():
+    """批次中途某列失敗 → 整批 rollback（0 筆殘留，含前面成功的列），且 connection 之後仍可用
+    （交易未卡死）。守住 store_readings「單一 transaction、失敗整批退」的原子承諾。"""
+    import tempfile
+    from server.storage import Storage
+
+    db = str(Path(tempfile.mkdtemp()) / "rollback.db")
+    st = Storage(db_path=db)
+    sid = st.create_session(data_source="simulation", turbine_count=1)
+    good = {"timestamp": "2026-03-01T00:00:00", "turbine_id": "WT001", "scada": {"WTUR_TurSt": 6}}
+    # 第二列 scada 為字串 → _insert_reading 內 scada.get(...) AttributeError → 整批 rollback。
+    bad = {"timestamp": "2026-03-01T00:00:01", "turbine_id": "WT001", "scada": "not-a-dict"}
+
+    with pytest.raises(Exception):
+        st.store_readings([good, bad], sid)
+    assert st.query_history("WT001", session_id=sid) == [], "整批原子：成功的那筆也不得殘留"
+
+    # connection 未卡在壞交易：後續正常寫入仍成功。
+    st.store_readings([good], sid)
+    assert len(st.query_history("WT001", session_id=sid)) == 1
