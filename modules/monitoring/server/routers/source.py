@@ -3,7 +3,9 @@
 開機不再自動啟動任何資料來源（修「一進系統就自動以預設風場產資料」）。使用者強制登入後，
 前端顯示「選擇資料來源」頁，選定才由本 router 啟動：
 
-- ``simulation``：即時模擬（起 simulator 連續生成）——「即時模擬」與「產生情境」皆用此。
+- ``simulation``：即時模擬（起 simulator 連續自由跑生成）。
+- ``scenario``：產生情境（DEC-20260720-01 PR B）——起 simulator 供批次生成，但**不自由跑**、
+  **不起 Modbus**（情境是可重現的凍結資料集，不該持續產生新資料）。
 - ``live``：實際資料對接（OPC DA）。
 - ``view``：僅調閱過去情境——**不啟動任何來源**（情境調閱只讀 storage），避免又開始產資料。
 
@@ -26,7 +28,7 @@ def get_broker():
 
 
 class SourceSelect(BaseModel):
-    """來源選擇 payload。mode ∈ simulation / live / view。"""
+    """來源選擇 payload。mode ∈ simulation / scenario / live / view。"""
     mode: str
 
 
@@ -60,8 +62,14 @@ async def select_source(req: SourceSelect, request: Request):
     b = get_broker()
     mode = (req.mode or "").strip().lower()
     if mode == "simulation":
+        # 即時模擬：自由跑連續產資料（source_kind=simulation）。
         from server.app import activate_simulation
-        activate_simulation()
+        activate_simulation(run_loop=True)
+    elif mode == "scenario":
+        # 產生情境（DEC-20260720-01 PR B）：起 simulator 供批次生成，但**不自由跑**——情境是可重現
+        # 的凍結資料集，不該持續產生新資料（source_kind=scenario）。
+        from server.app import activate_simulation
+        activate_simulation(run_loop=False)
     elif mode == "live":
         # live 影響全域且會嘗試對外 OPC 握手 → 比照 farm-activate 需 SUPERVISOR。
         # 重用 enforce-aware 的 require_role（過渡期放行、cutover 後強制），不手刻第二份角色判斷。
@@ -71,6 +79,6 @@ async def select_source(req: SourceSelect, request: Request):
     elif mode == "view":
         b.select_view_only()
     else:
-        raise HTTPException(400, f"Unknown source mode: {req.mode!r}. Use: simulation, live, view")
+        raise HTTPException(400, f"Unknown source mode: {req.mode!r}. Use: simulation, scenario, live, view")
 
     return {"status": "ok", "active": b.source_active, "kind": b.source_kind}

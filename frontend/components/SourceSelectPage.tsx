@@ -5,7 +5,7 @@
  * 選定才啟動對應來源 / 路由：
  *   - 實際資料對接（live）→ 連 OPC/Modbus 讀真實 SCADA → 總覽
  *   - 即時模擬（simulation）→ 物理模型即時自由跑 → 總覽
- *   - 產生新情境（simulation + 路由情境頁）→ 設定風況/時長/故障批次生成
+ *   - 產生新情境（scenario：simulator 供批次、不自由跑，DEC-20260720-01 PR B）→ 設定風況/時長/故障批次生成
  *   - 調閱過去情境（view，不啟動任何來源）→ 打開先前情境觀察分析
  *
  * 本元件只負責呈現 + 回呼 `onSelect(cardId)`；實際「打 /api/source/select + 路由」由 App 決定。

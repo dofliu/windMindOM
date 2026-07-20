@@ -85,6 +85,70 @@ def test_stop_clears_source_flags(broker):
     assert broker.source_kind is None
 
 
+# ─── 產生情境不自由跑（WMOM-20260720-07 / DEC-20260720-01 PR B）──────────────────
+
+def test_start_scenario_mode_creates_simulator_without_freerun_loop(broker):
+    """產生情境（run_loop=False）：建 simulator 供批次生成，但**不起自由跑迴圈**（不持續產資料）；
+    source_kind=scenario。這是「情境＝凍結資料集」的核心——選了不會一直產新資料。"""
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    try:
+        assert broker.simulator is not None, "情境模式仍需 simulator 供批次生成"
+        assert broker.simulator.is_running is False, "情境模式不該有自由跑迴圈"
+        assert broker.source_kind == "scenario"
+        assert broker.source_active is True
+    finally:
+        broker.stop()
+
+
+def test_start_simulation_mode_runs_freerun_loop(broker):
+    """即時模擬（run_loop=True，預設）：起自由跑迴圈、source_kind=simulation（與情境對照）。"""
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=True)
+    try:
+        assert broker.simulator is not None and broker.simulator.is_running is True
+        assert broker.source_kind == "simulation"
+    finally:
+        broker.stop()
+
+
+def test_get_all_turbines_empty_in_scenario_before_first_generate(broker):
+    """Must-fix（PR #147 review）：scenario 模式下 simulator 已建但**尚未跑過任何 step**時，
+    engine 的 latest_data 是「每台機組→空 dict」佔位。get_all_turbines() 必須跳過空 output 回空清單，
+    而非讓 _sim_output_to_reading({}) 把每台 turbine_id 都 fallback 成常數 'WT001'、回 N 筆重複假資料
+    （會餵給 /api/turbines、farm-status、WS 廣播）。turbineCount=3 → 少了防線會回 3 筆假 WT001。"""
+    from server.models import DataSourceConfig, DataSourceMode, SimulationConfig
+
+    broker.start(
+        DataSourceConfig(mode=DataSourceMode.SIMULATION),
+        SimulationConfig(turbineCount=3),
+        run_loop=False,
+    )
+    try:
+        assert broker.simulator is not None and broker.simulator.is_running is False
+        assert broker.get_all_turbines() == [], "尚未生成前不該回任何（更不該回重複假 WT001）資料"
+        # 與 get_turbine() 既有 `if output:` 防線一致：單機查詢空 output 亦回 None。
+        assert broker.get_turbine("WT001") is None
+    finally:
+        broker.stop()
+
+
+def test_stop_returns_promptly_after_maintenance_started(broker):
+    """Should-fix（PR #147 review）：maintenance thread 的週期睡眠改為可中斷（Event.wait）後，
+    start() 過一次再 stop() 應近乎瞬間完成，而非固定卡到 join timeout（舊 time.sleep(300) 害每次
+    切換來源的 stop() 都卡滿 5 秒）。門檻取 3 秒：舊 bug 精確 5.0s、修好後 ~0s，區隔充裕。"""
+    import time as _t
+    from server.models import DataSourceConfig, DataSourceMode
+
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    t0 = _t.time()
+    broker.stop()
+    elapsed = _t.time() - t0
+    assert elapsed < 3.0, f"stop() 應近乎瞬間（maintenance 睡眠可中斷）；實測 {elapsed:.2f}s"
+
+
 # ─── pause_live_for_batch（WMOM-20260720-01：批次期間暫停 Live 的共用 context）──────
 
 def test_pause_live_for_batch_noop_without_simulator(broker):
@@ -140,6 +204,30 @@ def test_select_view_activates_view_only(client, broker):
 
 def test_select_unknown_mode_returns_400(client):
     assert client.post("/api/source/select", json={"mode": "banana"}).status_code == 400
+
+
+def test_select_scenario_activates_simulation_without_freerun(client, monkeypatch):
+    """mode=scenario → activate_simulation(run_loop=False)（產生情境不自由跑）。"""
+    called = {}
+    monkeypatch.setattr(
+        "server.app.activate_simulation",
+        lambda run_loop=True: called.__setitem__("run_loop", run_loop),
+    )
+    r = client.post("/api/source/select", json={"mode": "scenario"})
+    assert r.status_code == 200
+    assert called.get("run_loop") is False
+
+
+def test_select_simulation_activates_freerun(client, monkeypatch):
+    """mode=simulation → activate_simulation(run_loop=True)（即時模擬自由跑；與 scenario 對照）。"""
+    called = {}
+    monkeypatch.setattr(
+        "server.app.activate_simulation",
+        lambda run_loop=True: called.__setitem__("run_loop", run_loop),
+    )
+    r = client.post("/api/source/select", json={"mode": "simulation"})
+    assert r.status_code == 200
+    assert called.get("run_loop") is True
 
 
 def test_status_enforced_requires_auth(client, monkeypatch):
@@ -242,3 +330,50 @@ def test_start_modbus_noop_when_already_started(monkeypatch):
     monkeypatch.setattr("simulator.modbus_server.ModbusSimServer", _should_not_construct)
     app_module._start_modbus_for(sim)
     assert sim.modbus_server is sentinel
+
+
+# ─── activate_simulation：scenario 不起 Modbus 的整合覆蓋（PR #147 review）──────────
+
+@pytest.fixture
+def app_broker(tmp_path, monkeypatch):
+    """把 server.app 的 module-global broker/farm_registry 換成 tmp 隔離實例，讓
+    activate_simulation（直接引用 module global，非經 get_broker()）能安全在測試中真跑其函式體。"""
+    from server import app as app_module
+
+    reg = FarmRegistry(data_dir=tmp_path)
+    b = DataBroker(farm_registry=reg)
+    monkeypatch.setattr(app_module, "broker", b)
+    monkeypatch.setattr(app_module, "farm_registry", reg)
+    try:
+        yield app_module, b
+    finally:
+        b.stop()
+
+
+def test_activate_simulation_scenario_skips_modbus(app_broker, monkeypatch):
+    """產生情境（run_loop=False）：activate_simulation 走真正函式體，`if run_loop:` guard 應
+    **不呼叫 _start_modbus_for**（情境無連續即時值可供外部 Modbus client 讀），且 source_kind=scenario、
+    simulator 不自由跑。守住「拿掉 guard 讓 Modbus 永遠嘗試啟動」的 mutation 會被抓。"""
+    app_module, b = app_broker
+    calls = []
+    monkeypatch.setattr(app_module, "_start_modbus_for", lambda sim: calls.append(sim))
+
+    app_module.activate_simulation(run_loop=False)
+
+    assert calls == [], "產生情境不該起 Modbus"
+    assert b.source_kind == "scenario"
+    assert b.simulator is not None and b.simulator.is_running is False
+
+
+def test_activate_simulation_freerun_starts_modbus(app_broker, monkeypatch):
+    """即時模擬（run_loop=True）：對照組——應呼叫 _start_modbus_for 一次、source_kind=simulation、
+    simulator 自由跑。與 scenario test 成對，守住「guard 不會誤吞正常的 Modbus 啟動」。"""
+    app_module, b = app_broker
+    calls = []
+    monkeypatch.setattr(app_module, "_start_modbus_for", lambda sim: calls.append(sim))
+
+    app_module.activate_simulation(run_loop=True)
+
+    assert len(calls) == 1, "即時模擬應起 Modbus 一次"
+    assert b.source_kind == "simulation"
+    assert b.simulator is not None and b.simulator.is_running is True

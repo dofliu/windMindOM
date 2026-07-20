@@ -47,6 +47,7 @@ import LoginPage from './components/LoginPage';
 import SourceSelectPage, { type SourceCardId } from './components/SourceSelectPage';
 import { Btn, Sidebar, type NavItem } from './components/ui';
 import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/farmHeader';
+import { sourceCardToMode } from './utils/sourceMode';
 import { useSourceGate, type SourceMode, type SelectResult } from './hooks/useSourceGate';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
@@ -189,7 +190,9 @@ const AppShell: React.FC = () => {
   // 後端開機 idle（不自動起來源）。狀態機抽到 useSourceGate（可測 + 含登出防呆）。
   const { sourceActive, selectMode } = useSourceGate(auth.isAuthenticated);
   const handleSelectSource = async (id: SourceCardId): Promise<SelectResult> => {
-    const mode: SourceMode = id === 'live' ? 'live' : id === 'observe' ? 'view' : 'simulation';
+    // id→mode 抽到 utils/sourceMode 的純函式（可測 + 涵蓋全 4 卡）：'scenario' 卡→scenario（simulator
+    // 供批次、不自由跑，DEC-20260720-01 PR B）、simulation→simulation（自由跑）、observe→view、live→live。
+    const mode: SourceMode = sourceCardToMode(id);
     const targetView: ViewId = id === 'scenario' || id === 'observe' ? 'scenario' : 'overview';
     const result = await selectMode(mode);
     if (result.ok) setView(targetView);

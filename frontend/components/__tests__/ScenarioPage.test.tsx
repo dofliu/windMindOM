@@ -546,7 +546,15 @@ describe('ScenarioPage — 未起模擬引導一鍵啟動', () => {
     expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();
   });
 
-  it('點「啟動模擬以生成」→ POST /api/source/select {mode:simulation}，提示消失、生成啟用', async () => {
+  it('來源為 scenario（產生情境，不自由跑）→ 生成一樣啟用、不顯示啟動提示（scenario 也有 simulator）', async () => {
+    installFetch({ sourceKind: 'scenario' });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText(/彰化離岸風場（3 台）/)).toBeInTheDocument());
+    expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();
+  });
+
+  it('點「啟動模擬以生成」→ POST /api/source/select {mode:scenario}（不自由跑），提示消失、生成啟用', async () => {
     installFetch({ sourceKind: 'view' });
     await renderPage('zh');
     await waitFor(() => expect(screen.getByRole('button', { name: '啟動模擬以生成' })).toBeInTheDocument());
@@ -556,7 +564,8 @@ describe('ScenarioPage — 未起模擬引導一鍵啟動', () => {
     await waitFor(() =>
       expect(calls((u, m) => u.includes('/api/source/select') && m === 'POST').length).toBe(1),
     );
-    expect(bodyOf(u => u.includes('/api/source/select')).mode).toBe('simulation');
+    // 情境頁的一鍵啟動走 scenario 模式（simulator 供批次、不自由跑），非 simulation（自由跑）。
+    expect(bodyOf(u => u.includes('/api/source/select')).mode).toBe('scenario');
     // 啟動成功 → 提示消失、生成啟用（不必再繞「先選風場」）。
     await waitFor(() => expect(screen.queryByText(/需要「即時模擬」引擎/)).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: '生成情境' })).toBeEnabled();

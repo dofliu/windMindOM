@@ -228,6 +228,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const sourceKindLabel = (kind: SourceMode | null | undefined): string => {
     if (kind === 'view') return u('viewing past scenarios', '調閱過去情境');
     if (kind === 'live') return u('live data connection', '實際資料對接');
+    // scenario：目前唯一呼叫點被 `!simActive`（已含 scenario）保護、走不到這裡，但補上分支求穩，
+    // 避免此 helper 日後被重用時 scenario 悄悄 fall through 成「尚未啟動來源」的錯誤文案。
+    if (kind === 'scenario') return u('generating a scenario', '產生情境');
     return u('none started', '尚未啟動來源');
   };
 
@@ -262,13 +265,15 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     setActivating(true);
     setError('');
     try {
+      // 啟動「產生情境」模式（scenario：simulator 供批次、不自由跑）——非「即時模擬」（自由跑）。
+      // 我們在情境頁要做的就是批次生成，不需要連續自由跑（DEC-20260720-01 PR B）。
       const res = await authFetch(`${API_BASE}/api/source/select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'simulation' }),
+        body: JSON.stringify({ mode: 'scenario' }),
       });
       if (res.ok) {
-        setSourceKind('simulation');
+        setSourceKind('scenario');
         loadFarm(); // activate_simulation 會 ensure_default_farm → 風場資訊即時更新
       } else {
         // 401 由 authClient 攔（彈登入）；其餘給明確回饋而非靜默（解析後端 detail，與生成一致）。
@@ -367,8 +372,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
     return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
   }
 
-  // 生成需 simulation 來源（有 simulator）。非 simulation（view/live/未起）時停用並提示一鍵啟動。
-  const simActive = sourceKind === 'simulation';
+  // 生成需「有 simulator」的來源——即時模擬(simulation) 或產生情境(scenario) 皆有 simulator。
+  // view/live/未起 時停用並提示一鍵啟動（會啟動 scenario 模式，見 handleActivateSim）。
+  const simActive = sourceKind === 'simulation' || sourceKind === 'scenario';
   const canGenerate = !generating && scenarios.length > 0 && simActive;
 
   return (
