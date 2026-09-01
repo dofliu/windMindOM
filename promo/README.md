@@ -5,7 +5,7 @@
 
 | 檔案 | 是什麼 |
 |---|---|
-| `windMindOM-intro-3min.mp4` | **成片** — 180.0s / 1920×1080 / 30fps / 安靜合成氛圍配樂（-23 LUFS） |
+| `windMindOM-intro-3min.mp4` | **成片** — 180.0s / 1920×1080 / 30fps / h264+aac / 22MB，安靜合成氛圍配樂（實測 -22.1 LUFS） |
 | `gen_scenes.py` | **唯一該編輯的檔案** — 18 景文案 + 專屬 CSS + storyboard 定義 |
 | `scene01_open.html` … `scene18_cta.html` | 由 `gen_scenes.py` 產生的 standalone 場景，**不要手改** |
 | `storyboard.json` | fps / 尺寸 / xfade / 每景秒數與轉場 |
@@ -41,6 +41,26 @@
 成片長度 = 各景秒數總和 − (景數−1) × xfade = 190.2 − 10.2 = **180.0s**。
 
 ---
+
+## 成片規格與驗證
+
+| 項目 | 值 | 怎麼量 |
+|---|---|---|
+| 長度 | **180.000s**（= 分鏡表 190.2 − 17×0.6，誤差 0） | `ffprobe -show_entries format=duration` |
+| 解析度 / 幀率 | 1920×1080 / 30fps | `ffprobe -show_entries stream=width,height,r_frame_rate` |
+| 編碼 | h264 (crf 25, preset slow) + aac | 見下方說明 |
+| 響度 | −22.1 LUFS（`--bed` 目標 −23） | `ffmpeg -i … -af ebur128 -f null -` |
+| 檔案大小 | 22MB | `du -h` |
+
+assemble 出來的原始檔是 35MB（x264 預設 crf）。本片全是平滑漸層 + 少量粒子，
+**crf 25 / preset slow 重壓到 22MB 看不出畫質差異**（逐格比對過漸層無 banding），
+所以入庫的是壓過的版本 —— 對 git 友善，也在多數上傳限制（30MB）之內。
+要 master 品質就重跑 assemble 不再壓：
+
+```bash
+python $S/scripts/assemble_video.py promo/storyboard.json --workdir promo/work \
+       --out promo/windMindOM-intro-3min-master.mp4 --bed
+```
 
 ## 怎麼改
 
