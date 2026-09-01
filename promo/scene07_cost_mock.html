@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- 由 promo/gen_scenes.py 產生，請改 gen_scenes.py 後重跑，不要直接改本檔。 -->
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>S07 cost 演示</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
+body{font-family:"Noto Sans CJK TC","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:#e8eef7;position:relative}
+.bg{position:absolute;inset:0;background:
+ radial-gradient(1200px 800px at 24% 18%,rgba(45,212,191,.14),transparent 62%),
+ radial-gradient(1100px 760px at 78% 82%,rgba(139,92,246,.15),transparent 60%),
+ linear-gradient(160deg,#0d1b2e 0%,#070d17 58%,#05070d 100%)}
+.aur{position:absolute;width:1500px;height:1500px;border-radius:50%;filter:blur(90px);opacity:.5;mix-blend-mode:screen}
+.aur.a{background:radial-gradient(circle,rgba(45,212,191,.32),transparent 62%);left:-460px;top:-560px;animation:drift1 22s ease-in-out infinite alternate}
+.aur.b{background:radial-gradient(circle,rgba(139,92,246,.30),transparent 62%);right:-520px;bottom:-620px;animation:drift2 26s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(150px,90px) scale(1.12)}}
+@keyframes drift2{to{transform:translate(-130px,-80px) scale(1.08)}}
+.vig{position:absolute;inset:0;background:radial-gradient(1600px 1000px at 50% 46%,transparent 58%,rgba(0,0,0,.5) 100%);pointer-events:none}
+.grid{position:absolute;inset:0;opacity:.05;background-image:linear-gradient(rgba(232,238,247,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(232,238,247,.5) 1px,transparent 1px);background-size:64px 64px}
+.stage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ --dur:11s;animation:cam var(--dur) ease-in-out both}
+@keyframes cam{from{transform:scale(1)}to{transform:scale(1.055)}}
+.kicker{font-size:30px;font-weight:700;letter-spacing:.55em;text-indent:.55em;color:#2dd4bf;text-transform:uppercase;white-space:nowrap}
+.h1{font-size:112px;font-weight:900;line-height:1.14;text-align:center;letter-spacing:.01em;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 50%,#c4b5fd 80%);-webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(0 8px 40px rgba(45,212,191,.18))}
+.sub{font-size:40px;font-weight:400;color:rgba(232,238,247,.78);text-align:center;line-height:1.6}
+.accent{color:#2dd4bf;font-weight:700}
+.chip{display:inline-flex;align-items:center;gap:16px;padding:20px 38px;border-radius:999px;font-size:36px;font-weight:700;white-space:nowrap;
+ background:rgba(20,32,52,.82);border:1.5px solid rgba(150,200,255,.22);box-shadow:0 14px 40px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07)}
+.card{background:linear-gradient(165deg,rgba(24,38,62,.92),rgba(12,20,36,.94));border:1.5px solid rgba(150,200,255,.20);
+ border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+.badge{display:inline-block;padding:12px 26px;border-radius:12px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.14);border:1.5px solid rgba(45,212,191,.45);color:#7ff0df}
+.in{opacity:0;animation:rise 1s cubic-bezier(.16,1,.3,1) both;animation-delay:var(--d,0s)}
+@keyframes rise{from{opacity:0;transform:translateY(56px)}to{opacity:1;transform:none}}
+.pop{opacity:0;animation:pop .8s cubic-bezier(.2,1.4,.35,1) both;animation-delay:var(--d,0s)}
+@keyframes pop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+.glow{animation:glow 2.6s ease-in-out infinite}
+@keyframes glow{0%,100%{filter:drop-shadow(0 0 18px rgba(45,212,191,.25))}50%{filter:drop-shadow(0 0 42px rgba(45,212,191,.55))}}
+.in.glow{animation:rise 1s cubic-bezier(.16,1,.3,1) var(--d,0s) both,glow 2.6s ease-in-out infinite}
+.pop.glow{animation:pop .8s cubic-bezier(.2,1.4,.35,1) var(--d,0s) both,glow 2.6s ease-in-out infinite}
+/* ── 共用小元件（本片自訂） ── */
+.row{display:flex;align-items:center;justify-content:center;gap:26px;flex-wrap:nowrap}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:34px}
+.mod{padding:34px 30px;border-radius:24px;text-align:left;
+ background:linear-gradient(165deg,rgba(24,38,62,.92),rgba(12,20,36,.94));
+ border:1.5px solid rgba(150,200,255,.20);box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.07)}
+.mod .mt{font-size:42px;font-weight:900;color:#f2f7ff;white-space:nowrap}
+.mod .md{font-size:26px;color:rgba(232,238,247,.62);margin-top:12px;line-height:1.5}
+.mod .ms{display:inline-block;margin-top:18px;padding:7px 18px;border-radius:10px;font-size:22px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.15);border:1px solid rgba(45,212,191,.42);color:#7ff0df}
+.mod .ms.wip{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.45);color:#fde09a}
+.bar{height:16px;border-radius:999px;background:rgba(150,200,255,.13);overflow:hidden}
+.bar > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#2dd4bf,#7dd3fc);width:0;
+ animation:fill 1.9s cubic-bezier(.2,.9,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes fill{to{width:var(--w,70%)}}
+.num{font-size:104px;font-weight:900;line-height:1;letter-spacing:-.02em;
+ background:linear-gradient(100deg,#f4f8ff,#9be8db);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nlab{font-size:27px;color:rgba(232,238,247,.62);margin-top:14px;line-height:1.4;white-space:nowrap}
+
+.bg{background:
+ radial-gradient(1200px 800px at 24% 18%,rgba(251,191,36,.13),transparent 62%),
+ radial-gradient(1100px 760px at 78% 82%,rgba(249,115,22,.11),transparent 60%),
+ linear-gradient(160deg,#1c1608 0%,#100c06 58%,#080603 100%)}
+.aur.a{background:radial-gradient(circle,rgba(251,191,36,.26),transparent 62%)}
+.aur.b{background:radial-gradient(circle,rgba(249,115,22,.22),transparent 62%)}
+.kicker{color:#fbbf24}.accent{color:#fbbf24}
+.h1{background:linear-gradient(100deg,#fffaf0 20%,#fcd34d 52%,#fdba74 82%);-webkit-background-clip:text;background-clip:text;
+ filter:drop-shadow(0 8px 40px rgba(251,191,36,.18))}
+.badge{background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.42);color:#fde09a}
+
+/* ▼ 本景專屬 ▼ */
+
+.wrap{width:1660px;display:grid;grid-template-columns:.62fr 1fr;gap:38px;margin-top:46px;align-items:stretch}
+.kpi{padding:40px 42px;border-radius:26px;background:linear-gradient(165deg,rgba(44,32,10,.94),rgba(22,16,6,.96));
+ border:1.5px solid rgba(251,191,36,.28);box-shadow:0 30px 80px rgba(0,0,0,.55);display:flex;flex-direction:column;justify-content:center}
+.kpi .kl{font-size:26px;letter-spacing:.28em;color:#fbbf24;white-space:nowrap}
+.kpi .kv{font-size:112px;font-weight:900;line-height:1;margin-top:18px;
+ background:linear-gradient(100deg,#fffaf0,#fcd34d);-webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
+.kpi .ku{font-size:28px;color:rgba(247,239,232,.6);margin-top:14px;white-space:nowrap}
+.chart{padding:34px 40px 30px;border-radius:26px;background:linear-gradient(165deg,rgba(30,24,10,.94),rgba(16,12,6,.96));
+ border:1.5px solid rgba(251,191,36,.24);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.chart .ct{font-size:25px;letter-spacing:.24em;color:#fbbf24;white-space:nowrap}
+.bars{display:flex;align-items:flex-end;gap:13px;height:280px;margin-top:26px}
+.bars i{flex:1;border-radius:8px 8px 3px 3px;transform-origin:bottom;
+ background:linear-gradient(180deg,#fcd34d,rgba(249,115,22,.55));
+ animation:up 1.6s cubic-bezier(.2,.9,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes up{from{transform:scaleY(.02);opacity:.2}to{transform:scaleY(1);opacity:1}}
+.xax{display:flex;justify-content:space-between;font-size:22px;color:rgba(247,239,232,.45);margin-top:14px}
+
+</style></head>
+<body>
+<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
+
+<div class="stage" style="z-index:2">
+
+ <div class="kicker in" style="--d:.15s">LCOE · MONTE CARLO</div>
+ <div class="h1 in" style="--d:.45s;margin-top:22px;font-size:84px">20 年的成本，先跑一萬次</div>
+ <div class="wrap">
+   <div class="kpi in" style="--d:1.1s">
+     <div class="kl">LCOE (P50)</div>
+     <div class="kv"><span class="cu" data-to="72.4" data-dec="1" data-d="1.5" data-t="2.2">0</span></div>
+     <div class="ku">EUR / MWh</div>
+     <div style="margin-top:34px"><span class="badge">Monte Carlo × 10,000</span></div>
+   </div>
+   <div class="chart in" style="--d:1.3s">
+     <div class="ct">ANNUAL O&amp;M COST · 20 YEARS</div>
+     <div class="bars">
+       <i style="height:34%;--d:1.6s"></i><i style="height:41%;--d:1.66s"></i><i style="height:38%;--d:1.72s"></i>
+       <i style="height:52%;--d:1.78s"></i><i style="height:47%;--d:1.84s"></i><i style="height:61%;--d:1.9s"></i>
+       <i style="height:55%;--d:1.96s"></i><i style="height:70%;--d:2.02s"></i><i style="height:64%;--d:2.08s"></i>
+       <i style="height:78%;--d:2.14s"></i><i style="height:72%;--d:2.2s"></i><i style="height:86%;--d:2.26s"></i>
+       <i style="height:80%;--d:2.32s"></i><i style="height:93%;--d:2.38s"></i><i style="height:88%;--d:2.44s"></i>
+       <i style="height:100%;--d:2.5s"></i><i style="height:91%;--d:2.56s"></i><i style="height:97%;--d:2.62s"></i>
+       <i style="height:89%;--d:2.68s"></i><i style="height:94%;--d:2.74s"></i>
+     </div>
+     <div class="xax"><span>Y1</span><span>Y5</span><span>Y10</span><span>Y15</span><span>Y20</span></div>
+   </div>
+ </div>
+<script>
+(function(){
+ const els=[...document.querySelectorAll('.cu')];
+ const t0=performance.now();
+ function ease(x){return 1-Math.pow(1-x,3);}
+ function tick(){
+  const el=performance.now()-t0;
+  for(const e of els){
+   const to=parseFloat(e.dataset.to), d=(parseFloat(e.dataset.d)||0)*1000,
+         dur=(parseFloat(e.dataset.t)||1.5)*1000, dec=parseInt(e.dataset.dec||'0');
+   let p=(el-d)/dur; p=p<0?0:(p>1?1:p);
+   const v=to*ease(p);
+   e.textContent=dec?v.toFixed(dec):Math.round(v).toLocaleString('en-US');
+  }
+  requestAnimationFrame(tick);
+ }
+ requestAnimationFrame(tick);
+})();
+</script>
+</div>
+<div class="vig" style="z-index:3"></div>
+</body></html>

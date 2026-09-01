@@ -1,0 +1,97 @@
+{
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "xfade": 0.6,
+  "scenes": [
+    {
+      "file": "scene01_open.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene02_problem.html",
+      "duration": 10,
+      "transition": "smoothleft"
+    },
+    {
+      "file": "scene03_platform.html",
+      "duration": 11,
+      "transition": "circleopen"
+    },
+    {
+      "file": "scene04_monitoring.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene05_physics.html",
+      "duration": 11,
+      "transition": "smoothup"
+    },
+    {
+      "file": "scene06_cost.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene07_cost_mock.html",
+      "duration": 11,
+      "transition": "circleopen"
+    },
+    {
+      "file": "scene08_workflow.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene09_statemachine.html",
+      "duration": 11,
+      "transition": "smoothleft"
+    },
+    {
+      "file": "scene10_reporting.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene11_knowledge.html",
+      "duration": 11,
+      "transition": "smoothup"
+    },
+    {
+      "file": "scene12_auth.html",
+      "duration": 10,
+      "transition": "fadeblack"
+    },
+    {
+      "file": "scene13_drama.html",
+      "duration": 12,
+      "transition": "fade"
+    },
+    {
+      "file": "scene14_scenario.html",
+      "duration": 11,
+      "transition": "smoothleft"
+    },
+    {
+      "file": "scene15_numbers.html",
+      "duration": 11,
+      "transition": "circleopen"
+    },
+    {
+      "file": "scene16_persona.html",
+      "duration": 10,
+      "transition": "fade"
+    },
+    {
+      "file": "scene17_roadmap.html",
+      "duration": 10.2,
+      "transition": "fade"
+    },
+    {
+      "file": "scene18_cta.html",
+      "duration": 11
+    }
+  ]
+}
