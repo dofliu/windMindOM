@@ -45,3 +45,6 @@ poster_*.png
 # 不入 git 避免膨脹；放 modules/knowledge/models/ 下，由 env WMOM_EMBED_MODEL_DIR
 # 或預設位置解析。向量檔（小，244KB）仍入庫於 data/wind_farm_vectors/。
 modules/knowledge/models/
+
+# intro-video 中間產物（逐景 MP4 + 抽查格）— 成片與場景 HTML 有進 git，這層不進
+promo/work/

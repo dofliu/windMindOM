@@ -16,8 +16,8 @@
 | open | 15 |
 | in_progress | 3 |
 | blocked | 0 |
-| done | 95 |
-| **total (active)** | **113** |
+| done | 96 |
+| **total (active)** | **114** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -266,6 +266,25 @@
     #147 修的 maintenance 是同一根因、不同檔案；scenario 路徑（`run_loop=False`、never `.start()`）**不受
     影響**。修法比照 #147：`time.sleep(time_step)` → `threading.Event().wait(time_step)`。
   - 排 M6 實接前與 WMOM-20260720-04（live/OPC 後端硬化）一起做；simulator-first 現階段不阻擋。
+
+## 📌 2026-09-01 session 新增 issue（對外素材：介紹影片）
+
+**Done**
+- **WMOM-20260901-01** — 🟢 **用 `intro-video` 技能做出 3 分鐘專案介紹影片（含背景配樂）**：
+  來源＝本 repo（README / STATUS.yaml / CLAUDE.md / `WorkOrderStatus` 7 state / `Role` 4 角色）。
+  產出 `promo/`：18 景 standalone HTML 動畫（5 章色調換場：深海／青／金／紫／藍紫／綠／藍／高對比青）
+  + `storyboard.json`（xfade 0.6s）+ `gen_scenes.py`（**改文案的唯一入口**，避免在 18 個檔案裡追 CSS）
+  + 成片 `windMindOM-intro-3min.mp4`（**180.0s / 1920×1080 / 30fps**，安靜合成氛圍 -23 LUFS）。
+  全片唯一戲劇景＝**Simulator-first「沒有實場也能完整 demo」**；數據景用 6 modules / 998 backend
+  + 957 frontend tests / 104 SCADA tags / 11 fault scenarios / 40+ endpoints / 531 RAG chunks。
+  用途：M6 客戶接觸（WMOM-20260503-05）與 partner 對接的第一份素材。
+  - **限制（下一步升級點）**：repo 內沒有自家 UI 截圖（只有 `openopc2` 第三方文件圖，版權/相關性
+    皆不宜入片）→ 全片走 CSS mock。抓 6-8 張真實 UI 截圖過 `prep_assets.py` 換進 `.shot` 版位，
+    是這支片投報率最高的改進。
+  - **配樂**：使用者未附音檔 → 先用合成氛圍；技能明載「真實音樂 >> 合成」，取得免版稅音樂後
+    重跑 assemble（秒級，不必重渲）即可換。
+  - 詳見 [`promo/README.md`](promo/README.md) 與
+    work-log `work-logs/2026-09/2026-09-01-intro-video-3min.md`。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

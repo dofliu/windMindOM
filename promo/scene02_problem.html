@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- 由 promo/gen_scenes.py 產生，請改 gen_scenes.py 後重跑，不要直接改本檔。 -->
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>S02 問題</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#070d17}
+body{font-family:"Noto Sans CJK TC","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:#e8eef7;position:relative}
+.bg{position:absolute;inset:0;background:
+ radial-gradient(1200px 800px at 24% 18%,rgba(45,212,191,.14),transparent 62%),
+ radial-gradient(1100px 760px at 78% 82%,rgba(139,92,246,.15),transparent 60%),
+ linear-gradient(160deg,#0d1b2e 0%,#070d17 58%,#05070d 100%)}
+.aur{position:absolute;width:1500px;height:1500px;border-radius:50%;filter:blur(90px);opacity:.5;mix-blend-mode:screen}
+.aur.a{background:radial-gradient(circle,rgba(45,212,191,.32),transparent 62%);left:-460px;top:-560px;animation:drift1 22s ease-in-out infinite alternate}
+.aur.b{background:radial-gradient(circle,rgba(139,92,246,.30),transparent 62%);right:-520px;bottom:-620px;animation:drift2 26s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(150px,90px) scale(1.12)}}
+@keyframes drift2{to{transform:translate(-130px,-80px) scale(1.08)}}
+.vig{position:absolute;inset:0;background:radial-gradient(1600px 1000px at 50% 46%,transparent 58%,rgba(0,0,0,.5) 100%);pointer-events:none}
+.grid{position:absolute;inset:0;opacity:.05;background-image:linear-gradient(rgba(232,238,247,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(232,238,247,.5) 1px,transparent 1px);background-size:64px 64px}
+.stage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ --dur:10s;animation:cam var(--dur) ease-in-out both}
+@keyframes cam{from{transform:scale(1)}to{transform:scale(1.055)}}
+.kicker{font-size:30px;font-weight:700;letter-spacing:.55em;text-indent:.55em;color:#2dd4bf;text-transform:uppercase;white-space:nowrap}
+.h1{font-size:112px;font-weight:900;line-height:1.14;text-align:center;letter-spacing:.01em;
+ background:linear-gradient(100deg,#f4f8ff 20%,#9be8db 50%,#c4b5fd 80%);-webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(0 8px 40px rgba(45,212,191,.18))}
+.sub{font-size:40px;font-weight:400;color:rgba(232,238,247,.78);text-align:center;line-height:1.6}
+.accent{color:#2dd4bf;font-weight:700}
+.chip{display:inline-flex;align-items:center;gap:16px;padding:20px 38px;border-radius:999px;font-size:36px;font-weight:700;white-space:nowrap;
+ background:rgba(20,32,52,.82);border:1.5px solid rgba(150,200,255,.22);box-shadow:0 14px 40px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.07)}
+.card{background:linear-gradient(165deg,rgba(24,38,62,.92),rgba(12,20,36,.94));border:1.5px solid rgba(150,200,255,.20);
+ border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+.badge{display:inline-block;padding:12px 26px;border-radius:12px;font-size:28px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.14);border:1.5px solid rgba(45,212,191,.45);color:#7ff0df}
+.in{opacity:0;animation:rise 1s cubic-bezier(.16,1,.3,1) both;animation-delay:var(--d,0s)}
+@keyframes rise{from{opacity:0;transform:translateY(56px)}to{opacity:1;transform:none}}
+.pop{opacity:0;animation:pop .8s cubic-bezier(.2,1.4,.35,1) both;animation-delay:var(--d,0s)}
+@keyframes pop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+.glow{animation:glow 2.6s ease-in-out infinite}
+@keyframes glow{0%,100%{filter:drop-shadow(0 0 18px rgba(45,212,191,.25))}50%{filter:drop-shadow(0 0 42px rgba(45,212,191,.55))}}
+.in.glow{animation:rise 1s cubic-bezier(.16,1,.3,1) var(--d,0s) both,glow 2.6s ease-in-out infinite}
+.pop.glow{animation:pop .8s cubic-bezier(.2,1.4,.35,1) var(--d,0s) both,glow 2.6s ease-in-out infinite}
+/* ── 共用小元件（本片自訂） ── */
+.row{display:flex;align-items:center;justify-content:center;gap:26px;flex-wrap:nowrap}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:34px}
+.mod{padding:34px 30px;border-radius:24px;text-align:left;
+ background:linear-gradient(165deg,rgba(24,38,62,.92),rgba(12,20,36,.94));
+ border:1.5px solid rgba(150,200,255,.20);box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.07)}
+.mod .mt{font-size:42px;font-weight:900;color:#f2f7ff;white-space:nowrap}
+.mod .md{font-size:26px;color:rgba(232,238,247,.62);margin-top:12px;line-height:1.5}
+.mod .ms{display:inline-block;margin-top:18px;padding:7px 18px;border-radius:10px;font-size:22px;font-weight:700;white-space:nowrap;
+ background:rgba(45,212,191,.15);border:1px solid rgba(45,212,191,.42);color:#7ff0df}
+.mod .ms.wip{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.45);color:#fde09a}
+.bar{height:16px;border-radius:999px;background:rgba(150,200,255,.13);overflow:hidden}
+.bar > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#2dd4bf,#7dd3fc);width:0;
+ animation:fill 1.9s cubic-bezier(.2,.9,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes fill{to{width:var(--w,70%)}}
+.num{font-size:104px;font-weight:900;line-height:1;letter-spacing:-.02em;
+ background:linear-gradient(100deg,#f4f8ff,#9be8db);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nlab{font-size:27px;color:rgba(232,238,247,.62);margin-top:14px;line-height:1.4;white-space:nowrap}
+
+/* ▼ 本景專屬 ▼ */
+
+.pain{width:1640px;display:grid;grid-template-columns:repeat(4,1fr);gap:32px;margin-top:64px}
+.pc{padding:38px 30px;border-radius:24px;text-align:center;
+ background:linear-gradient(165deg,rgba(38,28,24,.92),rgba(18,14,12,.94));
+ border:1.5px solid rgba(251,146,60,.26);box-shadow:0 26px 70px rgba(0,0,0,.55)}
+.pc .ic{font-size:64px;line-height:1}
+.pc .tt{font-size:38px;font-weight:900;color:#f7efe8;margin-top:20px;white-space:nowrap}
+.pc .dd{font-size:25px;color:rgba(247,239,232,.58);margin-top:12px;line-height:1.5}
+.foot{margin-top:64px;font-size:42px;font-weight:700;color:#fbbf24;text-align:center;white-space:nowrap}
+
+</style></head>
+<body>
+<div class="bg"></div><div class="aur a"></div><div class="aur b"></div><div class="grid"></div>
+
+<div class="stage" style="z-index:2">
+
+ <div class="kicker in" style="--d:.15s;color:#fb923c">THE PROBLEM</div>
+ <div class="h1 in" style="--d:.5s;margin-top:26px;font-size:92px">運維資料，散在四個地方</div>
+ <div class="pain">
+   <div class="pc pop" style="--d:1.2s"><div class="ic">📈</div><div class="tt">SCADA</div><div class="dd">即時數據看得到<br>但看不出成本</div></div>
+   <div class="pc pop" style="--d:1.45s"><div class="ic">📋</div><div class="tt">Excel 工單</div><div class="dd">派工靠表格<br>簽核靠 LINE</div></div>
+   <div class="pc pop" style="--d:1.7s"><div class="ic">💰</div><div class="tt">另一套成本表</div><div class="dd">維修值不值得<br>事後才算得出來</div></div>
+   <div class="pc pop" style="--d:1.95s"><div class="ic">📕</div><div class="tt">PDF 手冊</div><div class="dd">警報碼查排除<br>翻幾百頁</div></div>
+ </div>
+ <div class="foot in" style="--d:2.8s">每一次故障，工程師要開四個系統</div>
+
+</div>
+<div class="vig" style="z-index:3"></div>
+</body></html>
