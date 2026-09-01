@@ -318,9 +318,12 @@ scene("scene05_physics", "S05 monitoring 演示", 11, "cyan", countup=True, css=
 .tg .tb{flex:1}
 .tg .tv{font-size:32px;font-weight:900;color:#e6f6ff;width:180px;text-align:right;white-space:nowrap}
 .wake{position:relative;height:330px;margin-top:24px;border-radius:18px;overflow:hidden;background:rgba(3,12,22,.6);border:1px solid rgba(125,211,252,.16)}
-.wt{position:absolute;width:20px;height:20px;border-radius:50%;background:#7dd3fc;box-shadow:0 0 22px rgba(125,211,252,.9)}
-.wc{position:absolute;height:74px;border-radius:0 40px 40px 0;transform-origin:left center;
- background:linear-gradient(90deg,rgba(45,212,191,.42),rgba(45,212,191,.02));
+.wt{position:absolute;width:20px;height:20px;border-radius:50%;background:#7dd3fc;box-shadow:0 0 22px rgba(125,211,252,.9);z-index:2}
+/* 尾流錐：clip-path 讓它在轉子處收窄、往下風處張開（Gaussian wake 擴張），
+   不要用圓角矩形 —— 抽查格實測會被誤讀成「三條橫條」。 */
+.wc{position:absolute;height:112px;transform-origin:left center;
+ background:linear-gradient(90deg,rgba(45,212,191,.58),rgba(45,212,191,.20) 55%,rgba(45,212,191,.02));
+ clip-path:polygon(0 41%,100% 0,100% 100%,0 59%);
  animation:grow 2.2s cubic-bezier(.2,.9,.2,1) both;animation-delay:var(--d,0s)}
 @keyframes grow{from{opacity:0;transform:scaleX(.1)}to{opacity:1;transform:scaleX(1)}}
 .bl{display:flex;gap:16px;flex-wrap:nowrap;margin-top:38px;justify-content:center}
@@ -340,13 +343,13 @@ scene("scene05_physics", "S05 monitoring 演示", 11, "cyan", countup=True, css=
    <div class="pl in" style="--d:1.3s">
      <div class="ph">GAUSSIAN WAKE + MEANDERING</div>
      <div class="wake">
-       <div class="wc" style="left:120px;top:44px;width:560px;--d:1.9s"></div>
-       <div class="wc" style="left:120px;top:140px;width:640px;--d:2.1s"></div>
-       <div class="wc" style="left:120px;top:236px;width:520px;--d:2.3s"></div>
+       <div class="wc" style="left:118px;top:26px;width:560px;--d:1.9s"></div>
+       <div class="wc" style="left:118px;top:122px;width:650px;--d:2.1s"></div>
+       <div class="wc" style="left:118px;top:218px;width:520px;--d:2.3s"></div>
        <div class="wt" style="left:104px;top:71px"></div>
        <div class="wt" style="left:104px;top:167px"></div>
        <div class="wt" style="left:104px;top:263px"></div>
-       <div class="wt" style="left:560px;top:167px;background:#fbbf24;box-shadow:0 0 22px rgba(251,191,36,.9)"></div>
+       <div class="wt" style="left:566px;top:167px;background:#fbbf24;box-shadow:0 0 22px rgba(251,191,36,.9)"></div>
      </div>
    </div>
  </div>
@@ -492,7 +495,7 @@ scene("scene10_reporting", "S10 reporting", 10, "indigo", countup=True, css="""
      <div class="dh">KPI &amp; 年度預算</div>
      <div class="kv"><span class="k">工單完成率</span><span class="v"><span class="cu" data-to="94" data-d="1.7" data-t="1.6">0</span>%</span></div>
      <div class="kv"><span class="k">平均修復時間</span><span class="v"><span class="cu" data-to="8.6" data-dec="1" data-d="1.9" data-t="1.6">0</span> h</span></div>
-     <div class="kv"><span class="k">備品週轉</span><span class="v"><span class="cu" data-to="3.2" data-dec="1" data-d="2.1" data-t="1.6">0</span> ×</span></div>
+     <div class="kv"><span class="k">備品週轉</span><span class="v"><span class="cu" data-to="3.2" data-dec="1" data-d="2.1" data-t="1.6">0</span> 次/年</span></div>
      <div class="kv"><span class="k">預算執行率</span><span class="v"><span class="cu" data-to="87" data-d="2.3" data-t="1.6">0</span>%</span></div>
    </div>
  </div>
