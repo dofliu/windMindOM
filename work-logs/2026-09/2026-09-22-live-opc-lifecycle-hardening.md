@@ -5,7 +5,7 @@
 > 主導：Claude（autonomous worker）
 > 結果：M6 現場部署唯一硬阻塞的 5 個延後子問題一次修完，逐項 mutation-verified；code-reviewer
 > subagent 一輪 review 抓到 2 Must-fix + 1 Should-fix 皆已修復並重新驗證；backend 1093 passed
-> （+17）/ frontend 957 passed 全綠回歸；PR #待補（見下方 GitHub 狀態）。
+> （+17）/ frontend 957 passed 全綠回歸；[PR #156](https://github.com/dofliu/windMindOM/pull/156) 已開，等 CI 綠 auto-merge。
 
 ---
 
@@ -142,8 +142,8 @@ UNIQUE 衝突反覆重試疊加的慢速失敗）；改寫成獨立腳本（mock
 2. **第二優先**：`WMOM-20260716-06`（footprint CPU-torch pin，需 docker 環境驗）或
    `WMOM-20260509-F6`（PostgreSQL row-lock integration test，需 docker postgres）——兩者都卡在本
    sandbox 無 docker，若下個 session 有 docker 環境可挑。
-3. **阻擋項**：無。GitHub MCP 這次可用，但因故障排錯耗時，若時間不夠可能來不及在本 session 開 PR
-   （見下方 GitHub 狀態一節，push 之後補記）。
+3. **阻擋項**：無。GitHub MCP 這次可用，[PR #156](https://github.com/dofliu/windMindOM/pull/156)
+   已開；CI 綠後 auto-merge 會自動合進 main + 刪分支。
 
 ---
 

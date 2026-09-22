@@ -140,7 +140,7 @@
 
 **Done**
 - **WMOM-20260720-04 + WMOM-20260720-08** — 🟢 **live/OPC 後端硬化（M6 現場部署唯一硬阻塞）
-  → PR #TBD merged**：#144/#146/#147 review 累積延後的 5 個子問題，排 M6 實接前一次做完：
+  → PR #156（CI 綠後 auto-merge）**：#144/#146/#147 review 累積延後的 5 個子問題，排 M6 實接前一次做完：
   (1) `DataBroker.stop()` 之前未呼叫 `_opc_adapter.stop()` → 切走 live 後孤兒輪詢 thread 續跑並繼續寫入
   **新** session（與 #142 同類 orphan-thread）——`stop()` 補上停 + 清空參照；(2) 起 live 需 SUPERVISOR、
   切走 live（回 simulation/scenario/view）卻無角色檢查的不對稱——`/api/source/select` 對「目前來源是
