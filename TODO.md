@@ -58,6 +58,17 @@
 - [ ] **PR D** `GuidedTourPage` 同款 remount 修
 - [ ] **A3** 事件 session 化 / 匯出
 
+### ⚙ Autonomous worker Routine（每 3 小時，2026-09-22 建立）
+
+- Routine id `trig_01EidsT7hXsnNf3gvcnFK1ks`，每 3 小時觸發**全新 session**，
+  照 [`docs/routines/autonomous-daily-worker-prompt.md`](docs/routines/autonomous-daily-worker-prompt.md)（v4.1）跑
+  8-phase routine：自我測試 baseline → 挑 M6 critical path 的工作 → mutation 驗證 →
+  code-reviewer → PR（CI 綠 → auto-merge 進 main）。
+- [ ] **⚠ 待劉老師做一次**：到 claude.ai 的 **Routines UI** 編輯本 Routine、**附掛 GitHub connector**。
+  由 MCP 建立的 Routine 無法附掛 connectors → 觸發的 session 拿不到 `mcp__github__*`，
+  **開不了 PR**（只能 push 分支 + 在 work-log 留「待手動開 PR」）。附掛後才是完整飛輪。
+- 急停：某個 PR 加 `hold` label；整個停掉 → Routines UI 停用該 Routine。
+
 ### 並行 — 非 code（劉老師）
 
 - [ ] **WMOM-20260503-05** — 🟡 Friendly 客戶接觸（infrastructure done；素材已備妥：

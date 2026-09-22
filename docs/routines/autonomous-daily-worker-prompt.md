@@ -4,7 +4,8 @@
 > trigger 注入的 prompt 存在 Routine 設定裡（**不在 repo**）——**本檔是 canonical 版本**，
 > 更新後請把下方 fenced block 整段複製進 Routine 設定才會生效。
 >
-> 版本：**v4（2026-09-22，WMOM-20260922-01 專案檢視後更新）**。本版重點：
+> 版本：**v4.1（2026-09-22）**。本版重點：
+> - **新增 §1.1 GitHub MCP 降級模式**（Routine 由 MCP 建立時無法附掛 connectors）
 > - **baseline 大幅修正**：backend 638 → **1076 passed / 7 skipped / 1 xfailed（1084 collected）**；
 >   frontend 59 → **970 passed / 49 files**。v3 的數字會讓每個 session 一開工就誤判 regression。
 > - **pytest 指令補齊**：v3 漏了 `modules/monitoring/` `modules/auth/` `tests/`（CI 實際都有跑）
@@ -37,6 +38,24 @@ backend pytest + frontend vitest/tsc/build）+ `auto-merge.yml`（CI 全綠 → 
 - 你開的 PR 只要 CI 綠就會自動進 main，下個 session `git pull` 就拿得到 → 持續往前推進。
 - 半成品（標題含 `[WIP]`）CI 仍跑但**不會**被自動合 → 留給下個 session 續做。
 - 急停開關：PR 帶 `hold` / `do-not-merge` label 時 auto-merge 跳過。
+
+### 1.1 ⚠ GitHub MCP 可能不存在（降級模式）
+
+本 Routine 由 MCP 工具建立時**無法附掛 connectors**（建立時的警告：「this trigger stores no MCP
+connectors」）→ 觸發的 session **可能拿不到 `mcp__github__*`**。開工時先確認：
+
+- **有** `mcp__github__*` → 照 §2 stack-aware 檢查與 §5 phase 8 開 PR，飛輪完整運作。
+- **沒有** → **降級模式**（不要因此 block 整段 session）：
+  - stack-aware 檢查改用 `git ls-remote --heads origin 'claude/*'` 看有沒有上個 session 留下的分支
+    （分支還在＝PR 未被 auto-merge 或根本沒開；auto-merge 成功會**刪分支**，所以沒有殘留分支
+    通常代表上一輪已合進 main）。
+  - 收尾一樣 commit + `git push -u origin <branch>`（git push 走 sandbox 的 git proxy，**不需要**
+    GitHub MCP），但**無法自動開 PR** → 在 work-log **最上方**寫一行醒目的
+    「⚠ 待劉老師手動開 PR：`<branch>` → `main`」，session 結束訊息也再講一次。
+  - **絕對不要**因為開不了 PR 就改成直接 push `main` 繞過 CI。
+
+**一次性解法（請劉老師做）**：到 claude.ai 的 Routines UI 編輯本 Routine、附掛 GitHub connector，
+之後即恢復完整飛輪（自動開 PR → CI → auto-merge）。
 
 ## 2. 開工 routine（含自我測試）
 
