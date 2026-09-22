@@ -16,10 +16,20 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 106 |
-| **total (active)** | **117** |
+| done | 107 |
+| **total (active)** | **118** |
 
-最後更新：2026-09-22（autonomous session #5：**WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
+最後更新：2026-09-22（autonomous session #7：**WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
+跨情境摘要比較 UI**——消費前一 session 已完成但無前端呼叫方的 `GET /api/scenarios/compare`，
+「過去情境」清單新增勾選（2–5 個）+「比較所選」→ 新頁 `ScenarioCompareAcrossView`（風場層
+rollup 並排：headline 卡片 + 指標選擇 + 長條圖 + 全指標並排表），與 A1 對稱（比較單位是情境而非
+機組）。開發過程中自行抓到並修正 2 個真實 bug（並排表格式化誤用目前選中指標的格式化函式；刪除
+已勾選情境未同步清除勾選，會讓後續 `/compare` 因殘留失效 id 整批 404），皆已測試鎖住 +
+mutation-verified。code-reviewer review：0 must-fix / 0 should-fix / 3 nice-to-have（皆非阻塞，
+未採納），Approve。backend 未動 1103 passed 不變；frontend 961→978 passed（+17 新測）、tsc 0、
+build OK。
+session #6（追蹤檔更正，無程式碼變更）：確認 CI runner 基礎設施疑似恢復（PR #162 全自動
+auto-merge）。session #5：**WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
 摘要並排端點** `GET /api/scenarios/compare?ids=1,2,3`——重用 A0 單情境摘要邏輯，依請求順序並排回傳；
 新增 HTTP 層路由順序守門測試守住「`/compare` 必須註冊在 `/{scenario_id}` 之前」這個易踩雷點。
 code-reviewer review：0 must-fix，1 should-fix（改 `asyncio.gather` 平行取代序列 await）+ 2
@@ -413,6 +423,37 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     + 前端新 UI，可能命名 `ScenarioCompareAcrossView.tsx` 比照 A1 的 `ScenarioCompareView.tsx`）；
     PR C（檢視情境掛載 app，需先寫 broker 子設計，仍卡）。
 - **Reference**: [`work-logs/2026-09/2026-09-22-scenario-compare-a2-backend.md`](work-logs/2026-09/2026-09-22-scenario-compare-a2-backend.md)
+
+- **WMOM-20260922-04** — ✅ **情境比較分析 · A2 Part 2 前端：跨情境摘要比較 UI**（DEC-20260720-02）：
+  消費 A2 Part 1（`WMOM-20260922-03`）已完成但當時無前端呼叫方的 `GET /api/scenarios/compare`，
+  「過去情境」清單每列加勾選 checkbox（2–5 個，比照後端 MIN/MAX_COMPARE_SCENARIOS）+「比較所選」
+  按鈕 → 新頁 `ScenarioCompareAcrossView`：headline 卡片（依配色標記）→ 指標選擇（6 個風場層
+  指標）→ 跨情境長條圖 → 全指標並排表。比較單位是**風場層 rollup**（`ScenarioSummary.farm`）而非
+  個別機組——不同情境機組組成可能不同，逐機組比較無意義。與 A1（`ScenarioCompareView`，同情境內
+  跨機組）對稱：A1 比較「機組 vs 機組」，本頁比較「情境 vs 情境」。
+  - **範圍取捨**：A2 完整範圍另一半（相對時間對齊時序疊圖 + 差異圖）需要新後端端點（跨情境時間軸
+    重疊 + downsampling 表非 session-safe，見 DEC-20260720-02 caveat），刻意不在本次範圍，留給
+    未來 session（見 work-log §5）。
+  - **配色**：複用既有 `Palette` 型別本就為區分圖表類別而設的 5 色 hex token（`chartFault`/
+    `chartWind`/`chartOperator`/`chartState`/`chartGrid`，恰為 `MAX_COMPARE_SCENARIOS=5`），未
+    新增顏色，符合 CLAUDE.md §7 慣例。
+  - **開發過程中自行抓到並修正 2 個真實 bug**（皆已測試鎖住 + mutation-verified）：
+    1. 全指標並排表初版誤用「目前選中指標」的格式化函式格式化每一列，導致例如發電量列被當百分比
+       格式化（實測 `700000.0 %`，應為 `7,000 kWh`）——寫回歸測試時自行抓到（測試在修正前就
+       fail）；修法：每列改用自己的 `MetricDef.fmt`。
+    2. 刪除已勾選的情境未同步清除 `selectedForCompare` 的勾選——殘留失效 id 會讓後續 `/compare`
+       因任一 id 404 使整批 `asyncio.gather` 連帶失敗；修法：`deleteScenario` 成功時一併清除。
+  - **回歸測試**：`utils/scenarioCompare.test.ts` +3、`ScenarioCompareAcrossView.test.tsx`
+    （新檔）+8、`ScenarioPage.test.tsx` +6（工具列門檻/勾選/取消/上限防呆/刪除同步清除回歸）。
+  - 🔍 **code-reviewer subagent review**：0 must-fix、0 should-fix，3 nice-to-have（palette/MAX
+    耦合無執行期斷言；`ScenarioPage.tsx` 本地既有 `scenarioLabel`（故障場景用）與本次新增的
+    `scenarioLabel`（情境摘要用）同名不同義但無實際衝突；測試邊界小缺口如「所有情境同指標皆缺值」
+    未逐一斷言）皆非阻塞、未採納，Approve。
+  - ✅ **Verify**：backend 未動，1103 passed 不變；frontend 961→978 passed（+17 新測，零
+    regression）、tsc 0 error、`npx vite build` OK。
+  - **下次接手**：A2 Part 2 剩餘（相對時間對齊時序疊圖 + 差異圖，新後端端點 + 新前端元件）；
+    PR C（檢視情境掛載 app，需先寫 broker 子設計，仍卡）。
+- **Reference**: [`work-logs/2026-09/2026-09-22-scenario-compare-a2-frontend.md`](work-logs/2026-09/2026-09-22-scenario-compare-a2-frontend.md)
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
