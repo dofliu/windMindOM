@@ -74,9 +74,9 @@ class WindFarmSimulator:
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
         self._thread: Optional[threading.Thread] = None
         # 讓 _loop 每步之間的睡眠可被 stop() 立刻中斷（WMOM-20260720-08 (2)，比照
-        # DataBroker._maintenance_wake 同款修法）：不用 time.sleep(time_step)，否則 stop()
-        # 撞上該次睡眠時得等它自然結束才能 join，real-time 模式下每次切換來源都多卡最多
-        # 一個 time_step。
+        # DataBroker._maintenance_wake 同款修法）：不用 time.sleep()，否則 stop() 撞上該次
+        # 睡眠時得等它自然結束才能 join。real-time 分支（time_step 睡眠）與 accelerated
+        # 分支（wall_sleep 睡眠，WMOM-20260922-01）都靠它中斷。
         self._wake = threading.Event()
         self._callbacks: List[Callable] = []
         self._lock = threading.Lock()
@@ -334,7 +334,10 @@ class WindFarmSimulator:
                         except Exception:
                             pass
 
-                    time.sleep(wall_sleep)
+                    # 比照 real-time 分支（見上）：accelerated 模式的 wall_sleep 也要能被
+                    # stop() 立刻中斷，否則高倍速模式下 stop() 得等到這次 wall_sleep 自然
+                    # 結束才能 join()（WMOM-20260720-08 review 已知留待處理的 open question）。
+                    self._wake.wait(wall_sleep)
 
             except Exception as e:
                 print(f"[Simulator] Error: {e}")
