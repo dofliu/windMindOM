@@ -37,6 +37,88 @@ const Split: React.FC<{ story: React.ReactNode; mock: React.ReactNode }> = ({ st
   </div>
 );
 
+// ── small presentational helpers ──────────────────────────────────
+// 提升到 module scope（DEC-20260720-01 PR D，見 docs/product/decision_log.md:591）：原本定義在
+// GuidedTourPage 函式體內，每次
+// render（例如切換主題、任何 state 變動）都會產生新的 component type，讓 React 把整棵子樹
+// unmount/remount（丟失既有 DOM node，展示時動畫/焦點狀態重置）。比照 A1 round-2
+// ScenarioTrendView 的同款修法，提升到模組層級維持穩定的 component identity；C（theme palette）
+// 改用 useTheme() 自取，lang 需要的則以 prop 傳入。
+
+const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { C } = useTheme();
+  return (
+    <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: C.sub, fontWeight: 600 }}>
+      {children}
+    </div>
+  );
+};
+
+const ModChip: React.FC<{ children: React.ReactNode; lit?: boolean }> = ({ children, lit }) => {
+  const { C } = useTheme();
+  return (
+    <span style={{
+      fontSize: 11, padding: '3px 9px', borderRadius: 999,
+      background: lit ? C.accentSoft : C.panelMuted,
+      color: lit ? C.accent : C.sub,
+      border: `1px solid ${lit ? 'transparent' : C.border}`,
+      fontWeight: lit ? 600 : 400,
+    }}>{children}</span>
+  );
+};
+
+const Beat: React.FC<{ kind: Tri; lang: Lang; children: React.ReactNode }> = ({ kind, lang, children }) => {
+  const { C } = useTheme();
+  const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+  const map = {
+    pain: { fg: C.danger, bg: C.dangerSoft, t: ui('NOW', '現在') },
+    move: { fg: C.accent, bg: C.accentSoft, t: ui('WITH', '用了之後') },
+    gain: { fg: C.ok, bg: C.okSoft, t: ui('WIN', '幫到廠商') },
+  }[kind];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 12, alignItems: 'start' }}>
+      <span style={{
+        fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 700,
+        padding: '4px 8px', borderRadius: 7, color: map.fg, background: map.bg, marginTop: 2, whiteSpace: 'nowrap',
+      }}>{map.t}</span>
+      <p style={{ margin: 0, fontSize: 14.5, color: C.text }}>{children}</p>
+    </div>
+  );
+};
+
+const Story: React.FC<{
+  lang: Lang;
+  mods: [string, boolean][]; kicker: string; title: string; lede: string;
+  beats: [Tri, React.ReactNode][];
+}> = ({ lang, mods, kicker, title, lede, beats }) => {
+  const { C } = useTheme();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {mods.map(([m, lit]) => <ModChip key={m} lit={lit}>{m}</ModChip>)}
+      </div>
+      <div>
+        <Eyebrow>{kicker}</Eyebrow>
+        <h2 style={{ fontFamily: '"DM Serif Display", serif', fontSize: 30, lineHeight: 1.12, letterSpacing: '-0.01em', margin: '6px 0 10px', color: C.text }}>{title}</h2>
+        <p style={{ margin: 0, fontSize: 15, color: C.sub, maxWidth: '46ch' }}>{lede}</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {beats.map(([k, txt], i) => <Beat key={i} kind={k} lang={lang}>{txt}</Beat>)}
+      </div>
+    </div>
+  );
+};
+
+const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => {
+  const { C } = useTheme();
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, background: C.panelMuted, fontSize: 13 }}>
+      <span style={{ color: C.sub }}>{label}</span>
+      <span style={{ marginLeft: 'auto', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    </div>
+  );
+};
+
 const GuidedTourPage: React.FC<Props> = ({ lang }) => {
   const { C } = useTheme();
   const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
@@ -63,66 +145,6 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [N]);
-
-  // ── small presentational helpers ────────────────────────────────
-  const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: C.sub, fontWeight: 600 }}>
-      {children}
-    </div>
-  );
-
-  const ModChip: React.FC<{ children: React.ReactNode; lit?: boolean }> = ({ children, lit }) => (
-    <span style={{
-      fontSize: 11, padding: '3px 9px', borderRadius: 999,
-      background: lit ? C.accentSoft : C.panelMuted,
-      color: lit ? C.accent : C.sub,
-      border: `1px solid ${lit ? 'transparent' : C.border}`,
-      fontWeight: lit ? 600 : 400,
-    }}>{children}</span>
-  );
-
-  const Beat: React.FC<{ kind: Tri; children: React.ReactNode }> = ({ kind, children }) => {
-    const map = {
-      pain: { fg: C.danger, bg: C.dangerSoft, t: ui('NOW', '現在') },
-      move: { fg: C.accent, bg: C.accentSoft, t: ui('WITH', '用了之後') },
-      gain: { fg: C.ok, bg: C.okSoft, t: ui('WIN', '幫到廠商') },
-    }[kind];
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 12, alignItems: 'start' }}>
-        <span style={{
-          fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 700,
-          padding: '4px 8px', borderRadius: 7, color: map.fg, background: map.bg, marginTop: 2, whiteSpace: 'nowrap',
-        }}>{map.t}</span>
-        <p style={{ margin: 0, fontSize: 14.5, color: C.text }}>{children}</p>
-      </div>
-    );
-  };
-
-  const Story: React.FC<{
-    mods: [string, boolean][]; kicker: string; title: string; lede: string;
-    beats: [Tri, React.ReactNode][];
-  }> = ({ mods, kicker, title, lede, beats }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {mods.map(([m, lit]) => <ModChip key={m} lit={lit}>{m}</ModChip>)}
-      </div>
-      <div>
-        <Eyebrow>{kicker}</Eyebrow>
-        <h2 style={{ fontFamily: '"DM Serif Display", serif', fontSize: 30, lineHeight: 1.12, letterSpacing: '-0.01em', margin: '6px 0 10px', color: C.text }}>{title}</h2>
-        <p style={{ margin: 0, fontSize: 15, color: C.sub, maxWidth: '46ch' }}>{lede}</p>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {beats.map(([k, txt], i) => <Beat key={i} kind={k}>{txt}</Beat>)}
-      </div>
-    </div>
-  );
-
-  const Row: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 10, background: C.panelMuted, fontSize: 13 }}>
-      <span style={{ color: C.sub }}>{label}</span>
-      <span style={{ marginLeft: 'auto', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-    </div>
-  );
 
   const mono: React.CSSProperties = { fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace', fontVariantNumeric: 'tabular-nums' };
 
@@ -151,6 +173,7 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
         return (
           <Split
             story={<Story
+              lang={lang}
               mods={[['monitoring', true], ['SCADA', true], ['physics sim', true]]}
               kicker={ui('Scene 1 · The console', '情境一 · 監控總覽')}
               title={ui('14 turbines, live — even without a real farm', '14 台機組即時上線，連真實風場都不用先接')}
@@ -184,6 +207,7 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
         return (
           <Split
             story={<Story
+              lang={lang}
               mods={[['monitoring', true], ['knowledge · RAG', true], ['field mobile', true]]}
               kicker={ui('Scene 2 · The 3am alarm', '情境二 · 凌晨的告警')}
               title={ui('Alarm at night → the fix in 30 seconds', '半夜跳告警，30 秒查到怎麼處理')}
@@ -223,6 +247,7 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
         return (
           <Split
             story={<Story
+              lang={lang}
               mods={[['workflow', true], ['inventory', true], ['cost', true]]}
               kicker={ui('Scene 3 · Dispatch to close', '情境三 · 派工到閉環')}
               title={ui('One work order — parts, cost and sign-off all on the record', '一張工單，料、錢、簽核全程有帳可查')}
@@ -260,6 +285,7 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
         return (
           <Split
             story={<Story
+              lang={lang}
               mods={[['inventory', true], ['workflow', true]]}
               kicker={ui('Scene 4 · Never run dry', '情境四 · 安全庫存')}
               title={ui('Stock dips below safety line → reorder before you run out', '料件低於安全庫存 → 用光前就先補')}
@@ -295,6 +321,7 @@ const GuidedTourPage: React.FC<Props> = ({ lang }) => {
         return (
           <Split
             story={<Story
+              lang={lang}
               mods={[['reporting', true], ['cost · LCOE', true]]}
               kicker={ui('Scene 5 · Month-end', '情境五 · 月底交代')}
               title={ui('One-tap monthly report — stronger footing at renewal', '一鍵產出專業月報，續約更有底氣')}
