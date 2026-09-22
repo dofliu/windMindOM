@@ -15,9 +15,9 @@
 |--------|------|
 | open | 15 |
 | in_progress | 3 |
-| blocked | 0 |
+| blocked | 1 |
 | done | 96 |
-| **total (active)** | **114** |
+| **total (active)** | **115** |
 
 最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
 
@@ -28,6 +28,20 @@
 ---
 
 > 📁 更早的 session changelog 已封存到 [`docs/legacy/issues_changelog_archive.md`](docs/legacy/issues_changelog_archive.md)（避免本檔無限膨脹；完整 work-log 在 `work-logs/`）。
+
+---
+
+## 📌 2026-09-22 session — CI 飛輪 infra 級紅燈（blocked，需劉老師檢查 GitHub 帳號設定）
+
+- **WMOM-20260922-01** — 🔴 blocked：`ci.yml` 在 PR #156 上連續 3 次（含 1 次手動 rerun）
+  於 1-6 秒內 `runner_id: 0` instant failure，未曾真正排上 runner（非測試斷言失敗）。
+  已排除是本 PR 程式問題（`ci.yml` 未被該 PR 改動、workflow 狀態 `active`、上次成功是
+  2026-09-01 run #139）。研判是 GitHub Actions usage/spending limit 耗盡或 Actions 權限被關閉，
+  純帳號/repo 設定層級，autonomous session 手上的 GitHub MCP 工具查不到也改不了。
+  診斷詳情見 PR #156 留言（https://github.com/dofliu/windMindOM/pull/156#issuecomment-5772450207）
+  與 `work-logs/2026-09/2026-09-22-ci-actions-outage-blocker.md`。
+  **需劉老師到 GitHub 網頁 Settings → Actions / Settings → Billing 檢查並排除**；修好後 PR #156
+  按 Re-run 即可，不需要新 commit。本 session 未動任何程式碼、未開新 PR（避免疊加卡在同一紅燈上）。
 
 ---
 
