@@ -188,3 +188,56 @@ export function faultedHealthyCounts(rows: TurbineComparisonRow[]): {
   for (const r of rows) if (r.faulted) faulted += 1;
   return { faulted, healthy: rows.length - faulted };
 }
+
+// ── A2「跨情境比較」純邏輯（WMOM-20260922-04, DEC-20260720-02）─────────────────
+//
+// 消費 A2 Part 1 `GET /api/scenarios/compare?ids=...` 的回傳（`ScenarioSummary[]`，與 A0/A1
+// 同一鏡射型別）。比較單位是**風場層 rollup**（`ScenarioSummary.farm`），而非個別機組——跨情境比較
+// 關心的是「這個情境整體 vs 那個情境整體」，機組數量/id 在不同情境間可能不同，逐機組比較無意義。
+
+/** 可比較的風場層數值指標鍵（皆為 number | null）。 */
+export type FarmCompareMetricKey =
+  | 'avgCapacityFactor'
+  | 'totalEnergyKwh'
+  | 'avgProductionRate'
+  | 'totalFaultEvents'
+  | 'worstDamage'
+  | 'minRulHours';
+
+/** 情境顯示標籤：優先用使用者命名，未命名回退 `#{id}`。 */
+export function scenarioLabel(s: ScenarioSummary): string {
+  return s.name || `#${s.scenarioId}`;
+}
+
+/** 取某情境風場層某指標的數值（null 代表缺值）。 */
+export function farmMetricValue(
+  farm: ScenarioFarmSummary,
+  metric: FarmCompareMetricKey,
+): number | null {
+  const v = farm[metric];
+  return typeof v === 'number' ? v : null;
+}
+
+/** 跨情境比較長條圖的一筆：缺值以 0 呈現但標記 missing（比照 compareBars 的缺值語意）。 */
+export interface ScenarioCompareBar {
+  scenarioId: number;
+  label: string;
+  value: number;
+  missing: boolean;
+}
+
+/** 產生某指標跨情境的比較序列（保留請求 ids 的原序，與 /compare 回傳順序一致）。 */
+export function scenarioCompareBars(
+  scenarios: ScenarioSummary[],
+  metric: FarmCompareMetricKey,
+): ScenarioCompareBar[] {
+  return scenarios.map((s) => {
+    const raw = farmMetricValue(s.farm, metric);
+    return {
+      scenarioId: s.scenarioId,
+      label: scenarioLabel(s),
+      value: raw ?? 0,
+      missing: raw === null,
+    };
+  });
+}
