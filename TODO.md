@@ -1,12 +1,12 @@
 # windMindOM — TODO（短期工作板）
 
-> ⚠ **2026-09-22 CI 基礎設施疑似壞掉（待劉老師檢查 GitHub Actions 帳號設定）**：PR #157 兩個 job
-> 皆在 2-3 秒內失敗、`runner_id: 0`（job 從未被排到 runner）；重跑一次結果相同，非 flake。同款秒退
-> 失敗也出現在跟該 PR 無關的 main push run（PR #156 merge commit）。`.github/workflows/ci.yml` 內容
-> 正常、workflow 狀態 active，排除是本次程式碼或 workflow 設定問題，懷疑是帳號/組織層級 GitHub
-> Actions runner 配額或計費限制。詳見 PR #157 留言。下個 session 開工時若 baseline 仍過（本機驗證正常，
-> 只有 GitHub CI 端起不了 runner），可正常繼續工作，但**開 PR 後不要期待 auto-merge 會動**，需人工
-> 確認 CI 已恢復。
+> ℹ️ **2026-09-22 CI 基礎設施曾中斷約 2 小時，現已恢復（無需處理，留紀錄備查）**：PR #157 / #158 的
+> job 一度皆在 2-3 秒內失敗、`runner_id: 0`（job 從未被排到 runner），重跑確認非 flake；同款秒退也
+> 出現在跟 PR 無關的 main push run。`.github/workflows/ci.yml` 內容正常、workflow 狀態 active，排除
+> 程式碼與 workflow 設定問題，研判為帳號/組織層級 GitHub Actions runner 配額或平台事故。**後續自行
+> 恢復**，PR #157 CI 轉綠並 auto-merge。若日後再遇同款秒退（job 秒退 + `runner_id: 0` + check output
+> 全空），處理原則：本機驗證仍是可信來源，重跑一次確認非 flake 後留言記錄即可，不要反覆重跑，也**不要
+> 為了繞過 CI 直接 push main**。
 >
 > 用途：本檔案是「**這週 / 這個月**正在做什麼」的快速 dashboard。
 > 詳細 issue 規格在 [`ISSUES.md`](ISSUES.md)；完整路線圖在 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)；
@@ -17,9 +17,9 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-22（autonomous session #2：WMOM-20260922-01 accelerated 模式 stop() 響應性收尾；同 session
-確認 **CI runner 基礎設施仍失效**——PR #157〔WMOM-20260720-13〕本機已全綠，卡在帳號/組織層級 GitHub
-Actions 問題，待人工排查，下個 session 開工前先查 PR #157 CI 是否恢復）
+最後更新：2026-09-22（autonomous session #3：WMOM-20260922-01 accelerated 模式 stop() 響應性收尾；
+session #2：WMOM-20260720-13 A1 round-2 follow-up 4 個 Should-fix 全修，純前端，PR #157 merged；
+session #1：WMOM-20260720-04 + -08 live/OPC 後端硬化收尾——M6 現場部署唯一硬阻塞已清除）
 
 > ⚠ 本檔其餘內文（現況段落、下方清單）大多還停在 2026-07-18 的狀態快照，比 `STATUS.yaml` / `ISSUES.md`
 > 舊很多（M5 已到 ~90%、M6 已到 auth+live/OPC 硬化完成）。下次整理 TODO 時建議整份對照 `ISSUES.md`
@@ -30,7 +30,7 @@ Actions 問題，待人工排查，下個 session 開工前先查 PR #157 CI 是
 ## 現況（2026-07，內容已過時，見上方提醒）
 
 - **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
-- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1094 passed / 7 skipped / 1 xfailed**；frontend vitest **957 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試（**惟 CI runner 基礎設施本身自 2026-09-22 起失效**，見上方提醒與 PR #157，本機驗證仍是唯一可信來源）。
+- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1094 passed / 7 skipped / 1 xfailed**；frontend vitest **960 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試。
 - **節奏提醒**：autonomous 飛輪已重啟（每 3 小時），挑題準則為「對 M6 critical path 有貢獻優先」。
 
 ---

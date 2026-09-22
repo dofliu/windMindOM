@@ -130,7 +130,39 @@ PR #157（`WMOM-20260720-13`）兩個 CI job（Backend pytest / Frontend vitest+
 2. **第二優先**：`WMOM-20260716-06`（footprint CPU-torch pin）或 `WMOM-20260509-F6`
    （PostgreSQL row-lock），兩者都需要 docker daemon——本 sandbox 目前只有 docker **client**、
    無 daemon（`docker info` 連不到 socket），若未來 sandbox 有 daemon 可挑。
-3. **阻擋項**：CI runner 基礎設施（見 §4），非 autonomous session 可解，已充分記錄待人工處理。
+3. **阻擋項**：無（CI 已恢復，見 §4 後記）。
+
+---
+
+## 4.1 後記——CI 恢復後的 merge 競態（實際收尾經過）
+
+§4 寫完後約 2 小時，CI runner 恢復：
+
+1. PR #157 CI 轉綠 → auto-merge 進 main。
+2. **同一時刻（15:35）遠端自動在本分支上產生了一個 merge commit（40c8717）**，把 main 併進
+   PR #158 的分支以解衝突——但它的解法是**直接取分支側（ours）原文**，因此留下三處失準內容：
+   - `ISSUES.md` / `STATUS.yaml` 的 `done` 停在 103。根因是 **git 的靜默語意合併陷阱**：兩個
+     session 各自因**不同理由**把同一行從 `102` 改成 `103`（#157 為 WMOM-20260720-13、#158 為
+     WMOM-20260922-01），git 視為「同一筆文字變更」只計一次 → 實際應為 **104**。
+   - `STATUS.yaml` 的 `in_progress` 仍為 1（WMOM-20260720-13 其實已隨 #157 合併，應為 0）。
+   - `TODO.md` 頂部仍寫「CI 基礎設施失效、待劉老師檢查」（實際已恢復）。
+3. 本 session 在本機做了正確的三方合併（把兩側各自正確的部分都收進來、`done` 更正為 104、
+   `in_progress` 改 0、CI 警語改為「已恢復」並保留日後同款狀況的處理原則），但**推送前 auto-merge
+   已於 15:40 用 40c8717 把 PR #158 合併進 main** → 程式碼修正（engine.py + 測試）已正確進 main，
+   但追蹤檔案是失準版本。
+4. 因 PR #158 已 merged（不可再沿用），依規範**從最新 main 開新分支**
+   （`claude/inspiring-mccarthy-d8a0jz-docfix`）把三個追蹤檔案的更正推成**新的 follow-up PR**。
+   純文件更正，不動任何程式碼。
+
+**教訓（給下個 session）**：
+
+- **追蹤檔案（ISSUES.md / STATUS.yaml / TODO.md）的數字欄位是 merge 競態的高風險區**。兩個
+  session 並行時，「各自 +1 但改成同一個數字」會被 git 靜默合成一次。**合併後務必自己重算一次
+  `open + in_progress + blocked + done == total`**，不要相信自動合併的結果（本次 main 一度出現
+  `11+0+0+103 = 114 ≠ total 115` 的內部矛盾）。
+- **auto-merge 開著時，「本機解完衝突」和「遠端已合併」是會賽跑的**。與其在推送前做長時間的完整
+  驗證，不如先確認 PR 的 mergeable 狀態與 auto-merge 是否可能搶先；搶輸了就照「已合併 PR 不可
+  沿用」規範開 follow-up PR，不要試圖改寫已合併的歷史。
 
 ---
 

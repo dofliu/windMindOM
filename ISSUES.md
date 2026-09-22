@@ -16,14 +16,18 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 103 |
+| done | 104 |
 | **total (active)** | **115** |
 
-最後更新：2026-09-22（autonomous session #2：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——補
+最後更新：2026-09-22（autonomous session #3：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——補
 上 WMOM-20260720-08 work-log §7 open questions 留的殘留問題，`_loop` accelerated 分支的
 `time.sleep(wall_sleep)` 改 `Event.wait()`，比照 real-time 分支已核准修法；見下方「2026-09-22 session」
-區塊。同一 session 也確認 CI runner 基礎設施仍處於失效狀態（見 PR #157 留言，帳號/組織層級問題，非本 repo
-程式碼可修復範圍）。
+區塊。前次 session（#2）：**WMOM-20260720-13 A1 round-2 follow-up 全修（4 個 Should-fix）**——
+`scheduleMissing` 誤報 / 切頁籤丟失選取機組 / handleGenerate 端到端回歸測試 / `fault_schedule` 重複映射
+漂移風險，皆修完並 mutation-verified（PR #157，見下方 WMOM-20260720-13 條目）；該 PR 一度卡在 CI runner
+基礎設施失效（帳號/組織層級問題），本 session（#3）merge 時確認**已恢復並自動合併**。更早 session（#1）：
+**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次
+修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊。
 
 > 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
@@ -322,12 +326,15 @@
   （`_wake` 欄位宣告處註解只提 real-time 分支、未涵蓋 accelerated 分支）已採納補上；2 Nice-to-have
   （兩處 `_wake.wait()` 可抽 helper；`set_time_scale` 本身不會喚醒正在等待的舊 wall_sleep）記錄但不在
   本次範圍處理，留給未來若需要再開新 issue。monitoring +1 測（1094 passed / 7 skipped / 1 xfailed）；
-  frontend 未動，957 passed / tsc 0 / build OK 全綠回歸驗證。
-  - **附帶發現**：`WMOM-20260720-13`（A1 round-2 follow-up，PR #157）本機驗證早已全綠，但 CI runner
-    基礎設施持續失效（兩個 job 皆在 2-3 秒內 `runner_id: 0` 失敗，同款秒退也發生在跟該 PR 無關的
-    `main` push run）。本 session 重跑一次確認仍未恢復（前一 session 已重跑過一次、已在 PR #157 留言
-    完整診斷為帳號/組織層級 GitHub Actions 配額或計費問題），非本 repo 程式碼可修復範圍，待人工檢查
-    GitHub 帳號設定或 https://www.githubstatus.com/。
+  frontend 未動於本次修正本身，957 passed / tsc 0 / build OK 全綠回歸驗證（merge 進最新 main 後因
+  WMOM-20260720-13 帶入的 3 個新測，整合後應為 960 passed，見下方附帶發現）。
+  - **附帶發現 + 解決**：本 issue 開發當下，`WMOM-20260720-13`（A1 round-2 follow-up，PR #157）本機
+    驗證早已全綠，但 CI runner 基礎設施持續失效（兩個 job 皆在 2-3 秒內 `runner_id: 0` 失敗，同款秒退
+    也發生在跟該 PR 無關的 `main` push run）。本 issue 對應 session 重跑一次確認仍未恢復（前一 session
+    已重跑過一次、已在 PR #157 留言完整診斷為帳號/組織層級 GitHub Actions 配額或計費問題），推送
+    PR #158（本 issue）時同樣撞上同款秒退失敗，已在 PR #158 留言記錄 + 重跑一次確認仍未恢復。**約 2
+    小時後 CI 恢復**，PR #157 CI 轉綠並 auto-merge 進 main；PR #158 因與 #157 同動 ISSUES.md /
+    STATUS.yaml / TODO.md 產生 merge conflict，已手動 merge main 並解決衝突後重新推送（見 work-log）。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
