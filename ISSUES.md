@@ -16,10 +16,14 @@
 | open | 11 |
 | in_progress | 1 |
 | blocked | 0 |
-| done | 102 |
-| **total (active)** | **114** |
+| done | 103 |
+| **total (active)** | **115** |
 
-最後更新：2026-09-22（autonomous session：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊）。
+最後更新：2026-09-22（autonomous session #2：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——補
+上 WMOM-20260720-08 work-log §7 open questions 留的殘留問題，`_loop` accelerated 分支的
+`time.sleep(wall_sleep)` 改 `Event.wait()`，比照 real-time 分支已核准修法；見下方「2026-09-22 session」
+區塊。同一 session 也確認 CI runner 基礎設施仍處於失效狀態（見 PR #157 留言，帳號/組織層級問題，非本 repo
+程式碼可修復範圍）。
 
 > 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
@@ -299,6 +303,29 @@
     重跑 assemble（秒級，不必重渲）即可換。
   - 詳見 [`promo/README.md`](promo/README.md) 與
     work-log `work-logs/2026-09/2026-09-01-intro-video-3min.md`。
+
+## 📌 2026-09-22 session 新增 issue（live/OPC 後端硬化 follow-up）
+
+**Done**
+- **WMOM-20260922-01** — 🟢 **accelerated 模式（`time_scale > 1`）`_loop` 的 `stop()` 響應性**：
+  同日稍早的 `WMOM-20260720-04` + `-08`（PR #156）修好了 `_loop` real-time 分支「`stop()` 撞上不可
+  中斷 `time.sleep()`」的問題，但 work-log §7 open questions 留了 accelerated 分支（第 337 行
+  `time.sleep(wall_sleep)`）同款問題未修——`set_time_scale` API（`/api/config/time-scale`）可在模擬
+  跑著時即時調高倍率，wall_sleep 可達數秒，未修前 `stop()` 得等它自然結束才能 `join()`（逼近甚至超過
+  `join(timeout=5)` 預算，與已修的兩個問題同一根因）。修法完全比照 real-time 分支：改
+  `self._wake.wait(wall_sleep)`，`stop()` 的 `set()` 立刻喚醒。新增
+  `test_stop_returns_promptly_during_accelerated_wall_sleep`（time_scale=2.0、time_step=5.0 讓
+  wall_sleep=5s，驗證 stop() 於 1s 內返回），mutation-verified（還原成 `time.sleep` 後測試 4.95s
+  fail，還原修正後 3 測全過）。**code-reviewer subagent review**：0 Must-fix，Approve；1 Should-fix
+  （`_wake` 欄位宣告處註解只提 real-time 分支、未涵蓋 accelerated 分支）已採納補上；2 Nice-to-have
+  （兩處 `_wake.wait()` 可抽 helper；`set_time_scale` 本身不會喚醒正在等待的舊 wall_sleep）記錄但不在
+  本次範圍處理，留給未來若需要再開新 issue。monitoring +1 測（1094 passed / 7 skipped / 1 xfailed）；
+  frontend 未動，957 passed / tsc 0 / build OK 全綠回歸驗證。
+  - **附帶發現**：`WMOM-20260720-13`（A1 round-2 follow-up，PR #157）本機驗證早已全綠，但 CI runner
+    基礎設施持續失效（兩個 job 皆在 2-3 秒內 `runner_id: 0` 失敗，同款秒退也發生在跟該 PR 無關的
+    `main` push run）。本 session 重跑一次確認仍未恢復（前一 session 已重跑過一次、已在 PR #157 留言
+    完整診斷為帳號/組織層級 GitHub Actions 配額或計費問題），非本 repo 程式碼可修復範圍，待人工檢查
+    GitHub 帳號設定或 https://www.githubstatus.com/。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
