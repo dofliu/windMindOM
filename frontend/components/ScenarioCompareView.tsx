@@ -103,11 +103,16 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
     [summary, faultedIds],
   );
   const counts = useMemo(() => faultedHealthyCounts(rows), [rows]);
-  // 排程缺失防呆（Must-fix）：faultedIds 空但有機組實際觸發故障 → 很可能是這條路徑的 scenario 物件
-  // 沒帶 fault_schedule。此時分群會全落在 healthy、誤導；明示提醒而非靜默呈現「全部健康」。
+  // 排程缺失防呆（Must-fix，round-2 修 WMOM-20260720-13 (1) 誤報回歸）：scenario 物件根本沒帶
+  // fault_schedule 欄位（`undefined`/`null`）才代表「這條路徑真的沒帶排程」；不可用
+  // faultedIds.size===0 判斷，因為刻意生成的純風況乾淨情境本就會帶一個正確、非 nullish 的空陣列
+  // `[]`（faultedIds 同樣為空）——若混用同一判斷，緊接在有故障情境後生成乾淨情境時（faultEvents 被
+  // 時間窗污染帶進殘值），會對這種乾淨情境誤報「未帶排程」。此時分群會全落在 healthy、誤導；明示
+  // 提醒而非靜默呈現「全部健康」。用 `== null` 而非 `=== undefined`：目前所有 producer 都只會給陣列
+  // 不會給 `null`，但同一欄位若哪天被明確寫成 `null`（如 JSON 顯式 null）也該視為「缺」，不留漏洞。
   const scheduleMissing = useMemo(
-    () => faultedIds.size === 0 && rows.some((r) => r.faultEvents > 0),
-    [faultedIds, rows],
+    () => scenario.config?.fault_schedule == null && rows.some((r) => r.faultEvents > 0),
+    [scenario.config, rows],
   );
   const activeMetric = METRICS.find((m) => m.key === metric) ?? METRICS[0];
   const bars = useMemo(() => compareBars(rows, metric), [rows, metric]);

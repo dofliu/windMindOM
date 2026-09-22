@@ -3,14 +3,19 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-22"  # 情境模式深化 arc：DB-lock 根治（WMOM-20260720-01, #142）+ 情境=凍結資料集 DEC-20260720-01（設定 gate #146 / 產生情境不自由跑 #147）+ 情境比較分析 epic DEC-20260720-02（A0 摘要端點 #148 merged / A1 同情境內比較 #150 merged，round-2 的 4 個 Should-fix follow-up 記在 WMOM-20260720-13）。**2026-09-01**：對外素材 — `promo/` 3 分鐘專案介紹影片落地（WMOM-20260901-01，18 景 HTML 動畫 + storyboard + 180.0s 1080p30 MP4，戲劇景＝Simulator-first；供 M6 客戶接觸 / partner 對接用，見 promo/README.md）。**2026-09-22 autonomous session**：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞的 5 個延後子問題（stop() 未停 OPC thread / 切走 live 無角色檢查 / set_simulation 靜默 switch_mode / start-stop-switch_mode 無鎖 / engine 不可中斷睡眠）一次修完，逐項 mutation-verified（含 4×30 併發壓測腳本直接重現「無鎖時 20s 內 15 次例外」vs「加鎖 0.77s 零例外」）。code-reviewer subagent review 抓到 2 Must-fix（`switch_farm`/`select_view_only` 亦需納入同一把鎖；`OPCDAAdapter._poll_loop` 同款不可中斷睡眠）+ 1 Should-fix（壓測 mock 失效）皆已修復並重新 mutation-verified。monitoring +17 測、backend 1093 passed / frontend 957 passed 全綠回歸。
+last_updated: "2026-09-22"  # 情境模式深化 arc：DB-lock 根治（WMOM-20260720-01, #142）+ 情境=凍結資料集 DEC-20260720-01（設定 gate #146 / 產生情境不自由跑 #147）+ 情境比較分析 epic DEC-20260720-02（A0 摘要端點 #148 merged / A1 同情境內比較 #150 merged，round-2 的 4 個 Should-fix follow-up 記在 WMOM-20260720-13）。**2026-09-01**：對外素材 — `promo/` 3 分鐘專案介紹影片落地（WMOM-20260901-01，18 景 HTML 動畫 + storyboard + 180.0s 1080p30 MP4，戲劇景＝Simulator-first；供 M6 客戶接觸 / partner 對接用，見 promo/README.md）。**2026-09-22 autonomous session**：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞的 5 個延後子問題（stop() 未停 OPC thread / 切走 live 無角色檢查 / set_simulation 靜默 switch_mode / start-stop-switch_mode 無鎖 / engine 不可中斷睡眠）一次修完，逐項 mutation-verified（含 4×30 併發壓測腳本直接重現「無鎖時 20s 內 15 次例外」vs「加鎖 0.77s 零例外」）。code-reviewer subagent review 抓到 2 Must-fix（`switch_farm`/`select_view_only` 亦需納入同一把鎖；`OPCDAAdapter._poll_loop` 同款不可中斷睡眠）+ 1 Should-fix（壓測 mock 失效）皆已修復並重新 mutation-verified。monitoring +17 測、backend 1093 passed / frontend 957 passed 全綠回歸。**2026-09-22 第二個 autonomous
+session**：**WMOM-20260720-13 A1 round-2 follow-up 全修**——4 個 Should-fix（`scheduleMissing` 防呆誤報
+改判 `fault_schedule===undefined`／切頁籤丟失選取機組改把 `turbineId` 提升到 `ScenarioDetail` controlled／
+`handleGenerate` 補端到端回歸測試／`fault_schedule` 重複映射改抽 `toFaultScheduleEntries` 共用）皆修完，
+逐項 mutation-verified；純前端，frontend 957→960 passed，backend 1093 不變。
 next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。 **2026-07-20 情境模式深化 arc**：(a) generate-bulk 並發 writer 撞 SQLite `database is locked` 根治——decouple `_bulk_running` + `pause_live_for_batch` context + 單交易 `store_readings`（WMOM-20260720-01, #142 merged）；(b) 定 **DEC-20260720-01「情境＝凍結資料集」**：設定頁依實際來源 gate（view/live/scenario 時停用模擬參數，#146）+ 選「產生情境」不再自由跑連續產資料（`run_loop` 貫穿、新 `source_kind='scenario'`、不起 Modbus，#147）；(c) 立 **DEC-20260720-02 情境比較分析 epic**（序列 B→A0→C 與 A1/A2 並進）：**A0 情境摘要端點** `GET /api/scenarios/{id}/summary`（每台機組物理聚合〔容量因數/累積損傷/結束 RUL/極限負載/DEL/故障數〕+ 風場 rollup，storage 層 SQL 聚合，#148 merged）、**A1 同情境內比較視圖**（消費 A0、faulted vs healthy 分群比較圖表，#150 merged；round-2 review 的 4 個
 Should-fix follow-up 見 WMOM-20260720-13）。**WMOM-20260720-04 + -08 live/OPC 後端硬化（2026-09-22
 merged）**：M6 現場部署唯一硬阻塞已清除——DataBroker.stop() 補停 OPC adapter、切走 live 對稱要求
 SUPERVISOR、set_simulation 對非即時模擬來源改 409 拒絕、start/stop/switch_mode 加 RLock、engine._loop
-睡眠改可中斷 Event.wait。**下次接手**：WMOM-20260720-13（A1 round-2 的 4 個 Should-fix）或續 A2 跨情境
-比較（相對時間對齊）/ PR C（檢視情境掛載 app，需先寫 broker 子設計）；並行 WMOM-20260716-06（footprint
-CPU-torch pin）+ WMOM-20260509-F6（PostgreSQL row-lock，需 docker）+ M5 收尾 + M6 部署前置（HTTPS 配置）。"
+睡眠改可中斷 Event.wait。**WMOM-20260720-13（2026-09-22 第二個 session）**：A1 round-2 的 4 個
+Should-fix 全修，見上方 last_updated。**下次接手**：續 A2 跨情境比較（相對時間對齊）/ PR C（檢視情境掛載
+app，需先寫 broker 子設計）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ WMOM-20260509-F6
+（PostgreSQL row-lock，需 docker）+ M5 收尾 + M6 部署前置（HTTPS 配置）。"
 technologies:
   - FastAPI
   - React

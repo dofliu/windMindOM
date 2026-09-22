@@ -26,7 +26,7 @@ export interface ScenarioConfig {
   sim_start?: string;
   sim_end?: string;
   status?: string;
-  fault_schedule?: Array<{ scenario_id: string; turbine_id: string; offset_seconds: number }>;
+  fault_schedule?: Array<{ scenario_id: string; turbine_id: string; offset_seconds: number; severity_rate?: number }>;
 }
 
 export interface SavedScenario {
@@ -49,6 +49,11 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
   const cfg = scenario.config ?? {};
 
   const [tab, setTab] = useState<DetailTab>('trend');
+  // 選取機組提升到本層（controlled，WMOM-20260720-13 (2)）：ScenarioTrendView 原本自管 turbineId，
+  // 但頁籤是條件式渲染（`{tab === 'trend' && <ScenarioTrendView/>}`）→ 切去「機組比較」再切回「趨勢」
+  // 會 unmount 整個子元件，選取的機組連同 state 一起銷毀，回來又重設回 WT001（打在「比較↔趨勢來回」
+  // 這條 A1 核心動線）。提升到這層、頁籤切換不影響本元件存續，選取值就能跨切換保留。
+  const [turbineId, setTurbineId] = useState('WT001');
 
   return (
     <div>
@@ -129,7 +134,9 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
         })}
       </div>
 
-      {tab === 'trend' && <ScenarioTrendView scenario={scenario} lang={lang} />}
+      {tab === 'trend' && (
+        <ScenarioTrendView scenario={scenario} lang={lang} turbineId={turbineId} onTurbineIdChange={setTurbineId} />
+      )}
       {tab === 'compare' && <ScenarioCompareView scenario={scenario} lang={lang} />}
     </div>
   );

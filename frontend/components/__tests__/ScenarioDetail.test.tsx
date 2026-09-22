@@ -29,6 +29,34 @@ const SCENARIO: SavedScenario = {
   },
 };
 
+const LOADS = { towerFa: null, towerSs: null, bladeFlap: null, bladeEdge: null };
+
+/** 供切到「機組比較」頁籤時 ScenarioCompareView 的 `/summary` fetch 用（內容不影響本檔測項）。 */
+const SUMMARY = {
+  scenarioId: 7,
+  name: '暴風測試',
+  status: 'ok',
+  windProfile: 'storm',
+  durationHours: 24,
+  timeStepSeconds: 60,
+  ratedPowerKw: 2000,
+  faultsInjected: 1,
+  eventsByTimeWindow: true,
+  farm: {
+    turbineCount: 3,
+    totalEnergyKwh: 0,
+    avgCapacityFactor: 0,
+    avgProductionRate: 0,
+    totalFaultEvents: 0,
+    maxTurbinePowerKw: 0,
+    worstDamage: null,
+    worstDamageTurbineId: null,
+    minRulHours: null,
+    minRulTurbineId: null,
+  },
+  turbines: [],
+};
+
 const HISTORY = {
   scenario_id: 7,
   turbine_id: 'WT001',
@@ -54,9 +82,10 @@ function jsonRes(body: unknown, ok = true, status = 200): Promise<Response> {
 
 let fetchMock: Mock;
 
-function installFetch(history: unknown = HISTORY) {
+function installFetch(history: unknown = HISTORY, summary: unknown = SUMMARY) {
   fetchMock = vi.fn((url: string) => {
     if (url.includes('/api/scenarios/') && url.includes('/history')) return jsonRes(history);
+    if (url.includes('/api/scenarios/') && url.includes('/summary')) return jsonRes(summary);
     return Promise.reject(new Error(`unexpected fetch: ${url}`));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -137,6 +166,33 @@ describe('ScenarioDetail — 互動', () => {
       fireEvent.click(screen.getByRole('button', { name: '返回情境列表' }));
     });
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('切到「機組比較」再切回「趨勢」→ 保留原選取機組（不重設回 WT001，WMOM-20260720-13 (2)）', async () => {
+    await renderDetail();
+    await waitFor(() =>
+      expect(historyCalls().some(u => u.includes('/turbines/WT001/history'))).toBe(true),
+    );
+    // 先換選機組到 WT003
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('風機'), { target: { value: 'WT003' } });
+    });
+    await waitFor(() => expect(historyCalls().some(u => u.includes('/turbines/WT003/history'))).toBe(true));
+
+    // 切去「機組比較」頁籤（趨勢頁子元件 unmount）
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '機組比較' }));
+    });
+    await waitFor(() => expect(screen.getByText('風場層摘要')).toBeInTheDocument());
+
+    // 切回「趨勢」→ Select 應仍顯示 WT003（未被重設回 WT001），且重抓的是 WT003 而非 WT001
+    const callsBeforeReturn = historyCalls().length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '趨勢' }));
+    });
+    await waitFor(() => expect(historyCalls().length).toBeGreaterThan(callsBeforeReturn));
+    expect(screen.getByLabelText('風機')).toHaveValue('WT003');
+    expect(historyCalls().slice(callsBeforeReturn).every(u => u.includes('/turbines/WT003/history'))).toBe(true);
   });
 });
 
