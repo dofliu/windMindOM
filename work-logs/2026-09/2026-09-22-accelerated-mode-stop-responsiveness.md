@@ -124,45 +124,58 @@ PR #157（`WMOM-20260720-13`）兩個 CI job（Backend pytest / Frontend vitest+
 
 ## 5. 下次怎麼接手
 
-1. **最優先**：檢查 PR #157 的 CI 是否已恢復（`gh pr checks 157` 或 GitHub UI）。若綠，
-   auto-merge 應已自動處理；若仍秒退失敗，此為人工待辦（帳號層級），autonomous session 不需要
-   再重複診斷或重跑，直接跳過去找下一件事做。
+1. **最優先**：開工時先查 **CI 是否恢復**——直接看最近一次 `ci.yml` run 的 `conclusion`
+   （不要用「PR 有沒有被合併」反推，理由見 §4.1）。
+   - 若仍是秒退失敗（`runner_id: 0` + output 全空）：此為人工待辦（帳號層級），**不需要再重複診斷
+     或重跑**，照常做本機完整驗證後開 PR，但要知道 PR 會停在紅燈、需人工合併，別空等 auto-merge。
+   - 另：**PR #159**（本 session 開的追蹤檔案更正，純文件）若還沒被合併，請一併處理。
 2. **第二優先**：`WMOM-20260716-06`（footprint CPU-torch pin）或 `WMOM-20260509-F6`
    （PostgreSQL row-lock），兩者都需要 docker daemon——本 sandbox 目前只有 docker **client**、
    無 daemon（`docker info` 連不到 socket），若未來 sandbox 有 daemon 可挑。
-3. **阻擋項**：無（CI 已恢復，見 §4 後記）。
+3. **阻擋項**：CI runner 基礎設施仍失效（見 §4 與 §4.1 後記），非 autonomous session 可解，
+   已充分記錄待人工處理。
 
 ---
 
-## 4.1 後記——CI 恢復後的 merge 競態（實際收尾經過）
+## 4.1 後記——人工合併觸發的 merge 競態（實際收尾經過）
 
-§4 寫完後約 2 小時，CI runner 恢復：
+§4 寫完後約 2 小時（15:35–15:40），PR #157 與 #158 相繼被合併進 main。
 
-1. PR #157 CI 轉綠 → auto-merge 進 main。
-2. **同一時刻（15:35）遠端自動在本分支上產生了一個 merge commit（40c8717）**，把 main 併進
+> ⚠ **重要更正**：我一度把「PR 被合併」誤讀為「CI 已恢復」，並據此把 TODO.md 的警語改成「已恢復」。
+> **事後查證推翻了這個判斷**：當日 `ci.yml` 的**每一個** run（含兩個 merge commit 在 main 上觸發的
+> push run、以及之後 PR #159 的 run）**全部都是 2-8 秒內 `runner_id: 0` 失敗**，沒有任何一次綠燈；
+> `auto-merge.yml` 的 run 也全部是 `skipped`（它要 CI 綠才動）。因此實情是
+> **CI 從未恢復，PR #157 / #158 是劉老師人工合併的**（時間點緊接在本 session 發出的 push notification
+> 之後，合理推測是看到通知後手動處理），倚賴的是 autonomous session 的本機驗證結果。相關文件已全部
+> 更正回「CI 仍失效」。**教訓：「PR 被合併」≠「CI 轉綠」，要直接查 run 的 conclusion，不要從下游結果反推。**
+
+1. PR #157 被人工合併進 main。
+2. **同一時刻（15:35）本分支上被產生了一個 merge commit（40c8717，提交者是帳號擁有者）**，把 main 併進
    PR #158 的分支以解衝突——但它的解法是**直接取分支側（ours）原文**，因此留下三處失準內容：
    - `ISSUES.md` / `STATUS.yaml` 的 `done` 停在 103。根因是 **git 的靜默語意合併陷阱**：兩個
      session 各自因**不同理由**把同一行從 `102` 改成 `103`（#157 為 WMOM-20260720-13、#158 為
      WMOM-20260922-01），git 視為「同一筆文字變更」只計一次 → 實際應為 **104**。
    - `STATUS.yaml` 的 `in_progress` 仍為 1（WMOM-20260720-13 其實已隨 #157 合併，應為 0）。
-   - `TODO.md` 頂部仍寫「CI 基礎設施失效、待劉老師檢查」（實際已恢復）。
+   - `TODO.md` 頂部的 CI 警語未更新（當時我誤以為該改成「已恢復」，事後證明 CI 其實從未恢復，
+     見上方重要更正——最終版本維持「仍失效」並補上「飛輪停擺、PR 靠人工合併」的新事實）。
 3. 本 session 在本機做了正確的三方合併（把兩側各自正確的部分都收進來、`done` 更正為 104、
-   `in_progress` 改 0、CI 警語改為「已恢復」並保留日後同款狀況的處理原則），但**推送前 auto-merge
-   已於 15:40 用 40c8717 把 PR #158 合併進 main** → 程式碼修正（engine.py + 測試）已正確進 main，
-   但追蹤檔案是失準版本。
+   `in_progress` 改 0），但**推送前 PR #158 已於 15:40 被人工以 40c8717 合併進 main**
+   → 程式碼修正（engine.py + 測試）已正確進 main，但追蹤檔案是失準版本。
 4. 因 PR #158 已 merged（不可再沿用），依規範**從最新 main 開新分支**
-   （`claude/inspiring-mccarthy-d8a0jz-docfix`）把三個追蹤檔案的更正推成**新的 follow-up PR**。
+   （`claude/inspiring-mccarthy-d8a0jz-docfix`）把三個追蹤檔案的更正推成**新的 follow-up PR #159**。
    純文件更正，不動任何程式碼。
 
 **教訓（給下個 session）**：
 
+- **「PR 被合併」不等於「CI 轉綠」**。本次我從「#157 merged」直接推論「CI 恢復」，並據此改了文件，
+  但實際上是人工合併、CI 全程紅燈。**要下「CI 恢復了」這種結論，必須直接查 workflow run 的
+  `conclusion`（以及 `auto-merge` run 是否真的執行而非 skipped），不要從下游結果反推。**
 - **追蹤檔案（ISSUES.md / STATUS.yaml / TODO.md）的數字欄位是 merge 競態的高風險區**。兩個
   session 並行時，「各自 +1 但改成同一個數字」會被 git 靜默合成一次。**合併後務必自己重算一次
   `open + in_progress + blocked + done == total`**，不要相信自動合併的結果（本次 main 一度出現
   `11+0+0+103 = 114 ≠ total 115` 的內部矛盾）。
-- **auto-merge 開著時，「本機解完衝突」和「遠端已合併」是會賽跑的**。與其在推送前做長時間的完整
-  驗證，不如先確認 PR 的 mergeable 狀態與 auto-merge 是否可能搶先；搶輸了就照「已合併 PR 不可
-  沿用」規範開 follow-up PR，不要試圖改寫已合併的歷史。
+- **「本機解完衝突」和「別人合併 PR」是會賽跑的**。推送前若已知 PR 可被他人/自動流程合併，先確認
+  PR 狀態；搶輸了就照「已合併 PR 不可沿用」規範開 follow-up PR，不要試圖改寫已合併的歷史。
 
 ---
 

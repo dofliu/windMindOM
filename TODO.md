@@ -1,12 +1,18 @@
 # windMindOM — TODO（短期工作板）
 
-> ℹ️ **2026-09-22 CI 基礎設施曾中斷約 2 小時，現已恢復（無需處理，留紀錄備查）**：PR #157 / #158 的
-> job 一度皆在 2-3 秒內失敗、`runner_id: 0`（job 從未被排到 runner），重跑確認非 flake；同款秒退也
-> 出現在跟 PR 無關的 main push run。`.github/workflows/ci.yml` 內容正常、workflow 狀態 active，排除
-> 程式碼與 workflow 設定問題，研判為帳號/組織層級 GitHub Actions runner 配額或平台事故。**後續自行
-> 恢復**，PR #157 CI 轉綠並 auto-merge。若日後再遇同款秒退（job 秒退 + `runner_id: 0` + check output
-> 全空），處理原則：本機驗證仍是可信來源，重跑一次確認非 flake 後留言記錄即可，不要反覆重跑，也**不要
-> 為了繞過 CI 直接 push main**。
+> ⚠ **2026-09-22 CI 基礎設施仍失效中（待劉老師檢查 GitHub Actions 帳號設定）**：當日**每一個** CI run
+> 都在 2-8 秒內失敗、`runner_id: 0`、check output 全空（job 從未被排到 runner 上跑過任何測試），
+> 含 PR #157 / #158 / #159 與**跟 PR 無關的 main push run**；多次重跑結果相同，非 flake。
+> `.github/workflows/ci.yml` 內容正常、workflow 狀態 active，排除程式碼與 workflow 設定問題，
+> 研判為帳號/組織層級 GitHub Actions runner 配額或計費限制（或平台事故）。
+>
+> **飛輪目前是停的**：`auto-merge.yml` 的 run 全部是 `skipped`（它要 CI 綠才動），**PR #157 / #158 是
+> 劉老師人工合併的**（非 auto-merge），倚賴的是 autonomous session 的本機驗證結果。
+>
+> **對下個 session 的意義**：本機驗證（`pytest` + `vitest`/`tsc`/`build`）是目前唯一可信的把關，
+> 照常做完整驗證再開 PR；但**不要等 auto-merge**，PR 會停在紅燈需人工合併。遇到同款秒退
+> （秒退 + `runner_id: 0` + output 全空）不必反覆重跑或重複診斷——留言記錄一次即可，
+> 且**絕不可為了繞過 CI 直接 push main**。
 >
 > 用途：本檔案是「**這週 / 這個月**正在做什麼」的快速 dashboard。
 > 詳細 issue 規格在 [`ISSUES.md`](ISSUES.md)；完整路線圖在 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)；

@@ -24,8 +24,9 @@
 `time.sleep(wall_sleep)` 改 `Event.wait()`，比照 real-time 分支已核准修法；見下方「2026-09-22 session」
 區塊。前次 session（#2）：**WMOM-20260720-13 A1 round-2 follow-up 全修（4 個 Should-fix）**——
 `scheduleMissing` 誤報 / 切頁籤丟失選取機組 / handleGenerate 端到端回歸測試 / `fault_schedule` 重複映射
-漂移風險，皆修完並 mutation-verified（PR #157，見下方 WMOM-20260720-13 條目）；該 PR 一度卡在 CI runner
-基礎設施失效（帳號/組織層級問題），本 session（#3）merge 時確認**已恢復並自動合併**。更早 session（#1）：
+漂移風險，皆修完並 mutation-verified（PR #157，見下方 WMOM-20260720-13 條目）。
+⚠ **CI runner 基礎設施當日全程失效（帳號/組織層級問題，仍待人工排查）**，auto-merge 飛輪停擺，
+PR #157 / #158 均由劉老師人工合併，詳見 TODO.md 頂部警語。更早 session（#1）：
 **WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次
 修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊。
 
@@ -328,13 +329,15 @@
   本次範圍處理，留給未來若需要再開新 issue。monitoring +1 測（1094 passed / 7 skipped / 1 xfailed）；
   frontend 未動於本次修正本身，957 passed / tsc 0 / build OK 全綠回歸驗證（merge 進最新 main 後因
   WMOM-20260720-13 帶入的 3 個新測，整合後應為 960 passed，見下方附帶發現）。
-  - **附帶發現 + 解決**：本 issue 開發當下，`WMOM-20260720-13`（A1 round-2 follow-up，PR #157）本機
-    驗證早已全綠，但 CI runner 基礎設施持續失效（兩個 job 皆在 2-3 秒內 `runner_id: 0` 失敗，同款秒退
-    也發生在跟該 PR 無關的 `main` push run）。本 issue 對應 session 重跑一次確認仍未恢復（前一 session
-    已重跑過一次、已在 PR #157 留言完整診斷為帳號/組織層級 GitHub Actions 配額或計費問題），推送
-    PR #158（本 issue）時同樣撞上同款秒退失敗，已在 PR #158 留言記錄 + 重跑一次確認仍未恢復。**約 2
-    小時後 CI 恢復**，PR #157 CI 轉綠並 auto-merge 進 main；PR #158 因與 #157 同動 ISSUES.md /
-    STATUS.yaml / TODO.md 產生 merge conflict，已手動 merge main 並解決衝突後重新推送（見 work-log）。
+  - **附帶發現（CI 基礎設施失效，截至本條目寫成時仍未恢復）**：本 issue 開發當下，
+    `WMOM-20260720-13`（A1 round-2 follow-up，PR #157）本機驗證早已全綠，但 CI runner 基礎設施持續
+    失效——當日**每一個** CI run（含 PR #157 / #158 / #159 與跟 PR 無關的 `main` push run）都在 2-8 秒內
+    `runner_id: 0` 失敗、check output 全空，多次重跑結果相同，已在 PR #157 / #158 留言完整診斷為
+    帳號/組織層級 GitHub Actions 配額或計費問題，非本 repo 程式碼可修復範圍。
+    **飛輪停擺**：`auto-merge.yml` 的 run 全數 `skipped`（需 CI 綠才動），**PR #157 / #158 最終是劉老師
+    人工合併**（倚賴 autonomous session 的本機驗證），非 auto-merge。PR #158 合併過程中因與 #157 同動
+    ISSUES.md / STATUS.yaml / TODO.md 產生 merge conflict，遠端自動解法取了分支側原文而留下失準數字，
+    已另開 PR #159 更正（詳見 work-log §4.1）。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
