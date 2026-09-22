@@ -65,6 +65,21 @@ interface ScheduledFault {
   severityRate: number;
 }
 
+/** ScheduledFault[] → 後端 fault_schedule 統一形狀（WMOM-20260720-13 (4)）。後端 `_parse_fault_schedule`
+ * 優先吃 `offset_seconds`（見 config.py），故 generate-bulk 請求 body 與本地 `lastScenario.config.
+ * fault_schedule` 共用同一次映射，不再各自映射兩種不同形狀（`at_hour` vs `offset_seconds`）——原本兩處
+ * 各自轉換正是本次要修的漂移風險成因模式。 */
+function toFaultScheduleEntries(
+  faults: ScheduledFault[],
+): Array<{ scenario_id: string; turbine_id: string; offset_seconds: number; severity_rate: number }> {
+  return faults.map(f => ({
+    scenario_id: f.scenarioId,
+    turbine_id: f.turbineId,
+    offset_seconds: f.atHour * 3600,
+    severity_rate: f.severityRate,
+  }));
+}
+
 const DURATION_PRESETS: { hours: number; en: string; zh: string }[] = [
   { hours: 24, en: '1 day', zh: '1 天' },
   { hours: 168, en: '1 week', zh: '1 週' },
@@ -312,6 +327,8 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       const finalName =
         scenarioName.trim() ||
         `${u('Scenario', '情境')} ${new Date().toLocaleString(lang === 'zh' ? 'zh-TW' : 'en-US')}`;
+      // 單一映射，請求 body 與下方 lastScenario.config 共用（WMOM-20260720-13 (4)）。
+      const faultSchedule = toFaultScheduleEntries(faults);
       const res = await authFetch(`${API_BASE}/api/config/simulation/generate-bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -320,12 +337,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
           wind_profile: windProfile,
           duration_hours: durationHours,
           time_step: timeStep,
-          fault_schedule: faults.map(f => ({
-            scenario_id: f.scenarioId,
-            turbine_id: f.turbineId,
-            at_hour: f.atHour,
-            severity_rate: f.severityRate,
-          })),
+          fault_schedule: faultSchedule,
         }),
       });
       if (!res.ok) {
@@ -354,13 +366,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
             faults_injected: data.faults_injected,
             status: 'ok',
             // 帶上排程——否則「觀察此情境」→ 機組比較（A1）少了 fault_schedule 會把所有機組都當
-            // 健康（faulted 判別靠排程，非時間窗的 faultEvents）。offset_seconds 由 at_hour 換算，
-            // 與後端 generate-bulk 落地的 config_json.fault_schedule 對齊。
-            fault_schedule: faults.map(f => ({
-              scenario_id: f.scenarioId,
-              turbine_id: f.turbineId,
-              offset_seconds: f.atHour * 3600,
-            })),
+            // 健康（faulted 判別靠排程，非時間窗的 faultEvents）。與上方請求 body 共用同一次映射
+            // （faultSchedule），與後端 generate-bulk 落地的 config_json.fault_schedule 對齊。
+            fault_schedule: faultSchedule,
           },
         });
       }

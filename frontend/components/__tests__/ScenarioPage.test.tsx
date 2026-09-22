@@ -69,6 +69,41 @@ const SCENARIO_HISTORY = {
   events_by_time_window: true,
 };
 
+const LOADS = { towerFa: null, towerSs: null, bladeFlap: null, bladeEdge: null };
+
+/** 供「觀察此情境」→ 機組比較頁籤時，ScenarioCompareView 的 `/summary` fetch 用。 */
+function summaryWith(turbineIds: string[]): Record<string, unknown> {
+  return {
+    scenarioId: 7,
+    name: null,
+    status: 'ok',
+    windProfile: 'moderate',
+    durationHours: 168,
+    timeStepSeconds: 60,
+    ratedPowerKw: 2000,
+    faultsInjected: 1,
+    eventsByTimeWindow: true,
+    farm: {
+      turbineCount: turbineIds.length,
+      totalEnergyKwh: 0,
+      avgCapacityFactor: 0,
+      avgProductionRate: 0,
+      totalFaultEvents: 0,
+      maxTurbinePowerKw: 0,
+      worstDamage: null,
+      worstDamageTurbineId: null,
+      minRulHours: null,
+      minRulTurbineId: null,
+    },
+    turbines: turbineIds.map(turbineId => ({
+      turbineId, samples: 0, avgPowerKw: 0, maxPowerKw: 0, energyKwh: 0,
+      capacityFactor: 0, productionRate: 0, estopSteps: 0, productionHours: 0,
+      cumulativeDamage: LOADS, worstDamage: null, rulHours: null,
+      extremeLoad: LOADS, damageEquivalentLoad: LOADS, faultEvents: 0,
+    })),
+  };
+}
+
 const GEN_RESULT = {
   status: 'ok',
   duration_hours: 168,
@@ -96,6 +131,7 @@ function installFetch(
     windOk?: boolean;
     saved?: unknown;
     scenarioHistory?: unknown;
+    scenarioSummary?: unknown;
     deleteOk?: boolean;
     sourceKind?: string | null; // /api/source/status 回的 kind；預設 'simulation'（生成需 simulation 來源）
     selectOk?: boolean; // /api/source/select 是否成功；預設 true
@@ -108,6 +144,7 @@ function installFetch(
   const windOk = opts.windOk ?? true;
   const saved = opts.saved ?? SAVED_SCENARIOS;
   const scenarioHistory = opts.scenarioHistory ?? SCENARIO_HISTORY;
+  const scenarioSummary = opts.scenarioSummary ?? summaryWith(['WT001', 'WT002', 'WT003']);
   const deleteOk = opts.deleteOk ?? true;
   const sourceKind = opts.sourceKind === undefined ? 'simulation' : opts.sourceKind;
   const selectOk = opts.selectOk ?? true;
@@ -121,8 +158,9 @@ function installFetch(
     if (url.includes('/api/config/simulation/generate-bulk')) return jsonRes(genBody, genOk, genOk ? 200 : 400);
     if (url.includes('/api/config/wind')) return jsonRes({ detail: 'wind fail' }, windOk, windOk ? 200 : 400);
     if (url.includes('/api/farms')) return jsonRes(farmsBody);
-    // 情境調閱（含 /history）須在 list 判斷之前，因兩者都含 '/api/scenarios'
+    // 情境調閱（含 /history、/summary）須在 list 判斷之前，因三者都含 '/api/scenarios'
     if (url.includes('/api/scenarios/') && url.includes('/history')) return jsonRes(scenarioHistory);
+    if (url.includes('/api/scenarios/') && url.includes('/summary')) return jsonRes(scenarioSummary);
     if (url.includes('/api/scenarios/') && method === 'DELETE')
       return jsonRes({ status: 'deleted' }, deleteOk, deleteOk ? 200 : 403);
     if (url.includes('/api/scenarios')) return jsonRes({ scenarios: saved });
@@ -288,7 +326,10 @@ describe('ScenarioPage — 生成', () => {
     expect(gen.time_step).toBe(60);
   });
 
-  it('生成時把排定故障轉成 fault_schedule（scenario_id/turbine_id/at_hour/severity_rate）', async () => {
+  it('生成時把排定故障轉成 fault_schedule（scenario_id/turbine_id/offset_seconds/severity_rate）', async () => {
+    // WMOM-20260720-13 (4)：request body 改吃 offset_seconds（與 lastScenario.config.fault_schedule
+    // 共用同一次映射，見 toFaultScheduleEntries），不再是 at_hour——後端 `_parse_fault_schedule` 本就
+    // 優先吃 offset_seconds（見 config.py），單一形狀可避免兩處映射各自漂移。
     await addFault('zh');
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
@@ -301,7 +342,7 @@ describe('ScenarioPage — 生成', () => {
     expect(sched).toHaveLength(1);
     expect(sched[0].scenario_id).toBe('hydraulic_leak'); // scenarios[0]
     expect(sched[0].turbine_id).toBe('WT001');
-    expect(sched[0].at_hour).toBe(84); // round(168/2)
+    expect(sched[0].offset_seconds).toBe(84 * 3600); // round(168/2)h 換算秒
     expect(sched[0].severity_rate).toBe(0.002);
   });
 
@@ -520,6 +561,35 @@ describe('ScenarioPage — 生成後觀察此情境', () => {
       fireEvent.click(screen.getByRole('button', { name: '觀察此情境' }));
     });
     await waitFor(() => expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument());
+  });
+
+  // WMOM-20260720-13 (3)：原本 fault_schedule 相關測試都在 ScenarioCompareView 層、繞過
+  // handleGenerate（直接手造 SavedScenario prop），若 handleGenerate 組 lastScenario.config.
+  // fault_schedule 的邏輯被改壞（例如 turbine_id 打錯欄位名、或漏帶整段 fault_schedule），沒有測試
+  // 會抓到。本測從「生成 → 觀察此情境 → 切到機組比較頁籤」整條路徑驗證：排定故障的機組（WT001）
+  // 真的能在機組比較頁被判定為「有故障」。
+  it('生成帶排定故障 → 觀察此情境 → 機組比較頁正確標出排定故障的機組（handleGenerate 端到端回歸）', async () => {
+    installFetch({ genBody: { ...GEN_RESULT, scenario_id: 7 }, saved: [] });
+    await addFault('zh'); // 預設 turbineId=WT001（scenarios[0]/turbineOptions[0]）
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: '觀察此情境' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '觀察此情境' }));
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: '機組比較' })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '機組比較' }));
+    });
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+    // WT001 被排定故障、faultEvents=0（未觸發，summaryWith 皆填 0）→ 明細表標「排定未觸發」。
+    const wt001Row = screen.getByText('WT001', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt001Row).getByText('排定未觸發')).toBeInTheDocument();
+    // 未排定的 WT002 不應被標記為故障。
+    const wt002Row = screen.getByText('WT002', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt002Row).queryByText('排定未觸發')).toBeNull();
+    expect(within(wt002Row).queryByText('故障')).toBeNull();
   });
 });
 
