@@ -13,7 +13,13 @@
  * request body 與就地組的情境 config 共用同一份，與後端落地結果**逐欄位對齊**。
  */
 
-/** 一列排定故障的前端狀態（ScenarioPage 的 `ScheduledFault` 結構子集；刻意不 import 以免循環依賴）。 */
+/**
+ * 一列排定故障的**領域欄位**（不含 UI 記帳用的 `key`）。
+ *
+ * 定義放這裡而非 ScenarioPage：`ScenarioPage.ScheduledFault` 反過來 extend 本介面，
+ * 共用欄位因此只有一份定義——否則兩份手刻同形狀 interface 正是本模組想消除的漂移風險。
+ * 型別住在 utils（不 import 任何 component）故無循環依賴之虞。
+ */
 export interface ScheduledFaultInput {
   scenarioId: string;
   turbineId: string;

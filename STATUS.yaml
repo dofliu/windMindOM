@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-22"  # 專案檢視 + 追蹤文件真相對齊（WMOM-20260922-01）：實跑全套測試建立 baseline、四份追蹤檔統一、提出 M6 推進方案
+last_updated: "2026-09-22"  # (1) 專案檢視 + 追蹤文件真相對齊（WMOM-20260922-01）；(2) WMOM-20260720-13 A1 比較視圖 4 個 Should-fix done（code review 0 Must / 2 Should 皆收 → Approve）
 next_milestone: >
   【現況 2026-09-22】M1-M4 100% done；M5（Knowledge/RAG + 現場 mobile UI）功能面到齊，
   剩 M5-4「灌客戶手冊 + 一年警報 csv」需客戶素材、隨 M6 部署落地；M6（PoC + 第一筆合約）
@@ -19,14 +19,15 @@ next_milestone: >
   (5) HTTPS 部署配置（M6-4 唯一殘項）。
 
   【並行 — 情境比較分析 epic（DEC-20260720-02）】
-  WMOM-20260720-13 A1 的 4 個 Should-fix（2 個是 round-1 修正時新引入的小回歸，範圍明確、先清）
-  → A2 跨情境比較（相對時間對齊，demo 說服力最高）→ PR C 檢視情境掛載 app（需先寫 broker 子設計）。
+  WMOM-20260720-13 A1 的 4 個 Should-fix **已 done（2026-09-22）**——殘留一項需真實瀏覽器手動驗
+  （keep-alive 的 recharts 尺寸行為，jsdom 無 ResizeObserver 故無自動化測試把關）。
+  下一步：A2 跨情境比較（相對時間對齊，demo 說服力最高）→ PR C 檢視情境掛載 app（需先寫 broker 子設計）。
 
   【並行 — 非 code】
   WMOM-20260503-05 客戶接觸（劉老師執行）。素材已備妥：promo/windMindOM-intro-3min.mp4 + pitch deck。
   沒有客戶就沒有 M6-1/M6-2。
 
-  【建議順序】-13（半天）→ -04/-08（2-3 天，M6 硬需求）→ A2；並行客戶接觸。
+  【建議順序】-13 ✅ done → **-04/-08（下一項，2-3 天，M6 硬需求）** → A2；並行客戶接觸。
   詳見 work-logs/2026-09/2026-09-22-project-review-docs-sync.md
 
 technologies:
@@ -88,16 +89,16 @@ milestones:
 # 2026-09-22 以腳本掃 ISSUES.md 重新計數（129 個有宣告的 issue）；
 # 先前 ISSUES.md 表與本檔互相矛盾且皆與實況不符，本次統一。
 issue_stats:
-  open: 15   # 11 個 ### 段落 + 4 個條列式（WMOM-20260716-06 / -20260720-04 / -08 / -13）
+  open: 14   # 11 個 ### 段落 + 3 個條列式（WMOM-20260716-06 / -20260720-04 / -08；-13 已 done）
   in_progress: 2   # WMOM-20260503-05 客戶接觸、WMOM-20260504-12 前端記憶體觀察
   blocked: 0
-  done: 112
+  done: 113  # +WMOM-20260720-13（2026-09-22）
   total_declared: 129
 
 # 2026-09-22 實跑（非文件宣稱）
 test_baseline:
   backend: "1076 passed / 7 skipped / 1 xfailed（1084 collected，66s）"
-  frontend_unit: "957 passed / 48 files（36s）"
+  frontend_unit: "970 passed / 49 files（+WMOM-20260720-13 的 13 測 + utils/faultSchedule）"
   frontend_typecheck: "tsc --noEmit 0 error"
   frontend_build: "vite build OK"
   note: "sandbox 裝依賴需 pip install --ignore-installed PyYAML -r requirements-dev.txt（Debian 系統 PyYAML 衝突）"

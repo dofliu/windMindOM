@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type PillTone } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
-import { toFaultScheduleEntries } from '../utils/faultSchedule';
+import { toFaultScheduleEntries, type ScheduledFaultInput } from '../utils/faultSchedule';
 import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
 import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
 import type { SourceMode } from '../hooks/useSourceGate';
@@ -57,13 +57,14 @@ interface GenerateResult {
   storage_stats: { db_size_mb?: number };
 }
 
-/** 一列排定故障（前端狀態；送出時轉為後端 fault_schedule 條目）。 */
-interface ScheduledFault {
+/**
+ * 一列排定故障（前端狀態；送出時由 `toFaultScheduleEntries` 轉為後端 fault_schedule 條目）。
+ *
+ * 領域欄位 extend `ScheduledFaultInput`（定義在 utils/faultSchedule）——共用欄位只有一份定義，
+ * 本型別只多加 UI 記帳用的 `key`（React list identity，不送後端）。
+ */
+interface ScheduledFault extends ScheduledFaultInput {
   key: number;
-  scenarioId: string;
-  turbineId: string;
-  atHour: number;
-  severityRate: number;
 }
 
 const DURATION_PRESETS: { hours: number; en: string; zh: string }[] = [

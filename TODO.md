@@ -35,12 +35,11 @@
 
 ### 🥇 建議順序（依 M6 阻塞程度排）
 
-1. [ ] **WMOM-20260720-13** — 🟡 A1 比較視圖 4 個 Should-fix（**半天**，範圍明確、其中 2 個是
-   round-1 修正時新引入的小回歸，先清掉不讓它腐爛）
-   - (1) `scheduleMissing` banner 對「刻意空排程的純風況基準情境」誤報
-   - (2) 切頁籤丟失所選機組 + 多打一次 API（打在 A1「比較↔趨勢來回」核心動線）
-   - (3) `ScenarioPage.handleGenerate` 的 Must-fix 現場缺回歸測試
-   - (4) `fault_schedule` 映射兩次形狀不同（`at_hour` vs `offset_seconds`）→ 抽共用 helper
+1. [x] **WMOM-20260720-13** — ✅ A1 比較視圖 4 個 Should-fix（2026-09-22 done；code review
+   0 Must / 2 Should 皆收 → Approve。frontend 957 → 970 passed）
+   - ⚠ **殘留**：keep-alive 的 recharts 行為需在**真實瀏覽器**手動驗一次（趨勢↔機組比較來回切換後
+     圖表真的畫出來而非空白，Safari/WebKit 優先）。jsdom 無 ResizeObserver → 無自動化測試可把關；
+     失準時使用者看到空白圖表而非報錯。
 2. [ ] **WMOM-20260720-04 + WMOM-20260720-08** — 🟡 **live/OPC 後端硬化（M6 現場部署唯一硬阻塞，2-3 天）**
    - -04(1) `DataBroker.stop()` 未呼叫 `_opc_adapter.stop()` → 切走 live 後孤兒 thread 續寫新 session
    - -04(2) 切走 live 無角色檢查（起 live 需 SUPERVISOR，不對稱）

@@ -19,6 +19,15 @@ import { render, screen, fireEvent, cleanup, act, waitFor, within } from '@testi
 import React from 'react';
 import ScenarioPage from '../ScenarioPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { toFaultScheduleEntries } from '../../utils/faultSchedule';
+
+// 包住（不取代）真實實作：預設行為完全不變，只為了能斷言「送出端與情境 config 兩處
+// 是否真的都取用同一份 helper 產物」（WMOM-20260720-13(4) 的實際不變量）。
+vi.mock('../../utils/faultSchedule', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/faultSchedule')>();
+  return { ...actual, toFaultScheduleEntries: vi.fn(actual.toFaultScheduleEntries) };
+});
+const mockedToEntries = vi.mocked(toFaultScheduleEntries);
 
 type Lang = 'en' | 'zh';
 
@@ -194,7 +203,10 @@ async function addFault(lang: Lang = 'zh') {
   });
 }
 
-beforeEach(() => installFetch());
+beforeEach(() => {
+  mockedToEntries.mockClear();
+  installFetch();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -565,6 +577,45 @@ describe('ScenarioPage — 生成後觀察此情境', () => {
     expect(within(wt001Row).getByText('排定未觸發')).toBeInTheDocument();
     const wt002Row = screen.getByText('WT002', { selector: 'td span' }).closest('tr')!;
     expect(within(wt002Row).queryByText('排定未觸發')).toBeNull();
+  });
+
+  it('送出端與情境 config **都**取用同一份 toFaultScheduleEntries 產物（守住 (4) 的 DRY 不變量）', async () => {
+    // 前一個測試對「形狀漂移」不敏感：`faultedTurbineIds` 只讀 `turbine_id`，所以只要兩處各自
+    // 映射出的 turbine_id 一樣，畫面就看不出差別（review 實測：改回獨立映射 56 測全過）。
+    // 故改用「UI 狀態不可能產出的 sentinel」：排定的故障是 WT001，但 helper 被迫回 WT003。
+    // 若任一處改回自己 inline 映射，那一處就會出現 WT001 → 對應斷言失敗。
+    const SENTINEL = [
+      { scenario_id: 'bearing_wear', turbine_id: 'WT003', offset_seconds: 12345, severity_rate: 0.09 },
+    ];
+    // mockReturnValueOnce：被這一次呼叫消耗掉，不會外洩到其他測試（其餘測試仍走真實實作）。
+    mockedToEntries.mockReturnValueOnce(SENTINEL);
+    installFetch({ genBody: { ...GEN_RESULT, scenario_id: 7 }, saved: [] });
+    await addFault('zh'); // UI 狀態＝WT001 / hydraulic_leak
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成情境' }));
+    });
+    await waitFor(() =>
+      expect(calls((u, m) => u.includes('/generate-bulk') && m === 'POST').length).toBe(1),
+    );
+
+    // (a) 送出端取用 helper 產物
+    expect(bodyOf(u => u.includes('/generate-bulk')).fault_schedule).toEqual(SENTINEL);
+
+    // (b) 情境 config 也取用**同一份**（→ 比較頁把 WT003 判為 faulted，而非 UI 狀態的 WT001）
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '觀察此情境' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '機組比較' }));
+    });
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+    const wt003Row = screen.getByText('WT003', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt003Row).getByText('排定未觸發')).toBeInTheDocument();
+    const wt001Row = screen.getByText('WT001', { selector: 'td span' }).closest('tr')!;
+    expect(within(wt001Row).queryByText('排定未觸發')).toBeNull();
+
+    // (c) 整個生成流程只映射一次（兩處共用，而非各叫一次 helper）
+    expect(mockedToEntries).toHaveBeenCalledTimes(1);
   });
 
   it('結果帶 scenario_id → 「觀察此情境」進調閱視圖（不依賴清單刷新）', async () => {

@@ -13,15 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
+| open | 14 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 112 |
+| done | 113 |
 | **total (declared)** | **129** |
 
 > 2026-09-22 以腳本重新掃本檔計數（見 [`work-logs/2026-09/2026-09-22-project-review-docs-sync.md`](work-logs/2026-09/2026-09-22-project-review-docs-sync.md) §2.4）。
 > 先前本表（open 15 / in_progress 3 / done 96）與 `STATUS.yaml`（open 13 / in_progress 1 / done 100）互相矛盾且皆與實況不符，本次統一。
-> **open 15** = 11 個 `### ` 段落標 open + 4 個條列式（WMOM-20260716-06 / -20260720-04 / -20260720-08 / -20260720-13）。
+> **open 14** = 11 個 `### ` 段落標 open + 3 個條列式（WMOM-20260716-06 / -20260720-04 / -20260720-08）；WMOM-20260720-13 已於 2026-09-22 done。
 > **in_progress 2** = WMOM-20260503-05（客戶接觸）、WMOM-20260504-12（前端記憶體觀察）。
 
 最後更新：2026-09-22（**專案檢視 + 追蹤文件真相對齊 — WMOM-20260922-01**）。本次無 production code 變更：實跑全套測試建立真實 baseline（**backend 1076 passed / 7 skipped / 1 xfailed，共 1084 collected**；**frontend 957 passed / 48 files**、`tsc --noEmit` 0 error、`vite build` OK），並把 `STATUS.yaml` / 本檔 / `TODO.md` / `ROADMAP.md` / `CLAUDE.md` 對齊現況。**開啟中的 PR：0**（#142-#155 全數合併），working tree 乾淨。**M5 改判 90%**（功能面到齊，剩 M5-4 灌客戶手冊 + 一年警報 csv 需客戶素材 → 隨 M6 部署落地）；**M6 25%**（auth 全面完成，剩 HTTPS 配置 + live/OPC 硬化 + footprint pin + PostgreSQL 驗證 + 客戶現場）。**下一步建議順序**：WMOM-20260720-13（A1 4 個 Should-fix，半天）→ WMOM-20260720-04 + -08（live/OPC 後端硬化，M6 現場部署唯一硬阻塞，2-3 天）→ A2 跨情境比較；並行 WMOM-20260503-05 客戶接觸（劉老師，素材已備妥：`promo/windMindOM-intro-3min.mp4`）。
@@ -192,7 +192,27 @@
   點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
 **In progress / 下次接手**
-- **WMOM-20260720-13** — 🟡 **A1 pre-merge follow-up（round-2 review 於合併後回報，0 Must / 4 Should）**：
+- **WMOM-20260720-13** — ✅ **A1 pre-merge follow-up（4 Should-fix 全收，2026-09-22 done）**：
+  4 項皆已實作 + mutation 驗證；順帶收 2 項 🟢 nice（`key={observing.id}`、消除重複 interface）。
+  frontend 957 → **970 passed**（+13 測 +1 檔 `utils/faultSchedule.ts`），tsc 0 / build OK /
+  backend monitoring 131 passed（`at_hour → offset_seconds` 無回歸）。
+  - **code review：0 Must / 2 Should / 2 Nice → Approve**，2 個 Should 皆已處理。reviewer 自己
+    重跑獨立 mutation，抓到我原本「4 項皆 mutation 驗證」的說法有兩處對不上實況：
+    - **(4) 的 DRY 不變量原本沒鎖住**：我的 mutation 是「整個拿掉 config 的 fault_schedule」（會 fail），
+      但改成「保留欄位、只改回**獨立映射且形狀正確**」→ 56 測全過。根因：`faultedTurbineIds()` 只讀
+      `turbine_id`，不看 `offset_seconds`/`severity_rate`（後者前端無消費端）→ 形狀差異在今日 UI 下
+      不可觀察。**修**：補 sentinel 測試（mock helper 回「UI 狀態不可能產出」的 WT003，斷言 request
+      body 與比較頁分群**都**反映 sentinel + 只映射一次），兩個方向 mutation 驗證。
+    - **`key={observing.id}` 今日不可達**：`observing` 為真時 ScenarioPage 提早 return，三個能改
+      `observing` 的呼叫點都只在 `observing` falsy 時渲染 → 換情境必經完整 unmount。該行是**面向
+      未來重構的防禦性 no-op、無測試覆蓋**；已在 work-log 誠實標註，避免後續誤以為有保護。
+  - **⚠ 殘留待辦（未驗證前不算完全結案）**：keep-alive 的 recharts 假設**只有讀原始碼層級的把關**。
+    reviewer 讀 `recharts@3.8.1` 確認 `SizeDetectorContainer` 於 mount 同步 `getBoundingClientRect()`
+    存 state、之後轉 `display:none` 不清除 → 推論成立；但 jsdom 無 `ResizeObserver`（recharts effect
+    直接短路，故測試 console 印 `width(-1) height(-1)`），**沒有任何自動化測試斷言「切回頁籤後圖表
+    真的畫出來」**。需在真實瀏覽器手動驗一次（Safari/WebKit 優先，其 `display:none` 的 RO 行為 edge
+    case 較多）；失準時使用者看到的是**空白圖表而非報錯**，不易自己發現。
+  - 原 4 項內容（保留供對照）：
   A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix（功能無損），但點出 4 個 Should-fix，
   其中 2 個是 round-1 修正時**新引入的小回歸**。下次接手優先處理（新分支 follow-up PR）：
   - 🟡 **(1) `scheduleMissing` 防呆 banner 誤報**（`ScenarioCompareView.tsx:108-111`）：現以
