@@ -23,7 +23,9 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-22（autonomous session #4：WMOM-20260922-02 — PR D：`GuidedTourPage` inline
+最後更新：2026-09-22（autonomous session #5：WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
+摘要並排端點 `GET /api/scenarios/compare`（DEC-20260720-02），backend 1094→1103 passed，frontend
+未動；session #4：WMOM-20260922-02 — PR D：`GuidedTourPage` inline
 component remount 修（DEC-20260720-01），frontend 960→961 passed；session #3：WMOM-20260720-13
 A1 round-2 follow-up 4 個 Should-fix 全修（PR #157 merged）；session #2：WMOM-20260922-01
 accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMOM-20260720-04 + -08 live/OPC
@@ -31,14 +33,14 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 > ⚠ 本檔其餘內文（現況段落、下方清單）大多還停在 2026-07-18 的狀態快照，比 `STATUS.yaml` / `ISSUES.md`
 > 舊很多（M5 已到 ~90%、M6 已到 auth+live/OPC 硬化完成）。下次整理 TODO 時建議整份對照 `ISSUES.md`
-> 「🎯 未來大目標」區塊重寫，而非逐次小補丁——本 session 範圍只做 WMOM-20260922-02，不在此展開。
+> 「🎯 未來大目標」區塊重寫，而非逐次小補丁——本 session 範圍只做 WMOM-20260922-03，不在此展開。
 
 ---
 
 ## 現況（2026-07，內容已過時，見上方提醒）
 
 - **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
-- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1094 passed / 7 skipped / 1 xfailed**；frontend vitest **961 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試（**惟 CI runner 基礎設施本身自 2026-09-22 起持續失效**，見上方提醒，本機驗證仍是唯一可信來源）。
+- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1103 passed / 7 skipped / 1 xfailed**；frontend vitest **961 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試（**惟 CI runner 基礎設施本身自 2026-09-22 起持續失效**，見上方提醒，本機驗證仍是唯一可信來源）。
 - **節奏提醒**：autonomous 飛輪已重啟（每 3 小時），挑題準則為「對 M6 critical path 有貢獻優先」。
 
 ---

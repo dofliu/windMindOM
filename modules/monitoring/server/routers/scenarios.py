@@ -5,6 +5,7 @@
 與 Live/其他歷史隔離；本 router 讓使用者事後把它們列出來、調某一個回來觀察、或刪除。
 
 - ``GET  /api/scenarios``                                     列出已保存情境（新到舊）
+- ``GET  /api/scenarios/compare``                             跨情境摘要並排比較（A2 Part 1）
 - ``GET  /api/scenarios/{id}``                                單一情境詮釋資料
 - ``GET  /api/scenarios/{id}/summary``                        情境物理摘要（每台機組 + 風場層）
 - ``GET  /api/scenarios/{id}/turbines/{turbine_id}/history``  某情境某機組的資料（隔離調閱）
@@ -99,6 +100,15 @@ class ScenarioSummary(BaseModel):
     eventsByTimeWindow: bool
     farm: ScenarioFarmSummary
     turbines: List[ScenarioTurbineSummary]
+
+
+class ScenarioCompareResponse(BaseModel):
+    """跨情境比較（A2 Part 1，DEC-20260720-02）：並排回傳多個情境的摘要。
+
+    重用 A0（單情境摘要）的建構邏輯，依請求 ``ids`` 的順序回傳、不重複。是「摘要並排（長條/雷達）」
+    的資料地基；相對時間對齊的時序疊圖與差異圖屬後續子任務，不在本端點範圍內。
+    """
+    scenarios: List[ScenarioSummary]
 
 
 # ── 純函式聚合邏輯（可單元測試，不經 HTTP/DB）─────────────────────────────────
@@ -223,6 +233,74 @@ async def list_scenarios(limit: int = 50):
     return {"scenarios": b.storage.list_scenarios(limit=limit)}
 
 
+# 跨情境比較的情境數量界線：DEC-20260720-02 設計決策載明「挑 2–3 情境」比較；下限 2（少於 2 談不上
+# 比較），上限 5（留一點餘裕給更多情境並排，同時避免單次請求疊加過多長情境聚合掃描拖垮回應時間——
+# 見 get_scenario_summary docstring 提及的「長情境可達分鐘級」）。
+MIN_COMPARE_SCENARIOS = 2
+MAX_COMPARE_SCENARIOS = 5
+
+
+def _parse_compare_ids(ids: str) -> List[int]:
+    """解析並驗證 `/compare` 端點的 ``ids`` query 參數：逗號分隔整數、去重保留首次出現順序、
+    數量介於 [MIN_COMPARE_SCENARIOS, MAX_COMPARE_SCENARIOS]。純函式（不碰 DB/HTTP）便於單元測試。
+
+    Args:
+        ids: 逗號分隔的情境 id 字串，例如 ``"3,7,12"``。前後空白與空段落會被忽略。
+
+    Returns:
+        去重、保序的情境 id 清單。
+
+    Raises:
+        HTTPException: 400 — 含非整數段落 / 數量不足 2 個 / 超過 5 個。
+    """
+    raw_parts = [part.strip() for part in ids.split(",") if part.strip()]
+    try:
+        parsed = [int(part) for part in raw_parts]
+    except ValueError:
+        raise HTTPException(400, "ids 必須是以逗號分隔的整數情境 id，例如 ids=3,7,12")
+
+    deduped: List[int] = []
+    seen = set()
+    for scenario_id in parsed:
+        if scenario_id not in seen:
+            seen.add(scenario_id)
+            deduped.append(scenario_id)
+
+    if len(deduped) < MIN_COMPARE_SCENARIOS:
+        raise HTTPException(400, f"至少需選 {MIN_COMPARE_SCENARIOS} 個情境才能比較")
+    if len(deduped) > MAX_COMPARE_SCENARIOS:
+        raise HTTPException(400, f"最多同時比較 {MAX_COMPARE_SCENARIOS} 個情境")
+    return deduped
+
+
+@router.get(
+    "/compare",
+    # 檢視＝任何登入者（比照單情境摘要）
+    dependencies=[Depends(require_authenticated())],
+)
+async def compare_scenarios(ids: str) -> ScenarioCompareResponse:
+    """跨情境比較摘要並排（A2 Part 1，DEC-20260720-02）：依請求 ``ids`` 的順序並排回傳多個情境的
+    摘要（重用 A0 的單情境摘要邏輯，見 ``_load_scenario_summary``），供前端「摘要並排（長條/雷達）」
+    比較第一步。
+
+    相對時間對齊的時序疊圖與差異圖（決策記錄裡的 A2 完整範圍）屬後續子任務，本端點只涵蓋摘要並排。
+
+    路由順序注意：本路由必須註冊在 ``/{scenario_id}`` 之前（見本檔案內宣告順序），否則
+    ``GET /api/scenarios/compare`` 會先被單情境路由攔截、因 ``scenario_id`` 無法解析成 int 而 422。
+
+    並發抓取：每個情境的摘要各自把阻塞 SQLite 工作丟 ``asyncio.to_thread``（見
+    ``_load_scenario_summary``），彼此不互相阻塞事件迴圈，改用 ``asyncio.gather`` 平行取多個情境的
+    摘要（而非逐一 await），呼應 ``MAX_COMPARE_SCENARIOS`` 上限註解裡「避免疊加過多長情境聚合掃描
+    拖垮回應時間」的設計意圖——序列化 await 會讓最長情境的延遲乘上情境數，並發後只吃最長那一個。
+    ``asyncio.gather`` 保留輸入順序，不影響「依請求 ids 順序並排回傳」的回傳契約。
+    """
+    scenario_ids = _parse_compare_ids(ids)
+    summaries = await asyncio.gather(
+        *(_load_scenario_summary(sid) for sid in scenario_ids)
+    )
+    return ScenarioCompareResponse(scenarios=list(summaries))
+
+
 @router.get(
     "/{scenario_id}",
     # 檢視＝任何登入者
@@ -237,15 +315,13 @@ async def get_scenario(scenario_id: int):
     return sc
 
 
-@router.get(
-    "/{scenario_id}/summary",
-    # 檢視＝任何登入者（比照 list/get scenario）
-    dependencies=[Depends(require_authenticated())],
-)
-async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
-    """情境物理摘要：每台機組（發電量/容量因數/可用率/累積損傷/最小 RUL/極限負載/DEL/故障數）
-    + 風場層 rollup。純讀取該情境 session 的資料（session 隔離）聚合而成（DEC-20260720-02 A0），
-    是 A1（同情境內比較）/A2（跨情境比較）的資料基礎，本身即可獨立支撐前端情境總覽。
+async def _load_scenario_summary(scenario_id: int) -> ScenarioSummary:
+    """情境物理摘要的實際建構：每台機組（發電量/容量因數/可用率/累積損傷/最小 RUL/極限負載/DEL/
+    故障數）+ 風場層 rollup。純讀取該情境 session 的資料（session 隔離）聚合而成（DEC-20260720-02
+    A0），是 A1（同情境內比較）/A2（跨情境比較）的資料基礎。
+
+    供單情境端點 ``get_scenario_summary`` 與跨情境端點 ``compare_scenarios`` 共用，避免重複組裝
+    邏輯——後者對每個請求的 id 依序呼叫本函式。
 
     故障事件數走情境 sim 時間窗（``history_events`` 無 session_id）→ 回傳帶 ``eventsByTimeWindow``
     旗標提醒此計數可能混入時間窗重疊的其他情境（物理聚合走 session_id 隔離，不受影響）。
@@ -295,6 +371,16 @@ async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
         farm=farm,
         turbines=turbines,
     )
+
+
+@router.get(
+    "/{scenario_id}/summary",
+    # 檢視＝任何登入者（比照 list/get scenario）
+    dependencies=[Depends(require_authenticated())],
+)
+async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
+    """情境物理摘要（單一情境）。實作見 ``_load_scenario_summary``（與 ``compare_scenarios`` 共用）。"""
+    return await _load_scenario_summary(scenario_id)
 
 
 @router.get(

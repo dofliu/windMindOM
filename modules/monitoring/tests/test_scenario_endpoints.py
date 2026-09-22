@@ -303,6 +303,150 @@ def test_build_farm_summary_empty_turbines():
     assert farm.worstDamage is None and farm.minRulTurbineId is None
 
 
+# ─── 跨情境比較端點 A2 Part 1（DEC-20260720-02 / WMOM-20260922-03）───────────────
+
+def test_compare_scenarios_returns_summaries_in_requested_order(broker):
+    """整合：建 2 個真情境 → compare_scenarios 依請求 ids 順序並排回傳兩份摘要。"""
+    res_a = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "比較情境A"}))
+    res_b = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "比較情境B"}))
+    sid_a, sid_b = res_a["scenario_id"], res_b["scenario_id"]
+
+    result = asyncio.run(scenarios_ep.compare_scenarios(f"{sid_b},{sid_a}"))
+    assert [s.scenarioId for s in result.scenarios] == [sid_b, sid_a]
+    assert [s.name for s in result.scenarios] == ["比較情境B", "比較情境A"]
+    for s in result.scenarios:
+        assert len(s.turbines) == 3
+
+
+def test_compare_scenarios_dedupes_repeated_ids(broker):
+    """重複的 id 只回傳一次，保留首次出現的位置。"""
+    res_a = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "去重情境A"}))
+    res_b = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "去重情境B"}))
+    sid_a, sid_b = res_a["scenario_id"], res_b["scenario_id"]
+
+    result = asyncio.run(scenarios_ep.compare_scenarios(f"{sid_a},{sid_b},{sid_a}"))
+    assert [s.scenarioId for s in result.scenarios] == [sid_a, sid_b]
+
+
+def test_compare_scenarios_404_for_unknown_id_among_valid(broker):
+    """混入不存在的 id → 404（比照單情境摘要端點的行為，不靜默略過壞 id）。"""
+    from fastapi import HTTPException
+
+    res_a = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "含壞 id 的情境"}))
+    sid_a = res_a["scenario_id"]
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(scenarios_ep.compare_scenarios(f"{sid_a},999999"))
+    assert ei.value.status_code == 404
+
+
+def test_parse_compare_ids_dedupes_and_preserves_order():
+    """純函式：逗號分隔字串解析、去重、保留首次出現順序、忽略空白/空段落。"""
+    assert scenarios_ep._parse_compare_ids(" 3, 7,3 , 12") == [3, 7, 12]
+
+
+def test_parse_compare_ids_rejects_non_integer():
+    """純函式：含非整數段落 → 400。"""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        scenarios_ep._parse_compare_ids("1,abc")
+    assert ei.value.status_code == 400
+
+
+def test_parse_compare_ids_rejects_too_few():
+    """純函式：去重後不足 2 個（含只給 1 個、或給 2 個但其中重複）→ 400。"""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        scenarios_ep._parse_compare_ids("5")
+    assert ei.value.status_code == 400
+
+    with pytest.raises(HTTPException):
+        scenarios_ep._parse_compare_ids("5,5")
+
+
+def test_parse_compare_ids_rejects_too_many():
+    """純函式：去重後超過上限（5）→ 400；恰好等於上限則放行（邊界）。"""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        scenarios_ep._parse_compare_ids("1,2,3,4,5,6")
+    assert ei.value.status_code == 400
+
+    assert scenarios_ep._parse_compare_ids("1,2,3,4,5") == [1, 2, 3, 4, 5]
+
+
+def test_compare_route_is_reachable_over_real_http_routing(tmp_path, monkeypatch):
+    """路由順序守門：直呼 ``compare_scenarios()``（上方測試）繞過了 FastAPI 實際的路由匹配，
+    不會抓到「``/compare`` 註冊在 ``/{scenario_id}`` 之後 → 被攔截、因無法解析成 int 而 422」
+    這類路由順序 bug（compare_scenarios docstring 的路由順序注意事項）。本測試掛真 ``router``
+    到最小 app、真的打 HTTP GET ``/api/scenarios/compare``，確認它落地在 compare_scenarios、
+    不是被 ``/{scenario_id}`` 攔截。
+
+    mutation-verify：若把本檔 router 內 ``/compare`` 路由搬到 ``/{scenario_id}`` 之後（重現當初
+    差點犯的錯），本測試會從 200 轉成 422（scenario_id="compare" 無法轉 int）。
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    storage = Storage(db_path=str(tmp_path / "http.db"))
+    sim = WindFarmSimulator(turbine_count=2)
+    sim._running = True
+    live_sid = storage.create_session(data_source="simulation", turbine_count=2)
+    b = _FakeBroker(storage, sim, live_sid)
+    monkeypatch.setattr(config_ep, "get_broker", lambda: b)
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: b)
+
+    res_a = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "HTTP 路由情境A"}))
+    res_b = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "HTTP 路由情境B"}))
+    sid_a, sid_b = res_a["scenario_id"], res_b["scenario_id"]
+
+    app = FastAPI()
+    app.include_router(scenarios_ep.router)
+    client = TestClient(app)
+
+    resp = client.get(f"/api/scenarios/compare?ids={sid_a},{sid_b}")
+    assert resp.status_code == 200, (
+        f"GET /api/scenarios/compare 應落地在 compare_scenarios（200），實得 "
+        f"{resp.status_code}：{resp.text}——若為 422 代表被 /{{scenario_id}} 攔截，路由順序回歸"
+    )
+    body = resp.json()
+    assert [s["scenarioId"] for s in body["scenarios"]] == [sid_a, sid_b]
+
+    # 對照組：單一情境端點本身不受影響，仍正常運作。
+    resp_single = client.get(f"/api/scenarios/{sid_a}")
+    assert resp_single.status_code == 200
+
+
+def test_compare_route_returns_400_over_real_http_for_invalid_ids(tmp_path, monkeypatch):
+    """`_parse_compare_ids` 的驗證錯誤（純函式測試已覆蓋）在真實 HTTP 請求管線裡也要能正確浮現成
+    400（而非被吞掉或變成其他狀態碼）——走真 TestClient，補足「整條請求路徑」層級的驗證。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    storage = Storage(db_path=str(tmp_path / "http400.db"))
+    sim = WindFarmSimulator(turbine_count=2)
+    sim._running = True
+    live_sid = storage.create_session(data_source="simulation", turbine_count=2)
+    b = _FakeBroker(storage, sim, live_sid)
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: b)
+
+    app = FastAPI()
+    app.include_router(scenarios_ep.router)
+    client = TestClient(app)
+
+    assert client.get("/api/scenarios/compare?ids=5").status_code == 400        # 不足 2 個
+    assert client.get("/api/scenarios/compare?ids=1,abc").status_code == 400    # 非整數
+
+
 def test_scenario_rated_power_default_and_override():
     """額定功率：session 未存/0/None → 預設 Z72 2000 kW；有正值 → 採用。"""
     assert scenarios_ep._scenario_rated_power_kw({}) == scenarios_ep.DEFAULT_RATED_POWER_KW
