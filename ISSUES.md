@@ -211,9 +211,9 @@ session：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**—
   (2) gate 只藏 UI 不 reset `formData`，編輯到一半來源被切走仍會夾帶 stale 值送出——`handleSubmit` 送出
   點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
-- **WMOM-20260720-13** — ✅ **A1 round-2 pre-merge follow-up，4 個 Should-fix 全修（2026-09-22
-  autonomous session）**：A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix（功能無損），
-  但點出 4 個 Should-fix，其中 2 個是 round-1 修正時新引入的小回歸。全數修完：
+- **WMOM-20260720-13** — ✅ **A1 round-2 pre-merge follow-up，4 個 Should-fix 全修 → PR #157**
+  （2026-09-22 autonomous session）：A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix
+  （功能無損），但點出 4 個 Should-fix，其中 2 個是 round-1 修正時新引入的小回歸。全數修完：
   - ✅ **(1) `scheduleMissing` 防呆 banner 誤報**（`ScenarioCompareView.tsx`）：原判定
     `faultedIds.size===0 && 有機組 faultEvents>0` 無法區分「`fault_schedule` 真的缺」與「存在但正確為空
     陣列 `[]`（刻意的純風況基準情境）」，緊接在有故障情境後生成乾淨情境時 `faultEvents` 被時間窗污染 →
