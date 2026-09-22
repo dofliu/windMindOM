@@ -14,12 +14,16 @@
 | Status | Count |
 |--------|------|
 | open | 11 |
-| in_progress | 1 |
+| in_progress | 0 |
 | blocked | 0 |
-| done | 102 |
+| done | 103 |
 | **total (active)** | **114** |
 
-最後更新：2026-09-22（autonomous session：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊）。
+最後更新：2026-09-22（autonomous session：**WMOM-20260720-13 A1 round-2 follow-up 全修（4 個
+Should-fix）**——`scheduleMissing` 誤報 / 切頁籤丟失選取機組 / handleGenerate 端到端回歸測試 /
+`fault_schedule` 重複映射漂移風險，皆修完並 mutation-verified；見下方 WMOM-20260720-13 條目。前次
+session：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個
+延後子問題一次修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊。
 
 > 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
@@ -207,28 +211,30 @@
   (2) gate 只藏 UI 不 reset `formData`，編輯到一半來源被切走仍會夾帶 stale 值送出——`handleSubmit` 送出
   點防守 + 端到端回歸測試。+6 vitest。residual（≤5s 輪詢窗）之 definitive fix 歸 WMOM-20260720-04(3)。
 
-**In progress / 下次接手**
-- **WMOM-20260720-13** — 🟡 **A1 pre-merge follow-up（round-2 review 於合併後回報，0 Must / 4 Should）**：
-  A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix（功能無損），但點出 4 個 Should-fix，
-  其中 2 個是 round-1 修正時**新引入的小回歸**。下次接手優先處理（新分支 follow-up PR）：
-  - 🟡 **(1) `scheduleMissing` 防呆 banner 誤報**（`ScenarioCompareView.tsx:108-111`）：現以
-    `faultedIds.size===0 && 有機組 faultEvents>0` 判定，無法區分「`fault_schedule` 真的缺」與「存在但正確
-    為空陣列 `[]`（刻意的純風況基準情境）」。緊接在有故障情境後生成乾淨情境時，`faultEvents` 被時間窗污染
-    → 對乾淨情境誤報「未帶排程」。修：改判 `scenario.config?.fault_schedule === undefined`；與既有
-    `eventsByTimeWindow` 提示職責統一。
-  - 🟡 **(2) 抽出 `ScenarioTrendView` 後切頁籤丟失所選機組 + 多打一次 API**（`ScenarioDetail.tsx` 的
-    `{tab==='trend' && <ScenarioTrendView/>}`）：條件式渲染使切頁籤時子元件 unmount → `turbineId`/已抓資料
-    連同 state 銷毀，切回趨勢頁重設回 WT001 並重抓 history（打在 A1「比較↔趨勢來回」核心動線）。修：
-    turbineId 提升到 ScenarioDetail（controlled）或兩頁常駐 + `display` 切換（keep-alive，注意 recharts
-    ResponsiveContainer display 切換尺寸）。
-  - 🟡 **(3) Must-fix 現場（`ScenarioPage.handleGenerate`）缺回歸測試**：新測都在 ScenarioCompareView 層、
-    繞過 handleGenerate；若 `lastScenario.config.fault_schedule` 補丁被改壞無測抓。修：ScenarioPage.test
-    加斷言（mock ScenarioDetail 攔 prop 或點進比較頁）。
-  - 🟡 **(4) `fault_schedule` 在 handleGenerate 映射兩次、形狀不同**（request body `at_hour` vs lastScenario
-    `offset_seconds`）→ 漂移風險（正是本次 bug 成因模式）。修：抽共用 `toFaultScheduleEntries` helper，
-    兩處共用（後端優先吃 `offset_seconds`，單一形狀即可）。
-  - 🟢 Nice：abort-race 專屬測；`ScenarioConfig`/`SavedScenario` 抽 `types.ts` 消循環 import；
-    ScenarioDetail 加 `key={scenario.id}` 讓 tab 重置不依賴呼叫端 control flow。
+- **WMOM-20260720-13** — ✅ **A1 round-2 pre-merge follow-up，4 個 Should-fix 全修（2026-09-22
+  autonomous session）**：A1（#150）在 round-2 review 回傳前就被合併；review 無 Must-fix（功能無損），
+  但點出 4 個 Should-fix，其中 2 個是 round-1 修正時新引入的小回歸。全數修完：
+  - ✅ **(1) `scheduleMissing` 防呆 banner 誤報**（`ScenarioCompareView.tsx`）：原判定
+    `faultedIds.size===0 && 有機組 faultEvents>0` 無法區分「`fault_schedule` 真的缺」與「存在但正確為空
+    陣列 `[]`（刻意的純風況基準情境）」，緊接在有故障情境後生成乾淨情境時 `faultEvents` 被時間窗污染 →
+    誤報「未帶排程」。改判 `scenario.config?.fault_schedule === undefined`。+1 回歸測（刻意空排程 + 污染
+    faultEvents → 不誤報）。
+  - ✅ **(2) 抽出 `ScenarioTrendView` 後切頁籤丟失所選機組**（`ScenarioDetail.tsx` 條件式渲染 unmount 子
+    元件、`turbineId` 隨 state 銷毀，切回趨勢頁重設回 WT001）：`turbineId` 提升到 `ScenarioDetail`
+    （controlled prop + `onTurbineIdChange`），跨頁籤切換保留選取。+1 回歸測（切比較→切回趨勢，Select
+    仍是換過的機組、重抓的是該機組而非 WT001）。
+  - ✅ **(3) `ScenarioPage.handleGenerate` 缺端到端回歸測試**：原本 fault_schedule 相關測試都在
+    ScenarioCompareView 層、繞過 handleGenerate。新增「生成→觀察此情境→機組比較頁」整條路徑測試，直接
+    從 UI 驗證排定故障的機組在比較頁被正確標出。
+  - ✅ **(4) `fault_schedule` 在 handleGenerate 映射兩次、形狀不同**（request body 原用 `at_hour`、
+    lastScenario 用 `offset_seconds`）→ 漂移風險：抽共用 `toFaultScheduleEntries` helper，兩處共用同一次
+    映射（後端 `_parse_fault_schedule` 本就優先吃 `offset_seconds`，確認過對 request body 改送
+    `offset_seconds` 相容）。既有「生成時把排定故障轉成 fault_schedule」測試同步改斷言 `offset_seconds`。
+  - 純前端，+3 vitest（frontend 957→960），4 處修正逐項 mutation-verified（各自復原成 round-2 描述的
+    舊行為，確認對應新/改測試會 fail，再還原）。
+  - 🟢 未動（nice-to-have，留待之後）：abort-race 專屬測；`ScenarioConfig`/`SavedScenario` 抽
+    `types.ts` 消循環 import；`ScenarioDetail` 加 `key={scenario.id}` 讓 tab 重置不依賴呼叫端 control
+    flow。
 
 - **WMOM-20260720-10** — ✅ **情境比較分析 · A1：同情境內比較 → PR #150 merged**（DEC-20260720-02）：消費 A0 summary 端點的
   前端比較視圖——單一情境內比較不同機組，凸顯「有故障 vs 健康機組」的差異（每台機組跨指標比較圖表 +

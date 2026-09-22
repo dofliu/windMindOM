@@ -184,6 +184,16 @@ describe('ScenarioCompareView — 指標切換 + 提示', () => {
     await renderView('zh', noSchedule);
     await waitFor(() => expect(screen.getByText(/未帶故障排程/)).toBeInTheDocument());
   });
+
+  it('情境刻意帶空排程（純風況乾淨情境）但 faultEvents 被時間窗污染 → 不誤報排程缺失（round-2 回歸，WMOM-20260720-13 (1)）', async () => {
+    // 空陣列 `[]` ≠ undefined：這是「刻意不排故障」的正確乾淨情境，即使 summary 的 faultEvents 因
+    // 緊接在有故障情境後生成、時間窗與前一情境重疊而混入非 0 值，也不該被誤判成「未帶排程」。
+    const cleanScenario: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, fault_schedule: [] } };
+    installFetch(SUMMARY); // WT002 faultEvents=2（模擬時間窗污染殘值）
+    await renderView('zh', cleanScenario);
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+    expect(screen.queryByText(/未帶故障排程/)).not.toBeInTheDocument();
+  });
 });
 
 describe('ScenarioCompareView — 失敗狀態', () => {

@@ -61,9 +61,12 @@ interface HistEvent {
 interface Props {
   scenario: SavedScenario;
   lang?: 'en' | 'zh';
+  /** 選取機組（controlled，提升到 ScenarioDetail，WMOM-20260720-13 (2)：跨「趨勢↔機組比較」頁籤切換保留選取）。 */
+  turbineId: string;
+  onTurbineIdChange: (turbineId: string) => void;
 }
 
-const ScenarioTrendView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
+const ScenarioTrendView: React.FC<Props> = ({ scenario, lang = 'zh', turbineId, onTurbineIdChange }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
@@ -72,7 +75,6 @@ const ScenarioTrendView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
     () => Array.from({ length: turbineCount }, (_, i) => `WT${String(i + 1).padStart(3, '0')}`),
     [turbineCount],
   );
-  const [turbineId, setTurbineId] = useState(turbineOptions[0] ?? 'WT001');
   const [points, setPoints] = useState<Record<string, number | string | null>[]>([]);
   const [events, setEvents] = useState<HistEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -149,7 +151,7 @@ const ScenarioTrendView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
           <Field label={u('Turbine', '風機')}>
             <Select
               value={turbineId}
-              onChange={setTurbineId}
+              onChange={onTurbineIdChange}
               options={turbineOptions.map(t => ({ value: t, label: t }))}
               ariaLabel={u('Turbine', '風機')}
             />

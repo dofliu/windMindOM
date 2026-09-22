@@ -9,7 +9,7 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-22（autonomous session：WMOM-20260720-04 + -08 live/OPC 後端硬化收尾——M6 現場部署唯一硬阻塞已清除）
+最後更新：2026-09-22（autonomous session：WMOM-20260720-13 A1 round-2 follow-up 4 個 Should-fix 全修，純前端；前次 session WMOM-20260720-04 + -08 live/OPC 後端硬化收尾——M6 現場部署唯一硬阻塞已清除）
 
 > ⚠ 本檔其餘內文（現況段落、下方清單）大多還停在 2026-07-18 的狀態快照，比 `STATUS.yaml` / `ISSUES.md`
 > 舊很多（M5 已到 ~90%、M6 已到 auth+live/OPC 硬化完成）。下次整理 TODO 時建議整份對照 `ISSUES.md`
@@ -20,7 +20,7 @@
 ## 現況（2026-07，內容已過時，見上方提醒）
 
 - **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
-- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1090 passed / 7 skipped / 1 xfailed**；frontend vitest **957 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試。
+- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1093 passed / 7 skipped / 1 xfailed**；frontend vitest **960 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試。
 - **節奏提醒**：autonomous 飛輪已重啟（每 3 小時），挑題準則為「對 M6 critical path 有貢獻優先」。
 
 ---
