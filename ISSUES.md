@@ -13,13 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 15 |
-| in_progress | 3 |
+| open | 11 |
+| in_progress | 1 |
 | blocked | 0 |
-| done | 96 |
+| done | 102 |
 | **total (active)** | **114** |
 
-最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
+最後更新：2026-09-22（autonomous session：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊）。
+
+> 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
 > 📁 前一筆詳細 changelog（2026-06-07/08，FarmSelector render 測試 + M5 大推進）已封存到 work-logs/2026-06/；各 issue 詳細紀錄保留於下方 `### WMOM-*` 區段。
 
@@ -137,6 +139,36 @@
 ## 📌 2026-07-20 session 新增 issue（#3 上線後實測 bug）
 
 **Done**
+- **WMOM-20260720-04 + WMOM-20260720-08** — 🟢 **live/OPC 後端硬化（M6 現場部署唯一硬阻塞）
+  → PR #TBD merged**：#144/#146/#147 review 累積延後的 5 個子問題，排 M6 實接前一次做完：
+  (1) `DataBroker.stop()` 之前未呼叫 `_opc_adapter.stop()` → 切走 live 後孤兒輪詢 thread 續跑並繼續寫入
+  **新** session（與 #142 同類 orphan-thread）——`stop()` 補上停 + 清空參照；(2) 起 live 需 SUPERVISOR、
+  切走 live（回 simulation/scenario/view）卻無角色檢查的不對稱——`/api/source/select` 對「目前來源是
+  live 且切走」比照起 live 同樣要求 SUPERVISOR；(3) `config.py::set_simulation` 在 active source 非即時
+  模擬（view/live/scenario）時會落到 `switch_mode(SIMULATION)` 悄悄切回、斷 live SCADA——definitive fix
+  改為直接 409 拒絕（#146 前端 gate 只能 best-effort，這裡是後端最終防線）；(4) `DataBroker.start/stop/
+  switch_mode` 全程無鎖，真併發呼叫（如連點兩下 `/api/source/select`）會撞 `_start_maintenance` 讀到
+  已賦值但尚未 `.start()` 的 thread、或併發寫同一 farm registry / SQLite（實測重現
+  `IntegrityError: UNIQUE constraint failed: farms.farm_id` + `OperationalError: database is locked`）
+  ——加 `threading.RLock`（可重入，因 `switch_mode` 同執行緒內會呼叫 `stop()` 再 `start()`）；自行擴大
+  盤點後發現 `select_view_only()` / `switch_farm()` 兩個公開入口也在 `stop()` 之後繼續改
+  `source_kind`/`simulator`，同樣需要這把鎖，一併補上（確定性延遲測試重現：不鎖時
+  `select_view_only` 最終回報 `source_kind=view` 但背景其實有交錯插入的 `start()` 留下的
+  maintenance thread 還在跑）；
+  (5) `simulator/engine.py` `_loop` real-time 分支的 `time.sleep(time_step)` 不可中斷，`stop()` 撞上該次
+  睡眠得等它自然結束才能 join——比照 #147 已修的 maintenance thread，改 `threading.Event().wait()`
+  可被 `stop()` 的 `set()` 立刻喚醒。5 項皆獨立 mutation-verified（逐一改回舊邏輯 → 對應新測真的 fail →
+  還原）；(4) 額外用 4 threads×30 輪併發壓測腳本直接驗證：無鎖時 20s 內即重現 15 次真實例外，加鎖後
+  同壓測 0.77s 完成、零例外。**code-reviewer subagent 一輪 review**：2 Must-fix（皆已修）——
+  (a) `switch_farm()` / `select_view_only()` 兩個公開入口也在 `stop()` 之後繼續改共用狀態，未一併
+  上鎖之處已在自查中補上，但 review 額外指出這正是 ISSUES.md 自陳的 `farms.farm_id` UNIQUE 撞鍵
+  症狀的殘留路徑，補了確定性延遲測試鎖死；(b) `OPCDAAdapter._poll_loop`（Z72 預設輪詢間隔 17 秒）
+  的 `time.sleep` 同款不可中斷，`stop()` 的 `join(timeout=10)` 常態性小於 poll_interval 而逾時，
+  孤兒 thread 續寫新 session 的窗口只是縮小、沒真正關閉——比照 engine.py 同款改
+  `threading.Event().wait()`。另 1 Should-fix：壓測用的 storage mock 在 `_init_farm_storage()`
+  換掉 `self.storage` 後失效（monkeypatch 打在舊 instance 上），改為預先設定 `_active_farm_id`
+  讓該分支全程不觸發。monitoring +17 測（1093 passed / 7 skipped / 1 xfailed）。frontend 無改動、
+  957 passed / tsc 0 / build OK 全綠回歸驗證。
 - **WMOM-20260720-01** — 🔴 **generate-bulk「database is locked」（Windows 實測 500）→ PR #142 merged**：
   選「即時模擬/產生情境」後 Live 迴圈與批次並行（`_running` 同為兩者旗標）→ 兩 writer 並寫同一
   SQLite + `store_reading` 逐列 commit → Windows 鎖競爭耗盡 busy_timeout。修：(1) 批次期間暫停 Live
@@ -164,17 +196,6 @@
   （2 組 mutation 自驗；兩輪 review approve）。
 
 **Open**
-- **WMOM-20260720-04** — 🟡 **live/OPC 後端硬化（#144 review 延後項，排 M6 實接前）**：(1) `DataBroker.stop()`
-  未停 OPC 輪詢 thread（`_opc_adapter.stop()` 沒被呼叫）→ 切走 live 後孤兒 thread 續寫**新** session（與
-  #142 同類 orphan-thread / 並發 writer；且讓 #144 confirm 文案「會中斷現場連線」只成立一半）；(2) 切走
-  live（`select {mode:simulation}`）無角色檢查、但起 live 需 SUPERVISOR 之不對稱（前端 confirm 只防手滑
-  不防繞 API）。皆 live 路徑、simulator-first 現階段不觸及。修法草案：`stop()` 補
-  `self._opc_adapter.stop(); self._opc_adapter=None` + 單元測。
-  - **(3) `config.py::set_simulation` 靜默 switch_mode（#146 review 殘留）**：active source 非
-    running-sim（view/live/scenario）時，改 sim 參數並儲存會落到 `switch_mode(SIMULATION)` 悄悄切回
-    simulation（live 斷 SCADA）。#146 前端 gate 只能 best-effort（≤5s 輪詢窗蓋不到）；**definitive
-    fix 在後端**——`set_simulation` 應在 source 非即時模擬時拒絕/要求明確確認，不該靜默切換。
-
 - **WMOM-20260720-05** — 🟡 **設定頁改任何選項就跳回頁頂 → PR #145 merged**：`Section` 元件定義在
   `SettingsPage` render body 內 → 每次 re-render 生出新元件 identity → React 卸載並重建整個表單 DOM →
   捲動/焦點被重置回 top。修：`Section` 移到 module scope。純前端 +1 回歸測試（哨兵 heading `toBe`）。
@@ -253,19 +274,12 @@
     （相對時間對齊）→ A3 事件 session 化/匯出。物理資料已全落地（`scada_json`），純讀取/聚合/UI。
     順序：**B → A0 → C 與 A1/A2 並進**。
 
-**Open（PR #147 round-2 review 主動壓測發現，皆 pre-existing、非本 PR 引入、與情境路徑無關，故未塞進 #147）**
-- **WMOM-20260720-08** — 🟢 **切換來源生命週期硬化（stop() 響應性 + 併發）**：round-2 reviewer 用壓力測
-  在既有碼發現兩處同類「不可中斷睡眠 / 無鎖」問題（#147 只修了 maintenance thread 那一處）：
-  - **(1) `DataBroker.start/stop/switch_mode` 全程無鎖**：真多執行緒併發呼叫（如使用者連點兩下
-    `/api/source/select`）可撞出 `RuntimeError: cannot join thread before it is started`（`_stop_maintenance`
-    讀到 thread 已賦值但 `.start()` 未呼叫的半初始化態）→ 該 request 500 且 broker 短暫不一致。**非 #147
-    引入**（HEAD~1 同款壓測亦重現，症狀因時序而異）；且 #147 的共用單一 `Event` 反而讓殘留 thread 由 6→0。
-    修法草案：`start`/`stop`/`switch_mode` 外包一層 `threading.Lock`，或 API 層 debounce。
-  - **(2) `simulator/engine.py:310` `_loop` 的 `time.sleep(time_step)` 同款不可中斷**：`run_loop=True`（即時
-    模擬）下 `stop()` 若撞上該次 sleep，`join(5)` 得等 sleep 自然結束（實測單次 stop() 達 ~1002ms）。與
-    #147 修的 maintenance 是同一根因、不同檔案；scenario 路徑（`run_loop=False`、never `.start()`）**不受
-    影響**。修法比照 #147：`time.sleep(time_step)` → `threading.Event().wait(time_step)`。
-  - 排 M6 實接前與 WMOM-20260720-04（live/OPC 後端硬化）一起做；simulator-first 現階段不阻擋。
+**Done（併入 WMOM-20260720-04，見上方「2026-07-20 session」Done 區塊）**
+- **WMOM-20260720-08** — 🟢 **切換來源生命週期硬化（stop() 響應性 + 併發）→ 與 -04 同 PR 一併解決**：
+  round-2 reviewer 用壓力測在既有碼發現兩處同類「不可中斷睡眠 / 無鎖」問題（#147 只修了 maintenance
+  thread 那一處）：(1) `DataBroker.start/stop/switch_mode` 全程無鎖 → `threading.RLock`；(2)
+  `simulator/engine.py` `_loop` 的 `time.sleep(time_step)` 同款不可中斷 → `threading.Event().wait()`。
+  兩處皆與 -04 用同一把 `_lifecycle_lock` / `_wake` 機制解決，詳見上方 -04 entry。
 
 ## 📌 2026-09-01 session 新增 issue（對外素材：介紹影片）
 

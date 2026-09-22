@@ -5,7 +5,7 @@ import threading
 import time as _time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterator, List, Optional, Dict
+from typing import Iterator, List, Optional, Dict, TYPE_CHECKING
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -16,6 +16,9 @@ from server.models import (
 from server.storage import Storage
 from server.farm_registry import FarmRegistry
 from simulator.engine import WindFarmSimulator
+
+if TYPE_CHECKING:
+    from server.opc_adapter import OPCDAAdapter
 
 
 def _map_state(state: str) -> TurbineStatus:
@@ -245,6 +248,7 @@ class DataBroker:
         self._active_farm_id: Optional[str] = None
         self.storage = Storage()
         self.simulator: Optional[WindFarmSimulator] = None
+        self._opc_adapter: Optional['OPCDAAdapter'] = None
         self._sim_config = SimulationConfig()
         self._last_tur_state: Dict[str, int] = {}
         self._last_shutdown_cause: Dict[str, Optional[str]] = {}
@@ -279,6 +283,12 @@ class DataBroker:
         # 用 Event.wait(timeout) 取代 time.sleep(300)，否則 _stop_maintenance 的 join(5) 幾乎
         # 必 timeout（thread 還在睡），害每次切換來源的 stop() 固定卡 5 秒（打在「一鍵啟動」體驗上）。
         self._maintenance_wake = threading.Event()
+        # 保護 start/stop/switch_mode 的生命週期操作（WMOM-20260720-08 (1)）：真併發呼叫
+        # （如使用者連點兩下 /api/source/select）可能在 _start_maintenance 讀到已賦值但尚未
+        # .start() 的 thread 時被另一執行緒的 stop() 撞上，拋 RuntimeError: cannot join
+        # thread before it is started。用 RLock（而非 Lock）是因為 switch_mode 會在同一
+        # 執行緒內呼叫 stop() 再 start()，需可重入。
+        self._lifecycle_lock = threading.RLock()
 
     def _init_farm_storage(self):
         """Point storage at the active farm's database."""
@@ -294,23 +304,27 @@ class DataBroker:
         farm = self.farm_registry.get_farm(farm_id)
         if not farm:
             return False
-        self.stop()
-        self.farm_registry.set_active_farm(farm_id)
-        self._active_farm_id = farm_id
-        self._init_farm_storage()
+        # 同款理由（WMOM-20260720-08 (1)）：stop() 與 start() 之間有一段修改 farm registry /
+        # storage / _sim_config 的空窗，不上鎖的話另一執行緒的 start/stop/switch_mode/
+        # select_view_only 可能插進來動到同一組欄位。
+        with self._lifecycle_lock:
+            self.stop()
+            self.farm_registry.set_active_farm(farm_id)
+            self._active_farm_id = farm_id
+            self._init_farm_storage()
 
-        from simulator.physics.turbine_physics import TurbineSpec
-        if farm.turbine_spec:
-            spec = TurbineSpec.from_dict(farm.turbine_spec)
-        else:
-            spec = TurbineSpec()
+            from simulator.physics.turbine_physics import TurbineSpec
+            if farm.turbine_spec:
+                spec = TurbineSpec.from_dict(farm.turbine_spec)
+            else:
+                spec = TurbineSpec()
 
-        self._sim_config = SimulationConfig(turbineCount=farm.turbine_count)
-        self.start()
+            self._sim_config = SimulationConfig(turbineCount=farm.turbine_count)
+            self.start()
 
-        if self.simulator:
-            for model in self.simulator.turbines.values():
-                model.update_spec(spec)
+            if self.simulator:
+                for model in self.simulator.turbines.values():
+                    model.update_spec(spec)
 
         return True
 
@@ -327,24 +341,25 @@ class DataBroker:
         ``simulation``）；False＝產生情境（simulator 供批次、不自由跑，source_kind ``scenario``，
         DEC-20260720-01 PR B）。
         """
-        if sim_config:
-            self._sim_config = sim_config
-        if config:
-            self.mode = config.mode
+        with self._lifecycle_lock:
+            if sim_config:
+                self._sim_config = sim_config
+            if config:
+                self.mode = config.mode
 
-        if self._active_farm_id is None:
-            self._init_farm_storage()
+            if self._active_farm_id is None:
+                self._init_farm_storage()
 
-        if self.mode == DataSourceMode.SIMULATION:
-            self._start_simulator(run_loop=run_loop)
-            self._source_kind = "simulation" if run_loop else "scenario"
-        else:
-            self._start_opc(config)
-            self._source_kind = "live"
-        self._source_active = True
+            if self.mode == DataSourceMode.SIMULATION:
+                self._start_simulator(run_loop=run_loop)
+                self._source_kind = "simulation" if run_loop else "scenario"
+            else:
+                self._start_opc(config)
+                self._source_kind = "live"
+            self._source_active = True
 
-        # Start background maintenance (downsampling + cleanup)
-        self._start_maintenance()
+            # Start background maintenance (downsampling + cleanup)
+            self._start_maintenance()
 
     def select_view_only(self):
         """僅調閱過去情境：停掉任何在跑的來源、標記已選但**不啟動**任何資料生成。
@@ -352,16 +367,22 @@ class DataBroker:
         情境調閱只讀 storage（session 隔離），不需要跑 simulator——避免又開始產生預設風場
         資料（正是使用者不想要的）。overview/live 視圖在此狀態下自然為空。
         """
-        self.stop()
-        # 關鍵：把 storage 指向 active farm 的 DB。DataBroker.__init__ 的 Storage() 綁預設
-        # legacy 路徑，只有 start()/_init_farm_storage() 會重指。開機 idle 後若第一個動作就是
-        # 「調閱過去情境」（本方法，不經 start），沒重指就會讀到空的預設 DB → 情境清單空掉
-        # （正是 #4 要修的「情境調不回來」以新根因重現）。_init_farm_storage 為 idempotent。
-        if self._active_farm_id is None:
-            self._init_farm_storage()
-        self.simulator = None
-        self._source_active = True
-        self._source_kind = "view"
+        with self._lifecycle_lock:
+            # 與 start/stop/switch_mode 共用同一把鎖（WMOM-20260720-08 (1)）：本方法呼叫
+            # stop() 後仍會繼續修改 source_active/source_kind/simulator，若不整段上鎖，另一
+            # 執行緒的 start()/switch_mode() 仍可能在 stop() 與這裡的賦值之間插入，讓兩者的
+            # 狀態變更交錯（實測：source_kind 最終回報 view，但插進來的 start() 真的建了
+            # simulator + 起了 maintenance thread，兩者狀態互相矛盾）。
+            self.stop()
+            # 關鍵：把 storage 指向 active farm 的 DB。DataBroker.__init__ 的 Storage() 綁預設
+            # legacy 路徑，只有 start()/_init_farm_storage() 會重指。開機 idle 後若第一個動作就是
+            # 「調閱過去情境」（本方法，不經 start），沒重指就會讀到空的預設 DB → 情境清單空掉
+            # （正是 #4 要修的「情境調不回來」以新根因重現）。_init_farm_storage 為 idempotent。
+            if self._active_farm_id is None:
+                self._init_farm_storage()
+            self.simulator = None
+            self._source_active = True
+            self._source_kind = "view"
 
     @contextmanager
     def pause_live_for_batch(self) -> Iterator[bool]:
@@ -559,14 +580,21 @@ class DataBroker:
 
     def stop(self):
         """Stop the active data source, end the current session, and halt maintenance."""
-        self._stop_maintenance()
-        if self.simulator and self.simulator.is_running:
-            self.simulator.stop()
-        if self._session_id is not None:
-            self.storage.end_session(self._session_id)
-            self._session_id = None
-        self._source_active = False
-        self._source_kind = None
+        with self._lifecycle_lock:
+            self._stop_maintenance()
+            if self.simulator and self.simulator.is_running:
+                self.simulator.stop()
+            if self._opc_adapter is not None:
+                # Must-fix（WMOM-20260720-04 (1)）：切走 live 前若不停 OPC 輪詢 thread，
+                # 它會是孤兒繼續跑，且在下一個 session（新 self._session_id）繼續寫入
+                # storage——讓 #144 confirm 文案「會中斷現場連線」只成立一半。
+                self._opc_adapter.stop()
+                self._opc_adapter = None
+            if self._session_id is not None:
+                self.storage.end_session(self._session_id)
+                self._session_id = None
+            self._source_active = False
+            self._source_kind = None
 
     def switch_mode(self, config: DataSourceConfig,
                     sim_config: Optional[SimulationConfig] = None,
@@ -575,9 +603,10 @@ class DataBroker:
 
         ``run_loop`` 傳給 ``start``（SIMULATION 時：True＝即時模擬自由跑、False＝產生情境不自由跑）。
         """
-        self.stop()
-        self.mode = config.mode
-        self.start(config, sim_config, run_loop=run_loop)
+        with self._lifecycle_lock:
+            self.stop()
+            self.mode = config.mode
+            self.start(config, sim_config, run_loop=run_loop)
 
     # ── Background maintenance ──
 

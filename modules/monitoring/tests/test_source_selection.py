@@ -377,3 +377,81 @@ def test_activate_simulation_freerun_starts_modbus(app_broker, monkeypatch):
     assert len(calls) == 1, "即時模擬應起 Modbus 一次"
     assert b.source_kind == "simulation"
     assert b.simulator is not None and b.simulator.is_running is True
+
+
+# ─── 切走 live 的角色檢查（WMOM-20260720-04 (2)）───────────────────────────────
+# 起 live 需 SUPERVISOR，但切走 live（回 simulation/scenario/view）之前無角色檢查——
+# 前端 #144 的二次確認只防手滑，不防任何登入者直接呼叫 API 斷現場連線。切走與起 live 對稱。
+
+def test_switch_away_from_live_requires_supervisor(client, broker, monkeypatch):
+    """目前來源是 live，employee 想切回 simulation → 403（在真的呼叫 activate_simulation 前就擋）。"""
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    broker._source_active = True
+    broker._source_kind = "live"
+    called = {"v": False}
+    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True: called.__setitem__("v", True))
+    from modules.auth.tokens import create_access_token
+
+    tok = create_access_token(subject="u3", role="employee", name="E")
+    r = client.post(
+        "/api/source/select",
+        json={"mode": "simulation"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 403
+    assert called["v"] is False, "被角色閘門擋下前不該真的切換來源"
+    assert broker.source_kind == "live", "403 時來源不該被動到"
+
+
+def test_switch_away_from_live_to_view_requires_supervisor(client, broker, monkeypatch):
+    """切到 view（僅調閱過去情境）一樣算「切走 live」，同等敏感，同樣需 SUPERVISOR。"""
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    broker._source_active = True
+    broker._source_kind = "live"
+    from modules.auth.tokens import create_access_token
+
+    tok = create_access_token(subject="u4", role="employee", name="E")
+    r = client.post(
+        "/api/source/select",
+        json={"mode": "view"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 403
+    assert broker.source_kind == "live"
+
+
+def test_switch_away_from_live_allows_supervisor(client, broker, monkeypatch):
+    """positive path：SUPERVISOR 切走 live 應成功——守住「角色判斷被寫壞成連 SUPERVISOR 都擋」。"""
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    broker._source_active = True
+    broker._source_kind = "live"
+    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True: None)
+    from modules.auth.tokens import create_access_token
+
+    tok = create_access_token(subject="u5", role="supervisor", name="S")
+    r = client.post(
+        "/api/source/select",
+        json={"mode": "simulation"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 200
+
+
+def test_switch_between_non_live_sources_does_not_require_supervisor(client, broker, monkeypatch):
+    """對照組：目前不是 live（如 simulation）時切到 view，一般登入者即可——不該被新檢查誤擋。"""
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    broker._source_active = True
+    broker._source_kind = "simulation"
+    from modules.auth.tokens import create_access_token
+
+    tok = create_access_token(subject="u6", role="employee", name="E")
+    r = client.post(
+        "/api/source/select",
+        json={"mode": "view"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 200

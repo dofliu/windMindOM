@@ -120,6 +120,18 @@ async def set_simulation(config: SimulationConfig):
     """Update simulation parameters. Only restarts if turbine count changed."""
     b = get_broker()
 
+    # Must-fix（WMOM-20260720-04 (3)）：definitive fix——前端 #146 的來源 gate 只能 best-effort
+    # （設定頁 ≤5s 輪詢窗蓋不到「編輯到一半來源被切走」的空隙）。active source 非即時模擬
+    # （view/live/scenario）時，本端點若照舊往下跑會落到 switch_mode(SIMULATION)，悄悄把
+    # live 斷線、或打斷情境調閱／產生情境的凍結資料集語意。改為直接拒絕，要求使用者先在
+    # 「選擇資料來源」切回即時模擬再調整參數。
+    if b.source_kind not in (None, "simulation"):
+        raise HTTPException(
+            409,
+            f"目前來源為 {b.source_kind}，非即時模擬中，不可在此調整模擬參數"
+            "（會悄悄切換資料來源）。請先到「選擇資料來源」切回即時模擬。",
+        )
+
     # Only restart if turbine count actually changed
     current_count = len(b.turbine_ids) if b.simulator else 0
     if b.simulator and b.simulator.is_running and config.turbineCount == current_count:
