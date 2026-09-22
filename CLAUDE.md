@@ -41,7 +41,7 @@
 
 ```
 windMindOM/                          ← 本 repo（從 digiWindTurbine 進化）
-├── api/                             ← FastAPI（既有 + 擴充）
+├── run.py                           ← 進入點（FastAPI app 在 modules/monitoring/server/app.py）
 ├── modules/                         ← 6 大功能 module（M1 起逐月建立）
 │   ├── monitoring/                  ← digiWT 既有 SCADA + simulator（M1 搬入）
 │   ├── workflow/                    ← 庫存 + 派工 + 簽核（M3-M4 新做）
@@ -49,9 +49,8 @@ windMindOM/                          ← 本 repo（從 digiWindTurbine 進化�
 │   ├── reporting/                   ← 報表生成（M4）
 │   ├── knowledge/                   ← RAG 警報查手冊（M5）
 │   └── auth/                        ← JWT + RBAC 授權（M6-4，純 stdlib）
-├── shared/                          ← canonical schema、PLC clients、共用 domain model
+├── shared/                          ← canonical schema、PLC clients（含 Z72 OPC）、共用 domain model
 ├── frontend/                        ← React + responsive design（admin + field 雙路徑 + 真登入頁）
-├── opc_bachmann/                    ← Z72 OPC client（既有，M1 抽到 shared/plc_clients/）
 ├── tests/                           ← pytest
 ├── docs/
 │   ├── product/                     ← v0.8.1 產品文件 ★ 主要 source of truth
@@ -62,8 +61,10 @@ windMindOM/                          ← 本 repo（從 digiWindTurbine 進化�
 │   └── __Z72UserManual.pdf          ← Z72 手冊（M5 餵 RAG）
 ├── work-logs/                       ← 每日 routine 紀錄（M1 起每日新建）
 ├── templates/                       ← work-log / issue / decision 模板
-├── deploys/                         ← docker-compose（single-farm / multi-farm）
-└── (root 既有 digiWT 檔案)            ← M1 第一週搬到 modules/monitoring/
+├── promo/                           ← 對外素材（3 分鐘介紹影片 + 18 景 HTML 動畫 + storyboard）
+├── tools/                           ← 開發輔助腳本
+├── Dockerfile / docker-compose.yml  ← 部署（root，非 deploys/）
+└── STATUS.yaml / ISSUES.md / TODO.md ← 追蹤檔（每 session 開頭讀、結尾更新）
 ```
 
 ## 5. 與其他 7 個 repo 的關係
@@ -130,14 +131,26 @@ WMOM = WindMindOM 縮寫。
 
 ## 10. 目前狀態（簡要）
 
-> 進度以 [`STATUS.yaml`](STATUS.yaml) 為準；本節為快照，更新時請同步。
+> 進度以 [`STATUS.yaml`](STATUS.yaml) 為準；本節為 **2026-09-22 快照**（WMOM-20260922-01 專案檢視），更新時請同步。
 
 - **產品版本**：v0.8.1（2026-05-02 baseline）
-- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）auth 全面完成（JWT + RBAC + 全 router 授權 + 前端真登入，#108-#122）
-- **2026-07-20 情境模式深化 arc**（實測驅動）：DB-lock 根治（WMOM-20260720-01, #142）→ **DEC-20260720-01 情境＝凍結資料集**（設定依來源 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：**A0** 情境摘要端點 `GET /api/scenarios/{id}/summary`（#148 merged）+ **A1** 同情境內比較視圖（faulted vs healthy，PR #150 in review）
-- **下次工作**：#150（A1）收尾合併 → **A2 跨情境比較**（相對時間對齊）或 **PR C**（檢視情境掛載 app，需先寫 broker 子設計）；並行 WMOM-20260720-04（含併入的 -08 生命週期硬化）+ WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
+- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；
+  **M5 ~90%**（Knowledge/RAG + ChromaDB + 531-chunk Z72 向量檔 + `/field/` mobile Part A/B-1/B-2
+  全到齊；剩 M5-4「灌客戶手冊 + 一年警報 csv」需**客戶素材** → 歸 M6 部署期）；
+  **M6 ~25%**（auth 全面完成 #108-#122，剩 HTTPS 配置 + 下列 critical path）
+- **repo 狀態**：HEAD `5555112`（#155），**開啟中的 PR 0 支**，working tree 乾淨。
+  最後一次 code 變更是 2026-07-20 arc（#142-#152）；2026-09-01 之後僅對外素材 `promo/`
+- **測試（2026-09-22 實跑）**：backend **1076 passed / 7 skipped / 1 xfailed**（1084 collected）；
+  frontend **957 passed / 48 files**、`tsc --noEmit` 0 error、`vite build` OK
+  - 新 sandbox 裝依賴需 `pip install --ignore-installed PyYAML -r requirements-dev.txt`
+- **已定調的決策**：DEC-20260718-01 模擬雙軌（Scenario 批次 / Live 實接）、
+  **DEC-20260720-01 情境＝凍結資料集**、**DEC-20260720-02 情境比較分析 epic**（A0 #148 / A1 #150 已合）
+- **下一步（建議順序，詳見 [`TODO.md`](TODO.md)）**：
+  1. **WMOM-20260720-13** — A1 比較視圖 4 個 Should-fix（半天，含 2 個新引入的小回歸）
+  2. **WMOM-20260720-04 + -08** — live/OPC 後端硬化（**M6 現場部署唯一硬阻塞**，2-3 天）
+  3. **WMOM-20260716-06** footprint CPU-torch pin → **WMOM-20260509-F6** PostgreSQL 驗證 → HTTPS 配置
+  - 並行：**A2 跨情境比較**（demo 說服力）；**WMOM-20260503-05 客戶接觸**（劉老師，決定整個 M6 時程）
 - **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
-- **測試**：backend 情境層 +（A0 storage 聚合/端點、-07 run_loop、-01 DB-lock）；frontend 957 passed（+A1 比較視圖/純函式）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

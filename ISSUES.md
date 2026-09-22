@@ -14,12 +14,17 @@
 | Status | Count |
 |--------|------|
 | open | 15 |
-| in_progress | 3 |
+| in_progress | 2 |
 | blocked | 0 |
-| done | 96 |
-| **total (active)** | **114** |
+| done | 112 |
+| **total (declared)** | **129** |
 
-最後更新：2026-07-18（**auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122**）。全 repo 檢視與 P0 對齊已完成（#105 #106）；M6 部署決策與 footprint 量測已拍板（#107，DEC-20260716-02）；**M6-4 真 auth 基礎層、DB user store 與全 61+ 端點 router 強制授權遷移與前端真登入全部完成**（#108 #110 #112 #113 #115-122，DEC-20260716-01）；**情境導覽模式 GuidedTourPage 落地**（#114，WMOM-20260513-02）。全 backend **997 passed / 1 xfailed**。統計：done 增加 WMOM-20260716-04/05 與 WMOM-20260513-02。**下一步**：footprint CPU-torch pin（WMOM-20260716-06）+ M5 知識庫收尾 + M6 客戶接觸（WMOM-20260503-05）。**2026-07-18 addendum**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板模擬雙軌模式 **DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。
+> 2026-09-22 以腳本重新掃本檔計數（見 [`work-logs/2026-09/2026-09-22-project-review-docs-sync.md`](work-logs/2026-09/2026-09-22-project-review-docs-sync.md) §2.4）。
+> 先前本表（open 15 / in_progress 3 / done 96）與 `STATUS.yaml`（open 13 / in_progress 1 / done 100）互相矛盾且皆與實況不符，本次統一。
+> **open 15** = 11 個 `### ` 段落標 open + 4 個條列式（WMOM-20260716-06 / -20260720-04 / -20260720-08 / -20260720-13）。
+> **in_progress 2** = WMOM-20260503-05（客戶接觸）、WMOM-20260504-12（前端記憶體觀察）。
+
+最後更新：2026-09-22（**專案檢視 + 追蹤文件真相對齊 — WMOM-20260922-01**）。本次無 production code 變更：實跑全套測試建立真實 baseline（**backend 1076 passed / 7 skipped / 1 xfailed，共 1084 collected**；**frontend 957 passed / 48 files**、`tsc --noEmit` 0 error、`vite build` OK），並把 `STATUS.yaml` / 本檔 / `TODO.md` / `ROADMAP.md` / `CLAUDE.md` 對齊現況。**開啟中的 PR：0**（#142-#155 全數合併），working tree 乾淨。**M5 改判 90%**（功能面到齊，剩 M5-4 灌客戶手冊 + 一年警報 csv 需客戶素材 → 隨 M6 部署落地）；**M6 25%**（auth 全面完成，剩 HTTPS 配置 + live/OPC 硬化 + footprint pin + PostgreSQL 驗證 + 客戶現場）。**下一步建議順序**：WMOM-20260720-13（A1 4 個 Should-fix，半天）→ WMOM-20260720-04 + -08（live/OPC 後端硬化，M6 現場部署唯一硬阻塞，2-3 天）→ A2 跨情境比較；並行 WMOM-20260503-05 客戶接觸（劉老師，素材已備妥：`promo/windMindOM-intro-3min.mp4`）。
 
 > 📁 前一筆詳細 changelog（2026-06-07/08，FarmSelector render 測試 + M5 大推進）已封存到 work-logs/2026-06/；各 issue 詳細紀錄保留於下方 `### WMOM-*` 區段。
 
@@ -266,6 +271,31 @@
     #147 修的 maintenance 是同一根因、不同檔案；scenario 路徑（`run_loop=False`、never `.start()`）**不受
     影響**。修法比照 #147：`time.sleep(time_step)` → `threading.Event().wait(time_step)`。
   - 排 M6 實接前與 WMOM-20260720-04（live/OPC 後端硬化）一起做；simulator-first 現階段不阻擋。
+
+## 📌 2026-09-22 session 新增 issue（專案檢視 + 文件同步）
+
+**Done**
+- **WMOM-20260922-01** — 🟢 **專案檢視 + 追蹤文件真相對齊（M5 → M6 交棒）**：追蹤檔已停在
+  2026-07-18 ~ 2026-09-01、四份檔案彼此矛盾（issue 統計、測試 baseline、milestone 百分比皆與實況不符），
+  且 2026-09-22 距 M6（2026-10）僅剩一週，需要先把「現在到底在哪」釘死才能談推進。
+  - **實測 baseline**（非文件宣稱）：backend `pytest`（6 module + physics + e2e）**1076 passed /
+    7 skipped / 1 xfailed**（1084 collected）；frontend **957 passed / 48 files**、`tsc --noEmit`
+    0 error、`vite build` OK。先前記載的「997 passed / 998 collected」與「~797 frontend」皆過時。
+  - **repo 狀態**：HEAD `5555112`（#155），**開啟中的 PR 0 支**，working tree 乾淨；最後一次 code
+    變更是 2026-07-20 arc（#142-#152），2026-09-01 之後僅對外素材 `promo/`。→ 沒有半成品掛在半空中。
+  - **issue 計數重建**：腳本掃本檔得 129 個有宣告的 issue → done 112 / open 15 / in_progress 2，
+    統一本檔統計表與 `STATUS.yaml`。
+  - **文件漂移修正**：`CLAUDE.md` §4 列了不存在的 `deploys/` 與 `opc_bachmann/`（OPC client 早已在
+    `shared/plc_clients/`）、未列 `promo/` 與 `tools/` → 改寫成實際樹狀；§10 快照更新。
+    `STATUS.yaml` 的 `next_milestone` 已膨脹成單行長文 → 重寫為分段可讀格式。
+    `TODO.md` 下一個 milestone 仍寫 M5 → 改以 M6 critical path 排序。`ROADMAP.md` dashboard 快照更新。
+  - **M5 改判 90%**：M5-1~6 + `/field/` Part A/B-1/B-2 + 531-chunk Z72 向量檔皆就位；剩 M5-4
+    「灌客戶手冊 + 一年警報 csv」本質上要**客戶素材**，非本月可自足完成 → 歸 M6 部署期。
+  - **環境注意**：新 sandbox 裝依賴會撞 Debian 系統 PyYAML
+    （`Cannot uninstall PyYAML 6.0.1, RECORD file not found`），需
+    `pip install --ignore-installed PyYAML -r requirements-dev.txt`。
+  - 詳見 [`work-logs/2026-09/2026-09-22-project-review-docs-sync.md`](work-logs/2026-09/2026-09-22-project-review-docs-sync.md)
+    （含 §3 三個推進方案與建議順序）。
 
 ## 📌 2026-09-01 session 新增 issue（對外素材：介紹影片）
 

@@ -9,39 +9,67 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-07-18（auth 全面完成 + GuidedTourPage 落地 — 14 PR 進 main #109-122）
+最後更新：2026-09-22（專案檢視 + 追蹤文件真相對齊 — WMOM-20260922-01）
 
 ---
 
-## 現況（2026-07）
+## 現況（2026-09-22）
 
-- **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
-- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **997 passed / 1 xfailed**（共 998 collected）；frontend vitest **~797 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試。
-- **節奏提醒**：autonomous 飛輪自 2026-06-08 後暫停；重啟時挑題準則建議改為「對 M6 critical path 有貢獻優先」（見 2026-07 專案檢視 F3）
+- **M1-M4 全 done**；**M5 ~90%**（Knowledge/RAG 後端 + ChromaDB + 531-chunk Z72 向量檔 + `/field/`
+  mobile Part A/B-1/B-2 全到齊；剩 M5-4「灌客戶手冊 + 一年警報 csv」需**客戶素材**，歸 M6 部署期）；
+  **M6 ~25%**（auth 全面完成，剩 HTTPS 配置 + 下列 critical path）。
+- **baseline 綠（2026-09-22 實跑）**：backend **1076 passed / 7 skipped / 1 xfailed**（1084 collected）；
+  frontend vitest **957 passed / 48 files**、`tsc --noEmit` 0 error、`vite build` OK。
+- **repo 乾淨**：HEAD `5555112`（#155），**開啟中的 PR 0 支**，working tree 無未提交變更。
+  最後一次 code 變更是 2026-07-20 arc（#142-#152）；2026-09-01 之後僅對外素材 `promo/`。
+- **時程提醒**：**距 M6（2026-10）剩約 1 週**。挑題準則：**對 M6 critical path 有貢獻優先**。
+- **環境提醒**：新 sandbox 裝依賴需 `pip install --ignore-installed PyYAML -r requirements-dev.txt`
+  （Debian 系統 PyYAML 會讓 pip 卡在 `RECORD file not found`）。
 
 ---
 
-## 下一個 milestone — M5：Knowledge / RAG + 現場 mobile UI（2026-09 target）
+## 下一個 milestone — M6：第一個運維廠商 PoC + 第一筆合約（2026-10 target）
 
-> 目標：警報 → RAG 查 Z72 手冊 → 給現場工程師可操作的處置建議；現場 mobile UI 是 PMF 關鍵。
-> Done criteria：現場工程師手機掃到警報，能查到對應手冊段落 + 處置步驟。
+> Done criteria：客戶老闆說「下個月續用」+ 現場工程師 80% 警報走 RAG + 第一份月報沒被業主退件 + 收到合約金。
+> 三個推進方案與論據見 [`work-logs/2026-09/2026-09-22-project-review-docs-sync.md`](work-logs/2026-09/2026-09-22-project-review-docs-sync.md) §3。
 
-詳細 epic 拆解見 [`ISSUES.md`](ISSUES.md) 頂部「🎯 未來大目標」。
+### 🥇 建議順序（依 M6 阻塞程度排）
 
-### 可立即接手（autonomous-friendly，無設計歧義）
+1. [ ] **WMOM-20260720-13** — 🟡 A1 比較視圖 4 個 Should-fix（**半天**，範圍明確、其中 2 個是
+   round-1 修正時新引入的小回歸，先清掉不讓它腐爛）
+   - (1) `scheduleMissing` banner 對「刻意空排程的純風況基準情境」誤報
+   - (2) 切頁籤丟失所選機組 + 多打一次 API（打在 A1「比較↔趨勢來回」核心動線）
+   - (3) `ScenarioPage.handleGenerate` 的 Must-fix 現場缺回歸測試
+   - (4) `fault_schedule` 映射兩次形狀不同（`at_hour` vs `offset_seconds`）→ 抽共用 helper
+2. [ ] **WMOM-20260720-04 + WMOM-20260720-08** — 🟡 **live/OPC 後端硬化（M6 現場部署唯一硬阻塞，2-3 天）**
+   - -04(1) `DataBroker.stop()` 未呼叫 `_opc_adapter.stop()` → 切走 live 後孤兒 thread 續寫新 session
+   - -04(2) 切走 live 無角色檢查（起 live 需 SUPERVISOR，不對稱）
+   - -04(3) `config.py::set_simulation` 非即時模擬來源時靜默 `switch_mode` → **會悄悄斷掉 live SCADA**
+     （#146 前端 gate 只是 best-effort，definitive fix 在後端）
+   - -08(1) `start/stop/switch_mode` 全程無鎖 → 連點兩下可撞 `RuntimeError: cannot join thread before it is started`
+   - -08(2) `simulator/engine.py:310` `time.sleep(time_step)` 不可中斷 → `stop()` 得等滿一拍
+3. [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；需 docker 環境驗）
+4. [ ] **WMOM-20260509-F6** — 🔵 PostgreSQL row-lock integration test（M6-3；需 docker postgres）
+5. [ ] **HTTPS 部署配置** — 🔵 M6-4 唯一殘項（auth 本體已全數合入 #108-#122）
 
-- [ ] **前端 component render 測試**（CostPage / FarmOverview / workflow Panel）—— 需先補 `vitest.config.ts` jsdom setupFiles + `npm i -D @testing-library/jest-dom`
-- [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
-- [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
+### 並行 — 情境比較分析 epic（DEC-20260720-02，demo 說服力）
+
+- [ ] **A2 跨情境比較**（相對時間對齊）— epic 中 demo 價值最高的一塊；建議排在確定有客戶之後
+- [ ] **PR C 檢視情境掛載 app**（最大，需先寫 broker 子設計）
+- [ ] **PR D** `GuidedTourPage` 同款 remount 修
+- [ ] **A3** 事件 session 化 / 匯出
+
+### 並行 — 非 code（劉老師）
+
+- [ ] **WMOM-20260503-05** — 🟡 Friendly 客戶接觸（infrastructure done；素材已備妥：
+  `promo/windMindOM-intro-3min.mp4` 3 分鐘介紹影片 + pitch deck v0.8.1）。
+  **沒有客戶就沒有 M6-1/M6-2** — 這條決定整個 M6 時程。
+- [ ] **M5-4 客戶手冊擴充 + 一年警報 csv 灌入** — 需客戶素材，隨部署一起做
 
 ### 需劉老師決策才能開工
 
 - [ ] **WMOM-20260519-01** — `add_return` 超量退料 domain guard（需會計語意決策）
 - [ ] **WMOM-20260513-01** — UI 改版 v2（placeholder — 等劉老師補新設計交接書）
-
-### 客戶接觸（持續）
-
-- [ ] **WMOM-20260503-05** — Friendly 客戶接觸名單（infrastructure done；待劉老師執行 cold email + 約 demo）
 
 ---
 

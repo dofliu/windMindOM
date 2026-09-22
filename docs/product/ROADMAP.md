@@ -201,9 +201,17 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 進度檢視 dashboard
 
-> 狀態快照（2026-07-20）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+> 狀態快照（**2026-09-22**，WMOM-20260922-01 專案檢視）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
 >
-> **2026-07-20 情境模式深化 arc**（實測驅動，跨 M5/monitoring）：DB-lock 根治（#142）→ **DEC-20260720-01 情境＝凍結資料集**（設定 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：A0 摘要端點 #148 merged、A1 同情境內比較 PR #150 in review。詳見 [`decision_log.md`](decision_log.md) DEC-20260720-01/-02 與 [`ISSUES.md`](../../ISSUES.md) WMOM-20260720-*。
+> **測試 baseline（實跑）**：backend **1076 passed / 7 skipped / 1 xfailed**（1084 collected）；frontend **957 passed / 48 files**、`tsc --noEmit` 0 error、`vite build` OK。**開啟中的 PR：0**（#142-#155 全數合併）。
+>
+> **2026-07-20 情境模式深化 arc**（實測驅動，跨 M5/monitoring）：DB-lock 根治（#142）→ **DEC-20260720-01 情境＝凍結資料集**（設定 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：A0 摘要端點 #148 merged、A1 同情境內比較 #150 merged（4 個 Should-fix 留 WMOM-20260720-13）。詳見 [`decision_log.md`](decision_log.md) DEC-20260720-01/-02 與 [`ISSUES.md`](../../ISSUES.md) WMOM-20260720-*。
+>
+> **2026-09-01 對外素材**：`promo/windMindOM-intro-3min.mp4`（18 景 HTML 動畫 + storyboard，戲劇景＝Simulator-first），供 M6 客戶接觸 / partner 對接用。
+>
+> **M5 判定調整**：M5 功能面（M5-1~6 + `/field/` Part A/B-1/B-2 + 531-chunk Z72 向量檔）已全數到齊，剩 M5-4「灌客戶手冊 + 一年警報 csv」本質上需**客戶素材**、非本月可自足完成 → **歸 M6 部署期執行**，M5 記為 90%。
+>
+> **M6 critical path**（唯一會擋住現場部署的東西）：live/OPC 後端硬化（WMOM-20260720-04 + -08）→ footprint CPU-torch pin（-20260716-06）→ PostgreSQL row-lock 驗證（-20260509-F6）→ HTTPS 配置。並行：客戶接觸（-20260503-05，決定整個 M6 時程）。
 
 | Month | Module | Done criteria | Status |
 |-------|--------|--------------|:------:|
@@ -211,8 +219,8 @@ Month 1 結束時，要能對 friendly 客戶說：
 | 2 (2026-06) | Cost | K13 demo 跑通 + LCOE dashboard | ✅ done |
 | 3 (2026-07) | Workflow Part 1 | Work Order + Approval 跑通 | ✅ done |
 | 4 (2026-08) | Workflow Part 2 + Reporting | Inventory + 月報 PDF | ✅ done |
-| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~75%) |
-| 6 (2026-10) | PoC + 合約 | 第一筆收入（M6-4 auth 全面完成） | 🟡 in_progress (~20%) |
+| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~90%，功能面 done；M5-4 灌料需客戶素材 → 隨 M6 落地) |
+| 6 (2026-10) | PoC + 合約 | 第一筆收入（M6-4 auth 全面完成） | 🟡 in_progress (~25%) |
 
 每月最後一個 session 更新本表 + work-log + STATUS.yaml。
 
