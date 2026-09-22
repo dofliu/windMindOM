@@ -100,7 +100,37 @@ autonomous session（且沒有既有前端「選多個情境比較」UI 可以�
 
 ## 5. code-reviewer subagent review
 
-<!-- 待補：review 完成後回填 must-fix / should-fix 處理結果 -->
+**0 must-fix / 1 should-fix / 3 nice-to-have，Approve。**
+
+- ✅ **Should-fix（採納）**：`compare_scenarios` 原本用 list comprehension 逐一 `await
+  _load_scenario_summary(sid)`，等於序列化等待——與程式碼自己在 `MAX_COMPARE_SCENARIOS` 註解裡寫的
+  「避免疊加過多長情境聚合掃描拖垮回應時間」設計意圖矛盾（每個摘要已經把阻塞 SQLite 工作丟
+  `asyncio.to_thread`、彼此不互相佔用事件迴圈，序列 await 白白浪費了本可平行的部分）。改用
+  `asyncio.gather(*(...))`，保留輸入順序（回傳契約不變），worst case 從「N 個摘要的延遲總和」降到
+  「最長那個摘要的延遲」。mutation-verify：沿用既有 `test_compare_scenarios_returns_summaries_in_
+  requested_order` 驗證 gather 後順序仍正確（該測試在 gather 化前後都跑過，行為一致）。
+- ✅ **Nice-to-have（採納，補 HTTP 層 400 測試）**：原本 `_parse_compare_ids` 的驗證錯誤路徑
+  （非整數/數量不足/超界）只有純函式測試，沒有走真 HTTP 管線確認 `HTTPException(400, ...)` 真的會
+  從 FastAPI 請求週期正確浮現成 400。新增 `test_compare_route_returns_400_over_real_http_for_
+  invalid_ids`，mutation-verify：拿掉下限檢查的 `raise HTTPException(400, ...)` 一行 → 測試如預期
+  fail（實得 404，因為驗證被跳過、直接掉進 `_load_scenario_summary(5)` 的「找不到情境」404 路徑，
+  而非預期的驗證層 400）——證實新測試真的守住這條驗證，不是恆真斷言。還原後全過。
+- ✅ **Nice-to-have（採納，低成本）**：`MIN_COMPARE_SCENARIOS`/`MAX_COMPARE_SCENARIOS` 原本宣告在
+  response models 區塊、離唯一使用它們的 `_parse_compare_ids` 有 ~130 行距離，搬到 `_parse_compare_
+  ids` 定義正上方，可讀性小幅改善。
+- ⚪ **Nice-to-have（婉拒，已是刻意行為且已寫進 docstring）**：`_parse_compare_ids` 靜默忽略空段落
+  （如 `ids=1,,3` 或結尾逗號），reviewer 指出這可能讓前端拼字串的 bug 被默默吞掉而非在開發期就浮現
+  成 400。本次判斷：這是刻意選擇（docstring 已明寫「前後空白與空段落會被忽略」），且目前唯一消費者
+  是尚未開始寫的前端（本 session 未做），沒有實際回歸風險；若未來真的踩到前端拼字串 bug 再收緊即可，
+  不在本次無使用場景佐證下預先加嚴驗證。
+- **route ordering 確認**：reviewer 額外執行 `test_compare_route_is_reachable_over_real_http_
+  routing` 實測（非只讀程式碼），確認 `/compare` 確實註冊在 `/{scenario_id}` 之前、走真 FastAPI app
+  拿到 200（非 422），與本 session 自己的 mutation-verify 結論一致。
+
+Verify（review 後重跑，含 gather 化 + 新 400 測試）：`modules/monitoring/tests/test_scenario_
+endpoints.py` 21 passed；backend 全套 **1103 passed / 7 skipped / 1 xfailed**（baseline 1094 + 9
+新測，零 regression）；frontend 本輪未再動任何檔案，沿用 §4 已驗證的 961 passed / tsc 0 / build OK
+（`git status` 確認本次異動僅 `scenarios.py` + `test_scenario_endpoints.py` 兩個 backend 檔案）。
 
 ## 6. 範圍內未做（誠實揭露）
 
@@ -122,6 +152,16 @@ autonomous session（且沒有既有前端「選多個情境比較」UI 可以�
   沒有更通用的自動化機制強制（例如沒有寫一個「掃描 router 內所有 literal path 是否都排在對應
   parametrized path 之前」的 meta-test）。若之後這類端點變多，值得考慮加一個通用的 route-ordering
   sanity check，本次範圍不做（YAGNI，目前只有一個 `/compare`）。
+
+## 6.1 給劉老師的提醒（routine 文件過時）
+
+`docs/routines/autonomous-daily-worker-prompt.md`（檔案內自稱 v3、2026-06-03、baseline 638
+passed）明顯落後於本 session 收到的注入 prompt（v4.1，baseline 1076/1084、7 個測試路徑含
+monitoring/auth）。依注入 prompt 自己的指示「開工後若發現該檔比本 prompt 新，以該檔為準」——但這次
+是**反過來**：注入 prompt 比檔案新很多。本 session 範圍是 WMOM-20260922-03（A2 backend），未含
+routine 文件整理，故不在本次動它；提醒下次若有餘裕、或劉老師方便時，把 cron trigger 目前實際使用的
+prompt 內容同步寫回 `docs/routines/autonomous-daily-worker-prompt.md`，讓檔案重新成為 canonical
+來源（目前兩者已分岔一段時間，繼續分岔會讓「canonical 版本」這句話失去意義）。
 
 ## 7. 下次接手
 

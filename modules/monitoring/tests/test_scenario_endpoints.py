@@ -426,6 +426,27 @@ def test_compare_route_is_reachable_over_real_http_routing(tmp_path, monkeypatch
     assert resp_single.status_code == 200
 
 
+def test_compare_route_returns_400_over_real_http_for_invalid_ids(tmp_path, monkeypatch):
+    """`_parse_compare_ids` 的驗證錯誤（純函式測試已覆蓋）在真實 HTTP 請求管線裡也要能正確浮現成
+    400（而非被吞掉或變成其他狀態碼）——走真 TestClient，補足「整條請求路徑」層級的驗證。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    storage = Storage(db_path=str(tmp_path / "http400.db"))
+    sim = WindFarmSimulator(turbine_count=2)
+    sim._running = True
+    live_sid = storage.create_session(data_source="simulation", turbine_count=2)
+    b = _FakeBroker(storage, sim, live_sid)
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: b)
+
+    app = FastAPI()
+    app.include_router(scenarios_ep.router)
+    client = TestClient(app)
+
+    assert client.get("/api/scenarios/compare?ids=5").status_code == 400        # 不足 2 個
+    assert client.get("/api/scenarios/compare?ids=1,abc").status_code == 400    # 非整數
+
+
 def test_scenario_rated_power_default_and_override():
     """額定功率：session 未存/0/None → 預設 Z72 2000 kW；有正值 → 採用。"""
     assert scenarios_ep._scenario_rated_power_kw({}) == scenarios_ep.DEFAULT_RATED_POWER_KW

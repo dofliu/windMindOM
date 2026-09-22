@@ -111,13 +111,6 @@ class ScenarioCompareResponse(BaseModel):
     scenarios: List[ScenarioSummary]
 
 
-# 跨情境比較的情境數量界線：DEC-20260720-02 設計決策載明「挑 2–3 情境」比較；下限 2（少於 2 談不上
-# 比較），上限 5（留一點餘裕給更多情境並排，同時避免單次請求疊加過多長情境聚合掃描拖垮回應時間——
-# 見 get_scenario_summary docstring 提及的「長情境可達分鐘級」）。
-MIN_COMPARE_SCENARIOS = 2
-MAX_COMPARE_SCENARIOS = 5
-
-
 # ── 純函式聚合邏輯（可單元測試，不經 HTTP/DB）─────────────────────────────────
 
 def _round(value: Optional[float], digits: int) -> Optional[float]:
@@ -240,6 +233,13 @@ async def list_scenarios(limit: int = 50):
     return {"scenarios": b.storage.list_scenarios(limit=limit)}
 
 
+# 跨情境比較的情境數量界線：DEC-20260720-02 設計決策載明「挑 2–3 情境」比較；下限 2（少於 2 談不上
+# 比較），上限 5（留一點餘裕給更多情境並排，同時避免單次請求疊加過多長情境聚合掃描拖垮回應時間——
+# 見 get_scenario_summary docstring 提及的「長情境可達分鐘級」）。
+MIN_COMPARE_SCENARIOS = 2
+MAX_COMPARE_SCENARIOS = 5
+
+
 def _parse_compare_ids(ids: str) -> List[int]:
     """解析並驗證 `/compare` 端點的 ``ids`` query 參數：逗號分隔整數、去重保留首次出現順序、
     數量介於 [MIN_COMPARE_SCENARIOS, MAX_COMPARE_SCENARIOS]。純函式（不碰 DB/HTTP）便於單元測試。
@@ -287,10 +287,18 @@ async def compare_scenarios(ids: str) -> ScenarioCompareResponse:
 
     路由順序注意：本路由必須註冊在 ``/{scenario_id}`` 之前（見本檔案內宣告順序），否則
     ``GET /api/scenarios/compare`` 會先被單情境路由攔截、因 ``scenario_id`` 無法解析成 int 而 422。
+
+    並發抓取：每個情境的摘要各自把阻塞 SQLite 工作丟 ``asyncio.to_thread``（見
+    ``_load_scenario_summary``），彼此不互相阻塞事件迴圈，改用 ``asyncio.gather`` 平行取多個情境的
+    摘要（而非逐一 await），呼應 ``MAX_COMPARE_SCENARIOS`` 上限註解裡「避免疊加過多長情境聚合掃描
+    拖垮回應時間」的設計意圖——序列化 await 會讓最長情境的延遲乘上情境數，並發後只吃最長那一個。
+    ``asyncio.gather`` 保留輸入順序，不影響「依請求 ids 順序並排回傳」的回傳契約。
     """
     scenario_ids = _parse_compare_ids(ids)
-    summaries = [await _load_scenario_summary(sid) for sid in scenario_ids]
-    return ScenarioCompareResponse(scenarios=summaries)
+    summaries = await asyncio.gather(
+        *(_load_scenario_summary(sid) for sid in scenario_ids)
+    )
+    return ScenarioCompareResponse(scenarios=list(summaries))
 
 
 @router.get(

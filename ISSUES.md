@@ -16,10 +16,16 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 105 |
-| **total (active)** | **116** |
+| done | 106 |
+| **total (active)** | **117** |
 
-最後更新：2026-09-22（autonomous session #4：**WMOM-20260922-02 — PR D：`GuidedTourPage` inline
+最後更新：2026-09-22（autonomous session #5：**WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
+摘要並排端點** `GET /api/scenarios/compare?ids=1,2,3`——重用 A0 單情境摘要邏輯，依請求順序並排回傳；
+新增 HTTP 層路由順序守門測試守住「`/compare` 必須註冊在 `/{scenario_id}` 之前」這個易踩雷點。
+code-reviewer review：0 must-fix，1 should-fix（改 `asyncio.gather` 平行取代序列 await）+ 2
+nice-to-have 已採納，皆 mutation-verified。backend 1094→1103 passed；frontend 未動 961 passed
+不變。
+session #4：**WMOM-20260922-02 — PR D：`GuidedTourPage` inline
 component remount 修**——DEC-20260720-01 拆的 PR D 殘留項，5 個純展示用子元件（`Eyebrow`/`ModChip`/
 `Beat`/`Story`/`Row`）原定義在 `GuidedTourPage` 函式體內，每次 render（含跟 step 無關的 theme 切換）
 都重新產生新 component type，逼 React 整棵子樹 unmount/remount；提升到 module scope 解決，比照同日
@@ -375,6 +381,38 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     ESLint 設定**（無 `.eslintrc*`、無 `eslint` devDependency），DEC-20260720-01 把它列為「可選」，
     新增整套 ESLint 工具鏈屬引入新基礎設施、超出本次單一 bug-fix 範圍，故未做，留待之後若要做前端
     lint 基礎建設時再一併規劃。
+
+- **WMOM-20260922-03** — 🟢 **情境比較分析 · A2 Part 1：跨情境摘要並排端點**（DEC-20260720-02）：
+  新增 `GET /api/scenarios/compare?ids=1,2,3`，重用 A0（`WMOM-20260720-09`）的單情境摘要邏輯（抽成
+  `_load_scenario_summary` helper 供 `get_scenario_summary` 與新端點共用），依請求 `ids` 順序並排
+  回傳多個情境的完整摘要；純函式 `_parse_compare_ids` 處理逗號分隔解析、去重保序、數量邊界
+  `[2, 5]`（下限 2——少於 2 談不上比較；上限 5，DEC-20260720-02 原文「挑 2–3 情境」，程式碼註解說明
+  留餘裕同時避免單次請求疊加過多長情境聚合掃描拖垮回應時間）。
+  - **範圍取捨**：A2 完整範圍（後端對齊端點 + 前端摘要並排/雷達 + 相對時間對齊時序疊圖 + 差異圖）
+    橫跨後端聚合、時間對齊演算法、前端多選 UI、疊圖繪製，不適合塞進單一 session。比照 A0→A1 既有
+    節奏，本次只做純後端「摘要並排」（Part 1，不需要新資料層工作、設計無歧義、可獨立驗收）；相對
+    時間對齊的時序疊圖與差異圖（Part 2，需要新的 `t − sim_start` 對齊邏輯 + 前端疊圖 UI）留給下個
+    session；本端點目前無前端呼叫方，是純後端就緒的地基（同 A0 當初模式）。
+  - **路由順序**（易踩雷點）：`/compare` 為單一路徑段，**必須**註冊在 `/{scenario_id}`（int 型別
+    路徑參數）之前，否則 FastAPI 會用 `/{scenario_id}` 先匹配、把 `"compare"` 嘗試解析成 int 失敗
+    → 422，永遠打不到新端點。已確認並在檔案內把新路由放在正確位置，docstring 內也寫明此限制。
+  - **回歸測試**：`test_scenario_endpoints.py` +9 tests——整合測試（真情境驗排序/去重/未知 id
+    404）、純函式測試（`_parse_compare_ids` 邊界，含「去重後剛好等於上限 5」邊界案例）、**HTTP 層
+    路由順序守門測試**（掛真 `FastAPI()` app + `TestClient` 實際打 `GET /api/scenarios/compare`，
+    不像其他測試繞過 HTTP 直呼函式——這條測試專門抓「路由順序錯誤導致 422」這類純函式測試抓不到的
+    bug）、HTTP 層 400 驗證測試。
+  - 🔍 **code-reviewer subagent review**：0 must-fix，Approve。1 should-fix（`compare_scenarios`
+    原本序列化 `await` 逐一取摘要，與程式碼自己「避免疊加過多長情境掃描拖垮回應時間」的設計意圖
+    矛盾——改 `asyncio.gather` 平行取，worst case 從 N 個摘要延遲總和降到最長那個）已採納；2
+    nice-to-have（補 HTTP 層 400 測試、常數搬到消費者附近）已採納；1 nice-to-have（空段落靜默忽略）
+    婉拒——已是刻意行為且 docstring 已明寫，目前無前端消費方佐證需收緊。所有採納項目皆
+    mutation-verified（route-ordering、dedup、400 驗證路徑逐一還原成舊邏輯確認測試會 fail，再還原）。
+  - ✅ **Verify**：backend 1094→1103 passed（+9 新測，零 regression）；frontend 本次未動，961
+    passed / tsc 0 / build OK 全綠回歸（`git status` 確認異動僅兩個 backend 檔案）。
+  - **下次接手**：A2 Part 2（相對時間對齊時序疊圖 + 差異圖，後端可能需要多情境版本的歷史查詢端點
+    + 前端新 UI，可能命名 `ScenarioCompareAcrossView.tsx` 比照 A1 的 `ScenarioCompareView.tsx`）；
+    PR C（檢視情境掛載 app，需先寫 broker 子設計，仍卡）。
+- **Reference**: [`work-logs/2026-09/2026-09-22-scenario-compare-a2-backend.md`](work-logs/2026-09/2026-09-22-scenario-compare-a2-backend.md)
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
