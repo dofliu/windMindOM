@@ -1,18 +1,31 @@
 # windMindOM — TODO（短期工作板）
 
-> ⚠ **2026-09-22 CI runner 基礎設施仍失效中（待劉老師檢查 GitHub Actions 帳號設定）**：當日**每一個**
+> ✅ **2026-09-22 19:20 UTC 更新：CI runner 基礎設施疑似已恢復**——PR #162（WMOM-20260922-03）
+> 是當日第一個**真正跑起來**的 CI run：兩個 job 都拿到真實 `runner_id`（非 `runner_id: 0`）、逐步驟
+> 正常執行完成、雙雙綠燈，`auto-merge.yml` 隨即自動 squash-merge 進 main + 刪分支——**全自動飛輪
+> 走完整趟，過程無人工介入**。與此之前 PR #157/#158/#159（見下方保留的舊警語）秒退模式完全不同。
+> **謹慎起見**：這是恢復後的第一筆樣本，不確定是暫時性還是真正解決（帳號/組織層級問題的根因劉老師
+> 尚未回報排查結果）。**下個 session 的建議**：正常開 PR 後照樣觀察 CI 是否又秒退；連續 2-3 個
+> session 都綠燈再把下方舊警語整段刪除、視為問題已解。若又出現秒退，恢復舊警語的因應方式（本機驗證
+> 為準、不等 auto-merge、不反覆重跑）。
+>
+> <details><summary>⚠ 2026-09-22 稍早的舊警語（PR #157-#159 秒退期間，供對照，見上方新狀態）</summary>
+>
+> 當日**每一個**
 > CI run 都在 2-8 秒內失敗、`runner_id: 0`、check output 全空（job 從未被排到 runner 上跑過任何測試），
 > 含 PR #157 / #158 / #159 與**跟 PR 無關的 main push run**；多次重跑結果相同，非 flake。
 > `.github/workflows/ci.yml` 內容正常、workflow 狀態 active，排除程式碼與 workflow 設定問題，
 > 研判為帳號/組織層級 GitHub Actions runner 配額或計費限制（或平台事故）。
 >
-> **飛輪目前是停的**：`auto-merge.yml` 的 run 全部是 `skipped`（它要 CI 綠才動），**PR #157 / #158 是
+> **飛輪當時是停的**：`auto-merge.yml` 的 run 全部是 `skipped`（它要 CI 綠才動），**PR #157 / #158 是
 > 劉老師人工合併的**（非 auto-merge），倚賴的是 autonomous session 的本機驗證結果。
 >
-> **對下個 session 的意義**：本機驗證（`pytest` + `vitest`/`tsc`/`build`）是目前唯一可信的把關，
-> 照常做完整驗證再開 PR；但**不要等 auto-merge**，PR 會停在紅燈需人工合併。遇到同款秒退
+> 對下個 session 的意義：本機驗證（`pytest` + `vitest`/`tsc`/`build`）是目前唯一可信的把關，
+> 照常做完整驗證再開 PR；但不要等 auto-merge，PR 會停在紅燈需人工合併。遇到同款秒退
 > （秒退 + `runner_id: 0` + output 全空）不必反覆重跑或重複診斷——留言記錄一次即可，
-> 且**絕不可為了繞過 CI 直接 push main**。
+> 且絕不可為了繞過 CI 直接 push main。
+>
+> </details>
 >
 > 用途：本檔案是「**這週 / 這個月**正在做什麼」的快速 dashboard。
 > 詳細 issue 規格在 [`ISSUES.md`](ISSUES.md)；完整路線圖在 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)；
@@ -23,13 +36,15 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-22（autonomous session #5：WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
+最後更新：2026-09-22（autonomous session #6：WMOM-20260922-03 的 PR #162 **CI 全綠、auto-merge
+自動合併**（非人工）——CI runner 基礎設施疑似恢復，見上方新警語；本次僅更正追蹤檔案的 CI 狀態敘述，
+無程式碼變更。session #5：WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
 摘要並排端點 `GET /api/scenarios/compare`（DEC-20260720-02），backend 1094→1103 passed，frontend
 未動；session #4：WMOM-20260922-02 — PR D：`GuidedTourPage` inline
 component remount 修（DEC-20260720-01），frontend 960→961 passed；session #3：WMOM-20260720-13
 A1 round-2 follow-up 4 個 Should-fix 全修（PR #157 merged）；session #2：WMOM-20260922-01
 accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMOM-20260720-04 + -08 live/OPC
-後端硬化收尾——M6 現場部署唯一硬阻塞已清除。**CI runner 基礎設施仍持續失效**，見上方警語）
+後端硬化收尾——M6 現場部署唯一硬阻塞已清除。）
 
 > ⚠ 本檔其餘內文（現況段落、下方清單）大多還停在 2026-07-18 的狀態快照，比 `STATUS.yaml` / `ISSUES.md`
 > 舊很多（M5 已到 ~90%、M6 已到 auth+live/OPC 硬化完成）。下次整理 TODO 時建議整份對照 `ISSUES.md`
