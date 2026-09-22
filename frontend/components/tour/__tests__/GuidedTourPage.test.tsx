@@ -7,12 +7,30 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import React from 'react';
 import GuidedTourPage from '../GuidedTourPage';
-import { ThemeProvider } from '../../../theme/ThemeProvider';
+import { ThemeProvider, useTheme } from '../../../theme/ThemeProvider';
 
 const renderTour = (lang: 'zh' | 'en' = 'zh') =>
   render(
     <ThemeProvider>
       <GuidedTourPage lang={lang} />
+    </ThemeProvider>,
+  );
+
+/** 額外掛一顆會讀 useTheme() 的切換鈕，用來在不改變 step 的情況下逼 GuidedTourPage 重新 render。 */
+const ThemeToggleHarness: React.FC<{ lang: 'zh' | 'en' }> = ({ lang }) => {
+  const { toggle } = useTheme();
+  return (
+    <>
+      <button type="button" onClick={toggle}>toggle-theme</button>
+      <GuidedTourPage lang={lang} />
+    </>
+  );
+};
+
+const renderTourWithThemeToggle = (lang: 'zh' | 'en' = 'zh') =>
+  render(
+    <ThemeProvider>
+      <ThemeToggleHarness lang={lang} />
     </ThemeProvider>,
   );
 
@@ -46,5 +64,15 @@ describe('GuidedTourPage', () => {
   it('英文 lang 顯示英文開場', () => {
     renderTour('en');
     expect(screen.getByRole('button', { name: /Start tour/ })).toBeInTheDocument();
+  });
+
+  it('切換主題不應讓情境敘事區（Story/Eyebrow/Beat）的 DOM node 整棵被卸載重建（PR D，避免 inline component 每次 render 重新定義）', () => {
+    renderTourWithThemeToggle();
+    fireEvent.click(screen.getByRole('button', { name: /開始導覽/ }));
+    // 「情境一 · 監控總覽」是 Story 內 Eyebrow 渲染的 kicker，非右側 mock 面板（後者本就會隨 stage() 重繪，不是本測要鎖的對象）。
+    const beforeNode = screen.getByText('情境一 · 監控總覽');
+    fireEvent.click(screen.getByRole('button', { name: 'toggle-theme' }));
+    const afterNode = screen.getByText('情境一 · 監控總覽');
+    expect(afterNode).toBe(beforeNode);
   });
 });
