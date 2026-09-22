@@ -16,14 +16,21 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 103 |
-| **total (active)** | **115** |
+| done | 105 |
+| **total (active)** | **116** |
 
-最後更新：2026-09-22（autonomous session #2：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——補
-上 WMOM-20260720-08 work-log §7 open questions 留的殘留問題，`_loop` accelerated 分支的
-`time.sleep(wall_sleep)` 改 `Event.wait()`，比照 real-time 分支已核准修法；見下方「2026-09-22 session」
-區塊。同一 session 也確認 CI runner 基礎設施仍處於失效狀態（見 PR #157 留言，帳號/組織層級問題，非本 repo
-程式碼可修復範圍）。
+最後更新：2026-09-22（autonomous session #4：**WMOM-20260922-02 — PR D：`GuidedTourPage` inline
+component remount 修**——DEC-20260720-01 拆的 PR D 殘留項，5 個純展示用子元件（`Eyebrow`/`ModChip`/
+`Beat`/`Story`/`Row`）原定義在 `GuidedTourPage` 函式體內，每次 render（含跟 step 無關的 theme 切換）
+都重新產生新 component type，逼 React 整棵子樹 unmount/remount；提升到 module scope 解決，比照同日
+`ScenarioTrendView`（WMOM-20260720-13）同款修法。新增 DOM node identity 回歸測試，mutation-verified。
+frontend 960→961 passed；backend 未動、1094 不變。**⚠ CI runner 基礎設施仍持續失效**（見下方
+WMOM-20260922-01 附帶發現與 PR #157/#158/#159 留言，帳號/組織層級問題，非本 repo 程式碼可修復範圍；
+PR #159（追蹤檔案數字更正）截至本次仍未合併——**本次統計已先行套用 PR #159 的更正邏輯**：main 現況文字
+雖寫 `done: 103`，但 `11+0+0+103=114 ≠ 宣告的 total 115`，PR #159 診斷為 #157/#158 各自的 +1 被 git
+靜默合併只計一次，真正基準應是 `done: 104`（`11+0+0+104=115` 才與宣告的 total 相符）；本次在此基準上
+再 +1（WMOM-20260922-02）→ `done: 105`、`total: 116`。若 PR #159 先合併，下個 session 開工時仍請重新
+核對 `open+in_progress+blocked+done==total`，避免本次與 #159 的合併再度發生同款數字碰撞。
 
 > 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
@@ -328,6 +335,32 @@
     `main` push run）。本 session 重跑一次確認仍未恢復（前一 session 已重跑過一次、已在 PR #157 留言
     完整診斷為帳號/組織層級 GitHub Actions 配額或計費問題），非本 repo 程式碼可修復範圍，待人工檢查
     GitHub 帳號設定或 https://www.githubstatus.com/。
+
+- **WMOM-20260922-02** — 🟢 **PR D：`GuidedTourPage` inline component remount 修**（DEC-20260720-01）：
+  `frontend/components/tour/GuidedTourPage.tsx` 的 5 個純展示用子元件（`Eyebrow`/`ModChip`/`Beat`/
+  `Story`/`Row`）原本定義在 `GuidedTourPage` 函式體內，屬經典 React「unstable nested component」
+  反模式——每次 `GuidedTourPage` 重新 render（不只是切換情境步驟，任何觸發 re-render 的變動，例如
+  App 的 `ThemeProvider` 切換主題，因為 `GuidedTourPage` 本身呼叫 `useTheme()` 訂閱了該 context）都
+  會產生全新的 component type（新函式參考），逼 React 把該子樹整個 unmount 再 remount（展示頁若有
+  過渡動畫/焦點狀態會被重置）。與同日 `WMOM-20260720-13`（A1 round-2）`ScenarioTrendView` 修的同一類
+  問題（該次是 controlled state 提升；本次是元件本身提升）。
+  - **修法**：把 5 個子元件提升到 module scope，維持跨 render 穩定的 component identity。原本透過
+    closure 拿到的 `C`（theme palette）：提升後的元件改各自呼叫 `useTheme()`（安全，因
+    `GuidedTourPage` 恆在 `<ThemeProvider>` 內渲染）。原本透過 closure 拿到的 `ui`（翻譯器，依賴
+    `lang` prop）：`Beat`/`Story` 改接收顯式 `lang: Lang` prop，內部重建局部 `ui` helper；5 處
+    `<Story .../>` 呼叫點（`stage()` switch 的 case 1–5）皆補上 `lang={lang}`。
+  - **回歸測試**：`GuidedTourPage.test.tsx` 新增一測——掛一顆額外會呼叫 `useTheme().toggle()` 的
+    按鈕（不碰 `step` state），點擊切換主題後斷言 `Story`/`Eyebrow` 子樹內某文字節點（情境一 kicker
+    「情境一 · 監控總覽」）前後是**同一個 DOM node 物件**（`toBe`/`Object.is`）——代表 React 是就地
+    reconcile 而非整棵拆掉重建。**mutation-verified**：把 `GuidedTourPage.tsx` 還原成修正前版本（子
+    元件搬回函式體內）、保留新測試 → 如預期 fail（斷言收到兩個不同的 DOM node 物件）；還原修正後
+    6 測全過。
+  - **驗證**：純前端變更，backend 未動（1094 passed 不變）；frontend tsc 0 error、
+    `npx vitest run` 960→961 passed、`npx vite build` OK。
+  - **範圍內未動**：ESLint（`react/no-unstable-nested-components`）——本 repo 目前**未設置任何
+    ESLint 設定**（無 `.eslintrc*`、無 `eslint` devDependency），DEC-20260720-01 把它列為「可選」，
+    新增整套 ESLint 工具鏈屬引入新基礎設施、超出本次單一 bug-fix 範圍，故未做，留待之後若要做前端
+    lint 基礎建設時再一併規劃。
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
