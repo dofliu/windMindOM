@@ -58,9 +58,19 @@ async def select_source(req: SourceSelect, request: Request):
     simulation / view＝任何登入者（含現場工程師的必經入口）；live（實際對接，會嘗試對外 OPC
     握手且影響全域）比照 farm-activate 要求 SUPERVISOR 以上——但僅在 enforce 開時強制（過渡期
     enforce 關時維持與其他 mode 一致開放，不破壞現行 no-token 操作）。
+
+    Must-fix（WMOM-20260720-04 (2)）：起 live 需 SUPERVISOR，但**切走** live 之前無角色檢查——
+    前端 #144 的二次確認只防手滑，不防任何登入者直接呼叫本 API 斷現場連線。切走 live 與起
+    live 同等敏感，故對稱地要求 SUPERVISOR。
+
+    註：這個角色檢查跑在下面 mode 合法性判斷之前，所以「目前是 live 且非 SUPERVISOR」時，
+    即使傳了不合法的 mode（如打錯字）也會先拿到 403 而非 400——是刻意 fail-closed，不代表
+    mode 一定合法。
     """
     b = get_broker()
     mode = (req.mode or "").strip().lower()
+    if b.source_kind == "live" and mode != "live":
+        require_role(Role.SUPERVISOR)(request)
     if mode == "simulation":
         # 即時模擬：自由跑連續產資料（source_kind=simulation）。
         from server.app import activate_simulation

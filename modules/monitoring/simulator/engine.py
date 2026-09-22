@@ -73,6 +73,11 @@ class WindFarmSimulator:
         self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
         self._thread: Optional[threading.Thread] = None
+        # 讓 _loop 每步之間的睡眠可被 stop() 立刻中斷（WMOM-20260720-08 (2)，比照
+        # DataBroker._maintenance_wake 同款修法）：不用 time.sleep(time_step)，否則 stop()
+        # 撞上該次睡眠時得等它自然結束才能 join，real-time 模式下每次切換來源都多卡最多
+        # 一個 time_step。
+        self._wake = threading.Event()
         self._callbacks: List[Callable] = []
         self._lock = threading.Lock()
         self._warned_non_finite = False  # non-finite SCADA 警告只印一次
@@ -97,6 +102,7 @@ class WindFarmSimulator:
         if self._running:
             return
         self._running = True
+        self._wake.clear()  # 重入啟動：清掉上次 stop() 設的喚醒旗標
         self._time_step = time_step
         self._thread = threading.Thread(
             target=self._loop, args=(time_step,), daemon=True
@@ -106,6 +112,7 @@ class WindFarmSimulator:
     def stop(self):
         """Stop the simulation loop and wait for the background thread to finish."""
         self._running = False
+        self._wake.set()  # 立刻喚醒睡眠中的 _loop，讓它在下一次條件檢查就退出
         # 若有同步批次在跑，一併請它停——保留原本「共用 _running 旗標」時 stop() 能中止
         # generate_bulk 的語意（如伺服器關閉時）。stop_live_loop 會在批次「前」呼叫 stop()，
         # 之後 generate_bulk 於進入時再把旗標設回 True，故不衝突。
@@ -307,7 +314,7 @@ class WindFarmSimulator:
                             cb(readings)
                         except Exception:
                             pass
-                    time.sleep(time_step)
+                    self._wake.wait(time_step)
                 else:
                     # Accelerated mode: run multiple physics steps per wall second
                     # Each wall second advances sim_time by time_scale seconds

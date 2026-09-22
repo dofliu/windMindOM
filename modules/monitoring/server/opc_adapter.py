@@ -7,7 +7,6 @@ and produces readings in the same format as the simulator.
 Requires: OpenOPC2 + Graybox.OPC.DAWrapper (Windows only, 32-bit Python)
 """
 
-import time
 import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Callable
@@ -88,6 +87,13 @@ class OPCDAAdapter:
         self._thread: Optional[threading.Thread] = None
         self._callbacks: List[Callable] = []
         self._poll_interval = 17  # seconds (Z72 default)
+        # 讓 _poll_loop 的輪詢間隔睡眠可被 stop() 立刻中斷（WMOM-20260720-04 (1) review
+        # 殘留）：DataBroker.stop() 呼叫本類別的 stop() 後，若 _poll_loop 卡在不可中斷的
+        # time.sleep(_poll_interval)（Z72 預設 17 秒），join(timeout=10) 常態性小於
+        # poll_interval 而逾時，thread 仍會在背景活著，睡醒後繼續用（屆時可能已經改變的）
+        # self._callbacks / broker session 寫入資料——孤兒 thread 續寫新 session 的窗口只是
+        # 被縮小（<10s 機率高），沒有真正關閉。比照 engine.py / DataBroker 的同款修法。
+        self._wake = threading.Event()
 
     def on_data(self, callback: Callable[[List[Dict]], None]):
         """Register a callback to receive polled OPC data readings."""
@@ -98,12 +104,14 @@ class OPCDAAdapter:
         if self._running:
             return
         self._running = True
+        self._wake.clear()  # 重入啟動：清掉上次 stop() 設的喚醒旗標
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
         """Stop the OPC DA polling loop and wait for the thread to finish."""
         self._running = False
+        self._wake.set()  # 立刻喚醒睡眠中的輪詢迴圈，讓它在下一次條件檢查就退出
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=10)
 
@@ -137,10 +145,10 @@ class OPCDAAdapter:
                         cb(readings)
                     except Exception:
                         pass
-                time.sleep(self._poll_interval)
+                self._wake.wait(self._poll_interval)
             except Exception as e:
                 print(f"[OPCAdapter] Error: {e}")
-                time.sleep(5)
+                self._wake.wait(5)
 
     def _read_all_turbines(self) -> List[Dict]:
         """Read data from all turbines and return in simulator-compatible format."""
