@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type PillTone } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
+import { toFaultScheduleEntries } from '../utils/faultSchedule';
 import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
 import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
 import type { SourceMode } from '../hooks/useSourceGate';
@@ -288,6 +289,9 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   };
 
   const handleGenerate = async () => {
+    // 排程只映射一次：送出的 request body 與就地組出的 lastScenario.config 共用這一份，
+    // 形狀即後端落地形狀（WMOM-20260720-13(4)）。
+    const scheduleEntries = toFaultScheduleEntries(faults);
     setGenerating(true);
     setResult(null);
     setError('');
@@ -320,12 +324,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
           wind_profile: windProfile,
           duration_hours: durationHours,
           time_step: timeStep,
-          fault_schedule: faults.map(f => ({
-            scenario_id: f.scenarioId,
-            turbine_id: f.turbineId,
-            at_hour: f.atHour,
-            severity_rate: f.severityRate,
-          })),
+          fault_schedule: scheduleEntries,
         }),
       });
       if (!res.ok) {
@@ -354,13 +353,10 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
             faults_injected: data.faults_injected,
             status: 'ok',
             // 帶上排程——否則「觀察此情境」→ 機組比較（A1）少了 fault_schedule 會把所有機組都當
-            // 健康（faulted 判別靠排程，非時間窗的 faultEvents）。offset_seconds 由 at_hour 換算，
-            // 與後端 generate-bulk 落地的 config_json.fault_schedule 對齊。
-            fault_schedule: faults.map(f => ({
-              scenario_id: f.scenarioId,
-              turbine_id: f.turbineId,
-              offset_seconds: f.atHour * 3600,
-            })),
+            // 健康（faulted 判別靠排程，非時間窗的 faultEvents）。與 request body **共用同一份**
+            // `scheduleEntries`（WMOM-20260720-13(4)）：先前兩處各自映射且形狀不同（at_hour vs
+            // offset_seconds），正是這個 bug 的成因模式。
+            fault_schedule: scheduleEntries,
           },
         });
       }
@@ -376,8 +372,10 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   };
 
   // 觀察模式：選了某過去情境 → 顯示該情境的隔離調閱視圖（ScenarioDetail）。
+  // `key={observing.id}`：ScenarioDetail 現在 keep-alive 保留頁籤與所選機組（WMOM-20260720-13(2)），
+  // 故換情境必須換 identity 強制重置，不依賴呼叫端「先回列表才能開下一個」這條 control flow。
   if (observing) {
-    return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
+    return <ScenarioDetail key={observing.id} scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
   }
 
   // 生成需「有 simulator」的來源——即時模擬(simulation) 或產生情境(scenario) 皆有 simulator。

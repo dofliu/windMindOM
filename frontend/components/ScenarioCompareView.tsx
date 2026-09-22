@@ -103,12 +103,14 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
     [summary, faultedIds],
   );
   const counts = useMemo(() => faultedHealthyCounts(rows), [rows]);
-  // 排程缺失防呆（Must-fix）：faultedIds 空但有機組實際觸發故障 → 很可能是這條路徑的 scenario 物件
-  // 沒帶 fault_schedule。此時分群會全落在 healthy、誤導；明示提醒而非靜默呈現「全部健康」。
-  const scheduleMissing = useMemo(
-    () => faultedIds.size === 0 && rows.some((r) => r.faultEvents > 0),
-    [faultedIds, rows],
-  );
+  // 排程缺失防呆（Must-fix；判別法於 WMOM-20260720-13(1) 修正）：只看 `fault_schedule` 這個
+  // **欄位本身在不在**。舊判法「faultedIds 空 && 有機組 faultEvents>0」分不出兩種截然不同的情形：
+  //   (a) 真的沒帶排程（欄位 undefined）→ 分群全落 healthy、不可信，該提醒；
+  //   (b) 排程存在但刻意為空陣列 []（純風況基準情境）→ 全機組本來就該是 healthy，不該提醒。
+  // 而 (b) 的 faultEvents 會被 `eventsByTimeWindow` 的時間窗滲入（緊接在有故障情境後生成時尤然）
+  // → 舊判法對乾淨情境誤報「未帶排程」。faultEvents 的可信度問題由既有 eventsByTimeWindow 提示
+  // 負責說明，兩者職責就此分離、不再重疊。
+  const scheduleMissing = scenario.config?.fault_schedule === undefined;
   const activeMetric = METRICS.find((m) => m.key === metric) ?? METRICS[0];
   const bars = useMemo(() => compareBars(rows, metric), [rows, metric]);
   const means = useMemo(() => groupMeans(rows, metric), [rows, metric]);
@@ -152,8 +154,8 @@ const ScenarioCompareView: React.FC<Props> = ({ scenario, lang = 'zh' }) => {
           }}
         >
           {u(
-            'Fault schedule unavailable for this scenario — faulted/healthy grouping may be inaccurate (turbines shown as healthy despite observed fault events). Open it from the saved-scenario list to load the schedule.',
-            '此情境未帶故障排程——有故障/健康分群可能不準（雖有觀測到故障事件，機組仍被歸為健康）。請從「過去情境」清單開啟以載入排程。',
+            'Fault schedule unavailable for this scenario — faulted/healthy grouping cannot be determined, so every turbine below is shown as healthy. Open it from the saved-scenario list to load the schedule.',
+            '此情境未帶故障排程——無法判別哪些機組被排定注入故障，以下一律顯示為健康。請從「過去情境」清單開啟以載入排程。',
           )}
         </div>
       )}

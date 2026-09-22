@@ -177,12 +177,38 @@ describe('ScenarioCompareView — 指標切換 + 提示', () => {
     await waitFor(() => expect(screen.getByText(/故障數走情境時間窗/)).toBeInTheDocument());
   });
 
-  it('情境無 fault_schedule 但有觀測到故障 → 顯示排程缺失防呆提示（Must-fix）', async () => {
-    // 模擬 ScenarioPage 舊版手組 lastScenario（無 fault_schedule）＋ summary 有 faultEvents。
+  it('情境無 fault_schedule（欄位缺失）→ 顯示排程缺失防呆提示（Must-fix）', async () => {
+    // 模擬 ScenarioPage 舊版手組 lastScenario（無 fault_schedule）→ 分群全落 healthy、不可信。
     const noSchedule: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, fault_schedule: undefined } };
-    installFetch(SUMMARY); // WT002 faultEvents=2
+    installFetch(SUMMARY);
     await renderView('zh', noSchedule);
     await waitFor(() => expect(screen.getByText(/未帶故障排程/)).toBeInTheDocument());
+  });
+
+  it('欄位缺失且無任何觀測故障 → 仍要提示（沒有排程就無從判別，不該靜默宣告「全部健康」）', async () => {
+    // 守住 WMOM-20260720-13(1) 的判別改動：舊判法額外要求「有機組 faultEvents>0」，
+    // 故這個情形會靜默過去；新判法只看欄位在不在。
+    const noSchedule: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, fault_schedule: undefined } };
+    installFetch({
+      ...SUMMARY,
+      turbines: SUMMARY.turbines.map(t => ({ ...t, faultEvents: 0 })),
+    });
+    await renderView('zh', noSchedule);
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+    expect(screen.getByText(/未帶故障排程/)).toBeInTheDocument();
+  });
+
+  it('排程存在但刻意為空 [] → **不**提示，即使 faultEvents>0（WMOM-20260720-13(1) 誤報回歸）', async () => {
+    // 純風況基準情境（沒排任何故障）緊接在有故障情境後生成 → faultEvents 被 eventsByTimeWindow
+    // 的時間窗滲入（此處 WT002 faultEvents=2）。舊判法「faultedIds 空 && 有 faultEvents」會對這個
+    // 乾淨情境誤報「未帶排程」，誤導使用者以為資料壞了。空排程是有意義的狀態，不是缺資料。
+    const emptySchedule: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, fault_schedule: [] } };
+    installFetch(SUMMARY); // WT002 faultEvents=2
+    await renderView('zh', emptySchedule);
+    await waitFor(() => expect(screen.getByText('各機組明細')).toBeInTheDocument());
+    expect(screen.queryByText(/未帶故障排程/)).toBeNull();
+    // faultEvents 的可信度仍由既有 eventsByTimeWindow 提示負責說明（職責分離、不重疊）。
+    expect(screen.getByText(/故障數走情境時間窗/)).toBeInTheDocument();
   });
 });
 

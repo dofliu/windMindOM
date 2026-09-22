@@ -4,6 +4,11 @@
  * 情境詮釋資料 + 頁籤容器：「趨勢」（單機發電量 vs 風速趨勢 + 故障標記，ScenarioTrendView）與
  * 「機組比較」（跨機組比較、有故障 vs 健康，ScenarioCompareView，A1 / DEC-20260720-02）。兩頁籤各
  * 自消費對應端點；本元件只負責詮釋資料 header + 頁籤切換，與兩個子視圖對稱解耦。
+ *
+ * 頁籤採 **keep-alive**（WMOM-20260720-13(2)）：造訪過的頁籤保持掛載、只切 `display`。原本用
+ * `{tab === 'trend' && <ScenarioTrendView/>}` 條件式渲染，切頁籤會 unmount 子元件 → 所選機組
+ * （`turbineId`）連同已抓的 history 一起銷毀，切回趨勢頁重設回 WT001 並重打一次 API——正打在 A1
+ * 主打的「比較↔趨勢來回」動線上。
  */
 
 import React, { useState } from 'react';
@@ -12,6 +17,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { windProfileLabel } from '../utils/windProfiles';
 import ScenarioCompareView from './ScenarioCompareView';
 import ScenarioTrendView from './ScenarioTrendView';
+import type { FaultScheduleEntry } from '../utils/faultSchedule';
 
 type DetailTab = 'trend' | 'compare';
 
@@ -26,7 +32,7 @@ export interface ScenarioConfig {
   sim_start?: string;
   sim_end?: string;
   status?: string;
-  fault_schedule?: Array<{ scenario_id: string; turbine_id: string; offset_seconds: number }>;
+  fault_schedule?: FaultScheduleEntry[]; // 與送出端共用形狀，見 utils/faultSchedule
 }
 
 export interface SavedScenario {
@@ -49,6 +55,16 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
   const cfg = scenario.config ?? {};
 
   const [tab, setTab] = useState<DetailTab>('trend');
+  // 造訪過的頁籤才掛載，且掛載後不再卸除（keep-alive）。刻意「首次造訪才掛載」而非一開始就全掛：
+  // 如此每個子視圖的第一次 mount 一定發生在**可見**狀態下——recharts `ResponsiveContainer` 於
+  // mount 時量測容器尺寸，若在 `display:none` 下初次掛載會量到 0 而畫不出圖。之後轉成
+  // `display:none` 不會觸發 ResizeObserver（規格：display:none 的元素不被觀察），已量到的尺寸
+  // 因此保留，切回來即正確。
+  const [visited, setVisited] = useState<Record<DetailTab, boolean>>({ trend: true, compare: false });
+  const openTab = (next: DetailTab) => {
+    setVisited(v => (v[next] ? v : { ...v, [next]: true }));
+    setTab(next);
+  };
 
   return (
     <div>
@@ -109,7 +125,7 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
           return (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => openTab(t.id)}
               aria-pressed={active}
               style={{
                 padding: '6px 12px',
@@ -129,8 +145,16 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
         })}
       </div>
 
-      {tab === 'trend' && <ScenarioTrendView scenario={scenario} lang={lang} />}
-      {tab === 'compare' && <ScenarioCompareView scenario={scenario} lang={lang} />}
+      {visited.trend && (
+        <div style={{ display: tab === 'trend' ? 'block' : 'none' }}>
+          <ScenarioTrendView scenario={scenario} lang={lang} />
+        </div>
+      )}
+      {visited.compare && (
+        <div style={{ display: tab === 'compare' ? 'block' : 'none' }}>
+          <ScenarioCompareView scenario={scenario} lang={lang} />
+        </div>
+      )}
     </div>
   );
 };
