@@ -16,19 +16,6 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 104 |
-| **total (active)** | **115** |
-
-最後更新：2026-09-22（autonomous session #3：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——補
-上 WMOM-20260720-08 work-log §7 open questions 留的殘留問題，`_loop` accelerated 分支的
-`time.sleep(wall_sleep)` 改 `Event.wait()`，比照 real-time 分支已核准修法；見下方「2026-09-22 session」
-區塊。前次 session（#2）：**WMOM-20260720-13 A1 round-2 follow-up 全修（4 個 Should-fix）**——
-`scheduleMissing` 誤報 / 切頁籤丟失選取機組 / handleGenerate 端到端回歸測試 / `fault_schedule` 重複映射
-漂移風險，皆修完並 mutation-verified（PR #157，見下方 WMOM-20260720-13 條目）。
-⚠ **CI runner 基礎設施當日全程失效（帳號/組織層級問題，仍待人工排查）**，auto-merge 飛輪停擺，
-PR #157 / #158 均由劉老師人工合併，詳見 TODO.md 頂部警語。更早 session（#1）：
-**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞，5 個延後子問題一次
-修完並 mutation-verified；見下方「2026-07-20 session」Done 區塊。
 | done | 105 |
 | **total (active)** | **116** |
 
@@ -37,13 +24,22 @@ component remount 修**——DEC-20260720-01 拆的 PR D 殘留項，5 個純展
 `Beat`/`Story`/`Row`）原定義在 `GuidedTourPage` 函式體內，每次 render（含跟 step 無關的 theme 切換）
 都重新產生新 component type，逼 React 整棵子樹 unmount/remount；提升到 module scope 解決，比照同日
 `ScenarioTrendView`（WMOM-20260720-13）同款修法。新增 DOM node identity 回歸測試，mutation-verified。
-frontend 960→961 passed；backend 未動、1094 不變。**⚠ CI runner 基礎設施仍持續失效**（見下方
-WMOM-20260922-01 附帶發現與 PR #157/#158/#159 留言，帳號/組織層級問題，非本 repo 程式碼可修復範圍；
-PR #159（追蹤檔案數字更正）截至本次仍未合併——**本次統計已先行套用 PR #159 的更正邏輯**：main 現況文字
-雖寫 `done: 103`，但 `11+0+0+103=114 ≠ 宣告的 total 115`，PR #159 診斷為 #157/#158 各自的 +1 被 git
-靜默合併只計一次，真正基準應是 `done: 104`（`11+0+0+104=115` 才與宣告的 total 相符）；本次在此基準上
-再 +1（WMOM-20260922-02）→ `done: 105`、`total: 116`。若 PR #159 先合併，下個 session 開工時仍請重新
-核對 `open+in_progress+blocked+done==total`，避免本次與 #159 的合併再度發生同款數字碰撞。
+frontend 960→961 passed；backend 未動、1094 不變（PR #160）。
+session #3：**WMOM-20260922-01 accelerated 模式 stop() 響應性收尾**——`_loop` accelerated 分支
+（`time_scale>1`）的 `time.sleep(wall_sleep)` 同款不可中斷，改 `Event.wait()`，mutation-verified
+（PR #158）。session #2：**WMOM-20260720-13 A1 round-2 follow-up 全修（4 個 Should-fix）**（PR #157）。
+session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞。
+
+⚠ **CI runner 基礎設施當日全程失效（帳號/組織層級問題，仍待人工排查）**：每一個 CI run 皆在數秒內
+`runner_id: 0` 失敗、auto-merge 全數 `skipped`，PR #157 / #158 / #159 均由劉老師人工合併，
+詳見 TODO.md 頂部警語。
+
+📌 **統計數字的合併事故（已修復，供日後警惕）**：#157 與 #158 各自把 `done` 從 102 改成 103，git 視為
+同一筆文字變更只計一次 → main 一度出現 `11+0+0+103=114 ≠ 宣告的 total 115`。PR #159 更正為 `done: 104`
+後，又與 PR #160（+WMOM-20260922-02）的 squash merge 相撞，**同時損壞了 STATUS.yaml（重複鍵 + 引號外
+的孤兒文字，YAML 直接無法解析）、ISSUES.md（孤兒統計列）與 TODO.md（區塊重複）**，已於後續修復 PR
+一併修好。目前正確基準：`open 11 / in_progress 0 / blocked 0 / done 105 / total 116`。
+**每個 session 收尾前請自行重算 `open+in_progress+blocked+done == total`，不要相信自動合併的結果。**
 
 > 📁 2026-07-18 以前的統計 blurb（auth 全面完成 / GuidedTourPage / Settings 風速修正等）已封存，完整紀錄見 git log 與下方各 `### WMOM-*` / 📌 session 區段。
 
