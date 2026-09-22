@@ -50,6 +50,34 @@ const SAVED_SCENARIOS = [
   },
 ];
 
+/** 兩筆過去情境（跨情境比較選取測試用，WMOM-20260922-04）。 */
+const SAVED_SCENARIOS_TWO = [
+  SAVED_SCENARIOS[0],
+  {
+    id: 8,
+    started_at: '2026-07-20T10:00:00',
+    ended_at: '2026-07-20T10:01:00',
+    turbine_count: 3,
+    config: {
+      kind: 'scenario',
+      name: '晴朗測試',
+      wind_profile: 'calm',
+      duration_hours: 24,
+      time_step: 60,
+      total_readings: 4320,
+      faults_injected: 0,
+      status: 'ok',
+    },
+  },
+];
+
+const SCENARIO_COMPARE = {
+  scenarios: [
+    { scenarioId: 7, name: '暴風測試', status: 'ok', windProfile: 'storm', durationHours: 24, timeStepSeconds: 60, ratedPowerKw: 2000, faultsInjected: 1, eventsByTimeWindow: true, farm: { turbineCount: 3, totalEnergyKwh: 7000, avgCapacityFactor: 0.5, avgProductionRate: 0.8, totalFaultEvents: 2, maxTurbinePowerKw: 1800, worstDamage: 0.02, worstDamageTurbineId: 'WT002', minRulHours: 8000, minRulTurbineId: 'WT002' }, turbines: [] },
+    { scenarioId: 8, name: '晴朗測試', status: 'ok', windProfile: 'calm', durationHours: 24, timeStepSeconds: 60, ratedPowerKw: 2000, faultsInjected: 0, eventsByTimeWindow: true, farm: { turbineCount: 3, totalEnergyKwh: 3000, avgCapacityFactor: 0.2, avgProductionRate: 0.9, totalFaultEvents: 0, maxTurbinePowerKw: 1500, worstDamage: null, worstDamageTurbineId: null, minRulHours: null, minRulTurbineId: null }, turbines: [] },
+  ],
+};
+
 const SCENARIO_HISTORY = {
   scenario_id: 7,
   turbine_id: 'WT001',
@@ -135,6 +163,7 @@ function installFetch(
     deleteOk?: boolean;
     sourceKind?: string | null; // /api/source/status 回的 kind；預設 'simulation'（生成需 simulation 來源）
     selectOk?: boolean; // /api/source/select 是否成功；預設 true
+    compareBody?: unknown; // /api/scenarios/compare 回傳（A2，WMOM-20260922-04）
   } = {},
 ) {
   const scenarios = opts.scenarios ?? SCENARIOS;
@@ -148,6 +177,7 @@ function installFetch(
   const deleteOk = opts.deleteOk ?? true;
   const sourceKind = opts.sourceKind === undefined ? 'simulation' : opts.sourceKind;
   const selectOk = opts.selectOk ?? true;
+  const compareBody = opts.compareBody ?? SCENARIO_COMPARE;
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (url.includes('/api/faults/scenarios')) return jsonRes(scenarios);
@@ -158,7 +188,8 @@ function installFetch(
     if (url.includes('/api/config/simulation/generate-bulk')) return jsonRes(genBody, genOk, genOk ? 200 : 400);
     if (url.includes('/api/config/wind')) return jsonRes({ detail: 'wind fail' }, windOk, windOk ? 200 : 400);
     if (url.includes('/api/farms')) return jsonRes(farmsBody);
-    // 情境調閱（含 /history、/summary）須在 list 判斷之前，因三者都含 '/api/scenarios'
+    // 情境調閱/比較（含 /compare、/history、/summary）須在 list 判斷之前，皆含 '/api/scenarios'
+    if (url.includes('/api/scenarios/compare')) return jsonRes(compareBody);
     if (url.includes('/api/scenarios/') && url.includes('/history')) return jsonRes(scenarioHistory);
     if (url.includes('/api/scenarios/') && url.includes('/summary')) return jsonRes(scenarioSummary);
     if (url.includes('/api/scenarios/') && method === 'DELETE')
@@ -544,6 +575,117 @@ describe('ScenarioPage — 過去情境清單', () => {
     });
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/系統管理員權限/));
     expect(screen.getByText('暴風測試')).toBeInTheDocument();
+  });
+
+  it('只有 1 筆過去情境（< 下限 2）→ 不顯示「比較所選」工具列', async () => {
+    await renderPage('zh'); // 預設 SAVED_SCENARIOS 僅 1 筆
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /比較所選情境/ })).not.toBeInTheDocument();
+  });
+});
+
+// ─── 跨情境比較選取（A2, WMOM-20260922-04）──────────────────────────────────
+describe('ScenarioPage — 跨情境比較選取', () => {
+  it('≥2 筆過去情境 → 顯示工具列；未勾滿 2 個 → 「比較所選」按鈕停用', async () => {
+    installFetch({ saved: SAVED_SCENARIOS_TWO });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('晴朗測試')).toBeInTheDocument());
+    const compareBtn = screen.getByRole('button', { name: /比較所選情境/ });
+    expect(compareBtn).toBeDisabled();
+  });
+
+  it('勾選 2 個 → 按鈕啟用 → 點擊後帶正確 ids 抓 /api/scenarios/compare 並顯示比較視圖', async () => {
+    installFetch({ saved: SAVED_SCENARIOS_TWO });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('晴朗測試')).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：暴風測試/ }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：晴朗測試/ }));
+    });
+    const compareBtn = screen.getByRole('button', { name: /比較所選情境/ });
+    expect(compareBtn).not.toBeDisabled();
+
+    await act(async () => { fireEvent.click(compareBtn); });
+    await waitFor(() =>
+      expect(calls((u) => u.includes('/api/scenarios/compare') && u.includes('ids=7,8')).length).toBe(1),
+    );
+    // 進到 ScenarioCompareAcrossView：出現返回鈕與跨情境比較標題
+    expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument();
+    expect(screen.getByText('跨情境比較')).toBeInTheDocument();
+  });
+
+  it('取消勾選 → 按鈕重新停用', async () => {
+    installFetch({ saved: SAVED_SCENARIOS_TWO });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('晴朗測試')).toBeInTheDocument());
+
+    const cb1 = screen.getByRole('checkbox', { name: /選取比較：暴風測試/ });
+    const cb2 = screen.getByRole('checkbox', { name: /選取比較：晴朗測試/ });
+    await act(async () => {
+      fireEvent.click(cb1);
+      fireEvent.click(cb2);
+    });
+    expect(screen.getByRole('button', { name: /比較所選情境/ })).not.toBeDisabled();
+
+    await act(async () => { fireEvent.click(cb2); });
+    expect(screen.getByRole('button', { name: /比較所選情境/ })).toBeDisabled();
+  });
+
+  it('已達上限（MAX=5）時，未勾選的項目被停用；已勾選的仍可取消', async () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      id: 100 + i,
+      started_at: '2026-07-20T10:00:00',
+      turbine_count: 1,
+      config: { kind: 'scenario', name: `情境${i}`, wind_profile: 'calm', duration_hours: 1 },
+    }));
+    const extra = { id: 200, started_at: '2026-07-20T10:00:00', turbine_count: 1, config: { kind: 'scenario', name: '額外情境', wind_profile: 'calm', duration_hours: 1 } };
+    installFetch({ saved: [...many, extra] });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('額外情境')).toBeInTheDocument());
+
+    await act(async () => {
+      for (let i = 0; i < 5; i++) {
+        fireEvent.click(screen.getByRole('checkbox', { name: new RegExp(`選取比較：情境${i}`) }));
+      }
+    });
+    const extraCheckbox = screen.getByRole('checkbox', { name: /選取比較：額外情境/ });
+    expect(extraCheckbox).toBeDisabled();
+
+    const firstCheckbox = screen.getByRole('checkbox', { name: /選取比較：情境0/ });
+    expect(firstCheckbox).not.toBeDisabled(); // 已勾選的仍可取消
+  });
+
+  it('刪除已勾選的情境 → 自動移除其勾選（否則殘留失效 id 會讓後續 /compare 請求連帶 404）', async () => {
+    // 用 3 筆情境（而非 2 筆）：刪除其中一個已勾選的之後，清單仍 ≥2 筆（工具列仍顯示），
+    // 才能真正驗證「勾選數變 1」而非被「工具列因情境數不足而整個消失」蓋過去。
+    const three = [
+      ...SAVED_SCENARIOS_TWO,
+      {
+        id: 9, started_at: '2026-07-21T10:00:00', turbine_count: 3,
+        config: { kind: 'scenario', name: '第三情境', wind_profile: 'moderate', duration_hours: 24 },
+      },
+    ];
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installFetch({ saved: three });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('第三情境')).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：暴風測試/ })); // id=7，稍後刪除
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：晴朗測試/ })); // id=8，保留
+    });
+    expect(screen.getByRole('button', { name: /比較所選情境/ })).not.toBeDisabled();
+
+    // 刪除其中一個已勾選的情境（id=7，暴風測試）
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境：暴風測試/ }));
+    });
+    await waitFor(() => expect(screen.queryByText('暴風測試')).not.toBeInTheDocument());
+
+    // 清單仍有 2 筆（晴朗測試 + 第三情境）→ 工具列仍顯示；但勾選只剩 id=8 一個 → 按鈕應停用
+    // （若刪除未清掉失效的 id=7，勾選數會誤留 2，按鈕會誤判為可比較，送出時 id=7 讓後端 404）。
+    expect(screen.getByRole('button', { name: /比較所選情境/ })).toBeDisabled();
   });
 });
 

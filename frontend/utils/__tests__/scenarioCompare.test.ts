@@ -13,7 +13,12 @@ import {
   groupMeans,
   metricValue,
   faultedHealthyCounts,
+  scenarioLabel,
+  farmMetricValue,
+  scenarioCompareBars,
   type ScenarioTurbineSummary,
+  type ScenarioFarmSummary,
+  type ScenarioSummary,
 } from '../scenarioCompare';
 
 const LOADS = { towerFa: null, towerSs: null, bladeFlap: null, bladeEdge: null };
@@ -131,5 +136,65 @@ describe('faultedHealthyCounts', () => {
       new Set(['WT002']),
     );
     expect(faultedHealthyCounts(rows)).toEqual({ faulted: 1, healthy: 2 });
+  });
+});
+
+// ── A2 跨情境比較（WMOM-20260922-04）────────────────────────────────────────
+
+const FARM = (over: Partial<ScenarioFarmSummary> = {}): ScenarioFarmSummary => ({
+  turbineCount: 3,
+  totalEnergyKwh: 5000,
+  avgCapacityFactor: 0.4,
+  avgProductionRate: 0.8,
+  totalFaultEvents: 1,
+  maxTurbinePowerKw: 1800,
+  worstDamage: 0.01,
+  worstDamageTurbineId: 'WT001',
+  minRulHours: 8000,
+  minRulTurbineId: 'WT001',
+  ...over,
+});
+
+function summary(id: number, over: Partial<ScenarioSummary> = {}): ScenarioSummary {
+  return {
+    scenarioId: id,
+    name: null,
+    status: 'ok',
+    windProfile: 'moderate',
+    durationHours: 24,
+    timeStepSeconds: 60,
+    ratedPowerKw: 2000,
+    faultsInjected: 0,
+    eventsByTimeWindow: true,
+    farm: FARM(),
+    turbines: [],
+    ...over,
+  };
+}
+
+describe('scenarioLabel', () => {
+  it('有命名 → 用名稱；未命名 → 回退 #{id}', () => {
+    expect(scenarioLabel(summary(7, { name: '暴風測試' }))).toBe('暴風測試');
+    expect(scenarioLabel(summary(7, { name: null }))).toBe('#7');
+    expect(scenarioLabel(summary(7, { name: '' }))).toBe('#7'); // 空字串視同未命名
+  });
+});
+
+describe('farmMetricValue / scenarioCompareBars', () => {
+  it('缺值（null）→ bar value 0 且 missing=true；有值 → missing=false', () => {
+    const scenarios = [
+      summary(1, { name: 'A', farm: FARM({ worstDamage: 0.02 }) }),
+      summary(2, { name: 'B', farm: FARM({ worstDamage: null }) }), // 無損傷資料
+    ];
+    const bars = scenarioCompareBars(scenarios, 'worstDamage');
+    expect(bars[0]).toMatchObject({ scenarioId: 1, label: 'A', value: 0.02, missing: false });
+    expect(bars[1]).toMatchObject({ scenarioId: 2, label: 'B', value: 0, missing: true });
+    expect(farmMetricValue(scenarios[1].farm, 'worstDamage')).toBeNull();
+  });
+
+  it('保留請求 ids 的原序（不重排）', () => {
+    const scenarios = [summary(9, { name: 'Z' }), summary(3, { name: 'A' })];
+    const bars = scenarioCompareBars(scenarios, 'totalEnergyKwh');
+    expect(bars.map((b) => b.scenarioId)).toEqual([9, 3]);
   });
 });

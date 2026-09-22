@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type PillTone } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
+import ScenarioCompareAcrossView from './ScenarioCompareAcrossView';
 import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
 import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
 import type { SourceMode } from '../hooks/useSourceGate';
@@ -86,6 +87,12 @@ const DURATION_PRESETS: { hours: number; en: string; zh: string }[] = [
   { hours: 720, en: '1 month', zh: '1 月' },
 ];
 
+// 跨情境比較（A2, WMOM-20260922-04）：選取數量下限/上限比照後端 MIN/MAX_COMPARE_SCENARIOS
+// （modules/monitoring/server/routers/scenarios.py）。前端此處只做 UI 層防呆（disable 勾選/按鈕），
+// 實際邊界仍由後端 400 把關。
+const MIN_COMPARE_SCENARIOS = 2;
+const MAX_COMPARE_SCENARIOS = 5;
+
 const RESOLUTIONS: { value: number; en: string; zh: string }[] = [
   { value: 10, en: '10s (high-res)', zh: '10 秒（高解析）' },
   { value: 60, en: '60s (standard)', zh: '60 秒（標準）' },
@@ -126,6 +133,10 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   const [observing, setObserving] = useState<SavedScenario | null>(null);
   const [lastScenario, setLastScenario] = useState<SavedScenario | null>(null);
 
+  // 跨情境比較選取（A2，WMOM-20260922-04）：勾選 2–5 個過去情境 → 一次比較。
+  const [selectedForCompare, setSelectedForCompare] = useState<Set<number>>(new Set());
+  const [comparingIds, setComparingIds] = useState<number[] | null>(null);
+
   // 來源種類（WMOM-20260720-02）：情境生成需 simulation 來源（後端要有 simulator）。若使用者
   // 從「調閱過去情境」(view) 或其他來源進到本頁，simulator=None → 生成會 400 "Simulator not
   // running"（＝使用者回報的「無法啟用」）。故偵測來源種類，非 simulation 時停用生成並提供一鍵啟動。
@@ -154,6 +165,19 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         setFarm(active);
       })
       .catch(() => {});
+  };
+
+  /** 勾選/取消勾選某過去情境（跨情境比較用）。已達上限時忽略新勾選（既有勾選仍可取消）。 */
+  const toggleCompareSelection = (id: number) => {
+    setSelectedForCompare(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else if (next.size < MAX_COMPARE_SCENARIOS) {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -227,6 +251,14 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
       if (res.ok) {
         setSavedScenarios(prev => prev.filter(s => s.id !== id));
         if (observing?.id === id) setObserving(null);
+        // 刪除後同步移除跨情境比較的勾選（WMOM-20260922-04）：否則殘留的失效 id 會在後續
+        // 「比較所選」請求中一併送出，後端 /compare 對任一 id 404 會讓整個並排請求連帶失敗。
+        setSelectedForCompare(prev => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
       } else {
         // 刪除需 ADMIN；被擋時給提示而非靜默。
         setError(
@@ -386,6 +418,11 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
   // 觀察模式：選了某過去情境 → 顯示該情境的隔離調閱視圖（ScenarioDetail）。
   if (observing) {
     return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
+  }
+
+  // 跨情境比較模式（A2）：勾了 ≥2 個過去情境並按下比較 → 顯示 ScenarioCompareAcrossView。
+  if (comparingIds) {
+    return <ScenarioCompareAcrossView ids={comparingIds} lang={lang} onBack={() => setComparingIds(null)} />;
   }
 
   // 生成需「有 simulator」的來源——即時模擬(simulation) 或產生情境(scenario) 皆有 simulator。
@@ -803,12 +840,35 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
         </Card>
       )}
 
-      {/* ── 過去情境（可調閱 / 刪除）── */}
+      {/* ── 過去情境（可調閱 / 刪除 / 勾選跨情境比較）── */}
       <Card style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14, color: C.text }}>
-          {u('Saved scenarios', '過去情境')}{' '}
-          <span style={{ color: C.faint, fontWeight: 400 }}>({savedScenarios.length})</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+            {u('Saved scenarios', '過去情境')}{' '}
+            <span style={{ color: C.faint, fontWeight: 400 }}>({savedScenarios.length})</span>
+          </div>
+          {savedScenarios.length >= MIN_COMPARE_SCENARIOS && (
+            <Btn
+              size="sm"
+              variant="secondary"
+              disabled={selectedForCompare.size < MIN_COMPARE_SCENARIOS}
+              onClick={() =>
+                setComparingIds(savedScenarios.filter(s => selectedForCompare.has(s.id)).map(s => s.id))
+              }
+              ariaLabel={u('Compare selected scenarios', '比較所選情境')}
+            >
+              {u('Compare selected', '比較所選')} ({selectedForCompare.size})
+            </Btn>
+          )}
         </div>
+        {savedScenarios.length >= MIN_COMPARE_SCENARIOS && (
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 10, marginTop: -4 }}>
+            {u(
+              `Select ${MIN_COMPARE_SCENARIOS}-${MAX_COMPARE_SCENARIOS} scenarios to compare side by side.`,
+              `勾選 ${MIN_COMPARE_SCENARIOS}-${MAX_COMPARE_SCENARIOS} 個情境即可並排比較。`,
+            )}
+          </div>
+        )}
         {savedScenarios.length === 0 ? (
           <div style={{ fontSize: 13, color: C.faint, padding: '8px 0' }}>
             {u(
@@ -825,7 +885,7 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
                   key={s.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.4fr) auto',
+                    gridTemplateColumns: 'auto minmax(0, 2fr) minmax(0, 1.4fr) auto',
                     gap: 12,
                     alignItems: 'center',
                     padding: '10px 12px',
@@ -833,6 +893,14 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
                     borderRadius: 8,
                   }}
                 >
+                  <input
+                    type="checkbox"
+                    checked={selectedForCompare.has(s.id)}
+                    onChange={() => toggleCompareSelection(s.id)}
+                    disabled={!selectedForCompare.has(s.id) && selectedForCompare.size >= MAX_COMPARE_SCENARIOS}
+                    aria-label={u(`Select for comparison: ${cfg.name ?? s.id}`, `選取比較：${cfg.name ?? s.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  />
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
