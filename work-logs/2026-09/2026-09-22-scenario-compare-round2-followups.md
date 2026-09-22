@@ -1,11 +1,20 @@
 # 2026-09-22 — A1 round-2 follow-up 全修（WMOM-20260720-13）
 
+> ⚠ **CI 基礎設施疑似壞掉，待劉老師檢查 GitHub Actions 帳號設定**：本 PR（#157）兩個 job 皆在
+> 2-3 秒內失敗、`runner_id: 0`（job 從未被排到 runner，非測試本身失敗）；重跑一次（`rerun_failed_
+> jobs`）結果相同，排除是 flake。同款秒退失敗也出現在跟本 PR 無關的 main push run（PR #156 的
+> merge commit，run #35699865215）。已讀 `.github/workflows/ci.yml` 確認內容正常、兩個 workflow
+> 狀態皆 active，排除本次程式碼或 workflow 設定問題。懷疑是帳號/組織層級 GitHub Actions runner
+> 配額或計費限制，已在 PR #157 留言記錄診斷過程，本機驗證全綠但無法讓 CI 端自動確認、也就無法
+> 觸發 auto-merge。詳見 §4「下次怎麼接手」與 TODO.md 頂部提醒。
+
 > Session 類型：實作（第二個 autonomous session，接續本日稍早的 live/OPC 後端硬化 session）
 > Session 長度：中
 > 主導：Claude（autonomous worker）
 > 結果：A1（情境比較視圖，PR #150）round-2 review 回報的 4 個 Should-fix 全修，逐項
-> mutation-verified；純前端，frontend 957→960 passed、backend 1093 不變（本次未動後端）；PR 已開，
-> 等 CI 綠 auto-merge。
+> mutation-verified；純前端，frontend 957→960 passed、backend 1093 不變（本次未動後端）；PR #157
+> 已開，程式碼與本機驗證皆完成，但 CI 基礎設施疑似壞掉（見上方提醒），無法確認 CI 綠、auto-merge
+> 卡住。
 
 ---
 
@@ -145,13 +154,21 @@ tsc + 全套 vitest（960 passed）+ vite build 皆綠，收尾。
 
 ## 4. 下次怎麼接手
 
-1. **最該做的事**：續 **A2 跨情境比較**（相對時間對齊）或 **PR C**（檢視情境掛載 app，需先寫 broker
+1. **最優先確認**：**CI 基礎設施是否恢復**（見上方 ⚠ 提醒）。開工 Preflight 時除了本機 baseline，
+   額外檢查 `dofliu/windMindOM` 最近的 GitHub Actions run（不限本 PR）是否能正常跑起來（非 2-3 秒
+   秒退、`runner_id` 不為 0）。若已恢復：PR #157 應會自動綠燈 auto-merge，確認合併後即可繼續下一項；
+   若仍壞：不要重複重跑（本次已用掉一次確認性重跑），改查 GitHub Actions 帳單/用量頁面或
+   https://www.githubstatus.com/，這需要人工（劉老師）權限，非程式碼能解。**若 CI 持續壞掉，之後
+   每個 session 的 PR 都會卡在無法 auto-merge**，累積下去會讓 main 落後愈來愈多——這是目前對飛輪
+   最大的風險，優先度高於任何功能性 issue。
+2. **次要**：續 **A2 跨情境比較**（相對時間對齊）或 **PR C**（檢視情境掛載 app，需先寫 broker
    子設計）——DEC-20260720-02 情境比較分析 epic 剩餘項目。
-2. **第二優先**：`WMOM-20260716-06`（footprint CPU-torch pin，需 docker 環境驗）或
+3. **第三**：`WMOM-20260716-06`（footprint CPU-torch pin，需 docker 環境驗）或
    `WMOM-20260509-F6`（PostgreSQL row-lock integration test，需 docker postgres）——兩者都卡在本
    sandbox 無 docker，若下個 session 有 docker 環境可挑。
-3. **阻擋項**：無。GitHub MCP 這次可用；PR 已開，CI 綠後 auto-merge 會自動合進 main + 刪分支。
-4. **誠實揭露**：本次 4 項修正皆純前端邏輯 + DOM 斷言測試，vitest 對 recharts 圖表本身能否正確渲染
+4. **阻擋項**：CI 基礎設施疑似壞掉（見上）。GitHub MCP 本身可用（PR/comment/rerun 皆正常運作），
+   問題在 GitHub Actions runner 排程層，非 MCP 存取層。
+5. **誠實揭露**：本次 4 項修正皆純前端邏輯 + DOM 斷言測試，vitest 對 recharts 圖表本身能否正確渲染
    （jsdom 無 `ResizeObserver`）無法驗證——但本次改動不涉及圖表渲染邏輯本身，只動選取機組的 state 管理
    與資料映射，風險低。fix (2) 未做「兩頁常駐 + display 切換」這個更完整、能同時避免每次切頁籤都重抓
    history 的方案，因為該方案在真瀏覽器下 ResizeObserver 對 `display:none→block` 的行為無法用 vitest

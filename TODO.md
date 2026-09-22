@@ -1,5 +1,13 @@
 # windMindOM — TODO（短期工作板）
 
+> ⚠ **2026-09-22 CI 基礎設施疑似壞掉（待劉老師檢查 GitHub Actions 帳號設定）**：PR #157 兩個 job
+> 皆在 2-3 秒內失敗、`runner_id: 0`（job 從未被排到 runner）；重跑一次結果相同，非 flake。同款秒退
+> 失敗也出現在跟該 PR 無關的 main push run（PR #156 merge commit）。`.github/workflows/ci.yml` 內容
+> 正常、workflow 狀態 active，排除是本次程式碼或 workflow 設定問題，懷疑是帳號/組織層級 GitHub
+> Actions runner 配額或計費限制。詳見 PR #157 留言。下個 session 開工時若 baseline 仍過（本機驗證正常，
+> 只有 GitHub CI 端起不了 runner），可正常繼續工作，但**開 PR 後不要期待 auto-merge 會動**，需人工
+> 確認 CI 已恢復。
+>
 > 用途：本檔案是「**這週 / 這個月**正在做什麼」的快速 dashboard。
 > 詳細 issue 規格在 [`ISSUES.md`](ISSUES.md)；完整路線圖在 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)；
 > M5/M6 大目標 epic 拆解在 [`ISSUES.md`](ISSUES.md) 頂部「🎯 未來大目標」區塊。
