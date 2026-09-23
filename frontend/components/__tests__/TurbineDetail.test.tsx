@@ -55,6 +55,7 @@ vi.mock('../TrendChartPanel', () => ({
 
 import TurbineDetail, { noPowerReason } from '../TurbineDetail';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
 
@@ -198,6 +199,65 @@ describe('TurbineDetail — 殼層與 header', () => {
     expect(screen.getByRole('button', { name: '限載' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停機' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '安排檢查' })).toBeInTheDocument();
+  });
+
+  // ─── header「停機」接線（WMOM-20260507-02 sub-task b + WMOM-20260923-09）───
+  // 同「操作控制」卡片正常停機是重複入口（設計稿既有意圖），直接呼叫同一支
+  // `/api/control/command` endpoint；卡片自身 3s 輪詢會反映最新狀態，故此處
+  // 只驗證有打對 endpoint/body，不重複驗證狀態顯示（OperatorControlCard 已測）。
+  it('點 header 停機鈕 → POST stop 指令到 /api/control/command', async () => {
+    const spy = stubFetch({});
+    await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '停機' }));
+    });
+    expect(spy).toHaveBeenCalledWith(
+      'http://localhost:8100/api/control/command',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ turbineId: 'WT007', command: 'stop' }),
+      }),
+    );
+  });
+
+  it('header 停機鈕點擊期間 disabled，完成後恢復可點擊', async () => {
+    let resolveFetch!: (v: unknown) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (typeof url === 'string' && url.includes('/api/control/command')) {
+          return new Promise(resolve => {
+            resolveFetch = resolve;
+          });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({}) });
+      }),
+    );
+    await renderDetail({});
+    const btn = screen.getByRole('button', { name: '停機' });
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn).toBeDisabled());
+    await act(async () => {
+      resolveFetch({ json: () => Promise.resolve({}) });
+    });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+  });
+
+  it('已登入（有 token）→ header 停機鈕走 authFetch 帶 Authorization header', async () => {
+    const spy = stubFetch({});
+    setAuthToken('test-token-xyz');
+    try {
+      await renderDetail({});
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '停機' }));
+      });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).includes('/api/control/command'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-xyz');
+    } finally {
+      clearAuthToken();
+    }
   });
 
   it('狀態 pill 依 status 顯示對應文字（運轉中）', async () => {
@@ -375,7 +435,28 @@ describe('TurbineDetail — 操作控制卡', () => {
   it('掛載即以 padding 後 id GET 控制狀態', async () => {
     const spy = stubFetch({});
     await renderDetail({ turbine: makeTurbine({ id: 7 }) });
-    expect(spy).toHaveBeenCalledWith('http://localhost:8100/api/control/WT007/status');
+    // 走 authFetch（WMOM-20260923-09）：第二參數恆存在（至少帶 headers 物件），
+    // 故用 objectContaining 而非精確單參數比對；header 內容由下方專測驗證。
+    expect(spy).toHaveBeenCalledWith(
+      'http://localhost:8100/api/control/WT007/status',
+      expect.any(Object),
+    );
+  });
+
+  it('已登入（有 token）→ GET 控制狀態走 authFetch 帶 Authorization header（WMOM-20260923-09）', async () => {
+    // 驗證真的走 authFetch 而非裸 fetch：`expect.any(Object)` 無法區分兩者，
+    // 必須實際檢查 header 內容（比照 WMOM-20260923-07 匯出鈕的驗證手法）。
+    const spy = stubFetch({});
+    setAuthToken('test-token-ctrl');
+    try {
+      await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).endsWith('/status'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-ctrl');
+    } finally {
+      clearAuthToken();
+    }
   });
 
   it('6 個指令按鈕 + 限載設定鈕皆渲染', async () => {
@@ -512,6 +593,61 @@ describe('TurbineDetail — 操作控制卡', () => {
         body: JSON.stringify({ turbineId: 'WT007', powerLimitKw: null }),
       }),
     );
+  });
+
+  // ─── authFetch 稽核（WMOM-20260923-09）：sendCmd/setCurtail 亦需帶 Authorization ──
+  // 上方既有指令測試只驗 method/body（objectContaining 對 headers 不敏感，不會因
+  // 退回裸 fetch 而 fail），故另補這兩支直接檢查 header 內容，鎖住 sendCmd/setCurtail
+  // 走 authFetch（而非只鎖 refresh 的 GET）。
+  it('已登入（有 token）→ 指令（啟動）走 authFetch 帶 Authorization header', async () => {
+    const spy = stubFetch({});
+    setAuthToken('test-token-cmd');
+    try {
+      await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '▶ 啟動' }));
+      });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).endsWith('/control/command'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-cmd');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 限載設定走 authFetch 帶 Authorization header', async () => {
+    const spy = stubFetch({});
+    setAuthToken('test-token-curtail');
+    try {
+      await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '設定限載' }));
+      });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).endsWith('/control/curtail'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-curtail');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 解除限載走 authFetch 帶 Authorization header', async () => {
+    const spy = stubFetch({ curtailment_kw: 1500 });
+    setAuthToken('test-token-clear');
+    try {
+      await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '解除' }));
+      });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).endsWith('/control/curtail'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-clear');
+    } finally {
+      clearAuthToken();
+    }
   });
 });
 

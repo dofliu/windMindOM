@@ -3395,7 +3395,10 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     `downloadBlob` 工具 + `Btn` `loading` state），成功以 Blob 觸發下載
     `farm-snapshot-{YYYY-MM-DD}.json`、失敗僅 `console.error`（沿用劉老師 2026-05-07 決定，不彈
     alert）。新增 4 測（happy path / auth header / loading 態 / 失敗態），皆 mutation-verified。
-  - [ ] **b. 風機細節 `停機`** — 對應 `OperatorControlCard` 的 stop 指令；點擊跳到右側卡片或直接呼叫 `POST /api/control/command { command: 'stop' }`。**估時 30 min**
+  - [x] ~~**b. 風機細節 `停機`**~~ — ✅ 2026-09-23 完成（WMOM-20260923-09）。`handleHeaderStop`
+    走 `authFetch` 直接呼叫 `POST /api/control/command { command: 'stop' }`；同一次順帶修復
+    `OperatorControlCard` 4 處既有 `fetch` 缺口（改 `authFetch`，該卡片指令端點皆
+    `SUPERVISOR`-only 寫入）。新增 7 測皆 mutation-verified。
   - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
   - [ ] **e. 維護中心 `+ 新工單`** — 開 modal：選風機 + 描述 + 選技師 → `POST /api/maintenance/work-orders`（API 已存在）。**估時 2h**
@@ -3432,6 +3435,81 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     （`import { authFetch } from '../services/authClient'`，已被本次匯出鈕改動引入同檔案）
   - 更新/新增對應 `FarmOverview.test.tsx` 斷言（比照 WMOM-20260923-07 的 auth header 測試手法）
 - **Reference**: WMOM-20260923-07 work-log、code-reviewer review nice-to-have #3
+
+---
+
+### WMOM-20260923-09 — `TurbineDetail.tsx` 停機鈕接線（WMOM-20260507-02 sub-task b）+ `OperatorControlCard` authFetch 補齊
+
+- **Status**: done（2026-09-23 完成）
+- **Milestone**: 不卡 M2-M6 主線；`OperatorControlCard` 部分屬 M6 auth cutover（-05i）前置檢查項
+- **Priority**: medium（`OperatorControlCard` 4 處 fetch 呼叫的端點含 `SUPERVISOR`-only 寫入動作
+  `/api/control/command`、`/api/control/curtail`——enforce 開啟後這是真正的操作控制面板會整面
+  失效，比純讀取的 farm-trend 更高風險）
+- **Estimate**: 30 min（原 sub-task b 估時）+ 實際因發現 authFetch 缺口追加 ~1h
+- **Source**: `WMOM-20260507-02` sub-task b 認領時，追查 `OperatorControlCard` 實作發現同款
+  `authFetch` 缺口（比 WMOM-20260923-08 更嚴重：此卡片的指令端點皆掛
+  `require_role(SUPERVISOR)`，非僅 `require_authenticated`）
+- **Description**:
+  - PageHeader「停機」原是零功能 placeholder（VA.jsx 設計稿既有意圖：與右側「操作控制」卡片
+    是重複入口），本次接上 `POST /api/control/command { command: 'stop' }`。
+  - `OperatorControlCard`（`TurbineDetail.tsx`）先前 4 處 `fetch` 呼叫（GET status 輪詢 + POST
+    command + POST curtail ×2 call site）全部裸 `fetch`、未帶 `Authorization` header，與
+    WMOM-20260923-08 farm-trend 同款缺口，但風險更高：`/api/control/command`、
+    `/api/control/curtail` 皆掛 `require_role(SUPERVISOR)`（非僅 `require_authenticated`），
+    enforce 開啟後任何操作者（含 SUPERVISOR 本人若未帶 token）點擊啟動/停機/限載等指令都會
+    靜默失敗（無 `resp.ok` 檢查、無錯誤提示），現場工程師會誤以為指令送出成功。
+- **Deliverable**（已完成）：
+  - `frontend/components/TurbineDetail.tsx`：新增 `authFetch` import；`OperatorControlCard` 的
+    `refresh`/`sendCmd`/`setCurtail`/`clearCurtail` 4 處改用 `authFetch`；新增
+    `handleHeaderStop`（走 `authFetch`，帶 `loading` state）並接上 PageHeader「停機」鈕。
+  - `frontend/components/__tests__/TurbineDetail.test.tsx`：+7 測（header 停機鈕 3 測：點擊觸發
+    POST/loading 態 disabled-恢復/auth header；`OperatorControlCard` 4 支 auth header 測：GET
+    status 輪詢、指令(啟動)、限載設定、解除限載；既有 GET status 精確單參數斷言改
+    `objectContaining` 因應 authFetch 恆傳第二參數）。**7 個關鍵路徑逐一 mutation-verified**
+    （header 停機鈕 onClick 拿掉 → 3 測
+    fail；`refresh`/`sendCmd`/`setCurtail`/`clearCurtail`/`handleHeaderStop` 各自退回裸
+    `fetch` → 對應 auth header 測試逐一 fail，共 6 次獨立 mutation，逐次還原後
+    `git diff --stat` 對 production 檔案確認乾淨）。
+  - backend 未動；frontend 1220→1227 passed（+7 新測）、tsc 0、build OK（見 work-log）。
+- **Reference**: `WMOM-20260507-02`、`docs/product/WMOM-20260716-05_auth_enforcement_plan.md`
+  §6 cutover 檢查表「前端所有寫入 request 都帶 token」
+
+---
+
+### WMOM-20260923-10 — 前端 authFetch 稽核：其餘 7 支元件遺漏（M6 auth cutover 前置阻塞）
+
+- **Status**: open
+- **Milestone**: **M6 auth cutover（WMOM-20260716-05i）前置阻塞**——`docs/product/
+  WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表明列「前端所有寫入 request 都帶
+  token」，本次稽核發現此項目前**不成立**
+- **Priority**: high（翻 `WMOM_AUTH_ENFORCE=true` 前必須清空，否則 cutover 當天大量功能靜默 401
+  失效；目前 enforce 預設 false 尚未影響 production，故不算目前的 production bug，但是明確的
+  cutover 阻塞項）
+- **Estimate**: 每支元件 15 min–1h（依 fetch 呼叫數與是否為 SUPERVISOR/ADMIN-only 寫入而定，見下）
+- **Source**: WMOM-20260923-09（`TurbineDetail.tsx` authFetch 修復）過程中，對全 `frontend/
+  components/*.tsx` 跑 `grep -rn "await fetch(\|fetch(\`\${API_BASE}"` 排除 `authFetch`/測試檔，
+  發現以下 7 支元件仍有裸 `fetch` 呼叫（`TurbineDetail.tsx` 已於 WMOM-20260923-09 修復、
+  `FarmOverview.tsx` farm-trend 已登記 WMOM-20260923-08，皆不重複列入）：
+- **Description**（逐檔盤點，行號為本次稽核當下）：
+  - `CostPage.tsx:693` — GET `/api/farms`（讀取，任何登入者）
+  - `EventComparisonView.tsx:79` — GET `/api/maintenance/events/compare`（讀取）
+  - `FarmSelector.tsx:71,85,287` — GET `/api/farms`、POST `/api/farms/{id}/activate`、POST
+    `/api/farms`（**建立/切換 farm，依 §4.1 屬 `SUPERVISOR`/`ADMIN` 寫入**，風險同
+    `OperatorControlCard`）
+  - `FaultInjectionPanel.tsx:92,96,106,114,131,148` — `/api/faults/*`（**注入/清除故障、執行
+    測試計畫皆 `SUPERVISOR` 寫入**，風險高，`/admin` 故障模擬頁全面）
+  - `HistoryPage.tsx:145,158` — `/api/i18n/tags`、`/api/turbines/{id}/history`（讀取）
+  - `SettingsPage.tsx:134,143,151,170,187,198,216,239,250,264,294` — `/api/config/*`
+    （**多處為 `SUPERVISOR` 寫入**：wind/grid/turbine-spec 設定變更）
+  - `TrendChartPanel.tsx:61,69` — `/api/i18n/tags`、`/api/turbines/{id}/trend`（讀取）
+  - 共 7 支檔案、約 20+ 處呼叫。優先序建議：`FaultInjectionPanel`/`SettingsPage`/
+    `FarmSelector`（皆含 SUPERVISOR/ADMIN 寫入，enforce 後會整面失效）> 其餘純讀取元件（enforce
+    後仍可用但 401 會被吞、UI 卡在載入態不會導回登入頁）。
+- **Deliverable**：逐檔比照 WMOM-20260923-07/-08/-09 手法——改 `authFetch` + 補 auth header 測試
+  + mutation-verified；建議拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式）而非一次
+  全做，避免單一 PR 範圍過大。完成後回頭勾掉 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md`
+  §6 cutover 檢查表對應項。
+- **Reference**: WMOM-20260923-09 work-log、`docs/product/WMOM-20260716-05_auth_enforcement_plan.md`
 
 ---
 

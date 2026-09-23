@@ -16,7 +16,23 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-07 — `WMOM-20260507-02` sub-task a：風場總覽「匯出」鈕接線。
+最後更新：2026-09-23（WMOM-20260923-09 — `WMOM-20260507-02` sub-task b：`TurbineDetail.tsx`
+PageHeader「停機」鈕接上 `POST /api/control/command { command: 'stop' }`（走 `authFetch`）。
+認領時追查右側「操作控制」卡片（`OperatorControlCard`）本身 4 處既有 `fetch`（GET status 輪詢 +
+POST command + POST curtail ×2）全裸 `fetch` 未帶 `Authorization` header，且 command/curtail
+兩端點皆 `require_role(SUPERVISOR)`——風險高於先前 WMOM-20260923-08 的 farm-trend（純讀取），
+enforce 開啟後操作控制面板會整面失效；同次一併修復 4 處。新增 7 測皆 mutation-verified（逐一
+退回裸 `fetch` 確認對應測試 fail，含此前完全未被鎖住的 `clearCurtail` 缺口）。code-reviewer
+review：0 must-fix，1 should-fix（`ISSUES.md` 父 issue `WMOM-20260507-02` checklist 未同步
+勾選）已採納，1 nice-to-have（既有 `resp.ok` 缺錯誤處理，非本次引入的既有行為）未採納維持現狀，
+Approve。backend 未動 1103 passed 不變；frontend 1220→1227 passed（+7 新測）、tsc 0、build
+OK。⚠ 稽核過程發現**另有 7 支元件同款 authFetch 缺口**（`CostPage`/`EventComparisonView`/
+`FarmSelector`/`FaultInjectionPanel`/`HistoryPage`/`SettingsPage`/`TrendChartPanel`，其中
+`FarmSelector`/`FaultInjectionPanel`/`SettingsPage` 含 SUPERVISOR/ADMIN 寫入），登記為新
+follow-up **WMOM-20260923-10**，標記為 M6 auth cutover（`WMOM-20260716-05i`）**前置阻塞項**
+（`docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
+request 都帶 token」目前不成立），未在本次修復，建議下次優先接手。）
+前一 session：WMOM-20260923-07 — `WMOM-20260507-02` sub-task a：風場總覽「匯出」鈕接線。
 清單第一項先前是零功能 placeholder，本次接 `GET /api/export/snapshot`（後端
 `require_authenticated()` 閘門）：`handleExportSnapshot` 走既有 `authFetch`（正確帶
 Authorization header）→ `resp.blob()` → 沿用 reporting module 既有 `downloadBlob` 工具觸發下載
@@ -123,14 +139,21 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
-- [x] ~~**WMOM-20260507-02 sub-task a** — 風場總覽「匯出」鈕接線~~ — ✅ WMOM-20260923-07 完成，見
-  上方「最後更新」。**WMOM-20260507-02 清單尚餘 b~f**（風機細節 `停機`/`限載`/`安排檢查`、維護
-  中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有明確 API 對應與估時，可逐項繼續認領（`d` 依賴
-  WMOM-20260505-22 `inspection_schedule` 尚未做；其餘 4 項無阻塞）
+- [x] ~~**WMOM-20260507-02 sub-task a/b** — 風場總覽「匯出」/風機細節「停機」鈕接線~~ — ✅
+  WMOM-20260923-07（a）+ WMOM-20260923-09（b）完成，見上方「最後更新」。**`WMOM-20260507-02`
+  清單尚餘 c~f**（風機細節 `限載`/`安排檢查`、維護中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有
+  明確 API 對應與估時，可逐項繼續認領（`d` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做；
+  其餘 3 項無阻塞）
 - [ ] **WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性技術債，
   15 min，🔵 autonomous-friendly）：WMOM-20260923-07 review 附帶發現，farm-trend 端點與剛接好的
   export 端點一樣需要 auth 卻仍用裸 `fetch`，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，純技術
   債，見 ISSUES.md 該 issue 條目
+- [ ] **WMOM-20260923-10**（**優先**，M6 auth cutover 前置阻塞）— 前端 authFetch 稽核：7 支元件
+  （`CostPage`/`EventComparisonView`/`FarmSelector`/`FaultInjectionPanel`/`HistoryPage`/
+  `SettingsPage`/`TrendChartPanel`）仍裸 `fetch` 未帶 `Authorization` header，其中
+  `FarmSelector`/`FaultInjectionPanel`/`SettingsPage` 含 SUPERVISOR/ADMIN-only 寫入端點；
+  `WMOM-20260716-05i`（cutover 翻 `WMOM_AUTH_ENFORCE=true`）前必須清空。建議拆成每檔一個
+  sub-issue（比照 `WMOM-20260507-02` 清單模式），優先序見 ISSUES.md 該 issue 條目
 
 ### 需劉老師決策才能開工
 
