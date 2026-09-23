@@ -16,12 +16,19 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-02 — `FaultInjectionPanel` component render 測試：555 行的
+最後更新：2026-09-23（WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖：
+連續兩個 session 把此項標成「需要新後端端點」而延後，本次判定不需要——既有單情境 history 端點
++ 前端已持有的 `sim_start` 就足以純前端算相對時間對齊，零後端變更（決策翻案見
+`docs/product/decision_log.md` DEC-20260923-01）。新增 `ScenarioCompareTimelineView.tsx`
+（機組+指標選擇器疊圖，`ScenarioCompareAcrossView` 新增頁籤承載），只做疊圖、差異圖（Part 4）
+留給下次。code-reviewer review 抓到 1 must-fix（decision_log 補件）+ 2 should-fix（tooltip 精確
+比對 caveat 說明、fetch 失敗獨立提示）皆已修復，frontend 1067→1100 passed，backend 未動。）
+前一 session：WMOM-20260923-02 — `FaultInjectionPanel` component render 測試：555 行的
 `/admin` 故障模擬頁面元件先前零 component 測試，比照 `TrendChartPanel`/`SettingsPage` 範式（fetch
 mock + fake timers）補上 40 測（PageHeader/注入參數 Fields/inject·clear all/活躍故障表/診斷
 測試計畫卡片/執行測試計畫+結果卡/3s 輪詢與 unmount cleanup），frontend 1027→1067 passed，
-backend 未動；`MaintenanceHub`/`FaultInjectionPanel` 同批 untested 大元件兩支皆已處理完畢。）
-前一 session：WMOM-20260923-01 — `MaintenanceHub` component render 測試：439 行的
+backend 未動；`MaintenanceHub`/`FaultInjectionPanel` 同批 untested 大元件兩支皆已處理完畢。
+session #8：WMOM-20260923-01 — `MaintenanceHub` component render 測試：439 行的
 `/admin/maintenance` 頁面元件先前零 component 測試，補上 49 測（PageHeader/Filter/
 WorkOrderTable 全欄位/RosterCard/WeekCalendar），frontend 978→1027 passed，backend 未動；
 PR #164（WMOM-20260922-04）確認 auto-merge 成功，累積連續 3 筆 CI 綠燈樣本，已清除上方舊
@@ -63,6 +70,11 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
 - [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— ui primitives（`components/ui/*.tsx`）目前零 `__tests__`，尚未評估是否需要；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
+- [ ] **情境比較分析 · A2 Part 4（差異圖）**（DEC-20260720-02，決策更新 `DEC-20260923-01`）：跨情境
+  逐點相減的差異圖，需先解決「多情境序列取樣點不完全對齊」的插值/分桶問題（不同情境 `time_step`
+  可能不同、起點也不會剛好對齊在同一個相對時間刻度上）——本次 Part 3 的 `buildTimelinePoints`
+  已是可直接復用/延伸的地基；`ScenarioCompareTimelineView.tsx` review 留下的 recharts 跨線
+  tooltip 精確比對 caveat（取樣間隔不同時游標可能只命中部分情境）也建議在此一併評估是否需要重採樣
 - [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 - [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
 
