@@ -16,7 +16,14 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖：DEC-20260720-02
+最後更新：2026-09-23（WMOM-20260716-06 — footprint CPU-torch pin：多個 session 因「本地無 docker
+daemon」擱置的 follow-up，本次 preflight 發現本 sandbox 這次可手動啟動 dockerd 成功，接手實測
+收尾。Dockerfile 新增 1 行 CPU-only torch wheel pin，真實 docker build/run 驗證 image
+3.37GB→550MB（省 ~2.8GB）+ app 正常開機 `/api/health` 200 OK，code-reviewer review 0 must-fix。
+附帶重新調查 WMOM-20260509-F6（PostgreSQL row-lock test），判定範圍遠比原估「0.5 工作天」大
+（repo 完全無 Postgres 連線路徑，需先有架構決策），更正估時並標記 🟡 需劉老師決策、本次不接。
+backend/frontend 測試數量不變（純 Dockerfile 變更，CI 不 build image）。）
+前一 session：WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖：DEC-20260720-02
 A2 epic 完整範圍至此全數完成，判定差異圖不需後端、純前端分桶重採樣解決多情境序列取樣點不對齊
 問題，frontend 1171→1216 passed（+45 新測）。詳見 ISSUES.md WMOM-20260923-06。）
 前一 session：WMOM-20260923-05 — `Sidebar.tsx` component render 測試：前一 session
@@ -104,11 +111,15 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   完整範圍（摘要並排＋疊圖＋差異圖）至此全數完成。ScenarioCompareTimelineView review 留下的
   recharts 跨線 tooltip 精確比對 caveat 仍是已知限制（非阻塞，見該頁籤底部說明文字）。
 - [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
-- [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
-- [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
+- [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
+  3.37GB→550MB，見上方「最後更新」。
 
 ### 需劉老師決策才能開工
 
+- [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test：2026-09-23 重新調查後更正——
+  repo 完全無 Postgres 連線路徑（engine 建構/transaction-begin/migration 皆 SQLite 專屬語法，
+  無 psycopg2 依賴，decision_log 無任何 postgres 決策），需先拍板「M6 是否真的選 PostgreSQL
+  backend」才能動工，非 0.5 天小題，詳見 ISSUES.md 該 issue 條目
 - [ ] **WMOM-20260519-01** — `add_return` 超量退料 domain guard（需會計語意決策）
 - [ ] **WMOM-20260513-01** — UI 改版 v2（placeholder — 等劉老師補新設計交接書）
 
