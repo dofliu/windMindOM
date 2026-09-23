@@ -31,11 +31,13 @@
  * 警告污染輸出。
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { render, screen, fireEvent, cleanup, act, within, waitFor } from '@testing-library/react';
 import React from 'react';
 import FarmOverview from '../FarmOverview';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { downloadBlob } from '../../services/reportingService';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 import {
   TurbineStatus,
   DataSourceType,
@@ -79,6 +81,18 @@ const SETTINGS_LIVE: AppSettings = {
   dataSource: DataSourceType.SIMULATION,
 };
 
+// ─── 匯出快照：mock downloadBlob（不在 jsdom 真跑 URL.createObjectURL）─────
+//
+// FarmOverview 直接呼叫 downloadBlob（非像 MonthlyReportPanel 走注入 prop
+// `onDownloadPdf` 那樣的依賴反轉），本檔是本 repo 第一支需要 `vi.mock`
+// reportingService 模組的測試——只斷言 downloadBlob 有沒有被正確呼叫，不
+// 真的觸發瀏覽器下載副作用。
+vi.mock('../../services/reportingService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/reportingService')>();
+  return { ...actual, downloadBlob: vi.fn() };
+});
+const downloadBlobMock = downloadBlob as unknown as Mock;
+
 // ─── fetch stub ──────────────────────────────────────────────────────────────
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -98,6 +112,18 @@ function jsonResponse(payload: unknown): Response {
 }
 
 /**
+ * `/api/export/snapshot` 的 Response-like stub：`handleExportSnapshot` 走
+ * `resp.blob()`（不解析 JSON，保留後端原始位元組），故 stub 只需提供 `blob()`。
+ */
+function blobResponse(payload: unknown, opts: { ok?: boolean; status?: number } = {}): Response {
+  return {
+    ok: opts.ok ?? true,
+    status: opts.status ?? 200,
+    blob: async () => new Blob([JSON.stringify(payload)], { type: 'application/json' }),
+  } as unknown as Response;
+}
+
+/**
  * 把所有 pending microtask + 一輪 macrotask drain 乾淨。TrendCard 的 fetch chain
  * 是 fetch → .then(r.json()) → .then(setApiData) 共 2-3 個 microtask tick，
  * 單一 `await Promise.resolve()` 不保證 drain 完整 → 用 `setTimeout(0)` 確保
@@ -111,6 +137,9 @@ beforeEach(() => {
     const u = String(url);
     if (u.includes('/api/turbines/farm-trend')) {
       return Promise.resolve(jsonResponse({ data: [] }));
+    }
+    if (u.includes('/api/export/snapshot')) {
+      return Promise.resolve(blobResponse({ count: 0, data: [] }));
     }
     // 未預期的 URL 直接 reject，避免新增的 fetch 呼叫被靜默吞掉。
     return Promise.reject(new Error(`Unexpected fetch: ${u}`));
@@ -381,5 +410,98 @@ describe('FarmOverview — TrendCard 有資料', () => {
       await flushAsync();
     });
     expect(screen.queryByText('資料收集中…')).not.toBeInTheDocument();
+  });
+});
+
+// ─── 匯出風場快照（WMOM-20260507-02 sub-task a）──────────────────────────────
+
+describe('FarmOverview — 匯出風場快照', () => {
+  it('點擊匯出 → 打 GET /api/export/snapshot，成功後以 Blob + 日期檔名觸發下載', async () => {
+    await renderOverview();
+    const btn = screen.getByRole('button', { name: '匯出報告' });
+    await act(async () => {
+      fireEvent.click(btn);
+      await flushAsync();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/export/snapshot'),
+      expect.any(Object),
+    );
+    expect(downloadBlobMock).toHaveBeenCalledTimes(1);
+    const [blobArg, filenameArg] = downloadBlobMock.mock.calls[0] as [Blob, string];
+    expect(blobArg).toBeInstanceOf(Blob);
+    expect(filenameArg).toMatch(/^farm-snapshot-\d{4}-\d{2}-\d{2}\.json$/);
+  });
+
+  it('已登入（有 token）→ 走 authFetch 帶 Authorization header（後端 require_authenticated 閘門）', async () => {
+    // 驗證 handleExportSnapshot 真的走 authFetch 而非裸 fetch：`expect.any(Object)`
+    // 無法區分兩者（authFetch 內部仍是包一層 fetch），必須實際檢查 header 內容。
+    setAuthToken('test-token-abc');
+    try {
+      await renderOverview();
+      fireEvent.click(screen.getByRole('button', { name: '匯出報告' }));
+      await act(async () => {
+        await flushAsync();
+      });
+      const exportCall = fetchMock.mock.calls.find(([url]: [string]) =>
+        String(url).includes('/api/export/snapshot'),
+      );
+      expect(exportCall).toBeDefined();
+      const [, init] = exportCall as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-abc');
+    } finally {
+      // 避免污染同檔案後續測試（本檔第一支真正呼叫 setAuthToken 的測試）。
+      clearAuthToken();
+    }
+  });
+
+  it('下載期間按鈕 disabled，完成後恢復可點擊', async () => {
+    let resolveFetch!: (r: Response) => void;
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/turbines/farm-trend')) {
+        return Promise.resolve(jsonResponse({ data: [] }));
+      }
+      if (u.includes('/api/export/snapshot')) {
+        return new Promise<Response>(res => { resolveFetch = res; });
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: '匯出報告' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '匯出報告' })).toBeDisabled();
+    });
+    await act(async () => {
+      resolveFetch(blobResponse({ count: 0, data: [] }));
+      await flushAsync();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '匯出報告' })).toBeEnabled();
+    });
+  });
+
+  it('後端回非 2xx → console.error 記錄失敗、不呼叫 downloadBlob、按鈕恢復可點擊', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/turbines/farm-trend')) {
+        return Promise.resolve(jsonResponse({ data: [] }));
+      }
+      if (u.includes('/api/export/snapshot')) {
+        return Promise.resolve(blobResponse({}, { ok: false, status: 500 }));
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await renderOverview();
+    const btn = screen.getByRole('button', { name: '匯出報告' });
+    await act(async () => {
+      fireEvent.click(btn);
+      await flushAsync();
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith('匯出風場快照失敗', expect.any(Error));
+    expect(downloadBlobMock).not.toHaveBeenCalled();
+    expect(btn).toBeEnabled();
+    consoleErrorSpy.mockRestore();
   });
 });
