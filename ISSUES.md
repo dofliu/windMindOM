@@ -16,10 +16,29 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 111 |
-| **total (active)** | **122** |
+| done | 112 |
+| **total (active)** | **123** |
 
-最後更新：2026-09-23（**WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
+最後更新：2026-09-23（**WMOM-20260923-05 — `Sidebar.tsx` component render 測試**：前一
+session（WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 9 支 primitive 檔案時，判定
+`Sidebar.tsx`（220px 主導覽，294 行）範圍較大另開一支，本次接手——全站唯一主導覽入口先前
+完全零 `__tests__`。新增 `components/ui/__tests__/Sidebar.test.tsx`（23 tests）：
+primary/secondary 導覽項目渲染（lang zh/en、active 樣式、badge 顯示條件含 `badge=0`
+falsy 邊界）、onSelect/onMobileClose 點擊行為（含 desktop 未傳 `onMobileClose` 的 optional
+chaining 安全性）、backend 健康狀態 dot、lang/theme 切換按鈕（透過真實 `useTheme().toggle()`）、
+footerExtra 條件渲染、mobile drawer 響應式行為（`window.innerWidth < 768` 的
+fixed/sticky + transform + 遮罩點擊關閉）。5 個關鍵邏輯分支手動 mutation-verified。零
+production 變更。code-reviewer subagent review：**1 must-fix（已修）**——work-log 原稿
+缺 Implement/Verify/Review/Wrap-up 段落且自我指向不存在內容，已補齊；**2 should-fix 全數
+採納**：(1) 主題切換測試會把 `'dark'` 寫進真實 `localStorage['wmom.theme']`，同檔案內
+vitest per-file isolation 下後續測試可能讀到污染值（本檔是本 repo 第一支真正呼叫
+`toggle()` 的測試），`afterEach` 加 `localStorage.clear()`；(2) backend 健康狀態 dot
+測試原用全域 `querySelector('span[aria-hidden]')`，但頁面另有 theme 按鈕圖示同款屬性，
+改用 `getByText(...)` 先定位到文字所在 row 再 scope 查詢，避免隱性耦合 DOM 順序。1
+nice-to-have（`NavIcon` active/inactive 顏色分支未斷言）未採納，留待未來。皆
+mutation-verified/重跑確認後 Approve。backend 未動 1103 passed 不變；frontend
+1148→1171 passed（55→56 files）、tsc 0、build OK。
+前一 session：**WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
 測試補齊**：TODO.md 點名「ui primitives 目前零 `__tests__`，尚未評估是否需要」——逐檔讀過 9 支
 檔案（1220 行）後判定：`Btn`/`Card`/`Field`/`Stat`/`PageHeader` 純展示型、已被全站既有 page-level
 測試間接覆蓋，ROI 低；`Logo`/`Sidebar` 範圍較大另開一支；`StatusPill.tsx`（3 支狀態顏色映射純
@@ -659,6 +678,53 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **下次接手**：`Sidebar.tsx` component 測試（範圍較大另計）；A2 Part 4（差異圖）/ PR C
     （檢視情境掛載 app）維持前次 session 的候選清單不變。
 - **Reference**: work-logs/2026-09/2026-09-23-ui-primitives-statuspill-charts-tests.md
+
+**Done**
+- **WMOM-20260923-05** — ✅ **`Sidebar.tsx` component render 測試**（EPIC-M5 測試覆蓋
+  擴大）：前一 session（WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 9 支 primitive
+  檔案時，點名 `Sidebar.tsx`（220px 主導覽，294 行）範圍較大另開一支——全站唯一主導覽
+  入口先前完全零 `__tests__`，本次接手。
+  - **新增 `components/ui/__tests__/Sidebar.test.tsx`（新檔，23 tests）**：primary/
+    secondary 導覽項目渲染（lang zh/en label、secondary 為空不顯示「工具」標題、
+    `aria-current` 正確標記、active 項目 `C.accentSoft`/`C.accent` 樣式、badge `>0`
+    才顯示含 `badge=0` falsy 邊界、點擊呼叫 `onSelect`+`onMobileClose` 含 desktop 下
+    未傳 `onMobileClose` 的 optional chaining 安全性）、backend 健康狀態 dot（顏色+
+    zh/en 文字）、lang toggle 按鈕、theme toggle 按鈕（透過真實 `useTheme().toggle()`
+    驗證 `aria-pressed`/圖示/文字隨 mode 翻轉）、`footerExtra` 條件渲染、mobile drawer
+    響應式行為（`window.innerWidth < 768` 的 `fixed`/`sticky` + `transform` + 遮罩
+    點擊關閉，desktop 下即使 `mobileOpen=true` 也不受影響且不渲染遮罩）。
+  - **5 個關鍵邏輯分支手動 mutation-verified**（badge falsy 檢查、active 背景色、
+    mobile transform 條件、遮罩渲染條件 `showAsDrawer && mobileOpen`、
+    `aria-pressed={mode === 'dark'}`）逐一改回舊邏輯確認新測會 fail、再還原，`git diff`
+    對 `Sidebar.tsx` 最終乾淨、零變更。
+  - 🔍 **code-reviewer subagent review**：**1 must-fix（已修）**——work-log 原稿在
+    Preflight 後直接斷掉，缺 Implement/Verify/Review/Wrap-up/Commit 段落，且結尾自我
+    指向一個不存在的「下方 Wrap-up」，已補齊完整 8-phase 記錄。**2 should-fix 全數
+    採納**：(1) 主題切換測試透過真實 `ThemeProvider.toggle()` 把 `'dark'` 寫進真實
+    `localStorage['wmom.theme']`，vitest 預設 `isolate: true` 只做 per-file 隔離，
+    同檔案內排在其後的測試若渲染新 `ThemeProvider` 會讀到污染值（本檔是本 repo 第一支
+    真正呼叫 `toggle()` 的測試，先前既有測試慣例未覆蓋過這個坑）——`afterEach` 加
+    `localStorage.clear()`；(2) backend 健康狀態 dot 測試原用全域
+    `container.querySelector('span[aria-hidden]')`，但 `Sidebar.tsx` 有兩個
+    `aria-hidden` span（health dot + theme 按鈕圖示），測試通過只是僥倖命中 DOM 順序——
+    改用 `getByText(...)` 定位到文字所在 row 再 scope 查詢。1 個 nice-to-have（`NavIcon`
+    active/inactive 顏色分支未斷言）reviewer 自行標註不影響本次結論，未採納，留待未來。
+    reviewer 另自行做 3 組獨立 mutation spot-check（`secondary.length > 0`→`true`、
+    `aria-current`、badge 條件變體）+ 確認 `window.innerWidth` 判定方式與 production
+    一致，皆通過。Overall verdict：Needs revision → 已全數處理 → Approve。
+  - ✅ **Verify**：純測試新增 + should-fix 修復，零 production 變更；backend 未動
+    1103 passed 不變；frontend 1148→1171 passed（55→56 files，+23 新測，零
+    regression）、tsc 0 error、build OK。
+  - **下次接手**：`components/ui/*.tsx` 全 9 支檔案測試評估至此全數完成
+    （`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo` ROI 低不動、
+    `StatusPill`/`Charts`/`Sidebar` 已補測試）；A2 Part 4（差異圖）/ PR C（檢視情境
+    掛載 app）維持候選清單不變。
+  - ⚠ **附帶提醒**：`docs/routines/autonomous-daily-worker-prompt.md`（canonical
+    routine 文件）內文仍停在 v3（baseline backend 638 / frontend 59，無「自我測試」/
+    mutation 驗證/降級模式框架），已明顯落後於本次 cron trigger 實際送進來的 prompt
+    （v4.1，baseline 1076/970）。建議劉老師找時間把 cron trigger 目前設定的完整 prompt
+    貼回這份文件同步，避免未來 session 讀到舊版誤判 baseline regression。
+- **Reference**: work-logs/2026-09/2026-09-23-sidebar-render-tests.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

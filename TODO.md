@@ -16,7 +16,20 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
+最後更新：2026-09-23（WMOM-20260923-05 — `Sidebar.tsx` component render 測試：前一 session
+（WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 時點名 `Sidebar.tsx`（220px 主導覽，294
+行，全站唯一主導覽入口，先前完全零 `__tests__`）範圍較大另開一支，本次接手。新增 23 測（
+primary/secondary 導覽項目/badge/active 樣式、backend 健康狀態 dot、lang/theme 切換按鈕、
+footerExtra、mobile drawer 響應式行為），5 個關鍵分支 mutation-verified，零 production 變更。
+code-reviewer review：1 must-fix（work-log 缺 Implement/Verify/Review/Wrap-up 段落，已補齊）
++ 2 should-fix 全數採納（主題切換測試補 `localStorage.clear()` 避免同檔案 isolation 洩漏；
+backend 健康狀態 dot 測試改用 `getByText` scope 查詢避免誤中 theme 按鈕圖示的同款 `aria-hidden`
+屬性）+ 1 nice-to-have 未採納，Approve。backend 未動 1103 passed 不變；frontend 1148→1171
+passed（55→56 files）、tsc 0、build OK。`components/ui/*.tsx` 9 支 primitive 檔案測試評估至此
+全數完成。⚠ 附帶提醒：canonical routine 文件 `docs/routines/autonomous-daily-worker-prompt.md`
+仍停在 v3（baseline 638/59），已落後於本次 cron 送入的 v4.1（baseline 1076/970），建議劉老師
+找時間同步。）
+前一 session：WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
 測試補齊：9 支 UI primitive 檔案（`Btn`/`Card`/`Charts`/`Field`/`Logo`/`PageHeader`/`Sidebar`/
 `Stat`/`StatusPill`，1220 行）先前完全零 `__tests__`（前兩個 session 都點名「尚未評估是否需要」），
 本次逐檔讀過評估：`Btn`/`Card`/`Field`/`Stat`/`PageHeader` 純展示型、已被全站既有 page-level
@@ -83,7 +96,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
-- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— `components/ui/*.tsx` 已評估完成（WMOM-20260923-04）：`StatusPill`/`Charts` 已補測試，其餘 7 支（`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo`/`Sidebar`）判定 ROI 低或範圍另計暫不動；`Sidebar.tsx` 若要做（mobile drawer + badge + responsive 分支）建議獨立開一支；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
+- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— `components/ui/*.tsx` 9 支 primitive 檔案測試評估至此**全數完成**（WMOM-20260923-04/-05）：`StatusPill`/`Charts`/`Sidebar` 已補測試，其餘 6 支（`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo`）判定 ROI 低暫不動；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
 - [ ] **情境比較分析 · A2 Part 4（差異圖）**（DEC-20260720-02，決策更新 `DEC-20260923-01`）：跨情境
   逐點相減的差異圖，需先解決「多情境序列取樣點不完全對齊」的插值/分桶問題（不同情境 `time_step`
   可能不同、起點也不會剛好對齊在同一個相對時間刻度上）——本次 Part 3 的 `buildTimelinePoints`

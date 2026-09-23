@@ -8,6 +8,12 @@
  * `window.innerWidth` 在元件內是 render 時讀取的一次性判定（非 resize listener），
  * 故測試只需在 render 前用 `Object.defineProperty` 設定值即可，不需模擬 resize 事件；
  * 每個測試後還原成 jsdom 預設值（1024）避免同檔案內測試互相汙染。
+ *
+ * 本檔是本 repo 第一支實際呼叫 `ThemeProvider.toggle()` 的測試（`StatusPill.test.tsx`/
+ * `Charts.test.tsx` 都沒動過 theme mode）：`toggle()` 會把 mode 寫進真實
+ * `localStorage['wmom.theme']`，vitest 預設 `isolate: true` 只做 per-file 隔離，
+ * 同檔案內後續測試的新 `ThemeProvider` 會讀到已寫入的值——故 `afterEach` 額外清除
+ * `localStorage`，避免主題切換測試「污染」同檔案內排在它之後的其他測試。
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -20,6 +26,7 @@ import { palettes } from '../../../theme/themes';
 afterEach(() => {
   cleanup();
   setInnerWidth(1024);
+  localStorage.clear();
 });
 
 const C = palettes.light;
@@ -135,16 +142,18 @@ describe('Sidebar — primary/secondary 導覽項目', () => {
 
 describe('Sidebar — backend 健康狀態', () => {
   it('backendHealthy=true 顯示「後端正常」與 ok 色 dot', () => {
-    const { getByText, container } = renderSidebar({ backendHealthy: true });
-    expect(getByText('後端正常')).toBeInTheDocument();
-    const dot = container.querySelector('span[aria-hidden]');
+    // Sidebar 裡有兩個 aria-hidden span（health dot + theme 按鈕圖示），故從文字所在的
+    // row 往下找 dot，而非對整個 container 用可能命中錯誤節點的全域 selector。
+    const { getByText } = renderSidebar({ backendHealthy: true });
+    const row = getByText('後端正常');
+    const dot = row.querySelector('span[aria-hidden]');
     expect(dot?.getAttribute('style') ?? '').toContain(hexToRgb(C.ok));
   });
 
   it('backendHealthy=false 顯示「後端離線」與 warn 色 dot', () => {
-    const { getByText, container } = renderSidebar({ backendHealthy: false });
-    expect(getByText('後端離線')).toBeInTheDocument();
-    const dot = container.querySelector('span[aria-hidden]');
+    const { getByText } = renderSidebar({ backendHealthy: false });
+    const row = getByText('後端離線');
+    const dot = row.querySelector('span[aria-hidden]');
     expect(dot?.getAttribute('style') ?? '').toContain(hexToRgb(C.warn));
   });
 
