@@ -16,10 +16,33 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 108 |
-| **total (active)** | **119** |
+| done | 109 |
+| **total (active)** | **120** |
 
-最後更新：2026-09-23（**WMOM-20260923-01 — MaintenanceHub component render 測試**（EPIC-M5
+最後更新：2026-09-23（**WMOM-20260923-02 — `FaultInjectionPanel` component render 測試**
+（EPIC-M5 測試覆蓋擴大，`MaintenanceHub` 同批 untested 大元件的最後一支）：`/admin` 故障模擬
+頁面元件（555 行）先前零 component 測試。比照 `TrendChartPanel`/`SettingsPage` 範式（fetch mock
++ fake timers）補上 39 測，涵蓋 PageHeader 殼層、注入參數 Fields（場景/風機 Select、速率
+Input）、`handleInject`/`handleClearAll`（POST body、成功/失敗訊息、觸發 `refreshActive`、
+訊息 3s 自動清除）、活躍故障表（嚴重度/階段+TRIP 後綴/告警字串）、診斷測試計畫卡片（難度 label
+對映含未知 id fallback、scenarios_used 超過 4 個顯示 `+N`）、`handleRunPlan`（執行中按鈕文字+
+全域互斥 disable、成功結果卡 Stat 區塊+可選最終故障狀態表、失敗訊息、8s 自動清除）、3s 輪詢
+`refreshActive` 與 unmount 後 `clearInterval` 生效。6 個關鍵邏輯分支手動 mutation-verified
+（inject 按鈕 disabled 條件/風機選項數固定 14/執行中互斥 disable/DB 大小 fallback/訊息 3s
+清除/3s 輪詢間隔）。code-reviewer subagent review：0 must-fix，**2 should-fix 全數採納**：
+①`final_fault_status` 的 `scenario_id ?? name_en` fallback 測試只用 `scenario_id: undefined`
+一種輸入，無法區分 `a ?? b` 與反過來的 `b ?? a`（reviewer 把運算元順序整個反過來重跑，39 測
+仍全過，證實只驗證了一半）——修法：新增 `scenario_id` 有明確值且與 `name_en` 不同的對照測試，
+斷言優先顯示 `scenario_id`，mutation-verified（改回反轉順序確認新測會 fail，再還原）；
+②`planCardByName` 等多處靠 `.parentElement` 層數鏈找 Card 容器，對元件結構變動零抵抗力——
+reviewer 明確標註「優先度低、不必卡此 PR」（與既有 `MaintenanceHub`/`TrendChartPanel` 等測試
+同款寫法，非本次新增問題），故本次不動、留待日後若元件加 `data-testid` 支援時統一收斂，work-log
+記錄此已知限制。另有 3 nice-to-have（`active_alarms` 多筆 join 分隔符/`active_alarms`
+undefined 與 `storage_stats` undefined 兩種缺值變體/`callsTo` 未篩 HTTP method）未採納（皆屬
+「行為對但未鎖測試」的次要覆蓋率缺口，留待未來需要時再補），Overall verdict: Approve。純測試
+新增，零 production 變更；backend 未動 1103 passed 不變；frontend 1027→1067 passed（+40 新測）、
+tsc 0、vite build OK。）
+前一 session（2026-09-23）：**WMOM-20260923-01 — MaintenanceHub component render 測試**（EPIC-M5
 測試覆蓋擴大）：`/admin/maintenance` 頁面元件（439 行）先前零 component render 測試（只有其
 data hook `useMaintenanceData` 有單元測試），比照 `DispatchModal` 範式（純 props-driven、無
 fetch/timer）補上 46 測，涵蓋 PageHeader 殼層、Filter 篩選、WorkOrderTable 全欄位（含
@@ -520,6 +543,50 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     session 的「下次續做」點名但尚未接手）；ui primitives（`components/ui/*.tsx`）目前零
     `__tests__` 目錄，尚未評估是否需要。
 - **Reference**: work-logs/2026-09/2026-09-23-maintenancehub-render-tests.md
+
+**Done**
+- **WMOM-20260923-02** — ✅ **`FaultInjectionPanel` component render 測試**（EPIC-M5 測試覆蓋
+  擴大）：`/admin` 故障模擬頁面元件（555 行）先前零 component 測試——前一 session work-log 點名
+  `MaintenanceHub`/`FaultInjectionPanel` 為同批 untested 大元件，`MaintenanceHub` 已於前一
+  session 處理，本次接手最後一支。元件比 `MaintenanceHub` 複雜得多：有 3 條 mount-time fetch
+  effect（scenarios/test-plans/active）+ 3s 輪詢 `refreshActive` + 2 個 POST action
+  （inject/clear all）+ 1 個 POST action（run test plan）+ message toast（3s/8s 自動清除），
+  比照 `TrendChartPanel`/`SettingsPage` 範式（fetch mock + `vi.useFakeTimers()` 精確控制輪詢與
+  訊息清除計時器）而非 `MaintenanceHub` 的純 props-driven範式。
+  - **新增 `components/__tests__/FaultInjectionPanel.test.tsx`（新檔，40 tests）**：涵蓋
+    PageHeader 殼層（標題/sub/注入按鈕未選場景時 disabled）、注入參數 Fields（場景 Select 含
+    fetch 選項+placeholder、風機 Select 固定 14 台、速率 Input）、`handleInject`（POST body 正確
+    性、成功/失敗、觸發 `refreshActive`、訊息 3s 自動清除）、`handleClearAll`（POST 空 body、
+    訊息顯示）、活躍故障表（僅非空時渲染、嚴重度%/階段+TRIP 後綴/告警 join 或「—」）、診斷測試
+    計畫卡片（難度 label 對映含未知 id fallback「極限」、風機 chips 排序、scenarios_used 超過 4
+    個顯示 `+N`）、`handleRunPlan`（執行中按鈕文字+全域互斥 disable，用可手動 resolve 的 pending
+    Promise 控制執行中間態、成功結果卡 Stat 區塊+DB 大小缺值 fallback+可選最終故障狀態表、
+    scenario_id 缺值/有值兩種 fallback 分支、失敗訊息、8s 自動清除）、3s 輪詢與 unmount 後
+    `clearInterval` 生效（含 unmount 後推進 9s 仍不再 fetch 的回歸測試）。
+  - **手動 mutation-verified 6 個關鍵邏輯分支**（inject 按鈕 disabled 條件、風機選項數固定 14、
+    執行中其他計畫按鈕同時 disable、DB 大小 fallback「—」、訊息 3s 自動清除秒數、3s 輪詢間隔）
+    確認會抓到對應 regression，逐一改回舊邏輯確認新測會 fail、再還原（production 檔案最終
+    `git diff` 乾淨，零變更）。
+  - 🔍 **code-reviewer subagent review**：0 must-fix，**2 should-fix 全數採納**：
+    1. `final_fault_status` 的 `scenario_id ?? name_en` fallback 測試原本只用
+       `scenario_id: undefined` 一種輸入，兩種實作（`a ?? b` 與反過來的 `b ?? a`）在此輸入下
+       輸出相同，無法區分優先順序——reviewer 把運算元順序整個反過來重跑，39 測仍全過，證實只
+       驗證了一半。修法：新增 `scenario_id` 有明確值且與 `name_en` 不同的對照測試，斷言優先
+       顯示 `scenario_id` 而非 `name_en`，mutation-verified。
+    2. `planCardByName` 等多處靠 `.parentElement` 層數鏈找 `Card` 容器 DOM 節點，對元件結構
+       變動零抵抗力（隱性契約）——reviewer 明確標註「優先度低、不必卡此 PR」，且與既有
+       `MaintenanceHub`/`TrendChartPanel` 等測試同款寫法（非本次新增問題），故本次不動，留待
+       日後若 `Card` 等 ui primitives 加 `data-testid` 支援時統一收斂到 `getByTestId`。
+    另有 3 nice-to-have（`active_alarms` 多筆告警的 join 分隔符號未被驗證——目前只測 1 筆、
+    `active_alarms`/`storage_stats` 為 `undefined`（而非 `[]`/`{}`）兩種缺值變體未測、
+    `callsTo()` 未篩 HTTP method 純靠 URL substring）未採納，皆屬「目前行為正確但未鎖 regression
+    test」的次要覆蓋率缺口，留待未來需要時再補。Overall verdict：Approve。
+  - ✅ **Verify**：純測試新增，零 production 變更；backend 未動 1103 passed 不變；frontend
+    1027→1067 passed（+40 新測，零 regression）、tsc 0 error、`npx vite build` OK。
+  - **下次接手**：ui primitives（`components/ui/*.tsx`）目前零 `__tests__` 目錄，尚未評估是否
+    需要；`.parentElement` DOM 遍歷型 test scoping 的技術債（見上方 should-fix #2）留待有需要時
+    統一改用 `data-testid`。
+- **Reference**: work-logs/2026-09/2026-09-23-faultinjectionpanel-render-tests.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
