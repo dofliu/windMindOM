@@ -13,13 +13,31 @@
 
 | Status | Count |
 |--------|------|
-| open | 10 |
+| open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 114 |
-| **total (active)** | **124** |
+| done | 115 |
+| **total (active)** | **126** |
 
-最後更新：2026-09-23（**WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖**：DEC-20260720-02
+最後更新：2026-09-23（**WMOM-20260923-07 — PageHeader 按鈕 sub-task a：風場總覽「匯出」接線**：
+`WMOM-20260507-02` 清單第一項——`FarmOverview.tsx` 的「匯出」鈕原是零功能 placeholder，本次接
+`GET /api/export/snapshot`（後端 `require_authenticated()` 閘門）：`handleExportSnapshot` 走既有
+`authFetch`（非裸 `fetch`，正確帶 `Authorization` header）→ `resp.blob()`（不解析 JSON、保留原始
+位元組）→ 沿用 reporting module 既有 `downloadBlob` 工具觸發瀏覽器下載
+`farm-snapshot-{YYYY-MM-DD}.json`；`Btn` `loading` state 覆蓋下載期間；失敗僅 `console.error`
+（沿用劉老師 2026-05-07 對本 issue 的決定「沒作用沒關係，開發階段」，不彈 alert）。新增 4 測
+（happy path Blob+檔名斷言 / **`authFetch` 帶 token 的 Authorization header** / loading 中
+disabled→完成恢復 / 非 2xx 失敗態），5 個關鍵路徑皆 mutation-verified（含 code-reviewer review
+中途抓到的 1 個測試 gap：原 happy-path 斷言用 `expect.any(Object)` 驗 fetch 第二參數，無法區分
+`authFetch` 與裸 `fetch`，補開專測直接斷言 header 內容並 mutation-verified 確認會抓到回退成
+裸 `fetch` 的 regression）。code-reviewer review：0 must-fix，2 should-fix 全數採納（上述 auth
+header 測試缺口 + 測試檔一則誤導性註解「沿用 MonthlyReportPanel 範式」已更正說明本檔實為本
+repo 首次為此情境引入 `vi.mock` reportingService 模式）+ 3 nice-to-have（同檔案內既有
+farm-trend fetch 同款需要 auth 卻仍用裸 `fetch` 的既存缺口，登記為新 follow-up
+issue **WMOM-20260923-08**、不阻塞本次；unmount guard／UTC 檔名日期兩項判定非阻塞不採納），
+Approve。backend 未動 1103 passed 不變；frontend 1216→1220 passed（+4 新測）、tsc 0、
+vite build OK。`WMOM-20260507-02` 清單尚餘 5 項（b~f）。）
+前一 session：**WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖**：DEC-20260720-02
 A2 epic 完整範圍至此全數完成，詳見下方 issue 條目。）
 前一 session：**WMOM-20260923-05 — `Sidebar.tsx` component render 測試**：前一
 session（WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 9 支 primitive 檔案時，判定
@@ -3372,7 +3390,11 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Description**:
   改版時依 VA.jsx 設計稿放了 7 個 PageHeader 裝飾按鈕，劉老師 2026-05-07 決定 placeholder 保留、之後逐項補功能。本 issue 作為清單追蹤；每個 sub-task 完成時直接打勾並 commit。
 - **Sub-tasks**（按好做順序排）：
-  - [ ] **a. 風場總覽 `匯出`** — 接既有 `GET /api/export/snapshot`（直接下載 JSON）。**估時 30 min**。**[salvage 待重做]** PR #58（branch `claude/upbeat-davinci-l1U9N`）已完整實作（`handleExportSnapshot`：fetch → Blob → anchor download `farm-snapshot-{date}.json`；按鈕走 `Btn` `loading` state；ariaLabel 修為「匯出風場快照」；`revokeObjectURL` 包 `setTimeout` 避 Firefox/Safari 取消下載；失敗 `console.error`）+ code review 過。PR 因帶 stale 追蹤檔（與 main 79-commit 落差）已關，**邏輯在最新 main 重做**——只動 `frontend/components/FarmOverview.tsx`，低風險。
+  - [x] ~~**a. 風場總覽 `匯出`**~~ — ✅ 2026-09-23 完成（WMOM-20260923-07）。`handleExportSnapshot`
+    走 `authFetch` 打 `GET /api/export/snapshot`（後端 `require_authenticated()` 閘門，沿用既有
+    `downloadBlob` 工具 + `Btn` `loading` state），成功以 Blob 觸發下載
+    `farm-snapshot-{YYYY-MM-DD}.json`、失敗僅 `console.error`（沿用劉老師 2026-05-07 決定，不彈
+    alert）。新增 4 測（happy path / auth header / loading 態 / 失敗態），皆 mutation-verified。
   - [ ] **b. 風機細節 `停機`** — 對應 `OperatorControlCard` 的 stop 指令；點擊跳到右側卡片或直接呼叫 `POST /api/control/command { command: 'stop' }`。**估時 30 min**
   - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
@@ -3384,6 +3406,32 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性技術債）
+
+- **Status**: open
+- **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
+- **Priority**: low（功能面不受影響——`WMOM_AUTH_ENFORCE=false` 過渡期兩種寫法行為相同；只在
+  enforce=true 且未登入時才會看出差異：farm-trend 靜默 401 後 `.catch` 吞掉、UI 停在「資料收集
+  中…」，而非導向登入頁）
+- **Estimate**: 15 min
+- **Source**: WMOM-20260923-07（sub-task a 匯出鈕接線）code-reviewer review 附帶發現（nice-to-have，
+  非阻塞）
+- **Description**:
+  `frontend/components/FarmOverview.tsx` 的 `TrendCard` 內 `/api/turbines/farm-trend` fetch
+  （約 174 行）仍用裸 `fetch`，未帶 `Authorization` header；但該端點（
+  `modules/monitoring/server/routers/turbines.py`）與本次剛接好的 `/api/export/snapshot` 一樣
+  掛 `Depends(require_authenticated())`。`WMOM_AUTH_ENFORCE=false` 過渡期兩者行為一致（無 token
+  一樣放行），故非目前阻塞問題；但 enforce 開啟後未登入使用者打這條會收到 401、被
+  `.catch(() => {/* ignore */})` 靜默吞掉，UI 卡在「資料收集中…」而非觸發 `authFetch` 的
+  401 → 清 token → 導回登入頁流程，使用者不會意識到自己已被登出。
+- **Deliverable**:
+  - `frontend/components/FarmOverview.tsx`：`TrendCard` 的 `fetchData` 改用 `authFetch`
+    （`import { authFetch } from '../services/authClient'`，已被本次匯出鈕改動引入同檔案）
+  - 更新/新增對應 `FarmOverview.test.tsx` 斷言（比照 WMOM-20260923-07 的 auth header 測試手法）
+- **Reference**: WMOM-20260923-07 work-log、code-reviewer review nice-to-have #3
 
 ---
 

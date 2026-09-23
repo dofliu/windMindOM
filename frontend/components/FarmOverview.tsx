@@ -25,6 +25,8 @@ import {
   type BigChartSeries,
 } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import { authFetch } from '../services/authClient';
+import { downloadBlob } from '../services/reportingService';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -634,6 +636,7 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
 }) => {
   const { C } = useTheme();
   const [mode, setMode] = useState<ViewMode>('cards');
+  const [exporting, setExporting] = useState(false);
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
   const dateLabel = lang === 'zh'
@@ -641,6 +644,28 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
     : new Date().toLocaleDateString();
 
   const isMock = settings.dataSource === DataSourceType.MOCK;
+
+  /**
+   * 匯出目前全風場快照（WMOM-20260507-02 sub-task a）：GET /api/export/snapshot
+   * 回應直接以 Blob 觸發瀏覽器下載，不解析內容（保留後端原始 JSON 格式）。
+   * 失敗僅 console.error（沿用本 issue「沒作用沒關係，開發階段」的決策，不彈 alert）。
+   */
+  const handleExportSnapshot = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const resp = await authFetch(`${API_BASE}/api/export/snapshot`);
+      if (!resp.ok) {
+        throw new Error(`Export snapshot failed: HTTP ${resp.status}`);
+      }
+      const blob = await resp.blob();
+      const dateSuffix = new Date().toISOString().slice(0, 10);
+      downloadBlob(blob, `farm-snapshot-${dateSuffix}.json`);
+    } catch (e) {
+      console.error('匯出風場快照失敗', e);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div>
@@ -663,7 +688,13 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
         actions={
           <>
             <ViewToggle mode={mode} onChange={setMode} tr={tr} />
-            <Btn ariaLabel={tr('Export report', '匯出報告')}>{tr('Export', '匯出')}</Btn>
+            <Btn
+              ariaLabel={tr('Export report', '匯出報告')}
+              onClick={handleExportSnapshot}
+              loading={exporting}
+            >
+              {tr('Export', '匯出')}
+            </Btn>
             <Btn variant="primary" ariaLabel={tr('New report', '新報告')}>
               + {tr('New Report', '新報告')}
             </Btn>

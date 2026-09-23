@@ -16,7 +16,17 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260716-06 — footprint CPU-torch pin：多個 session 因「本地無 docker
+最後更新：2026-09-23（WMOM-20260923-07 — `WMOM-20260507-02` sub-task a：風場總覽「匯出」鈕接線。
+清單第一項先前是零功能 placeholder，本次接 `GET /api/export/snapshot`（後端
+`require_authenticated()` 閘門）：`handleExportSnapshot` 走既有 `authFetch`（正確帶
+Authorization header）→ `resp.blob()` → 沿用 reporting module 既有 `downloadBlob` 工具觸發下載
+`farm-snapshot-{YYYY-MM-DD}.json`，失敗僅 `console.error`（沿用劉老師既有決定不彈 alert）。新增
+4 測皆 mutation-verified。code-reviewer review：0 must-fix，2 should-fix 全數採納（happy-path
+原測試無法區分 `authFetch` 與裸 `fetch`，補專測直接斷言 header 並 mutation-verified；一則誤導性
+測試註解已更正）+ 3 nice-to-have（同檔案 farm-trend fetch 同款缺口登記為新 follow-up
+`WMOM-20260923-08`、不阻塞），Approve。backend 未動 1103 passed 不變；frontend 1216→1220
+passed（+4 新測）、tsc 0、build OK。`WMOM-20260507-02` 清單尚餘 b~f，皆已有明確 API/估時可續接。）
+前一 session：WMOM-20260716-06 — footprint CPU-torch pin：多個 session 因「本地無 docker
 daemon」擱置的 follow-up，本次 preflight 發現本 sandbox 這次可手動啟動 dockerd 成功，接手實測
 收尾。Dockerfile 新增 1 行 CPU-only torch wheel pin，真實 docker build/run 驗證 image
 3.37GB→550MB（省 ~2.8GB）+ app 正常開機 `/api/health` 200 OK，code-reviewer review 0 must-fix。
@@ -113,6 +123,14 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
+- [x] ~~**WMOM-20260507-02 sub-task a** — 風場總覽「匯出」鈕接線~~ — ✅ WMOM-20260923-07 完成，見
+  上方「最後更新」。**WMOM-20260507-02 清單尚餘 b~f**（風機細節 `停機`/`限載`/`安排檢查`、維護
+  中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有明確 API 對應與估時，可逐項繼續認領（`d` 依賴
+  WMOM-20260505-22 `inspection_schedule` 尚未做；其餘 4 項無阻塞）
+- [ ] **WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性技術債，
+  15 min，🔵 autonomous-friendly）：WMOM-20260923-07 review 附帶發現，farm-trend 端點與剛接好的
+  export 端點一樣需要 auth 卻仍用裸 `fetch`，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，純技術
+  債，見 ISSUES.md 該 issue 條目
 
 ### 需劉老師決策才能開工
 
