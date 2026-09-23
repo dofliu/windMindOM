@@ -422,7 +422,14 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
 
   // 跨情境比較模式（A2）：勾了 ≥2 個過去情境並按下比較 → 顯示 ScenarioCompareAcrossView。
   if (comparingIds) {
-    return <ScenarioCompareAcrossView ids={comparingIds} lang={lang} onBack={() => setComparingIds(null)} />;
+    return (
+      <ScenarioCompareAcrossView
+        ids={comparingIds}
+        savedScenarios={savedScenarios}
+        lang={lang}
+        onBack={() => setComparingIds(null)}
+      />
+    );
   }
 
   // 生成需「有 simulator」的來源——即時模擬(simulation) 或產生情境(scenario) 皆有 simulator。

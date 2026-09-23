@@ -58,6 +58,9 @@ let fetchMock: Mock;
 function installFetch(body: unknown = COMPARE_RESPONSE, ok = true) {
   fetchMock = vi.fn((url: string) => {
     if (url.includes('/api/scenarios/compare')) return jsonRes(body, ok, ok ? 200 : 500);
+    // 時序疊圖頁籤（ScenarioCompareTimelineView）走既有單情境 history 端點——本測試檔預設無資料
+    // 即可（不驗證疊圖本身，那是 ScenarioCompareTimelineView.test.tsx 的範圍），只需不 reject。
+    if (url.includes('/history')) return jsonRes({ readings: [] });
     return Promise.reject(new Error(`unexpected fetch: ${url}`));
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -67,11 +70,16 @@ function compareCalls() {
   return fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/compare'));
 }
 
-async function renderView(ids: number[] = [3, 5], lang: 'en' | 'zh' = 'zh', onBack = vi.fn()) {
+async function renderView(
+  ids: number[] = [3, 5],
+  lang: 'en' | 'zh' = 'zh',
+  onBack = vi.fn(),
+  savedScenarios: Array<{ id: number; turbine_count?: number; config?: Record<string, unknown> }> = [],
+) {
   await act(async () => {
     render(
       <ThemeProvider>
-        <ScenarioCompareAcrossView ids={ids} lang={lang} onBack={onBack} />
+        <ScenarioCompareAcrossView ids={ids} savedScenarios={savedScenarios} lang={lang} onBack={onBack} />
       </ThemeProvider>,
     );
   });
@@ -153,5 +161,64 @@ describe('ScenarioCompareAcrossView — 失敗狀態 + onBack', () => {
     await waitFor(() => expect(screen.getByText('暴風測試', { selector: 'div' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '返回情境列表' }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ScenarioCompareAcrossView — 頁籤（摘要並排 / 時序疊圖，A2 Part 3）', () => {
+  it('預設顯示摘要並排頁籤（長條圖 + 並排表）', async () => {
+    await renderView();
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '摘要並排' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '時序疊圖' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('切到時序疊圖頁籤 → 摘要並排內容消失，改渲染 ScenarioCompareTimelineView', async () => {
+    await renderView(
+      [3, 5],
+      'zh',
+      vi.fn(),
+      [
+        { id: 3, turbine_count: 3, config: { sim_start: '2026-03-01T00:00:00Z' } },
+        { id: 5, turbine_count: 3, config: { sim_start: '2026-03-05T00:00:00Z' } },
+      ],
+    );
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '時序疊圖' }));
+    expect(screen.queryByText('全指標並排')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/時序疊圖.*相對時間對齊/)).toBeInTheDocument());
+  });
+
+  it('切到時序疊圖頁籤時會依 ids 對 savedScenarios 查表，帶正確 turbineId 打各情境的 history', async () => {
+    await renderView(
+      [3, 5],
+      'zh',
+      vi.fn(),
+      [
+        { id: 3, turbine_count: 3, config: { sim_start: '2026-03-01T00:00:00Z' } },
+        { id: 5, turbine_count: 3, config: { sim_start: '2026-03-05T00:00:00Z' } },
+      ],
+    );
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '時序疊圖' }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/scenarios/3/turbines/WT001/history'))).toBe(true),
+    );
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/scenarios/5/turbines/WT001/history'))).toBe(true);
+  });
+
+  it('未傳 savedScenarios（預設空陣列）→ 時序疊圖頁籤不崩潰，顯示無資料狀態', async () => {
+    await renderView([3, 5]);
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '時序疊圖' }));
+    expect(screen.getByText('選取的情境中，此機組沒有資料。')).toBeInTheDocument();
+  });
+
+  it('切換回摘要並排頁籤 → 內容還原', async () => {
+    await renderView();
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '時序疊圖' }));
+    expect(screen.queryByText('全指標並排')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '摘要並排' }));
+    expect(screen.getByText('全指標並排')).toBeInTheDocument();
   });
 });

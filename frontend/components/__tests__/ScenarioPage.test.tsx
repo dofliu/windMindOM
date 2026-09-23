@@ -615,6 +615,30 @@ describe('ScenarioPage — 跨情境比較選取', () => {
     expect(screen.getByText('跨情境比較')).toBeInTheDocument();
   });
 
+  it('切到時序疊圖頁籤（A2 Part 3）→ ScenarioPage 傳的 savedScenarios 正確接線到相對時間對齊', async () => {
+    // SAVED_SCENARIOS_TWO 兩筆情境刻意一有 sim_start（id 7）一沒有（id 8）——端到端驗證
+    // ScenarioPage → ScenarioCompareAcrossView → ScenarioCompareTimelineView 的 savedScenarios
+    // 查表接線正確（沒 sim_start 的那筆會顯示 fallback 對齊提示，帶出其名稱）。
+    installFetch({ saved: SAVED_SCENARIOS_TWO });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('晴朗測試')).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：暴風測試/ }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /選取比較：晴朗測試/ }));
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /比較所選情境/ })); });
+    await waitFor(() => expect(screen.getByText('跨情境比較')).toBeInTheDocument());
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '時序疊圖' })); });
+    await waitFor(() =>
+      expect(calls((u) => u.includes('/api/scenarios/7/turbines/WT001/history')).length).toBeGreaterThan(0),
+    );
+    expect(calls((u) => u.includes('/api/scenarios/8/turbines/WT001/history')).length).toBeGreaterThan(0);
+    // id 8（晴朗測試）config 缺 sim_start → fallback 對齊提示帶出其名稱。
+    expect(screen.getByText(/晴朗測試 — 缺情境 sim_start/)).toBeInTheDocument();
+  });
+
   it('取消勾選 → 按鈕重新停用', async () => {
     installFetch({ saved: SAVED_SCENARIOS_TWO });
     await renderPage('zh');

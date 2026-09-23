@@ -6,8 +6,9 @@
  * 摘要並排：headline 卡片 → 指標選擇 → 跨情境長條圖 → 全指標並排表。與 A1
  * （`ScenarioCompareView`，同情境內跨機組）對稱：A1 比較「機組 vs 機組」，本頁比較「情境 vs 情境」。
  *
- * 相對時間對齊的時序疊圖與差異圖（決策記錄 A2 完整範圍的另一半）需要新後端端點（跨情境時間軸
- * 重疊、downsampling 表非 session-safe，見 decision_log DEC-20260720-02 caveat），不在本頁範圍。
+ * 相對時間對齊的時序疊圖（第二個頁籤，A2 Part 3，WMOM-20260923-03）重用既有單情境端點
+ * （見 `ScenarioCompareTimelineView`），非新後端端點；差異圖（決策記錄 A2 完整範圍的最後一塊）需要
+ * 先解決多序列時間點不完全對齊的插值/分桶問題，仍不在本頁範圍，留給下一階段。
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -32,12 +33,19 @@ import {
   type FarmCompareMetricKey,
   type ScenarioSummary,
 } from '../utils/scenarioCompare';
+import ScenarioCompareTimelineView from './ScenarioCompareTimelineView';
+import type { SavedScenario } from './ScenarioDetail';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
+
+type CompareTab = 'summary' | 'timeline';
 
 interface Props {
   /** 挑選比較的情境 id（2–5 個，比照後端 MIN/MAX_COMPARE_SCENARIOS，順序即並排順序）。 */
   ids: number[];
+  /** 「過去情境」清單的完整物件（含 `config.sim_start`/`turbine_count`），供「時序疊圖」頁籤的相對
+   *  時間對齊使用；預設空陣列——只影響時序疊圖頁籤，摘要並排頁籤不受影響（仍走 `ids` + `/compare`）。 */
+  savedScenarios?: SavedScenario[];
   lang?: 'en' | 'zh';
   onBack: () => void;
 }
@@ -56,7 +64,7 @@ function fmtDamage(v: number): string {
   return Math.abs(v) < 1e-3 ? v.toExponential(2) : v.toFixed(4);
 }
 
-const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, lang = 'zh', onBack }) => {
+const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, savedScenarios = [], lang = 'zh', onBack }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
@@ -64,6 +72,7 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, lang = 'zh', onBack }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metric, setMetric] = useState<FarmCompareMetricKey>('avgCapacityFactor');
+  const [tab, setTab] = useState<CompareTab>('summary');
 
   const idsKey = ids.join(',');
 
@@ -113,6 +122,20 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, lang = 'zh', onBack }
   const fmtCell = (v: number | null, m: MetricDef): string =>
     v === null ? '—' : `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ''}`;
 
+  // 名稱查表：時序疊圖頁籤沿用摘要並排已抓到的 ScenarioSummary 命名邏輯（同一情境同一名稱，
+  // 不因頁籤切換而不一致）；找不到（理論上不會，兩者共用同一批 ids）時回退 #id。
+  const labelFor = (scenarioId: number): string => {
+    const s = scenarios?.find((x) => x.scenarioId === scenarioId);
+    return s ? scenarioLabel(s) : `#${scenarioId}`;
+  };
+
+  const idsKeyForTimeline = ids.join(',');
+  const timelineScenarios = useMemo(
+    () => ids.map((id) => savedScenarios.find((s) => s.id === id)).filter((s): s is SavedScenario => Boolean(s)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [idsKeyForTimeline, savedScenarios],
+  );
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
@@ -142,6 +165,57 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, lang = 'zh', onBack }
         </Card>
       )}
       {!loading && scenarios && (
+        <>
+          {/* ── 頁籤：摘要並排 / 時序疊圖（A2 Part 3）── */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              marginBottom: 14,
+              padding: 4,
+              background: C.panelMuted,
+              borderRadius: 8,
+              width: 'fit-content',
+            }}
+          >
+            {([
+              { key: 'summary' as const, en: 'Summary', zh: '摘要並排' },
+              { key: 'timeline' as const, en: 'Timeline overlay', zh: '時序疊圖' },
+            ]).map((t) => {
+              const active = t.key === tab;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  aria-pressed={active}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 13,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: active ? C.accent : 'transparent',
+                    color: active ? C.accentInk : C.sub,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: active ? 600 : 500,
+                  }}
+                >
+                  {u(t.en, t.zh)}
+                </button>
+              );
+            })}
+          </div>
+
+          {tab === 'timeline' && (
+            <ScenarioCompareTimelineView
+              scenarios={timelineScenarios}
+              labelFor={labelFor}
+              colorFor={colorFor}
+              lang={lang}
+            />
+          )}
+
+          {tab === 'summary' && (
         <>
           {/* ── 情境 headline 卡片（依配色區分，指標切換保持一致）── */}
           <div
@@ -268,6 +342,8 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, lang = 'zh', onBack }
               </div>
             )}
           </Card>
+        </>
+          )}
         </>
       )}
     </div>
