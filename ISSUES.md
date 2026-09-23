@@ -16,10 +16,25 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 107 |
-| **total (active)** | **118** |
+| done | 108 |
+| **total (active)** | **119** |
 
-最後更新：2026-09-22（autonomous session #7：**WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
+最後更新：2026-09-23（**WMOM-20260923-01 — MaintenanceHub component render 測試**（EPIC-M5
+測試覆蓋擴大）：`/admin/maintenance` 頁面元件（439 行）先前零 component render 測試（只有其
+data hook `useMaintenanceData` 有單元測試），比照 `DispatchModal` 範式（純 props-driven、無
+fetch/timer）補上 46 測，涵蓋 PageHeader 殼層、Filter 篩選、WorkOrderTable 全欄位（含
+technicianId 查無此人的 fallback、依 createdAt 動態算的優先權/SLA）、RosterCard、WeekCalendar
+計數徽章。5 個關鍵邏輯分支手動 mutation-verified。code-reviewer subagent review：0 must-fix，
+3 should-fix（皆為「confirmed via mutation testing」的具體覆蓋率缺口：①「最後一位無分隔線」
+測試名稱與斷言不符——只驗證內容存在未驗證 `borderBottom` 樣式；②`WeekCalendar` 計數徽章測試
+只驗證「某處出現」未驗證「出現在正確的星期格」，換句話說星期分桶邏輯完全沒被鎖住；③技師目前
+狀態非 ON_DUTY 時，工單表格技師欄位查表 fallback 未覆蓋）+ 4 nice-to-have（Avatar 空姓名
+fallback、Filter fixture 改工廠函式、en 星期標籤重複字母精確計數、filter 切換後 select 值
+斷言）全數採納：production 加一行 `data-testid="week-day-{i}"`（純測試選取用）讓分桶測試可
+精確 scope 到星期格，3 個 should-fix 逐一 mutation-verified（改回舊邏輯確認新測會 fail，再
+還原），Approve。純測試 + 1 行 testid，零其他 production 變更；backend 未動 1103 passed 不變；
+frontend 978→1027 passed（+49 新測）、tsc 0、vite build OK。）
+session #7（2026-09-22）：**WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
 跨情境摘要比較 UI**——消費前一 session 已完成但無前端呼叫方的 `GET /api/scenarios/compare`，
 「過去情境」清單新增勾選（2–5 個）+「比較所選」→ 新頁 `ScenarioCompareAcrossView`（風場層
 rollup 並排：headline 卡片 + 指標選擇 + 長條圖 + 全指標並排表），與 A1 對稱（比較單位是情境而非
@@ -454,6 +469,57 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **下次接手**：A2 Part 2 剩餘（相對時間對齊時序疊圖 + 差異圖，新後端端點 + 新前端元件）；
     PR C（檢視情境掛載 app，需先寫 broker 子設計，仍卡）。
 - **Reference**: [`work-logs/2026-09/2026-09-22-scenario-compare-a2-frontend.md`](work-logs/2026-09/2026-09-22-scenario-compare-a2-frontend.md)
+
+## 📌 2026-09-23 session 新增 issue（測試覆蓋擴大）
+
+**Done**
+- **WMOM-20260923-01** — ✅ **`MaintenanceHub` component render 測試**（EPIC-M5 測試覆蓋擴大）：
+  `/admin/maintenance` 維護中心頁面元件（439 行）先前零 component render 測試（只有其 data hook
+  `useMaintenanceData` 有單元測試）——TODO.md 從 2026-06 起多筆 session 的「下次續做」都點名
+  `MaintenanceHub` / `FaultInjectionPanel` 為 untested 大元件，但一直沒有 session 接手；本次認領
+  `MaintenanceHub`（較小的一個）。元件純由 `maintenanceData`（`ReturnType<typeof
+  useMaintenanceData>`）與 callback props 驅動、無 fetch/timer，比照 `DispatchModal` 範式（不需
+  mock hook 本體，直接餵結構完整的假資料物件），是本系列中最單純的一支。
+  - **新增 `components/__tests__/MaintenanceHub.test.tsx`（新檔，49 tests）**：涵蓋 PageHeader
+    殼層（標題/sub 未結工單數+在崗技師數，兩者皆算全部而非篩選後結果/Filter select/新工單按鈕）、
+    Filter 篩選（all/open/in_progress/completed）、WorkOrderTable（ID 截斷/問題首行截斷 60 字/
+    技師名查表含 fallback，含 technicianId 存在但查無此人、以及技師目前非 ON_DUTY 兩種邊界/
+    createdAt 動態算優先權 HIGH·MED·LOW 與 SLA 字串/狀態 pill zh+en/點列 callback）、RosterCard
+    （空狀態/技師卡/切換班別鈕文字+disabled/Avatar 空姓名 fallback/最後一位無分隔線）、
+    WeekCalendar（標題/星期標籤 zh+en/依 createdAt 正確分桶到星期格的計數徽章）。
+  - **時間相依處理**：priority/SLA 皆以 `Date.now() - createdAt` 動態算，fixture 一律用「現在
+    時刻往回推固定分鐘/小時數」構造（不用 fake timers，比照 MonthlyReportPanel 教訓）；
+    WeekCalendar 分桶測試額外鏡射元件內部「本週 Monday..Sunday」日期推算邏輯，算出待測 fixture
+    對應的正確星期 index。
+  - **手動 mutation-verified 5 個關鍵邏輯分支**（techMap fallback / 優先權門檻 / filter 邏輯 /
+    DISPATCHED disable / 計數徽章有無出現）確認會抓到對應 regression。
+  - 🔍 **code-reviewer subagent review**：0 must-fix，**3 should-fix（皆為「confirmed via
+    mutation testing」的具體覆蓋率缺口，非空談）全數採納**：
+    1. 「多名技師→最後一位無底部分隔線」測試名稱宣稱驗證分隔線，但斷言只檢查姓名文字存在——
+       reviewer 把生產碼 `borderBottom` 邏輯改成永遠加線後重跑，46 測全過，證實是 false
+       positive。修法：改用 `.parentElement!.parentElement` 抓到整列 row，斷言
+       `style.borderBottom` 而非僅內容存在。
+    2. `WeekCalendar` 三個計數徽章測試都只用 `screen.getByText('×N')` 全域查找，未驗證徽章
+       出現在**正確的星期格**——reviewer 把 `counts` 陣列整體位移一天（off-by-one 分桶 bug）
+       後重跑，46 測仍全過，證實星期分桶邏輯完全沒被鎖住。修法：production 加一行
+       `data-testid="week-day-{i}"`（純測試選取用，i=0 週一…6 週日），測試鏡射元件內部週一
+       推算邏輯建構「本週內但非今天」的 fixture，用 `within(getByTestId(...))` 精確 scope
+       斷言徽章只出現在正確格、今天格維持 0。
+    3. 「technicianId 對應到現有技師」測試的技師 `status` 都是預設值 `ON_DUTY`，未驗證技師
+       目前 `OFF_DUTY`/`DISPATCHED` 時 `techMap` 仍應正確顯示姓名——reviewer 把 `techMap`
+       建構時加上 `status===ON_DUTY` 過濾後重跑，46 測仍全過。修法：新增技師為 `OFF_DUTY`
+       的對照測試。
+    3 個 should-fix 逐一改回舊邏輯 mutation-verified 確認新測會 fail，再還原。另採納 4
+    nice-to-have（Avatar 空姓名 fallback、Filter fixture 改工廠函式避免 module-level 共用陣列、
+    en 星期標籤重複字母 T/S 精確計數、filter 切換後補 `toHaveValue` 斷言）。Overall verdict:
+    Approve。
+  - ✅ **Verify**：純測試 + production 加 1 行 `data-testid`（無視覺/邏輯影響），零其他
+    production 變更；backend 未動 1103 passed 不變；frontend 978→1027 passed（+49 新測，零
+    regression）、tsc 0 error、`npx vite build` OK。
+  - **下次接手**：`FaultInjectionPanel.tsx`（555 行，同批 untested 大元件的另一支，TODO.md 多筆
+    session 的「下次續做」點名但尚未接手）；ui primitives（`components/ui/*.tsx`）目前零
+    `__tests__` 目錄，尚未評估是否需要。
+- **Reference**: work-logs/2026-09/2026-09-23-maintenancehub-render-tests.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

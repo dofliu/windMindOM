@@ -138,6 +138,7 @@ const WeekCalendar: React.FC<{
           return (
             <div
               key={i}
+              data-testid={`week-day-${i}`}
               style={{
                 aspectRatio: '1 / 1',
                 borderRadius: 8,
