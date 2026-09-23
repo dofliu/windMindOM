@@ -3,7 +3,8 @@
  *
  * 守住：per-scenario fetch（同 Part 3）、baseline 選擇（預設第一個情境、切換 baseline 重算差異
  * 不重新 fetch）、差異值計算正確性（compare - baseline）、baseline 不出現在差異線圖例中
- * （它是 y=0 參考線）、baseline 清單變動時的 fallback、baseline 無資料的提示、fetch 失敗提示、
+ * （它是 y=0 參考線）、baseline 清單變動時的 fallback、baseline 無資料的提示、非 baseline/baseline
+ * 各自的 fetch 失敗提示（兩者不重複顯示）、fallback 對齊提示、HISTORY_LIMIT 截斷提示、
  * 無重疊資料的空狀態。
  */
 
@@ -183,14 +184,53 @@ describe('ScenarioCompareDiffView — 邊界狀態', () => {
     await waitFor(() => expect(screen.getByText(/暴風測試（baseline）此機組沒有資料/)).toBeInTheDocument());
   });
 
-  it('fetch 失敗（非 ok）→ 顯示載入失敗提示', async () => {
+  it('非 baseline 情境 fetch 失敗（非 ok）→ 顯示載入失敗提示', async () => {
+    // 3 是預設 baseline，讓 5（非 baseline）失敗，才會走一般 failedNames 提示。
+    fetchMock = vi.fn((url: string) => {
+      if (url.includes('/scenarios/5/')) return jsonRes({}, false);
+      return jsonRes(readingsFor('2026-03-01T00:00:00Z', [1, 2]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await renderView();
+    await waitFor(() => expect(screen.getByText(/晴朗微風 — 載入失敗/)).toBeInTheDocument());
+  });
+
+  it('baseline 情境本身 fetch 失敗 → 只顯示 baseline 專屬提示，不重複顯示一般載入失敗提示', async () => {
+    // 3 是預設 baseline；baselineHasNoData 已涵蓋「baseline 無資料」（含失敗）的情況，
+    // 一般 failedNames 提示應排除 baseline，避免同一根因重複顯示兩則提示。
     fetchMock = vi.fn((url: string) => {
       if (url.includes('/scenarios/3/')) return jsonRes({}, false);
       return jsonRes(readingsFor('2026-03-05T00:00:00Z', [1, 2]));
     });
     vi.stubGlobal('fetch', fetchMock);
     await renderView();
-    await waitFor(() => expect(screen.getByText(/暴風測試 — 載入失敗/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/暴風測試（baseline）此機組沒有資料/)).toBeInTheDocument());
+    expect(screen.queryByText(/暴風測試 — 載入失敗/)).not.toBeInTheDocument();
+  });
+
+  it('缺 sim_start 的情境 → 顯示 fallback 對齊提示，帶出該情境名稱', async () => {
+    installFetch({
+      3: readingsFor('2026-03-01T00:00:00Z', [100, 200], 10),
+      5: { readings: [{ timestamp: '2026-02-01T00:00:00Z', scada: { WTUR_TotPwrAt: 1 } }] },
+    });
+    await renderView([SCENARIO_A, { ...SCENARIO_B, config: { name: '晴朗微風' } }]);
+    await waitFor(() => expect(screen.getByText(/晴朗微風 — 缺情境 sim_start/)).toBeInTheDocument());
+  });
+
+  it('都有 sim_start → 不顯示 fallback 對齊提示', async () => {
+    await renderView();
+    await waitFor(() => expect(screen.getByTestId('diff-legend-5')).toBeInTheDocument());
+    expect(screen.queryByText(/缺情境 sim_start/)).not.toBeInTheDocument();
+  });
+
+  it('命中 HISTORY_LIMIT（12000）→ 顯示截斷提示', async () => {
+    const long = Array.from({ length: 12000 }, (_, i) => i);
+    installFetch({
+      3: readingsFor('2026-03-01T00:00:00Z', long, 10),
+      5: readingsFor('2026-03-01T00:00:00Z', [1], 10),
+    });
+    await renderView();
+    await waitFor(() => expect(screen.getByText(/暴風測試 — 僅顯示最近/)).toBeInTheDocument());
   });
 
   it('兩情境完全不重疊（分桶後仍無交集）→ 顯示無可比較資料狀態', async () => {

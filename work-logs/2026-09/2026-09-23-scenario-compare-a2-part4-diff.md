@@ -53,23 +53,24 @@ WMOM-20260923-06。連續兩個 session（-03、目前）把「差異圖」列�
 ### 新增檔案
 
 - `frontend/utils/scenarioHistoryFetch.ts`
-- `frontend/utils/__tests__/scenarioHistoryFetch.test.ts`（7 tests）
+- `frontend/utils/__tests__/scenarioHistoryFetch.test.ts`（8 tests）
 - `frontend/components/ScenarioCompareDiffView.tsx`
-- `frontend/components/__tests__/ScenarioCompareDiffView.test.tsx`（13 tests）
+- `frontend/components/__tests__/ScenarioCompareDiffView.test.tsx`（17 tests）
 
 ### 修改檔案
 
 - `frontend/utils/scenarioTimeline.ts`（新增 `medianInterval`/`pickBinMs`/`binSeries`/
   `buildDiffSeries` 純函式）
-- `frontend/utils/__tests__/scenarioTimeline.test.ts`（+24 tests）
+- `frontend/utils/__tests__/scenarioTimeline.test.ts`（+18 tests）
 - `frontend/components/ScenarioCompareTimelineView.tsx`（只加 `export`，無邏輯變動）
 - `frontend/components/ScenarioCompareAcrossView.tsx`（掛第三個頁籤）
 - `frontend/components/__tests__/ScenarioCompareAcrossView.test.tsx`（+2 tests，差異圖頁籤切換
   + 未傳 savedScenarios 不崩潰/不 fetch）
+- `docs/product/decision_log.md`（DEC-20260923-01 Consequences 段落回填「已解決」，nice-to-have）
 
 ### 動了狀態的 issue
 
-- WMOM-20260923-06：open → in_progress（code-reviewer review 進行中，待收尾後標 done）
+- WMOM-20260923-06：open → done
 
 ### 寫進 decision_log 的決策
 
@@ -77,8 +78,11 @@ WMOM-20260923-06。連續兩個 session（-03、目前）把「差異圖」列�
 
 ## 4. 下次怎麼接手
 
-本次應可完整收尾（單 session）。若因故中斷，下次接手看本檔 §7 或本檔是否已補上 Verify/Review/
-Wrap-up 段落判斷是否完工。
+本次已完整收尾。DEC-20260720-02 A2「情境比較分析」epic 完整範圍（摘要並排 A0/A1/Part1/2 +
+時序疊圖 Part3 + 差異圖 Part4）至此全數完成。下次可選：PR C（檢視情境掛載 app，需先寫 broker
+子設計）、WMOM-20260716-06（footprint CPU-torch pin，卡 docker daemon）、
+WMOM-20260509-F6（PostgreSQL row-lock，同款卡 docker daemon）、M6 部署前置（HTTPS 配置，需先
+定部署目標/憑證策略）。詳見 `TODO.md` / `ISSUES.md`。
 
 ## 5. 時間統計（粗估）
 
@@ -91,11 +95,17 @@ Wrap-up 段落判斷是否完工。
 
 ## 6. 學到的事
 
-- （待 Review/Wrap-up 段落補完後回填）
+- 「刻意不重構已測試過的程式碼、抽共用邏輯到新檔案」這個決策本身沒錯，但抽出後若兩份實作在
+  某個分支上有行為分歧（本次是 HTTP 失敗 + 缺 sim_start 的組合），沒有測試會自動抓到——這種
+  分歧只能靠 reviewer 逐行比對兩份實作才找得到。下次做類似抽取時，應主動列出「原本每個分支
+  組合」逐一對照抽出後是否仍一致，而不是只驗證「常見路徑」。
+- 「有資料」與「資料是缺口但看起來像有資料」是兩種完全不同的 bug 類型：`hasAnyDiff` 的
+  length>0 誤判、`failedNames`/`baselineHasNoData` 語意重疊，都是「陣列非空≠有意義的資料」
+  這個同一類陷阱的不同表現，寫聚合/摘要邏輯時要特別留意「空但存在」的中間狀態。
 
 ## 7. Open questions（park）
 
-- （待 Review 完成後視 finding 補充）
+- 無。
 
 ---
 
@@ -108,10 +118,11 @@ Wrap-up 段落判斷是否完工。
 - 開工 baseline：backend `1103 passed, 7 skipped, 1 xfailed`；frontend `npx tsc --noEmit` 0
   error、`npx vitest run` `1171 passed`（56 files）、`npx vite build` OK——皆與 STATUS.yaml 記錄
   的基準一致。
-- 本次新增/修改後：backend 未動（無 Python 變更，未重跑）；frontend `npx tsc --noEmit` 0 error、
-  `npx vitest run` `1171→1210 passed`（56→58 files，+39 新測：scenarioTimeline.test.ts +24、
-  scenarioHistoryFetch.test.ts +7 新檔、ScenarioCompareDiffView.test.tsx +13 新檔、
-  ScenarioCompareAcrossView.test.tsx +2）、`npx vite build` OK。
+- 本次新增/修改後（含 review 修復）：backend 未動（無 Python 變更，未重跑）；frontend
+  `npx tsc --noEmit` 0 error、`npx vitest run` `1171→1216 passed`（56→58 files，+45 新測：
+  scenarioTimeline.test.ts 14→32（+18）、scenarioHistoryFetch.test.ts +8（新檔）、
+  ScenarioCompareDiffView.test.tsx +17（新檔）、ScenarioCompareAcrossView.test.tsx 13→15（+2））、
+  `npx vite build` OK。
 - **開發過程中自行抓到並修正 2 個真實 bug（皆 mutation-verified）**：
   1. `hasAnyDiff` 原本只檢查 `diffByScenario[s.id]?.length > 0`，但 `buildDiffSeries` 回傳的是
      兩序列桶集合的**聯集**，即使兩情境完全零重疊，陣列仍非空（全是 `value: null`）——會誤判成
@@ -127,10 +138,44 @@ Wrap-up 段落判斷是否完工。
 
 ## Review
 
-code-reviewer subagent review 進行中（背景執行），本檔將在收到結果後更新此段落（must-fix 全數
-處理 + should-fix 逐項決議）。
+code-reviewer subagent review：**1 must-fix（已修）+ 3 should-fix（全數採納）+ 4 nice-to-have
+（3 採納、1 不採納）**。
+
+- **Must-fix（已修）**：`ScenarioCompareDiffView.tsx` 抓了 `usedFallbackAlign`（缺 `sim_start`
+  改用自己最早一筆讀數對齊）卻從未讀取、也沒有像 Part 3 那樣顯示提示——差異圖把兩條線相減成
+  一個數字，若 baseline 與比較情境剛好一真一假對齊，算出來的差異會是兩個不同時間基準相減、
+  看起來精確卻是誤導，且完全沒有提示使用者。已補上 `fallbackNames` banner（沿用 Part 3 文案，
+  差異圖情境額外加一句「牽涉這些情境的差異值可能是在比較不同時間基準」），並新增 2 個測試
+  （`缺 sim_start 的情境 → 顯示 fallback 對齊提示`、`都有 sim_start → 不顯示`）+ mutation-verified
+  （暫時清空 `fallbackNames`/`truncatedNames` 陣列 → 兩個對應測試如預期 fail → 已還原）。
+- **Should-fix 1（已修）**：`truncated`（命中 `HISTORY_LIMIT` 截斷）同樣被抓了卻未顯示提示，
+  差異線較早段的缺口會被誤讀成「真的沒有重疊」而非「資料未載入」。已補 `truncatedNames` banner
+  （同上一併 mutation-verified）。
+- **Should-fix 2（已修）**：抽出的 `fetchScenarioHistory` 在 HTTP 非 ok 分支寫死
+  `usedFallbackAlign: false`，但原本內嵌於 `ScenarioCompareTimelineView` 的寫法即使 fetch 失敗
+  也會走到同一段算 `declaredBase`/`usedFallbackAlign` 的程式碼——兩份邏輯在「fetch 失敗 + 缺
+  sim_start」這個組合上已經分歧（且原本測試沒蓋到這個組合）。已改成 `failed` 只影響
+  `res.readings` 是否視為空，`usedFallbackAlign`/`baseMs` 一律照 sim_start 邏輯算，與原寫法
+  一致；新增/修正 2 個測試鎖住「HTTP 非 ok + 有 sim_start」與「HTTP 非 ok + 缺 sim_start」兩種
+  組合，並 mutation-verified（改回舊的短路寫法 → 2 測皆如預期 fail → 已還原）。
+- **Should-fix 3（已修）**：`diffByScenario` 的 `useMemo` 省略 `compareScenarios`/`scenarios`
+  依賴卻沒有註解說明為何安全，不像本檔其餘 `eslint-disable` 都有解釋——已補一行註解（`id` 查表、
+  情境集合變動必經 `scenariosKey` 觸發重新 fetch，省略不會造成資料落後）。
+- **Nice-to-have 採納**：
+  1. `docs/product/decision_log.md` DEC-20260923-01 的 Consequences 段落原寫「差異圖是否需要
+     後端仍待評估」，本次已解決卻沒回填——已補上「已於 WMOM-20260923-06 解決：不需要」的更新。
+  2. `binSeries` 測試原本只驗 2 點/桶，補一個 3 點以上/桶的測試，完整鎖住「取平均」而非只驗
+     2 點的特例。
+  3. baseline 抓取失敗時，原本 `failedNames` 通用提示與新的 `baselineHasNoData` 提示會同時
+     顯示（語意重疊、有點吵）——已改成 `failedNames` 排除 baseline 本身，該情況只顯示更具體的
+     baseline 專屬提示；新增 2 個測試區分「非 baseline 失敗」vs「baseline 本身失敗」的提示分流，
+     並 mutation-verified（改回不排除 baseline → 新測試如預期 fail → 已還原）。
+  - **不採納**：`binMs` 在切換指標（`tag`）時會重算，雖然桶寬理論上與指標無關（純看 `t`）——
+    reviewer 也判斷這只是多算一次、非 bug，影響有限，本次不動。
 
 ## Wrap-up
 
-（待 Review 完成後補齊：STATUS.yaml / ISSUES.md / TODO.md 更新、issue 狀態改 done、最終
-commit + push + PR。）
+- STATUS.yaml / ISSUES.md / TODO.md 已同步更新（見下方 commit）。
+- 本次沒有引入未受自動化測試保護的邏輯；已知既有限制沿用 Part 3 的說明——recharts 圖表本身
+  在 jsdom（無 ResizeObserver）無法驗證實際畫出的線條/像素，只能讀原始碼推論 + 人工瀏覽器驗，
+  這點與其餘情境比較頁籤一致，非本次新增的缺口。

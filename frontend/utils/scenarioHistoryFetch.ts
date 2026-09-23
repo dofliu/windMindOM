@@ -49,10 +49,11 @@ export async function fetchScenarioHistory(
       `${apiBase}/api/scenarios/${scenarioId}/turbines/${turbineId}/history?limit=${limit}`,
       { signal },
     );
-    if (!r.ok) {
-      return { rows: [], baseMs: 0, truncated: false, usedFallbackAlign: false, failed: true };
-    }
-    const res = await r.json();
+    const failed = !r.ok;
+    // HTTP 非 ok 時 res 視為空 readings（無法解析 body），但仍照下方邏輯算 usedFallbackAlign——
+    // 與原本內嵌於 ScenarioCompareTimelineView 的寫法一致（該版本即使 fetch 失敗也會走到同一段
+    // 算 declaredBase/usedFallbackAlign 的程式碼），避免抽出後與原寫法產生行為分歧。
+    const res = failed ? { readings: [] } : await r.json();
     const raw: RawHistPoint[] = Array.isArray(res.readings) ? res.readings : [];
     const declaredBase = simStartMs(simStart);
     const usedFallbackAlign = declaredBase === null;
@@ -63,7 +64,7 @@ export async function fetchScenarioHistory(
       baseMs: declaredBase ?? fallbackBase,
       truncated: raw.length >= limit,
       usedFallbackAlign,
-      failed: false,
+      failed,
     };
   } catch {
     return { rows: [], baseMs: 0, truncated: false, usedFallbackAlign: false, failed: true };

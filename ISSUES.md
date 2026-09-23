@@ -16,10 +16,12 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 112 |
-| **total (active)** | **123** |
+| done | 113 |
+| **total (active)** | **124** |
 
-最後更新：2026-09-23（**WMOM-20260923-05 — `Sidebar.tsx` component render 測試**：前一
+最後更新：2026-09-23（**WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖**：DEC-20260720-02
+A2 epic 完整範圍至此全數完成，詳見下方 issue 條目。）
+前一 session：**WMOM-20260923-05 — `Sidebar.tsx` component render 測試**：前一
 session（WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 9 支 primitive 檔案時，判定
 `Sidebar.tsx`（220px 主導覽，294 行）範圍較大另開一支，本次接手——全站唯一主導覽入口先前
 完全零 `__tests__`。新增 `components/ui/__tests__/Sidebar.test.tsx`（23 tests）：
@@ -725,6 +727,44 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     （v4.1，baseline 1076/970）。建議劉老師找時間把 cron trigger 目前設定的完整 prompt
     貼回這份文件同步，避免未來 session 讀到舊版誤判 baseline regression。
 - **Reference**: work-logs/2026-09/2026-09-23-sidebar-render-tests.md
+
+- **WMOM-20260923-06** — ✅ **情境比較分析 · A2 Part 4：跨情境差異圖**（DEC-20260720-02，A2 epic
+  完整範圍至此全數完成）：連續兩個 session（-03、-05 的「下次接手」）把差異圖列為 A2 Part 4，
+  留給本次接手——decision_log `DEC-20260923-01` 留了 caveat「差異圖是否需要後端聚合，留給本階段
+  依實作探勘判斷」。
+  - **判定不需要後端**：比照 Part 3（時序疊圖），純前端處理「多情境序列取樣時間點不完全對齊」
+    的問題。`utils/scenarioTimeline.ts` 新增 4 個純函式：`medianInterval`（序列相鄰間距中位數）、
+    `pickBinMs`（取多個序列中**最粗**的取樣間隔當桶寬，刻意不選最細，避免對粗序列插補假精度）、
+    `binSeries`（分桶取平均、忽略 null）、`buildDiffSeries`（逐桶算 `compare − baseline`，只有
+    兩邊該桶都有值才算得出差異，否則為 `null` 缺口、非 0）。
+  - **新增 `utils/scenarioHistoryFetch.ts`**：把 Part 3 既有的「單情境單機組 history 抓取 + 對齊
+    基準計算」邏輯抽成獨立函式供本次新頁籤重用，避免第三份重複 fetch 邏輯；`ScenarioCompare
+    TimelineView.tsx` 本身刻意不動（只加 `export` 讓常數可共用），降低觸及已測試程式碼的風險。
+  - **新增 `ScenarioCompareDiffView.tsx`**：第三個頁籤「差異圖」——baseline 情境可選（預設第一個），
+    其餘情境逐點算「該情境 − baseline」疊圖，`y=0` 為參考線；`ScenarioCompareAcrossView.tsx` 掛
+    上第三個頁籤，A2 完整範圍（摘要並排＋疊圖＋差異圖）至此全數完成。
+  - **開發過程中自行抓到並修正 2 個真實 bug（皆 mutation-verified）**：(1) `hasAnyDiff` 誤把
+    「兩序列聯集後桶陣列非空」當成「有資料」，即使兩情境完全不重疊也會誤判成有資料而畫出全
+    缺口的線；改成檢查「至少一個桶兩邊都有值」。(2) 元件測試 `getByText(情境名稱)` 同時命中
+    `<Select>` 的 `<option>` 與純 DOM 圖例，改用 `data-testid` 精準定位。
+  - 🔍 **code-reviewer subagent review**：**1 must-fix + 3 should-fix 全數採納**：
+    (1) must-fix：`usedFallbackAlign`（缺 `sim_start` 走 fallback 對齊）抓了卻從未提示使用者——
+    差異圖把兩條線相減成一個數字，一真一假對齊時算出來的差異看起來精確卻是誤導；已補
+    `fallbackNames` banner。(2) should-fix：`truncated`（命中 `HISTORY_LIMIT`）同樣未提示，
+    已補 `truncatedNames` banner。(3) should-fix：抽出的 `fetchScenarioHistory` 在 HTTP 失敗
+    分支寫死 `usedFallbackAlign: false`，與原本內嵌寫法在「失敗+缺 sim_start」組合上已分歧，
+    已修正一致並補測試鎖住這個先前沒蓋到的組合。(4) should-fix：`diffByScenario` useMemo 省略
+    依賴卻沒解釋，已補說明註解。另採納 3 個 nice-to-have（decision_log 回填已解決、`binSeries`
+    補 3+ 點/桶測試、baseline 失敗時排除通用提示避免與專屬提示語意重疊）、1 個不採納（`binMs`
+    切換指標時的無害重算）。皆逐項 mutation-verified，Approve。
+  - ✅ **Verify**：backend 未動（無 Python 變更），全程 `1103 passed, 7 skipped, 1 xfailed`；
+    frontend `npx tsc --noEmit` 0 error、`npx vitest run` `1171→1216 passed`（56→58 files，
+    +45 新測：scenarioTimeline +18、scenarioHistoryFetch +8 新檔、ScenarioCompareDiffView +17
+    新檔、ScenarioCompareAcrossView +2）、`npx vite build` OK。
+  - **下次接手**：PR C（檢視情境掛載 app，需先寫 broker 子設計）/ WMOM-20260716-06（footprint
+    CPU-torch pin，卡 docker daemon）/ WMOM-20260509-F6（PostgreSQL row-lock，同款卡 docker
+    daemon）/ M6 部署前置（HTTPS 配置，需先定部署目標/憑證策略）。
+- **Reference**: work-logs/2026-09/2026-09-23-scenario-compare-a2-part4-diff.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

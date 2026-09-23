@@ -55,10 +55,22 @@ describe('fetchScenarioHistory', () => {
     expect(data.truncated).toBe(true);
   });
 
-  it('HTTP 非 ok → failed=true，不丟例外', async () => {
+  it('HTTP 非 ok + 有 sim_start → failed=true，baseMs 仍照 sim_start 算（rows 空不影響 baseMs 判定），不丟例外', async () => {
     vi.stubGlobal('fetch', vi.fn(() => jsonRes({}, false)));
     const data = await fetchScenarioHistory('http://api', 3, 'WT001', '2026-03-01T00:00:00Z', 100);
-    expect(data).toEqual({ rows: [], baseMs: 0, truncated: false, usedFallbackAlign: false, failed: true });
+    expect(data).toEqual({
+      rows: [],
+      baseMs: Date.parse('2026-03-01T00:00:00Z'),
+      truncated: false,
+      usedFallbackAlign: false,
+      failed: true,
+    });
+  });
+
+  it('HTTP 非 ok + 缺 sim_start → failed 與 usedFallbackAlign 各自獨立判定（皆為 true，比照原本內嵌於 ScenarioCompareTimelineView 的寫法，避免抽出後行為分歧）', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => jsonRes({}, false)));
+    const data = await fetchScenarioHistory('http://api', 3, 'WT001', undefined, 100);
+    expect(data).toEqual({ rows: [], baseMs: 0, truncated: false, usedFallbackAlign: true, failed: true });
   });
 
   it('fetch 拋例外（網路錯誤）→ failed=true，不外洩例外', async () => {

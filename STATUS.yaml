@@ -47,7 +47,20 @@ backend 未動 1103 passed 不變；frontend 1148→1171 passed（55→56 files�
 文件 `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停在 v3（baseline
 backend 638 / frontend 59，無「自我測試」/mutation 驗證/降級模式框架），已明顯落後於本次 cron
 trigger 實際送入的 prompt（v4.1，baseline 1076/970），建議劉老師找時間把 cron trigger 目前
-設定同步回這份文件。
+設定同步回這份文件。**2026-09-23（WMOM-20260923-06，A2 Part 4：跨情境差異圖）**：DEC-20260720-02
+A2「情境比較分析」epic 完整範圍至此全數完成——差異圖判定不需要後端（比照 Part 3），純前端分桶
+重採樣解決多情境序列取樣點不對齊的問題：`utils/scenarioTimeline.ts` 新增 `medianInterval`/
+`pickBinMs`/`binSeries`/`buildDiffSeries` 純函式，`utils/scenarioHistoryFetch.ts` 抽出 Part 3
+既有 fetch 邏輯供新頁籤重用，新增 `ScenarioCompareDiffView.tsx`（baseline 可選、`compare −
+baseline` 疊圖）掛上 `ScenarioCompareAcrossView` 第三個頁籤。開發中自行抓到並修正 2 個真實 bug
+（`hasAnyDiff` 誤把「聯集後桶陣列非空」當成有資料；元件測試 `getByText` 與 `<option>` 撞名，
+改 `data-testid`）。code-reviewer review：1 must-fix（`usedFallbackAlign` 抓了卻未提示使用者，
+差異圖把兩條線相減成一個數字時，一真一假對齊會算出看似精確卻誤導的差異，已補 banner）+
+3 should-fix 全數採納（`truncated` 同款補提示；抽出的 `fetchScenarioHistory` 在 HTTP 失敗分支
+與原內嵌寫法在「失敗+缺 sim_start」組合上行為分歧，已修正一致並補測試；`useMemo` 省略依賴補
+說明註解）+ 3 nice-to-have 採納（decision_log 回填已解決、`binSeries` 補 3+ 點/桶測試、baseline
+失敗時排除通用提示避免語意重疊），Approve。backend 未動 1103 passed 不變；frontend
+1171→1216 passed（56→58 files，+45 新測）、tsc 0、build OK。
 next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。 **2026-07-20 情境模式深化 arc**：(a) generate-bulk 並發 writer 撞 SQLite `database is locked` 根治——decouple `_bulk_running` + `pause_live_for_batch` context + 單交易 `store_readings`（WMOM-20260720-01, #142 merged）；(b) 定 **DEC-20260720-01「情境＝凍結資料集」**：設定頁依實際來源 gate（view/live/scenario 時停用模擬參數，#146）+ 選「產生情境」不再自由跑連續產資料（`run_loop` 貫穿、新 `source_kind='scenario'`、不起 Modbus，#147）；(c) 立 **DEC-20260720-02 情境比較分析 epic**（序列 B→A0→C 與 A1/A2 並進）：**A0 情境摘要端點** `GET /api/scenarios/{id}/summary`（每台機組物理聚合〔容量因數/累積損傷/結束 RUL/極限負載/DEL/故障數〕+ 風場 rollup，storage 層 SQL 聚合，#148 merged）、**A1 同情境內比較視圖**（消費 A0、faulted vs healthy 分群比較圖表，#150 merged；round-2 review 的 4 個
 Should-fix follow-up 見 WMOM-20260720-13）。**WMOM-20260720-04 + -08 live/OPC 後端硬化（2026-09-22
 merged）**：M6 現場部署唯一硬阻塞已清除——DataBroker.stop() 補停 OPC adapter、切走 live 對稱要求
@@ -67,9 +80,10 @@ last_updated）。**WMOM-20260922-04（session #7）**：A2 Part 2 前端——�
 UI primitive 逐檔評估後選 2 支值得補（其餘 7 支 ROI 低或範圍另計），frontend 1100→1148 passed
 （+48 新測，詳見上方 last_updated）。**WMOM-20260923-05**：`Sidebar.tsx` component render 測試
 （+23 新測，詳見上方 last_updated），`components/ui/*.tsx` 9 支 primitive 檔案測試評估至此
-全數完成。
-**下次接手**：A2 Part 4（差異圖，需先
-解決多序列取樣點不完全對齊的插值/分桶問題，`buildTimelinePoints` 已是可復用地基）/ PR C（檢視
+全數完成。**WMOM-20260923-06（A2 Part 4：跨情境差異圖，詳見上方 last_updated）**：判定不需後端，
+純前端分桶重採樣解決多序列取樣點不對齊問題，DEC-20260720-02 A2 epic 完整範圍（摘要並排＋疊圖＋
+差異圖）至此全數完成。frontend 1171→1216 passed（+45 新測）。
+**下次接手**：PR C（檢視
 情境掛載 app，需先寫 broker 子設計）；並行 WMOM-20260716-06（footprint CPU-torch pin，本 sandbox
 有 docker client 但無 daemon，仍卡）+ WMOM-20260509-F6（PostgreSQL row-lock，同款卡 docker
 daemon）+ M5 收尾 + M6 部署前置（HTTPS 配置，需先定部署目標/憑證策略，非單純 autonomous 可決）。
@@ -135,7 +149,7 @@ issue_stats:
   open: 11   # WMOM-20260720-04/-08 已收（live/OPC 後端硬化）；剩 WMOM-20260716-06 / WMOM-20260509-F6 / HTTPS 部署 / 客戶接觸等
   in_progress: 0   # WMOM-20260720-13 已隨 PR #157 合併完成（本欄之前落後於 ISSUES.md，本次一併更正一致）
   blocked: 0
-  done: 112  # 111 + WMOM-20260923-05（Sidebar.tsx component render 測試）→ 112，total 123（11+0+0+112=123，與 ISSUES.md 一致）
+  done: 113  # 112 + WMOM-20260923-06（A2 Part 4：跨情境差異圖）→ 113，total 124（11+0+0+113=124，與 ISSUES.md 一致）
 
 inherited_baseline:
   source: digiWindTurbine

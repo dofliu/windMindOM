@@ -124,10 +124,26 @@ const ScenarioCompareDiffView: React.FC<Props> = ({ scenarios, labelFor, colorFo
       if (series && series.length > 0) out[s.id] = buildDiffSeries(baselineSeries, series, binMs);
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `compareScenarios`（進而 `scenarios`
+    // prop）刻意不列：它以 id 查表、不看順序，且任何 id 集合變動都會先改變 scenariosKey → 觸發
+    // 重新 fetch → 改變 seriesByScenario，此 memo 本就會因 seriesByScenario 變動而重算，故省略
+    // compareScenarios 不會造成資料落後（stale）。
   }, [seriesByScenario, baselineId, binMs]);
 
-  const failedNames = scenarios.filter((s) => rawByScenario[s.id]?.failed).map((s) => labelFor(s.id));
+  // baseline 抓取失敗會另外顯示更具體的 baselineHasNoData 提示（見下方），這裡排除避免同一個
+  // 根因重複顯示兩則語意重疊的提示。
+  const failedNames = scenarios
+    .filter((s) => s.id !== baselineId && rawByScenario[s.id]?.failed)
+    .map((s) => labelFor(s.id));
+  // 缺 sim_start 而走 fallback 對齊的情境，其 t=0 代表「自己第一筆讀數的時間」而非「情境宣告的
+  // 開始時間」。在疊圖頁籤（Part 3）這只是「兩條線可能沒對齊好」，使用者用肉眼還能發現；但差異圖
+  // 把兩條線相減成一個數字，若 baseline 與比較情境剛好一真一假對齊，算出來的差異會是兩個不同時間
+  // 基準的數字相減、看起來精確卻是誤導——必須明確提示（比照 ScenarioCompareTimelineView 的
+  // fallbackNames banner）。
+  const fallbackNames = scenarios
+    .filter((s) => rawByScenario[s.id]?.usedFallbackAlign)
+    .map((s) => labelFor(s.id));
+  const truncatedNames = scenarios.filter((s) => rawByScenario[s.id]?.truncated).map((s) => labelFor(s.id));
   // 注意：`diffByScenario[s.id]` 的長度是「桶的數量」，即使兩情境完全不重疊，聯集後的每個桶
   // 仍會有一筆 `value: null` 紀錄——必須檢查「至少一個桶兩邊都有值」，否則長度判斷會誤判成
   // 「有資料」而畫出一條全是缺口、看起來像錯誤的空線。
@@ -212,6 +228,42 @@ const ScenarioCompareDiffView: React.FC<Props> = ({ scenarios, labelFor, colorFo
             {u(
               `${labelFor(baselineId as number)} (baseline) has no data for this turbine — cannot compute a difference.`,
               `${labelFor(baselineId as number)}（baseline）此機組沒有資料，無法算出差異。`,
+            )}
+          </div>
+        )}
+        {fallbackNames.length > 0 && (
+          <div
+            style={{
+              marginBottom: 10,
+              fontSize: 12,
+              color: C.amber,
+              background: C.panelMuted,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}
+          >
+            {u(
+              `${fallbackNames.join(', ')} — missing sim_start, aligned to this scenario's own first sample instead. Differences involving these scenarios may compare mismatched time origins.`,
+              `${fallbackNames.join('、')} — 缺情境 sim_start，改以該情境自己最早一筆讀數對齊。牽涉這些情境的差異值，可能是在比較不同時間基準，數字僅供參考。`,
+            )}
+          </div>
+        )}
+        {truncatedNames.length > 0 && (
+          <div
+            style={{
+              marginBottom: 10,
+              fontSize: 12,
+              color: C.amber,
+              background: C.panelMuted,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}
+          >
+            {u(
+              `${truncatedNames.join(', ')} — showing only the latest ${HISTORY_LIMIT.toLocaleString()} points; earlier gaps in the difference line may reflect unloaded data, not genuine non-overlap.`,
+              `${truncatedNames.join('、')} — 僅顯示最近 ${HISTORY_LIMIT.toLocaleString()} 筆，差異線較早段的缺口可能是資料未載入，非真的沒有重疊。`,
             )}
           </div>
         )}

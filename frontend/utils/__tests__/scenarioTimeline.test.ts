@@ -163,6 +163,17 @@ describe('binSeries', () => {
     expect(binSeries(points, 10)).toEqual(new Map([[0, 15], [10, 30]]));
   });
 
+  it('同一桶內 3 個以上的點也正確取平均（非只驗 2 點的特例）', () => {
+    const points: TimelinePoint[] = [
+      { t: 0, value: 10 },
+      { t: 2, value: 20 },
+      { t: 4, value: 30 },
+      { t: 6, value: 40 },
+    ];
+    // binMs=10 → 全部落在 bin 0，平均 (10+20+30+40)/4 = 25
+    expect(binSeries(points, 10)).toEqual(new Map([[0, 25]]));
+  });
+
   it('忽略 value === null 的點', () => {
     const points: TimelinePoint[] = [
       { t: 0, value: 10 },
