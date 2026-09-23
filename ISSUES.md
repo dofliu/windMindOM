@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
+| open | 10 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 113 |
+| done | 114 |
 | **total (active)** | **124** |
 
 最後更新：2026-09-23（**WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖**：DEC-20260720-02
@@ -140,8 +140,34 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **WMOM-20260716-04** — auth follow-up：DB-backed user store（`SqlUserStore`）+ admin 建帳/列帳 API（`/api/auth/users`）+ env bootstrap 首個 admin，非破壞（+17 tests, #110）✅
 - **WMOM-20260716-05** — auth follow-up：全 5 module router（含 monitoring 9 支 + workflow + cost + reporting + knowledge）授權強制遷移 + 前端真登入頁與 AuthProvider（#112-#113, #115-#122）✅
 
-**Open（footprint follow-up）**
-- **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
+**Done（footprint follow-up）**
+- **WMOM-20260716-06** — ✅ **footprint CPU-torch pin**（Dockerfile，DEC-20260716-02）：多個 session
+  因「本地無 docker daemon」卡住的 follow-up，本次 preflight 意外發現本 sandbox 這次可手動啟動
+  `dockerd` 成功，接手實測收尾。`Dockerfile` 在 `pip install -r requirements.txt` 前新增一行
+  `pip install torch --index-url https://download.pytorch.org/whl/cpu`，讓
+  `sentence-transformers>=3.0` 隱含的 torch 依賴先被 CPU wheel 滿足，避免 pip 在 linux 預設解析出
+  CUDA 版本 + 整批 `nvidia-cu13*` 函式庫（本容器無 GPU 純浪費）。`requirements.txt` 不動，維持 dev
+  端 GPU 相容。
+  - **實測（非僅理論推導）**：`docker build` 改前 image content size **3.37GB**（含
+    `torch-2.14.0+cu130` + `triton` 247.9MB wheel + 全套 `nvidia-cu13*`）；改後 **550MB**
+    （`torch-2.14.0+cpu`，`torch.cuda.is_available()==False`）——省下 **~2.8GB**，優於
+    DEC-20260716-02 原估「砍半到 2-2.5GB」。`sentence_transformers`/`chromadb` import smoke test
+    正常；進一步疊上真正 app 程式碼層（`run.py`+`modules/`+`shared/`）`docker run` 起容器，
+    `curl /api/health` 回應 200 OK + 正常啟動 log，確認不只是 pip install 成功、而是整個 FastAPI
+    app 在 CPU-only torch image 內能正常開機服務。
+  - **環境限制**：本 sandbox outbound HTTPS 走 TLS 攔截代理，量測用 image 額外加了「安裝代理
+    CA + `--network host`」兩行 work-around 才能連上 pypi/download.pytorch.org——這兩行純屬本
+    sandbox 量測腳手架，**未進入 commit 的 `Dockerfile`**，已於驗證後連同所有 docker
+    image/container/build cache 一併清除。
+  - 🔍 **code-reviewer subagent review**：0 must-fix。1 should-fix（本節 ISSUES.md 統計表未同步）
+    已修（見下方統計表）；1 nice-to-have（狀態標記格式，本節已改用標準 `✅`/completion summary
+    格式）已採納；另指出一個非阻塞的已知風險供未來參考——目前作法依賴 pip「已滿足依賴不重裝」的
+    resolver 行為，若未來 `sentence-transformers`/`chromadb` 升級要求比 CPU wheel index 當下更新
+    的 torch 版本，pip 可能 backtrack 改從預設 index 重裝回 CUDA 版本、且無 CI image build 自動
+    偵測（CI 目前不 build Docker image），屬 DEC-20260716-02 已知並接受的風險，非本次需解決範圍。
+  - 本機 backend/frontend 自我測試套件（純 host 環境，不涉及 Docker）未受影響：backend
+    `1103 passed, 7 skipped, 1 xfailed`；frontend `1216 passed`（58 files）、tsc 0、build OK。
+  - **Reference**: work-logs/2026-09/2026-09-23-footprint-cpu-torch-pin.md
 
 ---
 
@@ -794,7 +820,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 |---|---|---|---|
 | M6-1 | **Friendly 運維廠商現場部署**（docker-compose 在客戶端跑起來） | 🟡 | 需客戶現場 |
 | M6-2 | **Z72 PLC 連線測試**（客戶端 OPC tunnel） | 🟡 | 需客戶 PLC |
-| M6-3 | **PostgreSQL backend 切換 + row-lock 驗證**（WMOM-20260509-F6） | 🔵 | 部署前；需 docker postgres |
+| M6-3 | **PostgreSQL backend 切換 + row-lock 驗證**（WMOM-20260509-F6） | 🟡 | 部署前；2026-09-23 重新調查後更正——需先拍板是否選 PostgreSQL backend（架構決策），非單純 autonomous 可決，詳見 issue 條目 |
 | M6-4 | **deployment hardening**：JWT / RBAC / HTTPS（取代 mock login）— **全部 done**（含基礎層 -03、DB user store -04、全 router 授權與前端真登入 -05）；剩餘 HTTPS 部署配置 | 🔵 | M6-4 auth 強制授權與前端真登入已於 PR #110-#122 完整合入 |
 | M6-5 | **培訓 + 第一個月運轉 + 收反饋** | 🟡 | 需客戶 |
 | M6-6 | **第一份自動月報交業主** | 🔵 | reporting module 已 ready，需真資料驗證 |
@@ -2891,16 +2917,39 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F6 — PostgreSQL row-lock integration test
 
-- **Status**: open
+- **Status**: open（🟡 需劉老師決策，範圍已於 2026-09-23 重新調查並更正，見下方）
 - **Milestone**: M6（生產部署前）
 - **Priority**: medium
-- **Estimate**: 0.5 工作天
+- **Estimate**: ~~0.5 工作天~~ → **更正：多天，且前提是先拍板架構決策**（見下方調查結果）
 - **Source**: 2026-05-09 code review Nice-to-have #2
 - **Description**:
   目前並發 dispatch SQLite test 只能驗 SQLite WAL 序列化行為，**無法驗 PostgreSQL `SELECT FOR UPDATE` 真實 row-lock 語意**。M6 客戶部署前如選 PostgreSQL backend，需補：
   - 起 docker postgres 跑 integration test
   - 兩 client 同時 dispatch 同 item，驗第二個被 block 直到第一個 commit/rollback
   - test 在 CI（GitHub Actions）上跑
+- **2026-09-23 範圍重新調查**（本 sandbox 這次 docker daemon 可用，藉機重新評估這個先前多個
+  session 都因「卡 docker daemon」擱置的候選，結果判定不接、僅更正紀錄）：
+  - **已具備、零額外工作**：`inventory_repository.py::apply_stock_delta_in_session()`、
+    `material_request_repository.py::dispatch_request()`/`add_return`、
+    `signoff_repository.py` 皆已用 SQLAlchemy `.with_for_update()`／`with_for_update=True` 的
+    dialect-agnostic ORM API，對 Postgres engine 會直接發出真正的 `SELECT ... FOR UPDATE`，
+    lock 邏輯本身不用改。
+  - **完全不存在、需要新建**：`work_order_repository.py::_get_engine()` 寫死
+    `create_engine(f"sqlite:///{abs_path}")`；`_begin_immediate()`（SQLite `BEGIN IMMEDIATE`
+    event listener）與 `_set_sqlite_pragmas()`（WAL/busy_timeout PRAGMA）皆 SQLite 專屬語法，
+    對 Postgres 需要整套 dialect 分支；`requirements.txt`/`requirements-dev.txt` 完全沒有
+    `psycopg2`/`psycopg`/`asyncpg`；`docker-compose.yml` 沒有 postgres service 可重用；
+    `_migrate_completion_columns()` 用 SQLite 專屬 `PRAGMA table_info`，repo 內無 Alembic 或
+    任何跨 dialect migration 工具。
+  - `docs/product/decision_log.md` 全文 grep `postgres`（不分大小寫）**零命中**——M6 是否真的
+    選 PostgreSQL backend 目前完全是「若選」的假設語氣，並非已拍板方向。
+  - **結論**：本 issue 的真實範圍是「(a) 先決定 M6 客戶部署要不要上 PostgreSQL（CLAUDE.md
+    §6.3 等級的架構決策）→ (b) 打通一條全新的 dialect-branch 連線層（engine 建構、
+    transaction-begin 機制、migration 策略、新依賴）→ (c) 才輪到補這支 integration test」，
+    不符合「單 session 可完工、無設計歧義」的 autonomous 挑題準則，本次**不接**，改標
+    🟡 需劉老師決策 + 更正估時，避免未來 session 誤判成 0.5 天小題重工調查。
+  - **Reference**: work-logs/2026-09/2026-09-23-footprint-cpu-torch-pin.md（同一 session，
+    F6 調查記在「Claim」段落）
 
 ---
 
