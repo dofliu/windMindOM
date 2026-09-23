@@ -16,7 +16,21 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖：
+最後更新：2026-09-23（WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
+測試補齊：9 支 UI primitive 檔案（`Btn`/`Card`/`Charts`/`Field`/`Logo`/`PageHeader`/`Sidebar`/
+`Stat`/`StatusPill`，1220 行）先前完全零 `__tests__`（前兩個 session 都點名「尚未評估是否需要」），
+本次逐檔讀過評估：`Btn`/`Card`/`Field`/`Stat`/`PageHeader` 純展示型、已被全站既有 page-level
+測試間接覆蓋，ROI 低；`Logo`/`Sidebar` 範圍較大（`Sidebar` 有 mobile drawer + badge + 多個
+responsive 分支）另開一支；`StatusPill.tsx`（3 支狀態顏色映射純函式）+ `Charts.tsx`
+（`MiniSparkline`/`BigChart`/`HealthBar` SVG path 數學 + clamp + 顏色門檻）值得補測試，新增
+48 測，6 個關鍵分支 mutation-verified，零 production 變更。code-reviewer review：0 must-fix，
+2 should-fix 全數採納（issue 補登記進 ISSUES.md/STATUS.yaml；docstring 用詞澄清為本 repo 首次
+引入此測試模式）+ 1 nice-to-have 採納（`BigChart` events 測試改精確 `cx` 座標斷言），Approve。
+backend 未動 1103 passed 不變；frontend 1100→1148 passed（53→55 files）、tsc 0、build OK。
+⚠ 附帶發現：`STATUS.yaml` 的 `last_updated` 欄位目前不是合法 YAML（`yaml.safe_load` 會拋錯，
+確認 main 本來就如此、非本次造成，repo 內無任何程式實際解析這個檔案，故不影響 CI/自動化，本次
+維持既有格式慣例續寫未修復，詳見 work-log 附帶發現段落）。）
+前一 session：WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖：
 連續兩個 session 把此項標成「需要新後端端點」而延後，本次判定不需要——既有單情境 history 端點
 + 前端已持有的 `sim_start` 就足以純前端算相對時間對齊，零後端變更（決策翻案見
 `docs/product/decision_log.md` DEC-20260923-01）。新增 `ScenarioCompareTimelineView.tsx`
@@ -69,7 +83,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
-- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— ui primitives（`components/ui/*.tsx`）目前零 `__tests__`，尚未評估是否需要；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
+- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— `components/ui/*.tsx` 已評估完成（WMOM-20260923-04）：`StatusPill`/`Charts` 已補測試，其餘 7 支（`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo`/`Sidebar`）判定 ROI 低或範圍另計暫不動；`Sidebar.tsx` 若要做（mobile drawer + badge + responsive 分支）建議獨立開一支；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
 - [ ] **情境比較分析 · A2 Part 4（差異圖）**（DEC-20260720-02，決策更新 `DEC-20260923-01`）：跨情境
   逐點相減的差異圖，需先解決「多情境序列取樣點不完全對齊」的插值/分桶問題（不同情境 `time_step`
   可能不同、起點也不會剛好對齊在同一個相對時間刻度上）——本次 Part 3 的 `buildTimelinePoints`

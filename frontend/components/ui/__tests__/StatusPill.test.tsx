@@ -6,7 +6,10 @@
  * 頁面測試間接命中，覆蓋不保證涵蓋每個分支（尤其是 default fallback）。本檔直接測完整分支。
  *
  * 元件本體不斷言 `getComputedStyle`（jsdom 不會做 CSS 簡寫展開/計算），改讀 inline `style`
- * 屬性字串是否包含預期 hex 值，比照專案內未見對計算後樣式斷言的既有慣例。
+ * 屬性字串是否包含預期顏色（jsdom 會把 hex 正規化成 `rgb(r, g, b)`，見 `hexToRgb` helper）。
+ * 這是本 repo **首次**對 inline style 字串斷言計算後顏色（先前既有測試多不斷言計算後樣式），
+ * 選擇這個做法是因為 jsdom 不支援 `getComputedStyle` 展開 CSS 簡寫、且不想為此另外引入
+ * style-assertion 相關套件。
  */
 
 import { describe, it, expect, afterEach } from 'vitest';

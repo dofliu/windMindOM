@@ -153,6 +153,8 @@ describe('BigChart', () => {
       />,
     );
     expect(container.querySelector('circle')).not.toBeNull();
+    // position=0.5、W=800（BigChart 固定寬度）→ cx 應精確落在 400，而非只驗證「有畫」
+    expect(container.querySelector('circle')?.getAttribute('cx')).toBe('400');
     expect(getByText('FAULT')).toBeInTheDocument();
   });
 });

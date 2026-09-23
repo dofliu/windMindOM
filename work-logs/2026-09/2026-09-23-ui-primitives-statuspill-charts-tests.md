@@ -48,8 +48,9 @@ Docker 阻塞兩項（WMOM-20260716-06 / WMOM-20260509-F6）與 HTTPS 部署配�
 
 - **`components/ui/__tests__/StatusPill.test.tsx`（新檔）**：
   - 元件渲染：children 顯示；7 種 tone（`ok`/`warn`/`amber`/`info`/`accent`/`muted`/`danger`）
-    各自套用對應 theme palette 顏色（讀 `style` 屬性字串比對 hex，不用 `getComputedStyle`——
-    比照全站既有測試慣例不斷言計算後樣式，只斷言 inline style 字串內容）；`colorBg`/`colorFg`
+    各自套用對應 theme palette 顏色（讀 `style` 屬性字串比對 hex，不用 `getComputedStyle`——本
+    repo **首次**對 inline style 字串斷言計算後顏色，先前既有測試多不斷言計算後樣式；選這個
+    做法是因為 jsdom 不支援 `getComputedStyle` 展開簡寫，不想為此另外引入套件）；`colorBg`/`colorFg`
     覆蓋 tone 對照表；`size='md'` vs 預設 `'sm'` 兩種 padding/fontSize；`title` 屬性透傳。
   - 純函式（逐一測完整分支，含 default fallback）：
     - `turbineStatusTone`：OPERATING→ok / FAULT→warn / IDLE→amber / OFFLINE→muted /
@@ -88,8 +89,14 @@ Docker 阻塞兩項（WMOM-20260716-06 / WMOM-20260509-F6）與 HTTPS 部署配�
   6. `HealthBar` 的 `Math.max(0, Math.min(100, value))` clamp 拿掉下限 `Math.max(0, ...)`
      （只留上限 clamp）→ 負值測試（預期顯示 `0%`）fail（變成顯示負數）。
 - **Full baseline（review 前）**：backend 未動，重跑仍 `1103 passed, 7 skipped, 1 xfailed`；
-  frontend `npx tsc --noEmit` 0 error；`npx vitest run` `1100→1100+N passed`（見下方 Wrap-up
-  實際數字，本段先寫流程）；build 用本地 `./node_modules/.bin/vite build` OK。
+  frontend `npx tsc --noEmit` 0 error；`npx vitest run` `1100→1148 passed`（53→55 files，
+  +48 新測：`StatusPill.test.tsx` 27 + `Charts.test.tsx` 21）；build 用本地
+  `./node_modules/.bin/vite build` OK。
+- **Full baseline（review 後修復完）**：追加 1 個 nice-to-have（見下方 Review）並
+  mutation-verified（`BigChart` events 的 `x = e.position * W` 改成 `+ 10` 位移 → 新增的
+  `cx` 精確斷言 fail，還原後 `git diff --stat` 對 production 檔案乾淨）；frontend
+  `npx vitest run` 仍 `1148 passed`（測項內容微調，總數不變，只是原本的存在性斷言改成精確
+  座標斷言）；`npx tsc --noEmit` 0 error；backend 全程未動。
 
 ## 誠實回報：沒有自動化保護的部分
 
@@ -101,7 +108,60 @@ Docker 阻塞兩項（WMOM-20260716-06 / WMOM-20260509-F6）與 HTTPS 部署配�
 - **`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo` 無獨立單元測試**——判定為純展示型、已被
   全站既有 page-level 測試間接覆蓋，ROI 低，本次刻意不做（見上方「認領理由」判斷依據）。
 
+## Review
+
+code-reviewer subagent 獨立跑（含自己重算 `hexToRgb` 全部 14 個 palette hex 驗證位數切分無誤、
+自己 dump `HealthBar` 實際 render 出的 `innerHTML` 逐層確認 DOM 遍歷路徑非巧合命中、自己動手做
+4 組 mutation testing 交叉驗證）：
+
+**verdict：0 must-fix / 2 should-fix / 2 nice-to-have → Approve**
+
+- 🟡 **should-fix #1（已修）**：`WMOM-20260923-04` 未登記進 `ISSUES.md`/`STATUS.yaml`（work-log
+  當時仍是「收尾時補」佔位符）——已在本節之後補上。
+- 🟡 **should-fix #2（已修）**：`StatusPill.test.tsx` 檔頭 docstring 原寫「比照專案內未見對計算後
+  樣式斷言的既有慣例」，用詞容易誤解成「跟進既有慣例」；reviewer 獨立 grep 全 repo 確認這其實是
+  **首次**引入此模式（先前 53 支既有測試檔案皆無此做法）。已改寫成明確講「本 repo 首次」+ 選擇
+  原因（jsdom 不支援 `getComputedStyle` 展開簡寫），避免下次接手的人誤讀成沿用既有慣例。
+- 🟢 **nice-to-have #1（已採納）**：`BigChart` 的 `events` 測試原本只驗證「至少一個 circle 存在」，
+  改為精確斷言 `cx` 座標（`position=0.5 × W=800 = 400`），並 mutation-verified（`x` 計算式加
+  `+10` 位移 → 新斷言 fail，還原後乾淨）。
+- 🟢 **nice-to-have #2（不採納）**：兩支測試檔案各自複製一份 `hexToRgb` helper（12 行）；
+  reviewer 自己也判斷「目前只有 2 處，不急著抽」，本次不動。
+
+reviewer 對 5 個面向（正確性/tautological 檢查、hexToRgb 邏輯、HealthBar DOM 遍歷、
+`ThemeProvider`/`localStorage` 測試間污染風險、work-log 誠實度）逐一確認：測試非 tautological
+（6 個關鍵分支各自可被 mutate 出 fail）；`hexToRgb` 位數切分正確；`getByText('90%')
+.previousElementSibling?.firstElementChild` 精確對應 production 三層巢狀（label / track+fill /
+percentage），非巧合命中；`vitest.config.ts` 維持預設 `test.isolate: true`
++ `ThemeProvider` 只在 `toggle`/`setMode` 才寫 `localStorage`，兩支新測試皆未呼叫，確定全程
+停留在 light mode 無汙染風險；work-log「誠實回報」段落屬實。
+
 ## Wrap-up
 
-（收尾時補：新增測試數、code-reviewer review 結果、ISSUES.md/STATUS.yaml/TODO.md 更新、
-下次接手建議。）
+- `ISSUES.md`：新增 WMOM-20260923-04 done 條目；stats `done 110→111`、`total 121→122`。
+- STATUS.yaml：`issue_stats.done` 110→111；`last_updated` 追加本 session 摘要；
+  `next_milestone` 維持上次接手建議不變（A2 Part 4 / PR C / docker 阻塞兩項 / HTTPS 部署仍是
+  下次候選，本次是額外插入的測試覆蓋擴大項目）。
+- TODO.md：更新「最後更新」摘要，補上「ui primitives 評估完成：`StatusPill`/`Charts` 已補測試，
+  其餘 7 支判定 ROI 低或範圍另計，暫不動」，並從「可立即接手」清單移除該行 placeholder。
+- 分支：`claude/inspiring-mccarthy-xvio1d`；純測試新增（+48 測，53→55 files），零 production
+  變更；code commit 已 push（含 review 後的 should-fix/nice-to-have 追加 commit）；PR 待開
+  （見下）。
+
+**下次接手**：A2 Part 4（差異圖，需先解決多序列取樣點不完全對齊的插值/分桶問題）/ PR C（檢視
+情境掛載 app，需先寫 broker 子設計）/ `Sidebar.tsx` component 測試（本次評估後判定範圍較大，
+獨立開一支：mobile drawer transform + badge + backend 健康狀態 dot + lang/theme 切換）。
+M6 critical path 的 docker 阻塞兩項（footprint pin / PostgreSQL row-lock）與 HTTPS 部署配置
+仍待部署環境/劉老師決策，非本次可解。
+
+⚠ **附帶發現（本次未動，供劉老師知悉）**：`STATUS.yaml` 的 `last_updated` 欄位目前不是合法 YAML
+（`python3 -c "import yaml; yaml.safe_load(open('STATUS.yaml'))"` 會拋 `ScannerError`）——
+`last_updated: "2026-09-23"` 後面接的長篇 changelog 文字本意是 inline comment，但橫跨許多
+「實體行」卻只有第一行有 `#`，其餘行沒有 `#` 前綴，對嚴格 YAML parser 而言是語法錯誤。用
+`git show origin/main:STATUS.yaml` 確認**這個問題在本 session 開工前就已存在於 main**（非本次
+造成），且目前 repo 內沒有任何程式/CI 會實際 `yaml.safe_load()` 這個檔案（純人工/session 閱讀
+用），故不影響任何自動化流程，本次維持既有格式慣例（每個 session 直接接續文字，不加 `#`）續寫，
+未嘗試修復（風險：這是一份持續增長的巨型變更記錄，要修成嚴格合法 YAML 需要決定新格式並改寫
+一大段既有內容，範圍超出本次任務，且 ISSUES.md 已記錄過一次因格式問題「YAML 直接無法解析」的
+合併事故，貿然大改容易重蹈覆轍）。建議下次若要修，開一支獨立 issue 專門處理（例如把巨型
+changelog 挪到獨立的 CHANGELOG 檔案，`STATUS.yaml` 本身只留精簡摘要）。
