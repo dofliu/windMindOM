@@ -23,6 +23,10 @@
  * priority/SLA 皆以 `Date.now() - createdAt` 動態算，故 fixture 一律用「現在時刻
  * 往回推固定分鐘/小時數」構造，避開 fake timers（本系列 MonthlyReportPanel 已驗證
  * fake timers 會卡死非同步 render，本檔雖無非同步但仍統一用真實時間降低耦合）。
+ *
+ * `MaintenanceHub.tsx` 附帶 production 微調：`WeekCalendar` 每日格加
+ * `data-testid="week-day-{i}"`（i=0 週一…6 週日），供「工單依 createdAt 正確分桶到
+ * 該週幾格子」的測試精確 scope（純測試選取用，無視覺/邏輯影響）。
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -154,49 +158,54 @@ describe('MaintenanceHub — 殼層 / PageHeader', () => {
 // ─── Filter 篩選 ─────────────────────────────────────────────────────────────
 
 describe('MaintenanceHub — Filter 篩選', () => {
-  const WORK_ORDERS = [
+  // 唯讀 fixture：MaintenanceHub 不會 mutate props，但仍改用工廠函式（而非 module-level
+  // 共用陣列參照）與本檔其他 describe 區塊的慣例一致，避免未來若元件改把 workOrders 當
+  // 可變陣列處理時，測試間互相污染卻不易察覺。
+  const buildWorkOrders = () => [
     makeWorkOrder({ id: 'open-1', turbineName: 'WTG-A', status: WorkOrderStatus.OPEN }),
     makeWorkOrder({ id: 'prog-1', turbineName: 'WTG-B', status: WorkOrderStatus.IN_PROGRESS }),
     makeWorkOrder({ id: 'done-1', turbineName: 'WTG-C', status: WorkOrderStatus.COMPLETED }),
   ];
 
   it('預設 all → 表格顯示全部 3 筆', () => {
-    renderHub({ workOrders: WORK_ORDERS });
+    renderHub({ workOrders: buildWorkOrders() });
     expect(screen.getByText('WTG-A')).toBeInTheDocument();
     expect(screen.getByText('WTG-B')).toBeInTheDocument();
     expect(screen.getByText('WTG-C')).toBeInTheDocument();
   });
 
-  it('切到 open → 只顯示 OPEN 工單', () => {
-    renderHub({ workOrders: WORK_ORDERS });
-    fireEvent.change(screen.getByRole('combobox', { name: '篩選' }), { target: { value: 'open' } });
+  it('切到 open → select 值同步更新 + 只顯示 OPEN 工單', () => {
+    renderHub({ workOrders: buildWorkOrders() });
+    const select = screen.getByRole('combobox', { name: '篩選' });
+    fireEvent.change(select, { target: { value: 'open' } });
+    expect(select).toHaveValue('open');
     expect(screen.getByText('WTG-A')).toBeInTheDocument();
     expect(screen.queryByText('WTG-B')).not.toBeInTheDocument();
     expect(screen.queryByText('WTG-C')).not.toBeInTheDocument();
   });
 
-  it('切到 in_progress → 只顯示 IN_PROGRESS 工單', () => {
-    renderHub({ workOrders: WORK_ORDERS });
-    fireEvent.change(screen.getByRole('combobox', { name: '篩選' }), {
-      target: { value: 'in_progress' },
-    });
+  it('切到 in_progress → select 值同步更新 + 只顯示 IN_PROGRESS 工單', () => {
+    renderHub({ workOrders: buildWorkOrders() });
+    const select = screen.getByRole('combobox', { name: '篩選' });
+    fireEvent.change(select, { target: { value: 'in_progress' } });
+    expect(select).toHaveValue('in_progress');
     expect(screen.getByText('WTG-B')).toBeInTheDocument();
     expect(screen.queryByText('WTG-A')).not.toBeInTheDocument();
     expect(screen.queryByText('WTG-C')).not.toBeInTheDocument();
   });
 
-  it('切到 completed → 只顯示 COMPLETED 工單', () => {
-    renderHub({ workOrders: WORK_ORDERS });
-    fireEvent.change(screen.getByRole('combobox', { name: '篩選' }), {
-      target: { value: 'completed' },
-    });
+  it('切到 completed → select 值同步更新 + 只顯示 COMPLETED 工單', () => {
+    renderHub({ workOrders: buildWorkOrders() });
+    const select = screen.getByRole('combobox', { name: '篩選' });
+    fireEvent.change(select, { target: { value: 'completed' } });
+    expect(select).toHaveValue('completed');
     expect(screen.getByText('WTG-C')).toBeInTheDocument();
     expect(screen.queryByText('WTG-A')).not.toBeInTheDocument();
     expect(screen.queryByText('WTG-B')).not.toBeInTheDocument();
   });
 
   it('篩選不影響 PageHeader sub 的未結工單計數（仍算全部工單）', () => {
-    renderHub({ workOrders: WORK_ORDERS, technicians: [] });
+    renderHub({ workOrders: buildWorkOrders(), technicians: [] });
     fireEvent.change(screen.getByRole('combobox', { name: '篩選' }), { target: { value: 'completed' } });
     expect(screen.getByText('2 張未結工單・0 位技師在崗')).toBeInTheDocument();
   });
@@ -249,6 +258,15 @@ describe('MaintenanceHub — WorkOrderTable 欄位', () => {
   it('technicianId 對應到現有技師 → 顯示技師名（scope 到工單列，避免與 RosterCard 同名撞名）', () => {
     renderHub({
       technicians: [makeTechnician({ id: 5, name: '陳大文' })],
+      workOrders: [makeWorkOrder({ technicianId: 5 })],
+    });
+    const dataRow = screen.getAllByRole('row')[1];
+    expect(within(dataRow).getByText('陳大文')).toBeInTheDocument();
+  });
+
+  it('technicianId 對應到「目前非 ON_DUTY」的技師 → 表格技師欄仍正確顯示姓名（techMap 依 id 索引，不應受目前狀態影響）', () => {
+    renderHub({
+      technicians: [makeTechnician({ id: 5, name: '陳大文', status: TechnicianStatus.OFF_DUTY })],
       workOrders: [makeWorkOrder({ technicianId: 5 })],
     });
     const dataRow = screen.getAllByRole('row')[1];
@@ -409,19 +427,52 @@ describe('MaintenanceHub — RosterCard 技師排班', () => {
     expect(toggleTechnicianStatus).not.toHaveBeenCalled();
   });
 
-  it('多名技師 → 各自獨立顯示，最後一位無底部分隔線', () => {
+  it('多名技師 → 各自獨立顯示，最後一位無底部分隔線（style.borderBottom 斷言，非僅內容存在）', () => {
     renderHub({
       technicians: [
         makeTechnician({ id: 1, name: '甲技師' }),
         makeTechnician({ id: 2, name: '乙技師' }),
       ],
     });
-    expect(screen.getByText('甲技師')).toBeInTheDocument();
-    expect(screen.getByText('乙技師')).toBeInTheDocument();
+    // name div 的祖父層才是整列 row（name div → flex:1 容器 → row）
+    const firstRow = screen.getByText('甲技師').parentElement!.parentElement as HTMLElement;
+    const lastRow = screen.getByText('乙技師').parentElement!.parentElement as HTMLElement;
+    expect(firstRow.style.borderBottom).not.toBe('');
+    expect(lastRow.style.borderBottom).toBe('');
+  });
+
+  it('技師姓名為空字串 → Avatar fallback 顯示「?」', () => {
+    renderHub({ technicians: [makeTechnician({ name: '' })] });
+    expect(screen.getByText('?')).toBeInTheDocument();
   });
 });
 
 // ─── WeekCalendar ────────────────────────────────────────────────────────────
+
+/**
+ * 鏡射 `WeekCalendar` 內部「本週 Monday..Sunday」的日期推算，供測試建構「非今天但仍在
+ * 本週內」的 fixture、並算出對應的 grid index（0=週一…6=週日，與元件 `days.map((_,i)=>…)`
+ * 的 i 一致，對應 production 端新增的 `data-testid="week-day-{i}"`）。
+ */
+function mondayOfCurrentWeek(): Date {
+  const monday = new Date();
+  const dow = monday.getDay() || 7; // Sun=0 → 7
+  monday.setDate(monday.getDate() - (dow - 1));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function weekDayTimestamp(index: number, hour = 10): number {
+  const d = new Date(mondayOfCurrentWeek());
+  d.setDate(d.getDate() + index);
+  d.setHours(hour, 0, 0, 0);
+  return d.getTime();
+}
+
+function todayWeekIndex(): number {
+  const dow = new Date().getDay() || 7;
+  return dow - 1;
+}
 
 describe('MaintenanceHub — WeekCalendar 本週行程', () => {
   it('顯示標題「本週行程」（en: Calendar (this week)）', () => {
@@ -441,17 +492,19 @@ describe('MaintenanceHub — WeekCalendar 本週行程', () => {
     });
   });
 
-  it('lang=en 顯示 7 個星期標籤（M T W T F S S）', () => {
+  it('lang=en 顯示 7 個星期標籤（M T W T F S S，重複字母各驗證出現次數）', () => {
     renderHub({ lang: 'en' });
-    // M/T/W/T/F/S/S 有重複字母，只驗證至少各出現一次不拋錯
-    expect(screen.getAllByText('M').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('W').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('F').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('M')).toHaveLength(1);
+    expect(screen.getAllByText('T')).toHaveLength(2);
+    expect(screen.getAllByText('W')).toHaveLength(1);
+    expect(screen.getAllByText('F')).toHaveLength(1);
+    expect(screen.getAllByText('S')).toHaveLength(2);
   });
 
-  it('今天有一筆工單 → 當日格顯示「×1」計數徽章', () => {
+  it('今天有一筆工單 → 當日格（依 todayWeekIndex scope）顯示「×1」計數徽章', () => {
     renderHub({ workOrders: [makeWorkOrder({ createdAt: Date.now() })] });
-    expect(screen.getByText('×1')).toBeInTheDocument();
+    const todayCell = screen.getByTestId(`week-day-${todayWeekIndex()}`);
+    expect(within(todayCell).getByText('×1')).toBeInTheDocument();
   });
 
   it('今天有兩筆工單 → 當日格顯示「×2」', () => {
@@ -461,7 +514,20 @@ describe('MaintenanceHub — WeekCalendar 本週行程', () => {
         makeWorkOrder({ id: 'b', createdAt: Date.now() }),
       ],
     });
-    expect(screen.getByText('×2')).toBeInTheDocument();
+    const todayCell = screen.getByTestId(`week-day-${todayWeekIndex()}`);
+    expect(within(todayCell).getByText('×2')).toBeInTheDocument();
+  });
+
+  it('工單 createdAt 落在本週非今天的某一天 → 計數徽章只出現在該天格子，今天格子維持 0（守住依星期分桶而非全域出現）', () => {
+    const todayIdx = todayWeekIndex();
+    const otherIdx = (todayIdx + 1) % 7; // 本週內、與今天不同的另一天
+    renderHub({
+      workOrders: [makeWorkOrder({ createdAt: weekDayTimestamp(otherIdx) })],
+    });
+    const otherCell = screen.getByTestId(`week-day-${otherIdx}`);
+    const todayCell = screen.getByTestId(`week-day-${todayIdx}`);
+    expect(within(otherCell).getByText('×1')).toBeInTheDocument();
+    expect(within(todayCell).queryByText(/×\d/)).not.toBeInTheDocument();
   });
 
   it('沒有任何工單 → 不顯示計數徽章', () => {

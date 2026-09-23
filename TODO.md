@@ -1,31 +1,11 @@
 # windMindOM — TODO（短期工作板）
 
-> ✅ **2026-09-22 19:20 UTC 更新：CI runner 基礎設施疑似已恢復**——PR #162（WMOM-20260922-03）
-> 是當日第一個**真正跑起來**的 CI run：兩個 job 都拿到真實 `runner_id`（非 `runner_id: 0`）、逐步驟
-> 正常執行完成、雙雙綠燈，`auto-merge.yml` 隨即自動 squash-merge 進 main + 刪分支——**全自動飛輪
-> 走完整趟，過程無人工介入**。與此之前 PR #157/#158/#159（見下方保留的舊警語）秒退模式完全不同。
-> **謹慎起見**：這是恢復後的第一筆樣本，不確定是暫時性還是真正解決（帳號/組織層級問題的根因劉老師
-> 尚未回報排查結果）。**下個 session 的建議**：正常開 PR 後照樣觀察 CI 是否又秒退；連續 2-3 個
-> session 都綠燈再把下方舊警語整段刪除、視為問題已解。若又出現秒退，恢復舊警語的因應方式（本機驗證
-> 為準、不等 auto-merge、不反覆重跑）。
->
-> <details><summary>⚠ 2026-09-22 稍早的舊警語（PR #157-#159 秒退期間，供對照，見上方新狀態）</summary>
->
-> 當日**每一個**
-> CI run 都在 2-8 秒內失敗、`runner_id: 0`、check output 全空（job 從未被排到 runner 上跑過任何測試），
-> 含 PR #157 / #158 / #159 與**跟 PR 無關的 main push run**；多次重跑結果相同，非 flake。
-> `.github/workflows/ci.yml` 內容正常、workflow 狀態 active，排除程式碼與 workflow 設定問題，
-> 研判為帳號/組織層級 GitHub Actions runner 配額或計費限制（或平台事故）。
->
-> **飛輪當時是停的**：`auto-merge.yml` 的 run 全部是 `skipped`（它要 CI 綠才動），**PR #157 / #158 是
-> 劉老師人工合併的**（非 auto-merge），倚賴的是 autonomous session 的本機驗證結果。
->
-> 對下個 session 的意義：本機驗證（`pytest` + `vitest`/`tsc`/`build`）是目前唯一可信的把關，
-> 照常做完整驗證再開 PR；但不要等 auto-merge，PR 會停在紅燈需人工合併。遇到同款秒退
-> （秒退 + `runner_id: 0` + output 全空）不必反覆重跑或重複診斷——留言記錄一次即可，
-> 且絕不可為了繞過 CI 直接 push main。
->
-> </details>
+> ✅ **2026-09-23：CI runner 基礎設施確認恢復穩定**——2026-09-22 稍早（PR #157-#159）曾連續全數
+> `runner_id: 0` 秒退失敗，19:20 UTC 起（PR #162 起）恢復正常跑測試。截至本次更新已累積連續 3 個
+> PR（#162 / #163 / #164）真實跑完 CI 並自動 `auto-merge` 進 main，符合先前訂下的「連續 2-3 個
+> session 都綠燈視為問題已解」門檻，故清除舊警語段落。**若日後再度出現同款秒退**（數秒內失敗 +
+> `runner_id: 0` + check output 全空），因應方式：本機驗證（`pytest` + `vitest`/`tsc`/`build`）
+> 為準、不等 auto-merge、不反覆重跑、PR 留言記錄一次即可，絕不可為了繞過 CI 直接 push main。
 >
 > 用途：本檔案是「**這週 / 這個月**正在做什麼」的快速 dashboard。
 > 詳細 issue 規格在 [`ISSUES.md`](ISSUES.md)；完整路線圖在 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md)；
@@ -36,10 +16,14 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-22（autonomous session #7：WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
+最後更新：2026-09-23（WMOM-20260923-01 — `MaintenanceHub` component render 測試：439 行的
+`/admin/maintenance` 頁面元件先前零 component 測試，補上 49 測（PageHeader/Filter/
+WorkOrderTable 全欄位/RosterCard/WeekCalendar），frontend 978→1027 passed，backend 未動；
+PR #164（WMOM-20260922-04）確認 auto-merge 成功，累積連續 3 筆 CI 綠燈樣本，已清除上方舊
+CI 失效警語。）
+session #7：WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
 `ScenarioCompareAcrossView`（跨情境風場層 rollup 摘要並排）+ `ScenarioPage` 勾選/比較 UI，
-frontend 961→978 passed（+17 新測，含開發中自行抓到並修正的 2 個真實 bug），backend 未動；本次 PR
-若也順利 CI 全綠 auto-merge，將是連續第 3 筆綠燈樣本，建議下個 session 可清除下方舊警語。
+frontend 961→978 passed（+17 新測，含開發中自行抓到並修正的 2 個真實 bug），backend 未動。
 session #6：WMOM-20260922-03 的 PR #162 **CI 全綠、auto-merge
 自動合併**（非人工）——CI runner 基礎設施疑似恢復，見上方新警語；本次僅更正追蹤檔案的 CI 狀態敘述，
 無程式碼變更。session #5：WMOM-20260922-03 — 情境比較分析 A2 Part 1：跨情境
@@ -59,7 +43,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 ## 現況（2026-07，內容已過時，見上方提醒）
 
 - **M1-M4 全 done**：monitoring（既有）+ cost（M2）+ workflow（M3-M4）+ reporting（M4）皆完成；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**（主功能到齊，剩客戶手冊擴充 + 一年警報 csv 灌入，屬 M6 部署期）；**M6-4 auth 模組已完成**（JWT + RBAC + 全 router 授權已全面強制執行 + 前端真登入頁面與 AuthProvider已對接）。
-- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1103 passed / 7 skipped / 1 xfailed**；frontend vitest **978 passed** / tsc 0 / vite build OK。CI 現已涵蓋 monitoring + physics 與 auth 測試（CI runner 基礎設施疑似已恢復，見上方新警語，仍以本機驗證為準）。
+- **baseline 綠**：backend 全套（6 module + monitoring/physics + e2e）→ **1103 passed / 7 skipped / 1 xfailed**；frontend vitest **1027 passed** / tsc 0 / vite build OK。CI runner 基礎設施已確認恢復穩定（見上方）。
 - **節奏提醒**：autonomous 飛輪已重啟（每 3 小時），挑題準則為「對 M6 critical path 有貢獻優先」。
 
 ---
@@ -73,7 +57,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
-- [ ] **前端 component render 測試**（CostPage / FarmOverview / workflow Panel）—— 需先補 `vitest.config.ts` jsdom setupFiles + `npm i -D @testing-library/jest-dom`
+- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub 皆已補齊）—— 剩 `FaultInjectionPanel.tsx`（555 行，同批 untested 大元件最後一支）；ui primitives（`components/ui/*.tsx`）目前零 `__tests__`，尚未評估是否需要
 - [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 - [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
 
