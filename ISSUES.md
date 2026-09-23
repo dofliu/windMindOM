@@ -16,47 +16,38 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 109 |
-| **total (active)** | **120** |
+| done | 110 |
+| **total (active)** | **121** |
 
-最後更新：2026-09-23（**WMOM-20260923-02 — `FaultInjectionPanel` component render 測試**
+最後更新：2026-09-23（**WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖**
+（DEC-20260720-02，決策更新 `DEC-20260923-01`）：連續兩個 session 把「相對時間對齊疊圖」標成
+「需要新後端端點」而延後；本次判定不需要——既有單情境端點 `GET /api/scenarios/{id}/turbines/
+{tid}/history`（A1 已在用）+ 前端已持有的 `config.sim_start` 就足以純前端算相對時間對齊，零後端
+變更。新增 `utils/scenarioTimeline.ts`（純函式）+ `ScenarioCompareTimelineView.tsx`（新頁籤：
+機組+指標選擇器、每情境各自 fetch、recharts 各 `<Line>` 自帶 `data` 疊圖、純 DOM 圖例因應 jsdom
+限制），`ScenarioCompareAcrossView.tsx` 加頁籤列（摘要並排/時序疊圖）。只做疊圖，差異圖（Part 4）
+留待下個 session。4 個關鍵分支手動 mutation-verified。code-reviewer subagent review：**1
+must-fix（架構翻案未寫進 decision_log，已補 DEC-20260923-01）**+ **2 should-fix 全數採納**
+（① recharts 跨線 tooltip 精確比對非最近點、取樣間隔不同時可能只命中部分情境——非 bug，已加註解
++ UI 說明；② 單一情境 fetch 失敗原本靜默併入「無資料」，新增獨立 `failed` 旗標 + banner 區分，
+2 測 + mutation-verified）+ 1 個 nice-to-have（docstring 歸屬）已修，2 個影響有限暫不動，
+Approve。backend 未動 1103 passed 不變；frontend 1067→1100 passed（+33 新測）、tsc 0、
+vite build OK。）
+前一 session（2026-09-23）：**WMOM-20260923-02 — `FaultInjectionPanel` component render 測試**
 （EPIC-M5 測試覆蓋擴大，`MaintenanceHub` 同批 untested 大元件的最後一支）：`/admin` 故障模擬
-頁面元件（555 行）先前零 component 測試。比照 `TrendChartPanel`/`SettingsPage` 範式（fetch mock
-+ fake timers）補上 39 測，涵蓋 PageHeader 殼層、注入參數 Fields（場景/風機 Select、速率
-Input）、`handleInject`/`handleClearAll`（POST body、成功/失敗訊息、觸發 `refreshActive`、
-訊息 3s 自動清除）、活躍故障表（嚴重度/階段+TRIP 後綴/告警字串）、診斷測試計畫卡片（難度 label
-對映含未知 id fallback、scenarios_used 超過 4 個顯示 `+N`）、`handleRunPlan`（執行中按鈕文字+
-全域互斥 disable、成功結果卡 Stat 區塊+可選最終故障狀態表、失敗訊息、8s 自動清除）、3s 輪詢
-`refreshActive` 與 unmount 後 `clearInterval` 生效。6 個關鍵邏輯分支手動 mutation-verified
-（inject 按鈕 disabled 條件/風機選項數固定 14/執行中互斥 disable/DB 大小 fallback/訊息 3s
-清除/3s 輪詢間隔）。code-reviewer subagent review：0 must-fix，**2 should-fix 全數採納**：
-①`final_fault_status` 的 `scenario_id ?? name_en` fallback 測試只用 `scenario_id: undefined`
-一種輸入，無法區分 `a ?? b` 與反過來的 `b ?? a`（reviewer 把運算元順序整個反過來重跑，39 測
-仍全過，證實只驗證了一半）——修法：新增 `scenario_id` 有明確值且與 `name_en` 不同的對照測試，
-斷言優先顯示 `scenario_id`，mutation-verified（改回反轉順序確認新測會 fail，再還原）；
-②`planCardByName` 等多處靠 `.parentElement` 層數鏈找 Card 容器，對元件結構變動零抵抗力——
-reviewer 明確標註「優先度低、不必卡此 PR」（與既有 `MaintenanceHub`/`TrendChartPanel` 等測試
-同款寫法，非本次新增問題），故本次不動、留待日後若元件加 `data-testid` 支援時統一收斂，work-log
-記錄此已知限制。另有 3 nice-to-have（`active_alarms` 多筆 join 分隔符/`active_alarms`
-undefined 與 `storage_stats` undefined 兩種缺值變體/`callsTo` 未篩 HTTP method）未採納（皆屬
-「行為對但未鎖測試」的次要覆蓋率缺口，留待未來需要時再補），Overall verdict: Approve。純測試
-新增，零 production 變更；backend 未動 1103 passed 不變；frontend 1027→1067 passed（+40 新測）、
-tsc 0、vite build OK。）
-前一 session（2026-09-23）：**WMOM-20260923-01 — MaintenanceHub component render 測試**（EPIC-M5
-測試覆蓋擴大）：`/admin/maintenance` 頁面元件（439 行）先前零 component render 測試（只有其
-data hook `useMaintenanceData` 有單元測試），比照 `DispatchModal` 範式（純 props-driven、無
-fetch/timer）補上 46 測，涵蓋 PageHeader 殼層、Filter 篩選、WorkOrderTable 全欄位（含
-technicianId 查無此人的 fallback、依 createdAt 動態算的優先權/SLA）、RosterCard、WeekCalendar
-計數徽章。5 個關鍵邏輯分支手動 mutation-verified。code-reviewer subagent review：0 must-fix，
-3 should-fix（皆為「confirmed via mutation testing」的具體覆蓋率缺口：①「最後一位無分隔線」
-測試名稱與斷言不符——只驗證內容存在未驗證 `borderBottom` 樣式；②`WeekCalendar` 計數徽章測試
-只驗證「某處出現」未驗證「出現在正確的星期格」，換句話說星期分桶邏輯完全沒被鎖住；③技師目前
-狀態非 ON_DUTY 時，工單表格技師欄位查表 fallback 未覆蓋）+ 4 nice-to-have（Avatar 空姓名
-fallback、Filter fixture 改工廠函式、en 星期標籤重複字母精確計數、filter 切換後 select 值
-斷言）全數採納：production 加一行 `data-testid="week-day-{i}"`（純測試選取用）讓分桶測試可
-精確 scope 到星期格，3 個 should-fix 逐一 mutation-verified（改回舊邏輯確認新測會 fail，再
-還原），Approve。純測試 + 1 行 testid，零其他 production 變更；backend 未動 1103 passed 不變；
-frontend 978→1027 passed（+49 新測）、tsc 0、vite build OK。）
+頁面元件（555 行）先前零 component 測試，比照 `TrendChartPanel`/`SettingsPage` 範式（fetch mock
++ fake timers）補上 40 測（PageHeader/注入參數 Fields/inject·clear all/活躍故障表/診斷測試
+計畫卡片/執行測試計畫+結果卡/3s 輪詢與 unmount cleanup），6 個關鍵邏輯分支手動 mutation-verified。
+code-reviewer review：0 must-fix，2 should-fix 全數採納（`scenario_id ?? name_en` fallback 優先
+順序對照測試；`.parentElement` DOM 遍歷 scoping 技術債留待日後統一處理）+ 3 nice-to-have 未採納，
+Approve。純測試新增；backend 未動 1103 passed 不變；frontend 1027→1067 passed（+40 新測）、
+tsc 0、vite build OK。
+session #8（2026-09-23）：**WMOM-20260923-01 — `MaintenanceHub` component render 測試**：
+`/admin/maintenance` 頁面元件（439 行）先前零 component 測試，比照 `DispatchModal` 範式補上 49 測，
+5 個關鍵邏輯分支 mutation-verified。code-reviewer review：0 must-fix，3 should-fix 全數採納
+（「最後一位無分隔線」斷言修正、`WeekCalendar` 星期分桶測試精確 scope、技師非 ON_DUTY 查表
+fallback 覆蓋）+ 4 nice-to-have 採納，production 加一行 `data-testid` 供測試選取，Approve。
+frontend 978→1027 passed（+49 新測）、tsc 0、build OK。
 session #7（2026-09-22）：**WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
 跨情境摘要比較 UI**——消費前一 session 已完成但無前端呼叫方的 `GET /api/scenarios/compare`，
 「過去情境」清單新增勾選（2–5 個）+「比較所選」→ 新頁 `ScenarioCompareAcrossView`（風場層
@@ -587,6 +578,38 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     需要；`.parentElement` DOM 遍歷型 test scoping 的技術債（見上方 should-fix #2）留待有需要時
     統一改用 `data-testid`。
 - **Reference**: work-logs/2026-09/2026-09-23-faultinjectionpanel-render-tests.md
+
+- **WMOM-20260923-03** — ✅ **情境比較分析 · A2 Part 3：跨情境相對時間對齊時序疊圖**
+  （DEC-20260720-02，決策更新見 `DEC-20260923-01`）：連續兩個 session（-03/-04）把「相對時間對齊
+  時序疊圖」標成「需要新後端端點」而延後；本次重新檢視資料層，判定**不需要**——既有單情境端點
+  `GET /api/scenarios/{id}/turbines/{tid}/history`（A1 `ScenarioTrendView` 已在用）+ 前端已持有的
+  `SavedScenario.config.sim_start` 就足以純前端算相對時間對齊，零後端變更。已把此決策翻案寫進
+  `docs/product/decision_log.md` DEC-20260923-01（`DEC-20260720-02` 原文加註 superseded）。
+  - **新增 `utils/scenarioTimeline.ts`**（純函式 `simStartMs`/`buildTimelinePoints`/`formatElapsed`）
+    + **`components/ScenarioCompareTimelineView.tsx`**（新頁籤：機組+指標選擇器、每情境各自
+    fetch 既有 history 端點、recharts 各 `<Line>` 自帶 `data`（3.x 原生支援）疊圖、純 DOM 圖例
+    因應 jsdom 無 ResizeObserver 的既有測試限制）。`ScenarioCompareAcrossView.tsx` 加頁籤列
+    （摘要並排/時序疊圖，預設摘要並排，向後相容 optional prop `savedScenarios`）；
+    `ScenarioPage.tsx` 多傳既有記憶體資料、零額外 fetch。
+  - **範圍取捨**：只做疊圖（Part 3），差異圖（Part 4，需先解決多序列取樣點不完全對齊的插值/
+    分桶問題）留待下個 session，比照 A0→A1→A2 Part1→Part2 一路拆小任務的既有節奏。
+  - 🔍 **code-reviewer subagent review**：**1 must-fix（已修）**——架構翻案（A2 原案「後端對齊
+    端點」被本次判定不需要）未寫進 decision_log，違反 CLAUDE.md §6.3；已補 `DEC-20260923-01`。
+    **2 should-fix（已修）**：(1) recharts 跨線 tooltip 用精確數值比對（非最近點）找對應值，
+    取樣間隔不同的情境游標可能只命中部分情境資料點——非 bug，是 recharts 已知行為特性，已加
+    程式碼註解 + UI 提示文字說明，重採樣修正留給差異圖一併評估；(2) 單一情境 fetch 失敗（非 ok
+    /例外）原本靜默併入「無資料」，新增獨立 `failed` 旗標 + banner 區分「載入失敗可重試」與
+    「情境本來就沒資料」，2 測 + mutation-verified。3 個 nice-to-have 中 1 個（docstring 歸屬
+    誤植）已修，其餘 2 個（跨頁籤配色索引理論邊界、tab 切換無 cache）評估影響有限，本次不動。
+  - ✅ **Verify**：手動 mutation-verified 4 個關鍵分支（DESC→ASC reverse、`formatElapsed` 日/
+    小時邊界、fetch effect 不依賴 `tag`、頁籤預設值）+ review 後對 2 個 `failed` 旗標分支各自
+    mutation-verified，皆確認會抓到對應 regression、再還原（production `git diff` 最終乾淨）。
+    backend 未動，全程 `1103 passed, 7 skipped, 1 xfailed`；frontend `npx tsc --noEmit` 0 error；
+    `npx vitest run` `1067→1100 passed`（51→53 files，+33 新測）；`npx vite build` OK。
+  - **下次接手**：A2 Part 4（差異圖）——需先解決「多情境序列取樣點不完全對齊」的插值/分桶問題，
+    本次 `buildTimelinePoints` 已是可直接復用的地基；或轉向 PR C（檢視情境掛載 app，需先寫 broker
+    子設計，仍卡）。
+- **Reference**: work-logs/2026-09/2026-09-23-scenario-compare-a2-part3-timeline.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 

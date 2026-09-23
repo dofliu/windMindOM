@@ -54,11 +54,15 @@ interface RawScenarioData {
   /** 該情境缺 `config.sim_start`（未回填的舊情境）→ 改以自己最早一筆讀數當對齊基準，
    *  序列仍能疊圖看形狀，但無法跟其他情境對齊「情境開始後第幾秒」這個絕對意義。 */
   usedFallbackAlign: boolean;
+  /** 該情境的 history 請求本身失敗（HTTP 非 2xx 或例外，如暫時性後端錯誤/網路問題），
+   *  與「請求成功但這個機組真的沒有資料」是不同情況——前者值得使用者重試，後者不用。 */
+  failed: boolean;
 }
 
 interface Props {
   /** 選取比較的情境（依 A2 並排順序），需含 `config.sim_start`/`turbine_count` 供對齊使用；
-   *  找不到對應 metadata 的情境會被跳過（不中斷渲染），由 `labelFor` 取得的名稱仍會顯示於提示。 */
+   *  呼叫端（`ScenarioCompareAcrossView`）負責把找不到對應 metadata 的情境先過濾掉——本元件
+   *  收到的陣列視為已經是完整、可用的清單，不重複做這層防呆。 */
   scenarios: SavedScenario[];
   /** 顯示用名稱（scenarioId → label），沿用 A2 摘要並排已抓到的 `ScenarioSummary` 命名邏輯。 */
   labelFor: (scenarioId: number) => string;
@@ -108,8 +112,8 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
         authFetch(`${API_BASE}/api/scenarios/${s.id}/turbines/${turbineId}/history?limit=${HISTORY_LIMIT}`, {
           signal: ctrl.signal,
         })
-          .then((r) => (r.ok ? r.json() : { readings: [] }))
-          .then((res) => {
+          .then((r) => (r.ok ? r.json().then((res) => ({ res, failed: false })) : { res: { readings: [] }, failed: true }))
+          .then(({ res, failed }) => {
             const raw: RawHistPoint[] = Array.isArray(res.readings) ? res.readings : [];
             const declaredBase = simStartMs(s.config?.sim_start);
             const usedFallbackAlign = declaredBase === null;
@@ -120,10 +124,11 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
               baseMs: declaredBase ?? fallbackBase,
               truncated: raw.length >= HISTORY_LIMIT,
               usedFallbackAlign,
+              failed,
             };
             return [s.id, data] as const;
           })
-          .catch(() => [s.id, { rows: [], baseMs: 0, truncated: false, usedFallbackAlign: false }] as const),
+          .catch(() => [s.id, { rows: [], baseMs: 0, truncated: false, usedFallbackAlign: false, failed: true }] as const),
       ),
     ).then((entries) => {
       if (!ctrl.signal.aborted) setRawByScenario(Object.fromEntries(entries));
@@ -144,6 +149,7 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
 
   const truncatedNames = scenarios.filter((s) => rawByScenario[s.id]?.truncated).map((s) => labelFor(s.id));
   const fallbackNames = scenarios.filter((s) => rawByScenario[s.id]?.usedFallbackAlign).map((s) => labelFor(s.id));
+  const failedNames = scenarios.filter((s) => rawByScenario[s.id]?.failed).map((s) => labelFor(s.id));
   const hasAnyData = scenarios.some((s) => (seriesByScenario[s.id]?.length ?? 0) > 0);
 
   return (
@@ -182,6 +188,24 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
           </div>
         </div>
 
+        {failedNames.length > 0 && (
+          <div
+            style={{
+              marginBottom: 10,
+              fontSize: 12,
+              color: C.warn,
+              background: C.panelMuted,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}
+          >
+            {u(
+              `${failedNames.join(', ')} — failed to load (possibly a transient error); try again later.`,
+              `${failedNames.join('、')} — 載入失敗（可能是暫時性問題），稍後再試。`,
+            )}
+          </div>
+        )}
         {fallbackNames.length > 0 && (
           <div
             style={{
@@ -257,6 +281,12 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
                 fontSize={11}
               />
               <YAxis stroke={C.sub} fontSize={11} />
+              {/* recharts 用精確數值比對（非「找最近的點」）在游標位置的 t 值上找每條線的對應點
+                  （見 util/DataUtils.js `findEntryInArray`）。若選取的情境取樣間隔不同（例如
+                  time_step 不同）或起點沒有剛好對齊在同一個相對時間刻度上，游標停在某個 tick 時，
+                  其他情境很可能在該精確 t 值上沒有對應點——tooltip 會顯示「—」（見下方 formatter
+                  的 null 防呆），不是資料缺漏或畫錯，是這個已知的 recharts 行為特性。已在下方
+                  頁尾說明文字提醒使用者。 */}
               <Tooltip
                 contentStyle={{
                   backgroundColor: C.panel,
@@ -290,6 +320,11 @@ const ScenarioCompareTimelineView: React.FC<Props> = ({ scenarios, labelFor, col
           {u(
             "X axis is elapsed time since each scenario's own start, not wall-clock time — scenarios generated close together in time would otherwise overlap on an absolute time axis.",
             'X 軸為各情境「自己開始後」的經過時間，非絕對時鐘時間——短時間內連續生成的情境在絕對時間軸上會互相重疊。',
+          )}
+          {' '}
+          {u(
+            'If scenarios sample at different intervals, hovering may show a value for only some of them at a given point — that reflects the cursor landing between sample points for the others, not missing data.',
+            '若情境取樣間隔不同，游標可能只顯示部分情境在該時刻的數值——是游標落在其他情境取樣點之間，非資料缺漏。',
           )}
         </div>
       </Card>

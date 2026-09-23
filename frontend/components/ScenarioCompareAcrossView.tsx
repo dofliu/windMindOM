@@ -130,6 +130,9 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, savedScenarios = [], 
   };
 
   const idsKeyForTimeline = ids.join(',');
+  // 找不到對應 metadata 的情境（`savedScenarios` 未含該 id，理論上不會發生——`ScenarioPage` 傳的
+  // `savedScenarios` 恆是 `ids` 的來源清單本身）在此靜默過濾掉，不傳給
+  // `ScenarioCompareTimelineView`（該元件把收到的 `scenarios` 視為已完整、不重複防呆）。
   const timelineScenarios = useMemo(
     () => ids.map((id) => savedScenarios.find((s) => s.id === id)).filter((s): s is SavedScenario => Boolean(s)),
     // eslint-disable-next-line react-hooks/exhaustive-deps

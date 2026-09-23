@@ -167,7 +167,7 @@ describe('ScenarioCompareTimelineView — 邊界狀態', () => {
     await waitFor(() => expect(screen.getByText('選取的情境中，此機組沒有資料。')).toBeInTheDocument());
   });
 
-  it('fetch 失敗（非 ok）→ 該情境視為無資料，不崩潰、其餘情境正常顯示', async () => {
+  it('fetch 失敗（非 ok）→ 顯示載入失敗提示（區別於一般無資料）、不崩潰、其餘情境正常顯示', async () => {
     fetchMock = vi.fn((url: string) => {
       if (url.includes('/scenarios/3/')) return jsonRes({}, false);
       return jsonRes(readingsFor('2026-03-05T00:00:00Z', [1, 2]));
@@ -175,6 +175,23 @@ describe('ScenarioCompareTimelineView — 邊界狀態', () => {
     vi.stubGlobal('fetch', fetchMock);
     await renderView();
     await waitFor(() => expect(screen.getByText('晴朗微風')).toBeInTheDocument());
+    expect(screen.getByText(/暴風測試 — 載入失敗/)).toBeInTheDocument();
+  });
+
+  it('fetch 拋例外（網路錯誤）→ 同樣視為載入失敗（不是靜默當作無資料）', async () => {
+    fetchMock = vi.fn((url: string) => {
+      if (url.includes('/scenarios/3/')) return Promise.reject(new Error('network error'));
+      return jsonRes(readingsFor('2026-03-05T00:00:00Z', [1, 2]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await renderView();
+    await waitFor(() => expect(screen.getByText(/暴風測試 — 載入失敗/)).toBeInTheDocument());
+  });
+
+  it('都成功 → 不顯示載入失敗提示', async () => {
+    await renderView();
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    expect(screen.queryByText(/載入失敗/)).not.toBeInTheDocument();
   });
 
   it('英文語系：切換機組/指標 label 對應英文', async () => {

@@ -608,6 +608,7 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
 - **A0 · 情境摘要（後端純讀，地基）**：`/api/scenarios/{id}/summary` → 每機組+全場的關鍵數（最終累積損傷/DEL/RUL/發電量/可用率/跳機數/MAX 負載）。把原始情境變成「可比的數」。
 - **A1 · 同情境內比較（前端）**：機組×機組（尤其**有故障 vs 沒故障**）→ 摘要表/長條 + 鑽時序。
 - **A2 · 跨情境比較（後端對齊端點 + 前端）**：挑 2–3 情境 → 摘要並排（長條/雷達）+ **相對時間**（`t − sim_start`）對齊的時序疊圖 + 差異圖。
+  ⚠️ **superseded（見 DEC-20260923-01）**：時序疊圖部分後來判定不需要「後端對齊端點」，改純前端算 `t − sim_start`；差異圖是否需要後端仍待評估。
 - **A3 ·（選配）**：`history_events.session_id` 情境事件歸屬乾淨、匯出比較報表。
 
 ### 設計決策
@@ -618,6 +619,29 @@ snapshots 皆以 `session_id` 為單位），只是讀取端從未用到。
 ### 已知資料層 caveat（於實作處理）
 - **跨情境時間軸重疊**：各情境 sim clock 皆從生成當下 wall-clock 起算，絕對時間會重疊；跨情境比較必須用相對時間對齊（`sim_start` 已存情境 config）。
 - **downsampling 表非 session-safe、events 非 session 隔離**：情境比較走 raw 表 + 時間窗事件（既有 `events_by_time_window` 旗標），A3 再徹底化。
+
+---
+
+## DEC-20260923-01 — A2 時序疊圖不需要新後端端點；純前端用既有 history 端點 + sim_start 算相對時間
+
+**日期**：2026-09-23　**承接**：DEC-20260720-02（立 epic「情境比較分析」，A2 原文寫「後端對齊端點 + 前端」）
+**觸發**：WMOM-20260922-03（A2 Part 1）與 WMOM-20260922-04（A2 Part 2）兩個 session 都把「相對時間對齊的時序疊圖」標成「後端可能需要多情境版本的歷史查詢端點」而延後；本 session（WMOM-20260923-03）重新檢視資料層，發現這個假設不成立。
+
+### 關鍵前提探勘結論（決定不開新後端端點）
+既有單情境端點 `GET /api/scenarios/{id}/turbines/{turbine_id}/history`（A1 的 `ScenarioTrendView` 已在用）已回傳該情境某機組的原始 timestamped 讀數；而每個情境的 `config.sim_start`（ISO 字串）早就隨 `GET /api/scenarios`（`SavedScenario.config.sim_start`）落在前端 `ScenarioPage` 的記憶體狀態裡，不需要額外 fetch。「相對時間對齊」（`t − sim_start`）純粹是「拿這兩份已存在的資料算差」，可以完全在前端做，不需要新的後端聚合/對齊邏輯。
+
+### 決策
+A2 時序疊圖（Part 3）以純前端功能實作，零後端變更：新增 `frontend/utils/scenarioTimeline.ts`（`simStartMs`/`buildTimelinePoints`/`formatElapsed` 純函式）+ `ScenarioCompareTimelineView.tsx`（消費既有 `history` 端點，每個選取情境各自 fetch 一次，用 `config.sim_start` 換算相對時間後疊在同一張圖）。`ScenarioCompareAcrossView` 新增第二個頁籤承載它，`ScenarioPage` 把已持有的 `savedScenarios`（含 `sim_start`）多傳一個 prop 過去，無新 API 呼叫。
+
+### Rationale
+- 避免不必要的後端工作：新聚合端點需要設計「多情境批次查詢」的 API 形狀、SQL 聚合/排序，而現有單情境端點配合前端運算就能達成同樣的使用者價值。
+- 保持「一個情境一次 fetch」的簡單心智模型，跟 A1 的 `ScenarioTrendView` 一致，降低維護面。
+- 代價：目前每個情境各自一次 HTTP 請求（2–5 個並發請求），比起單一後端批次端點多一點網路開銷；但情境比較上限本就是 5 個（`MAX_COMPARE_SCENARIOS`），且非高頻操作，可接受。
+
+### Consequences
+- `DEC-20260720-02` 原文「A2 · 跨情境比較（**後端對齊端點** + 前端）」中的「後端對齊端點」字樣就時序疊圖而言不再適用，已於該決策條目內加註 superseded 指回本條。
+- **差異圖（A2 Part 4）是否需要後端仍待評估**——差異圖需要先解決「多情境序列取樣時間點不完全對齊」的插值/分桶問題（不同情境的 `time_step` 可能不同、起點也不會剛好對齊在同一個相對時間刻度上），這是否適合純前端做（例如前端重採樣成固定相對時間間隔再逐點相減）或需要後端先做聚合，留給 Part 4 session 依實作探勘再判斷，不在本條預先斷定。
+- 已知限制（非阻塞，記錄供未來讀者知悉）：recharts 的跨線 tooltip 用精確數值比對（非最近點）找每條線在游標位置的對應值，若情境取樣間隔不同，游標可能只命中部分情境的資料點；目前僅記錄為已知限制，未實作重採樣修正（見 `work-logs/2026-09/2026-09-23-scenario-compare-a2-part3-timeline.md`）。
 
 ---
 
