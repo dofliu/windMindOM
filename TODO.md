@@ -16,7 +16,10 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-05 — `Sidebar.tsx` component render 測試：前一 session
+最後更新：2026-09-23（WMOM-20260923-06 — 情境比較分析 A2 Part 4：跨情境差異圖：DEC-20260720-02
+A2 epic 完整範圍至此全數完成，判定差異圖不需後端、純前端分桶重採樣解決多情境序列取樣點不對齊
+問題，frontend 1171→1216 passed（+45 新測）。詳見 ISSUES.md WMOM-20260923-06。）
+前一 session：WMOM-20260923-05 — `Sidebar.tsx` component render 測試：前一 session
 （WMOM-20260923-04）逐檔評估 `components/ui/*.tsx` 時點名 `Sidebar.tsx`（220px 主導覽，294
 行，全站唯一主導覽入口，先前完全零 `__tests__`）範圍較大另開一支，本次接手。新增 23 測（
 primary/secondary 導覽項目/badge/active 樣式、backend 健康狀態 dot、lang/theme 切換按鈕、
@@ -97,11 +100,10 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
 - [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— `components/ui/*.tsx` 9 支 primitive 檔案測試評估至此**全數完成**（WMOM-20260923-04/-05）：`StatusPill`/`Charts`/`Sidebar` 已補測試，其餘 6 支（`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo`）判定 ROI 低暫不動；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
-- [ ] **情境比較分析 · A2 Part 4（差異圖）**（DEC-20260720-02，決策更新 `DEC-20260923-01`）：跨情境
-  逐點相減的差異圖，需先解決「多情境序列取樣點不完全對齊」的插值/分桶問題（不同情境 `time_step`
-  可能不同、起點也不會剛好對齊在同一個相對時間刻度上）——本次 Part 3 的 `buildTimelinePoints`
-  已是可直接復用/延伸的地基；`ScenarioCompareTimelineView.tsx` review 留下的 recharts 跨線
-  tooltip 精確比對 caveat（取樣間隔不同時游標可能只命中部分情境）也建議在此一併評估是否需要重採樣
+- [x] ~~**情境比較分析 · A2 Part 4（差異圖）**~~ — ✅ WMOM-20260923-06 完成，DEC-20260720-02 A2 epic
+  完整範圍（摘要並排＋疊圖＋差異圖）至此全數完成。ScenarioCompareTimelineView review 留下的
+  recharts 跨線 tooltip 精確比對 caveat 仍是已知限制（非阻塞，見該頁籤底部說明文字）。
+- [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
 - [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 - [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
 

@@ -29,16 +29,18 @@ import type { SavedScenario } from './ScenarioDetail';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-const POWER_TAG = 'WTUR_TotPwrAt';
-const WIND_TAG = 'WMET_WSpeedNac';
-const METRICS: { key: string; en: string; zh: string }[] = [
+// 與 ScenarioCompareDiffView（A2 Part 4）共用同一份指標/上限定義，避免兩個頁籤各自維護一份
+// tag 字串而日久漂移不一致。
+export const POWER_TAG = 'WTUR_TotPwrAt';
+export const WIND_TAG = 'WMET_WSpeedNac';
+export const METRICS: { key: string; en: string; zh: string }[] = [
   { key: POWER_TAG, en: 'Power (kW)', zh: '發電量 (kW)' },
   { key: WIND_TAG, en: 'Wind (m/s)', zh: '風速 (m/s)' },
 ];
 
 // 一次抓的上限，比照 ScenarioTrendView（HISTORY_LIMIT）——命中上限的長情境只拿到最新 N 筆，
 // 較早的資料未載入，於 UI 明示（見 truncated）。
-const HISTORY_LIMIT = 12000;
+export const HISTORY_LIMIT = 12000;
 
 interface RawHistPoint {
   timestamp: string;

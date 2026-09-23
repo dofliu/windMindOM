@@ -74,3 +74,79 @@ export function formatElapsed(ms: number): string {
   if (days > 0) return `${days}d${String(hours).padStart(2, '0')}h`;
   return `${hours}h${String(minutes).padStart(2, '0')}m`;
 }
+
+// ─── A2 Part 4：差異圖的分桶重採樣（DEC-20260720-02，decision_log 提到留給本階段依實作探勘判斷）──
+//
+// 多個情境的原始讀數取樣時間點通常不完全對齊：不同情境 `time_step` 可能不同，起點也不會剛好落在
+// 同一個相對時間刻度上。若不處理，逐點相減（`series[i].t === series[j].t`）幾乎永遠找不到精確
+// 相等的 `t`，算不出任何差異。本模組採「分桶重採樣」：把時間軸切成固定寬度的桶，桶內用平均值代表
+// 該桶，兩個情境都有值的桶才算得出差異；桶寬選「所有選取情境中最粗的取樣間隔」（median interval
+// 的最大值），刻意不選最細的，是為了不對取樣較粗的情境資料插值/捏造出超過其實際解析度的假精度。
+
+/**
+ * 序列相鄰時間點間距的中位數（毫秒）。只用相鄰點的正向間距（理論上 `buildTimelinePoints` 輸出已依
+ * `t` 遞增排序），少於 2 個點或全部時間點重複（間距皆為 0）時回傳 `null`。
+ */
+export function medianInterval(points: TimelinePoint[]): number | null {
+  if (points.length < 2) return null;
+  const deltas: number[] = [];
+  for (let i = 1; i < points.length; i++) {
+    const d = points[i].t - points[i - 1].t;
+    if (d > 0) deltas.push(d);
+  }
+  if (deltas.length === 0) return null;
+  deltas.sort((a, b) => a - b);
+  const mid = Math.floor(deltas.length / 2);
+  return deltas.length % 2 === 0 ? (deltas[mid - 1] + deltas[mid]) / 2 : deltas[mid];
+}
+
+/**
+ * 依多個序列的取樣間隔決定分桶寬度：取各序列 `medianInterval` 中的**最大值**（最粗的取樣間隔）。
+ * 全部序列都不足以算出間隔（例如每個都只有 0-1 個點）時回退 `fallbackMs`（預設 1 分鐘）。
+ */
+export function pickBinMs(seriesList: TimelinePoint[][], fallbackMs = 60_000): number {
+  const intervals = seriesList
+    .map(medianInterval)
+    .filter((v): v is number => v !== null && v > 0);
+  if (intervals.length === 0) return fallbackMs;
+  return Math.max(...intervals);
+}
+
+/** 把序列分桶（桶邊界 = `Math.floor(t / binMs) * binMs`），桶內數值一律取平均。忽略 `value === null`。 */
+export function binSeries(points: TimelinePoint[], binMs: number): Map<number, number> {
+  const acc = new Map<number, { sum: number; count: number }>();
+  for (const p of points) {
+    if (p.value === null || !Number.isFinite(p.value)) continue;
+    const bin = Math.floor(p.t / binMs) * binMs;
+    const entry = acc.get(bin);
+    if (entry) {
+      entry.sum += p.value;
+      entry.count += 1;
+    } else {
+      acc.set(bin, { sum: p.value, count: 1 });
+    }
+  }
+  const out = new Map<number, number>();
+  for (const [bin, { sum, count }] of acc) out.set(bin, sum / count);
+  return out;
+}
+
+/**
+ * 算兩個情境序列的差異：`compare - baseline`，逐桶比較（見上方分桶重採樣說明）。
+ * 只有兩邊該桶都有值才算得出差異，否則該桶 `value` 為 `null`（渲染端應視為缺口，不插補連線，
+ * 因為「差異算不出來」跟「兩邊剛好都是 0」是不同意思）。輸出依桶時間遞增排序。
+ */
+export function buildDiffSeries(
+  baseline: TimelinePoint[],
+  compare: TimelinePoint[],
+  binMs: number,
+): TimelinePoint[] {
+  const baseBinned = binSeries(baseline, binMs);
+  const compareBinned = binSeries(compare, binMs);
+  const bins = Array.from(new Set([...baseBinned.keys(), ...compareBinned.keys()])).sort((a, b) => a - b);
+  return bins.map((t) => {
+    const b = baseBinned.get(t);
+    const c = compareBinned.get(t);
+    return { t, value: b !== undefined && c !== undefined ? c - b : null };
+  });
+}

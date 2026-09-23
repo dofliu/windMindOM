@@ -6,9 +6,9 @@
  * 摘要並排：headline 卡片 → 指標選擇 → 跨情境長條圖 → 全指標並排表。與 A1
  * （`ScenarioCompareView`，同情境內跨機組）對稱：A1 比較「機組 vs 機組」，本頁比較「情境 vs 情境」。
  *
- * 相對時間對齊的時序疊圖（第二個頁籤，A2 Part 3，WMOM-20260923-03）重用既有單情境端點
- * （見 `ScenarioCompareTimelineView`），非新後端端點；差異圖（決策記錄 A2 完整範圍的最後一塊）需要
- * 先解決多序列時間點不完全對齊的插值/分桶問題，仍不在本頁範圍，留給下一階段。
+ * 相對時間對齊的時序疊圖（第二個頁籤，A2 Part 3，WMOM-20260923-03）與差異圖（第三個頁籤，
+ * A2 Part 4，WMOM-20260923-06）皆重用既有單情境端點（見 `ScenarioCompareTimelineView` /
+ * `ScenarioCompareDiffView`），非新後端端點。至此 A2 完整範圍（摘要並排＋疊圖＋差異圖）皆已完成。
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -34,11 +34,12 @@ import {
   type ScenarioSummary,
 } from '../utils/scenarioCompare';
 import ScenarioCompareTimelineView from './ScenarioCompareTimelineView';
+import ScenarioCompareDiffView from './ScenarioCompareDiffView';
 import type { SavedScenario } from './ScenarioDetail';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
-type CompareTab = 'summary' | 'timeline';
+type CompareTab = 'summary' | 'timeline' | 'diff';
 
 interface Props {
   /** 挑選比較的情境 id（2–5 個，比照後端 MIN/MAX_COMPARE_SCENARIOS，順序即並排順序）。 */
@@ -184,6 +185,7 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, savedScenarios = [], 
             {([
               { key: 'summary' as const, en: 'Summary', zh: '摘要並排' },
               { key: 'timeline' as const, en: 'Timeline overlay', zh: '時序疊圖' },
+              { key: 'diff' as const, en: 'Difference', zh: '差異圖' },
             ]).map((t) => {
               const active = t.key === tab;
               return (
@@ -211,6 +213,15 @@ const ScenarioCompareAcrossView: React.FC<Props> = ({ ids, savedScenarios = [], 
 
           {tab === 'timeline' && (
             <ScenarioCompareTimelineView
+              scenarios={timelineScenarios}
+              labelFor={labelFor}
+              colorFor={colorFor}
+              lang={lang}
+            />
+          )}
+
+          {tab === 'diff' && (
+            <ScenarioCompareDiffView
               scenarios={timelineScenarios}
               labelFor={labelFor}
               colorFor={colorFor}

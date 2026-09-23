@@ -222,3 +222,29 @@ describe('ScenarioCompareAcrossView — 頁籤（摘要並排 / 時序疊圖，A
     expect(screen.getByText('全指標並排')).toBeInTheDocument();
   });
 });
+
+describe('ScenarioCompareAcrossView — 頁籤（差異圖，A2 Part 4）', () => {
+  it('切到差異圖頁籤 → 摘要並排內容消失，改渲染 ScenarioCompareDiffView', async () => {
+    await renderView(
+      [3, 5],
+      'zh',
+      vi.fn(),
+      [
+        { id: 3, turbine_count: 3, config: { sim_start: '2026-03-01T00:00:00Z' } },
+        { id: 5, turbine_count: 3, config: { sim_start: '2026-03-05T00:00:00Z' } },
+      ],
+    );
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '差異圖' }));
+    expect(screen.queryByText('全指標並排')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/差異圖.*相對 baseline/)).toBeInTheDocument());
+  });
+
+  it('未傳 savedScenarios（預設空陣列）→ 差異圖頁籤不崩潰、不 fetch', async () => {
+    await renderView([3, 5]);
+    await waitFor(() => expect(screen.getByText('全指標並排')).toBeInTheDocument());
+    const callsBefore = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '差異圖' }));
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+});
