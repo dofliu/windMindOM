@@ -16,10 +16,22 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 110 |
-| **total (active)** | **121** |
+| done | 111 |
+| **total (active)** | **122** |
 
-最後更新：2026-09-23（**WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖**
+最後更新：2026-09-23（**WMOM-20260923-04 — `components/ui` primitives（`StatusPill`/`Charts`）
+測試補齊**：TODO.md 點名「ui primitives 目前零 `__tests__`，尚未評估是否需要」——逐檔讀過 9 支
+檔案（1220 行）後判定：`Btn`/`Card`/`Field`/`Stat`/`PageHeader` 純展示型、已被全站既有 page-level
+測試間接覆蓋，ROI 低；`Logo`/`Sidebar` 範圍較大另開一支；`StatusPill.tsx`（3 支狀態顏色映射純
+函式）與 `Charts.tsx`（`MiniSparkline`/`BigChart`/`HealthBar` 的 SVG path 數學 + clamp + 顏色
+門檻）有實際邏輯分支值得補測試。新增 `StatusPill.test.tsx`（27 測）+ `Charts.test.tsx`
+（21 測），6 個關鍵分支手動 mutation-verified。零 production 變更。code-reviewer subagent
+review：0 must-fix，2 should-fix 全數採納（issue 未登記進 ISSUES.md/STATUS.yaml；docstring
+用詞「比照既有慣例」易誤讀成沿用而非本 repo 首次引入此模式，已改寫）+ 1 nice-to-have 採納
+（`BigChart` events 測試從「存在性斷言」改精確 `cx` 座標斷言，mutation-verified）+ 1
+nice-to-have 不採納（`hexToRgb` helper 兩處重複，reviewer 亦判斷不急著抽），Approve。
+backend 未動 1103 passed 不變；frontend 1100→1148 passed（53→55 files）、tsc 0、build OK。
+前一 session：**WMOM-20260923-03 — 情境比較分析 A2 Part 3：跨情境相對時間對齊時序疊圖**
 （DEC-20260720-02，決策更新 `DEC-20260923-01`）：連續兩個 session 把「相對時間對齊疊圖」標成
 「需要新後端端點」而延後；本次判定不需要——既有單情境端點 `GET /api/scenarios/{id}/turbines/
 {tid}/history`（A1 已在用）+ 前端已持有的 `config.sim_start` 就足以純前端算相對時間對齊，零後端
@@ -610,6 +622,43 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     本次 `buildTimelinePoints` 已是可直接復用的地基；或轉向 PR C（檢視情境掛載 app，需先寫 broker
     子設計，仍卡）。
 - **Reference**: work-logs/2026-09/2026-09-23-scenario-compare-a2-part3-timeline.md
+
+- **WMOM-20260923-04** — ✅ **`components/ui` primitives（`StatusPill`/`Charts`）測試補齊**
+  （EPIC-M5 測試覆蓋擴大）：`components/ui/*.tsx` 9 支 UI primitive 檔案（1220 行）先前完全
+  零 `__tests__`（前兩個 session 皆點名「尚未評估是否需要」）——本次逐檔讀過評估：
+  `Btn`/`Card`/`Field`/`Stat`/`PageHeader` 純展示型 wrapper，條件邏輯僅單層 truthy 分支，且已
+  被全站幾十個既有 page-level component 測試以真實元件間接渲染覆蓋，ROI 低，**本次不動**；
+  `Logo`/`Sidebar` 範圍較大（`Sidebar` 有 mobile drawer + badge + `window.innerWidth` 多個
+  responsive 分支），適合另開一支，**本次不動**；`StatusPill.tsx`（3 支匯出純函式決定全站
+  風機/工單/技師狀態顏色語意）與 `Charts.tsx`（`MiniSparkline`/`BigChart`/`HealthBar` 的 SVG
+  path 數學 + `range=0` 除以零防呆 + clamp + 顏色門檻）有實際邏輯分支值得補測試。
+  - **新增 `components/ui/__tests__/StatusPill.test.tsx`（27 tests）**：元件渲染（7 種 tone
+    對應 theme 顏色、`colorBg`/`colorFg` 覆蓋、size 變化、title 透傳）+ 3 支純函式
+    （`turbineStatusTone`/`workOrderStatusTone`/`technicianStatusTone`）逐一測完整分支含
+    default fallback。
+  - **新增 `components/ui/__tests__/Charts.test.tsx`（21 tests）**：`MiniSparkline`（空陣列/
+    單值/多值/全同值 range=0 防呆/fill on-off）、`BigChart`（無資料 placeholder/band 長度檢查/
+    fill 疊層/grid on-off/events circle+text+精確 cx 座標）、`HealthBar`（clamp 上下限、顏色
+    門檻三段含邊界值 75/85）。
+  - **6 個關鍵分支手動 mutation-verified**（`turbineStatusTone` IDLE 分支、`workOrderStatusTone`
+    default 分支、`MiniSparkline` range 防呆、`BigChart` band 長度檢查、`HealthBar` 顏色門檻
+    邊界、`HealthBar` clamp 下限）逐一改回舊邏輯確認新測會 fail、再還原，`git diff` 對
+    production 檔案（`StatusPill.tsx`/`Charts.tsx`）全程乾淨、零變更。
+  - 🔍 **code-reviewer subagent review**：0 must-fix，**2 should-fix 全數採納**：(1) issue 未
+    登記進 `ISSUES.md`/`STATUS.yaml`（本節即補件）；(2) `StatusPill.test.tsx` docstring 原寫
+    「比照既有慣例」，reviewer 獨立 grep 全 repo 確認這其實是本 repo**首次**對 inline style
+    字串斷言計算後顏色（先前 53 支既有測試皆無此模式），已改寫成明確講「首次引入」+ 選擇原因
+    （jsdom 不支援 `getComputedStyle` 展開簡寫）。另 **1 nice-to-have 採納**（`BigChart` events
+    測試從「circle 存在性」改精確 `cx` 座標斷言，mutation-verified）+ **1 nice-to-have 不採納**
+    （`hexToRgb` helper 兩處重複，reviewer 亦判斷僅 2 處不急著抽）。reviewer 額外自行重算全部
+    14 個 palette hex 驗證 `hexToRgb` 位數切分無誤、dump `HealthBar` 實際 DOM 逐層確認測試遍歷
+    路徑非巧合命中、確認 `vitest.config.ts` 預設 `test.isolate: true` 排除跨檔 `localStorage`
+    汙染風險。Overall verdict：Approve。
+  - ✅ **Verify**：純測試新增，零 production 變更；backend 未動 1103 passed 不變；frontend
+    1100→1148 passed（53→55 files，+48 新測）、tsc 0 error、build OK。
+  - **下次接手**：`Sidebar.tsx` component 測試（範圍較大另計）；A2 Part 4（差異圖）/ PR C
+    （檢視情境掛載 app）維持前次 session 的候選清單不變。
+- **Reference**: work-logs/2026-09/2026-09-23-ui-primitives-statuspill-charts-tests.md
 
 ## 🎯 未來大目標（M5 / M6 epics）
 
