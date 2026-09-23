@@ -16,11 +16,16 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-23（WMOM-20260923-01 — `MaintenanceHub` component render 測試：439 行的
+最後更新：2026-09-23（WMOM-20260923-02 — `FaultInjectionPanel` component render 測試：555 行的
+`/admin` 故障模擬頁面元件先前零 component 測試，比照 `TrendChartPanel`/`SettingsPage` 範式（fetch
+mock + fake timers）補上 40 測（PageHeader/注入參數 Fields/inject·clear all/活躍故障表/診斷
+測試計畫卡片/執行測試計畫+結果卡/3s 輪詢與 unmount cleanup），frontend 1027→1067 passed，
+backend 未動；`MaintenanceHub`/`FaultInjectionPanel` 同批 untested 大元件兩支皆已處理完畢。）
+前一 session：WMOM-20260923-01 — `MaintenanceHub` component render 測試：439 行的
 `/admin/maintenance` 頁面元件先前零 component 測試，補上 49 測（PageHeader/Filter/
 WorkOrderTable 全欄位/RosterCard/WeekCalendar），frontend 978→1027 passed，backend 未動；
 PR #164（WMOM-20260922-04）確認 auto-merge 成功，累積連續 3 筆 CI 綠燈樣本，已清除上方舊
-CI 失效警語。）
+CI 失效警語。
 session #7：WMOM-20260922-04 — 情境比較分析 A2 Part 2 前端：
 `ScenarioCompareAcrossView`（跨情境風場層 rollup 摘要並排）+ `ScenarioPage` 勾選/比較 UI，
 frontend 961→978 passed（+17 新測，含開發中自行抓到並修正的 2 個真實 bug），backend 未動。
@@ -57,7 +62,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
-- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub 皆已補齊）—— 剩 `FaultInjectionPanel.tsx`（555 行，同批 untested 大元件最後一支）；ui primitives（`components/ui/*.tsx`）目前零 `__tests__`，尚未評估是否需要
+- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— ui primitives（`components/ui/*.tsx`）目前零 `__tests__`，尚未評估是否需要；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
 - [ ] **WMOM-20260716-06** — 🔵 footprint CPU-torch pin（Dockerfile，DEC-20260716-02，image 砍半；本地無 docker，待部署環境驗）
 - [ ] **WMOM-20260509-F6** — PostgreSQL row-lock integration test（M6 部署前，需 docker postgres）
 

@@ -643,6 +643,35 @@ describe('FaultInjectionPanel — 執行測試計畫', () => {
     expect(within(row).getByText('TRIP')).toBeInTheDocument();
   });
 
+  it('final_fault_status 的 scenario_id 有值時優先顯示 scenario_id（而非 name_en）', async () => {
+    // 與上一測試互補：上一測試 scenario_id=undefined 只能驗證「?? 有 fallback」，
+    // 無法區分 `scenario_id ?? name_en` 與反過來的 `name_en ?? scenario_id`——
+    // 兩者在 scenario_id 缺值時輸出相同。本測試給兩者皆不同的明確值，鎖住優先順序。
+    installFetch({
+      testPlans: [makeTestPlan({ id: 'plan-a' })],
+      runHandler: () =>
+        jsonRes(
+          makeTestPlanResult({
+            final_fault_status: [
+              makeActiveFault({
+                turbine_id: 'WT005',
+                scenario_id: 'bearing_overheat',
+                name_en: 'Something Else',
+              }),
+            ],
+          }),
+        ),
+    });
+    await renderPanel();
+    await act(async () => {
+      fireEvent.click(runButtons()[0]);
+    });
+    const resultCard = screen.getByText('最終故障狀態').parentElement as HTMLElement;
+    const row = within(resultCard).getAllByRole('row')[1];
+    expect(within(row).getByText('bearing_overheat')).toBeInTheDocument();
+    expect(within(row).queryByText('Something Else')).not.toBeInTheDocument();
+  });
+
   it('final_fault_status 為空 → 不渲染最終故障狀態表', async () => {
     installFetch({
       testPlans: [makeTestPlan({ id: 'plan-a' })],
