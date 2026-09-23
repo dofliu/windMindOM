@@ -23,6 +23,7 @@ import {
   type FaultInfo,
 } from '../types';
 import { analyzeTurbineFault } from '../services/geminiService';
+import { authFetch } from '../services/authClient';
 import {
   Card,
   Btn,
@@ -135,7 +136,7 @@ const OperatorControlCard: React.FC<{
   const [msg, setMsg] = useState('');
 
   const refresh = useCallback(() => {
-    fetch(`${API_BASE}/api/control/${turbineApiId}/status`)
+    authFetch(`${API_BASE}/api/control/${turbineApiId}/status`)
       .then(r => r.json())
       .then(setStatus)
       .catch(() => {});
@@ -148,7 +149,7 @@ const OperatorControlCard: React.FC<{
   }, [refresh]);
 
   const sendCmd = async (command: string) => {
-    await fetch(`${API_BASE}/api/control/command`, {
+    await authFetch(`${API_BASE}/api/control/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turbineId: turbineApiId, command }),
@@ -160,7 +161,7 @@ const OperatorControlCard: React.FC<{
 
   const setCurtail = async () => {
     const val = curtailValue === '' ? null : parseFloat(curtailValue);
-    await fetch(`${API_BASE}/api/control/curtail`, {
+    await authFetch(`${API_BASE}/api/control/curtail`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turbineId: turbineApiId, powerLimitKw: val }),
@@ -172,7 +173,7 @@ const OperatorControlCard: React.FC<{
 
   const clearCurtail = async () => {
     setCurtailValue('');
-    await fetch(`${API_BASE}/api/control/curtail`, {
+    await authFetch(`${API_BASE}/api/control/curtail`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turbineId: turbineApiId, powerLimitKw: null }),
@@ -953,6 +954,23 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
   const hasFaults = turbine.activeFaults && turbine.activeFaults.length > 0;
   const subScores = useSubsystemScores(turbine);
 
+  // PageHeader「停機」（WMOM-20260507-02 sub-task b）：右側「操作控制」卡片的重複入口
+  // （設計稿既有意圖，見 docs/design 交接書），直接呼叫同一支 command endpoint，
+  // 卡片自身 3s 輪詢會自然反映最新狀態，故不在此另外維護狀態顯示。
+  const [headerStopPending, setHeaderStopPending] = useState(false);
+  const handleHeaderStop = async () => {
+    setHeaderStopPending(true);
+    try {
+      await authFetch(`${API_BASE}/api/control/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turbineId: turbineApiId, command: 'stop' }),
+      });
+    } finally {
+      setHeaderStopPending(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -1001,7 +1019,13 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         actions={
           <>
             <Btn ariaLabel={tr('Curtail', '限載')}>{tr('Curtail', '限載')}</Btn>
-            <Btn ariaLabel={tr('Stop', '停機')}>{tr('Stop', '停機')}</Btn>
+            <Btn
+              ariaLabel={tr('Stop', '停機')}
+              onClick={handleHeaderStop}
+              loading={headerStopPending}
+            >
+              {tr('Stop', '停機')}
+            </Btn>
             <Btn variant="primary" ariaLabel={tr('Inspect', '安排檢查')}>
               {tr('Inspect', '安排檢查')}
             </Btn>
