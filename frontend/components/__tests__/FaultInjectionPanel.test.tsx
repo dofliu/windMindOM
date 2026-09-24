@@ -34,6 +34,7 @@ import React from 'react';
 import FaultInjectionPanel from '../FaultInjectionPanel';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import type { FaultScenario } from '../../types';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
 
@@ -756,5 +757,113 @@ describe('FaultInjectionPanel — 輪詢與 cleanup', () => {
       await vi.advanceTimersByTimeAsync(9000);
     });
     expect(callsTo('/api/faults/active')).toHaveLength(1);
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10）──────────────────────────────────────────
+//
+// 本檔既有測試皆用 `expect.any(Object)`／不檢查 headers 的方式比對 fetch 呼叫，
+// 對「裸 fetch vs authFetch」不敏感（見 WMOM-20260923-07/-09 附帶發現）。故另補
+// 這組直接檢查 `Authorization` header 內容的專測，鎖住本次修復（6 處 fetch 呼叫皆
+// 改用 `authFetch`：3 個 SUPERVISOR-only 寫入 inject/clear/run-plan，風險最高；
+// 另 3 個 GET 讀取端點後端亦掛 `require_authenticated()`，enforce 開啟後裸 fetch
+// 同樣會 401）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+describe('FaultInjectionPanel — authFetch 稽核（WMOM-20260923-10）', () => {
+  it('已登入（有 token）→ mount 時 3 條 GET（scenarios/test-plans/active）皆帶 Authorization header', async () => {
+    setAuthToken('test-token-mount');
+    try {
+      await renderPanel();
+      for (const path of ['/api/faults/scenarios', '/api/faults/test-plans', '/api/faults/active']) {
+        const calls = callsTo(path);
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-mount');
+      }
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 注入故障 POST /api/faults/inject 帶 Authorization header', async () => {
+    setAuthToken('test-token-inject');
+    try {
+      installFetch({ scenarios: [makeScenario({ id: 's1' })] });
+      await renderPanel();
+      fireEvent.change(screen.getByRole('combobox', { name: '故障場景' }), {
+        target: { value: 's1' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '注入故障' }));
+      });
+      const calls = callsTo('/api/faults/inject');
+      expect(calls).toHaveLength(1);
+      expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-inject');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 清除全部 POST /api/faults/clear 帶 Authorization header', async () => {
+    setAuthToken('test-token-clear');
+    try {
+      await renderPanel();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '清除全部' }));
+      });
+      const calls = callsTo('/api/faults/clear');
+      expect(calls).toHaveLength(1);
+      expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-clear');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 執行測試計畫 POST .../run 帶 Authorization header', async () => {
+    setAuthToken('test-token-run');
+    try {
+      installFetch({ testPlans: [makeTestPlan({ id: 'plan-a' })] });
+      await renderPanel();
+      await act(async () => {
+        fireEvent.click(runButtons()[0]);
+      });
+      const calls = callsTo('/api/faults/test-plans/plan-a/run');
+      expect(calls).toHaveLength(1);
+      expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-run');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('未登入（無 token）→ 6 處呼叫皆不帶 Authorization header（過渡期行為不變）', async () => {
+    installFetch({ scenarios: [makeScenario({ id: 's1' })], testPlans: [makeTestPlan({ id: 'plan-a' })] });
+    await renderPanel();
+    fireEvent.change(screen.getByRole('combobox', { name: '故障場景' }), {
+      target: { value: 's1' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '注入故障' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '清除全部' }));
+    });
+    await act(async () => {
+      fireEvent.click(runButtons()[0]);
+    });
+    for (const path of [
+      '/api/faults/scenarios',
+      '/api/faults/test-plans',
+      '/api/faults/active',
+      '/api/faults/inject',
+      '/api/faults/clear',
+      '/api/faults/test-plans/plan-a/run',
+    ]) {
+      const calls = callsTo(path);
+      expect(calls.length).toBeGreaterThan(0);
+      calls.forEach(([, init]) => expect(authHeaderOf(init)).toBeUndefined());
+    }
   });
 });
