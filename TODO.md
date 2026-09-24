@@ -16,16 +16,24 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-01 — `WMOM-20260923-10` sub-task 1/7：`FaultInjectionPanel.tsx`
+最後更新：2026-09-24（WMOM-20260924-02 — `WMOM-20260923-10` sub-task 2/7：`FarmSelector.tsx`
+authFetch 補齊。sidebar 底部風場切換器 3 處裸 fetch（GET `/api/farms` 列表 + POST
+`/api/farms/{id}/activate` 切換 + POST `/api/farms` 建立，後兩者皆 `SUPERVISOR`-only 寫入）全改
+`authFetch`，比照姊妹 PR WMOM-20260923-07/-09/WMOM-20260924-01 手法。新增 4 測（已登入時 mount
+GET + 切換 POST + 建立 POST 皆帶 `Authorization` header；未登入時驗證過渡期行為不變），皆
+mutation-verified（sed 改回裸 fetch → 3 測如預期 fail、未登入測試維持 pass → 已還原）。
+code-reviewer review：0 must-fix、0 should-fix、2 nice-to-have（皆記錄性說明，不需改動），
+Approve。backend 未動 1103 passed 不變；frontend 1232→1236 passed（+4 新測）、tsc 0、build OK。
+`WMOM-20260923-10` 稽核清單尚餘 5 支：`SettingsPage`（含 SUPERVISOR 寫入，優先）>
+`CostPage`/`EventComparisonView`/`HistoryPage`/`TrendChartPanel`（純讀取，風險較低）。）
+前一 session：WMOM-20260924-01 — `WMOM-20260923-10` sub-task 1/7：`FaultInjectionPanel.tsx`
 authFetch 補齊。`/admin` 故障模擬頁 6 處裸 fetch（GET scenarios/test-plans/active + POST
 inject/clear/test-plans-run，後 3 個皆 `SUPERVISOR`-only 寫入）全改 `authFetch`，比照姊妹 PR
 WMOM-20260923-07/-09 手法。新增 5 測（已登入時 mount 3 GET + 3 寫入端點皆帶 `Authorization`
 header；未登入時驗證過渡期行為不變），皆 mutation-verified（sed 改回裸 fetch → 4 測如預期 fail
 → 已還原）。code-reviewer review：0 must-fix、0 should-fix、2 nice-to-have（皆記錄性說明，
 不需改動），Approve。backend 未動 1103 passed 不變；frontend 1227→1232 passed（+5 新測）、
-tsc 0、build OK。`WMOM-20260923-10` 稽核清單尚餘 6 支：`FarmSelector`/`SettingsPage`（含
-SUPERVISOR/ADMIN 寫入，優先）> `CostPage`/`EventComparisonView`/`HistoryPage`/`TrendChartPanel`
-（純讀取，風險較低）。）
+tsc 0、build OK。）
 前一 session：WMOM-20260923-09 — `WMOM-20260507-02` sub-task b：`TurbineDetail.tsx`
 PageHeader「停機」鈕接上 `POST /api/control/command { command: 'stop' }`（走 `authFetch`）。
 認領時追查右側「操作控制」卡片（`OperatorControlCard`）本身 4 處既有 `fetch`（GET status 輪詢 +
@@ -159,11 +167,12 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   export 端點一樣需要 auth 卻仍用裸 `fetch`，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，純技術
   債，見 ISSUES.md 該 issue 條目
 - [ ] **WMOM-20260923-10**（**優先**，M6 auth cutover 前置阻塞）— 前端 authFetch 稽核：7 支元件
-  尚餘 6 支（`FaultInjectionPanel` 已於 2026-09-24 完成，見 WMOM-20260924-01）：`CostPage`/
-  `EventComparisonView`/`FarmSelector`/`HistoryPage`/`SettingsPage`/`TrendChartPanel` 仍裸
-  `fetch` 未帶 `Authorization` header，其中 `FarmSelector`/`SettingsPage` 含 SUPERVISOR/ADMIN-only
-  寫入端點，優先接手；`WMOM-20260716-05i`（cutover 翻 `WMOM_AUTH_ENFORCE=true`）前必須清空。
-  拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），優先序見 ISSUES.md 該 issue 條目
+  尚餘 5 支（`FaultInjectionPanel` 已於 2026-09-24 完成 WMOM-20260924-01；`FarmSelector` 已於
+  2026-09-24 完成 WMOM-20260924-02）：`CostPage`/`EventComparisonView`/`HistoryPage`/
+  `SettingsPage`/`TrendChartPanel` 仍裸 `fetch` 未帶 `Authorization` header，其中 `SettingsPage`
+  含 SUPERVISOR-only 寫入端點，優先接手；`WMOM-20260716-05i`（cutover 翻 `WMOM_AUTH_ENFORCE=true`）
+  前必須清空。拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），優先序見 ISSUES.md 該
+  issue 條目
 
 ### 需劉老師決策才能開工
 

@@ -28,6 +28,7 @@ import { render, screen, fireEvent, cleanup, act, waitFor, within } from '@testi
 import React from 'react';
 import FarmSelector from '../FarmSelector';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
 
@@ -544,6 +545,90 @@ describe('FarmSelector — 新增風場 modal', () => {
     await openCreateModal('en');
     expect(screen.getByText('Create wind farm')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create farm' })).toBeInTheDocument();
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10）──────────────────────────────────────────
+//
+// 上方既有測試皆用 `calls()`（只比對 URL + method）比對 fetch 呼叫，對「裸 fetch vs
+// authFetch」不敏感（同款根因見 WMOM-20260923-07/-09/-20260924-01）。故另補這組直接
+// 檢查 `Authorization` header 內容的專測，鎖住本次修復（3 處 fetch 呼叫皆改用
+// `authFetch`：GET `/api/farms` 列表讀取、POST `.../activate` 與 POST `/api/farms`
+// 建立皆屬 `SUPERVISOR`/`ADMIN` 寫入，風險與 `FaultInjectionPanel` 同級）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+function callsMatching(pred: (url: string, method: string) => boolean): Array<[string, RequestInit | undefined]> {
+  return fetchMock.mock.calls
+    .map(c => [String(c[0]), c[1] as RequestInit | undefined] as [string, RequestInit | undefined])
+    .filter(([u, init]) => pred(u, String(init?.method ?? 'GET').toUpperCase()));
+}
+
+describe('FarmSelector — authFetch 稽核（WMOM-20260923-10）', () => {
+  it('已登入（有 token）→ mount 時 GET /api/farms 帶 Authorization header', async () => {
+    setAuthToken('test-token-mount');
+    try {
+      await renderSelector('zh');
+      const listCalls = callsMatching((u, m) => u.endsWith('/api/farms') && m === 'GET');
+      expect(listCalls).toHaveLength(1);
+      expect(authHeaderOf(listCalls[0][1])).toBe('Bearer test-token-mount');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 切換 farm POST /api/farms/{id}/activate 帶 Authorization header', async () => {
+    setAuthToken('test-token-activate');
+    try {
+      await openDropdown('zh');
+      const optB = screen.getByRole('option', { name: /雲林陸域風場/ });
+      await act(async () => {
+        fireEvent.click(optB);
+      });
+      await waitFor(() => {
+        expect(callsMatching((u, m) => u.includes('/api/farms/f2/activate') && m === 'POST')).toHaveLength(1);
+      });
+      const activateCalls = callsMatching((u, m) => u.includes('/api/farms/f2/activate') && m === 'POST');
+      expect(authHeaderOf(activateCalls[0][1])).toBe('Bearer test-token-activate');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('已登入（有 token）→ 建立風場 POST /api/farms 帶 Authorization header', async () => {
+    setAuthToken('test-token-create');
+    try {
+      await openCreateModal('zh');
+      fireEvent.change(screen.getByLabelText('風場名稱'), { target: { value: '測試風場' } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '建立風場' }));
+      });
+      await waitFor(() => {
+        expect(callsMatching((u, m) => u.endsWith('/api/farms') && m === 'POST')).toHaveLength(1);
+      });
+      const createCalls = callsMatching((u, m) => u.endsWith('/api/farms') && m === 'POST');
+      expect(authHeaderOf(createCalls[0][1])).toBe('Bearer test-token-create');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('未登入（無 token）→ 列表 / 切換 / 建立 皆不帶 Authorization header（過渡期行為不變）', async () => {
+    await openCreateModal('zh');
+    fireEvent.change(screen.getByLabelText('風場名稱'), { target: { value: '測試風場' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '建立風場' }));
+    });
+    await waitFor(() => {
+      expect(callsMatching((u, m) => u.endsWith('/api/farms') && m === 'POST')).toHaveLength(1);
+    });
+    const listCalls = callsMatching((u, m) => u.endsWith('/api/farms') && m === 'GET');
+    const createCalls = callsMatching((u, m) => u.endsWith('/api/farms') && m === 'POST');
+    expect(listCalls.length).toBeGreaterThan(0);
+    listCalls.forEach(([, init]) => expect(authHeaderOf(init)).toBeUndefined());
+    createCalls.forEach(([, init]) => expect(authHeaderOf(init)).toBeUndefined());
   });
 });
 

@@ -16,18 +16,25 @@
 | open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 117 |
-| **total (active)** | **129** |
+| done | 118 |
+| **total (active)** | **130** |
 
-最後更新：2026-09-24（**WMOM-20260924-01 — `WMOM-20260923-10` sub-task：`FaultInjectionPanel.tsx`
-authFetch 補齊**：`/admin` 故障模擬頁 6 處 fetch 呼叫（含 3 個 `SUPERVISOR`-only 寫入：注入/清除
+最後更新：2026-09-24（**WMOM-20260924-02 — `WMOM-20260923-10` sub-task：`FarmSelector.tsx`
+authFetch 補齊**：sidebar 底部風場切換器 3 處 fetch 呼叫（GET 列表 + POST 切換/建立，後兩者皆
+`SUPERVISOR`-only 寫入）全改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09/WMOM-20260924-01）
+手法。新增 4 測（已登入時 mount GET + 切換 POST + 建立 POST 皆帶 `Authorization` header；未登入
+時驗證過渡期行為不變），皆 mutation-verified。code-reviewer review：0 must-fix、0 should-fix、
+2 nice-to-have（皆為記錄性說明，不需改動），Approve。backend 未動 1103 passed 不變；frontend
+1232→1236 passed（+4 新測）、tsc 0、build OK。`WMOM-20260923-10` 稽核清單（7 支元件）尚餘 5 支：
+`SettingsPage`（含 SUPERVISOR 寫入，優先）> `CostPage`/`EventComparisonView`/`HistoryPage`/
+`TrendChartPanel`（純讀取）。
+前一 session：WMOM-20260924-01 — `WMOM-20260923-10` sub-task：`FaultInjectionPanel.tsx`
+authFetch 補齊：`/admin` 故障模擬頁 6 處 fetch 呼叫（含 3 個 `SUPERVISOR`-only 寫入：注入/清除
 故障/執行測試計畫）全改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09）手法。新增 5 測（已登入
 時 mount 3 條 GET + 3 個寫入端點皆帶 `Authorization` header；未登入時驗證過渡期行為不變），皆
 mutation-verified。code-reviewer review：0 must-fix、0 should-fix、2 nice-to-have（皆為記錄性
 說明，不需改動），Approve。backend 未動 1103 passed 不變；frontend 1227→1232 passed（+5 新測）、
-tsc 0、build OK。`WMOM-20260923-10` 稽核清單（7 支元件）尚餘 6 支：`FarmSelector`/`SettingsPage`
-（含 SUPERVISOR/ADMIN 寫入，優先）> `CostPage`/`EventComparisonView`/`HistoryPage`/
-`TrendChartPanel`（純讀取）。）
+tsc 0、build OK。）
 前一 session：**WMOM-20260923-07 — PageHeader 按鈕 sub-task a：風場總覽「匯出」接線**：
 `WMOM-20260507-02` 清單第一項——`FarmOverview.tsx` 的「匯出」鈕原是零功能 placeholder，本次接
 `GET /api/export/snapshot`（後端 `require_authenticated()` 閘門）：`handleExportSnapshot` 走既有
@@ -3505,18 +3512,20 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     寫入**，風險高，`/admin` 故障模擬頁全面）全改 `authFetch`，新增 5 測（含 3 個
     SUPERVISOR-only 寫入端點 + mount 3 條 GET 的 header 斷言 + 未登入行為不變的對照組），皆
     mutation-verified。
-  - [ ] `FarmSelector.tsx:71,85,287` — GET `/api/farms`、POST `/api/farms/{id}/activate`、POST
-    `/api/farms`（**建立/切換 farm，依 §4.1 屬 `SUPERVISOR`/`ADMIN` 寫入**，風險同
-    `OperatorControlCard`）
+  - [x] ~~`FarmSelector.tsx:71,85,287`~~ — ✅ 2026-09-24 完成（WMOM-20260924-02）。GET
+    `/api/farms`、POST `/api/farms/{id}/activate`、POST `/api/farms`（**建立/切換 farm 皆
+    `SUPERVISOR`/`ADMIN` 寫入**，風險同 `OperatorControlCard`）全改 `authFetch`，新增 4 測
+    （mount GET + 切換 POST + 建立 POST 皆帶 header + 未登入行為不變對照組），皆
+    mutation-verified。
   - [ ] `SettingsPage.tsx:134,143,151,170,187,198,216,239,250,264,294` — `/api/config/*`
     （**多處為 `SUPERVISOR` 寫入**：wind/grid/turbine-spec 設定變更）
   - [ ] `CostPage.tsx:693` — GET `/api/farms`（讀取，任何登入者）
   - [ ] `EventComparisonView.tsx:79` — GET `/api/maintenance/events/compare`（讀取）
   - [ ] `HistoryPage.tsx:145,158` — `/api/i18n/tags`、`/api/turbines/{id}/history`（讀取）
   - [ ] `TrendChartPanel.tsx:61,69` — `/api/i18n/tags`、`/api/turbines/{id}/trend`（讀取）
-  - 共 7 支檔案、約 20+ 處呼叫，1 支已完成。優先序建議：`FaultInjectionPanel`（done）/
-    `SettingsPage`/`FarmSelector`（皆含 SUPERVISOR/ADMIN 寫入，enforce 後會整面失效）> 其餘純讀取
-    元件（enforce 後仍可用但 401 會被吞、UI 卡在載入態不會導回登入頁）。
+  - 共 7 支檔案、約 20+ 處呼叫，2 支已完成。優先序建議：`FaultInjectionPanel`（done）/
+    `FarmSelector`（done）/`SettingsPage`（皆含 SUPERVISOR/ADMIN 寫入，enforce 後會整面失效）> 其餘
+    純讀取元件（enforce 後仍可用但 401 會被吞、UI 卡在載入態不會導回登入頁）。
 - **Deliverable**：逐檔比照 WMOM-20260923-07/-08/-09/-20260924-01 手法——改 `authFetch` + 補 auth
   header 測試 + mutation-verified；拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），
   一個 session 做一支避免單一 PR 範圍過大。全部完成後回頭勾掉
@@ -3559,6 +3568,41 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   場景固定傳入 `{headers: {}}` 第二參數，屬 wrapper 既有行為非本次引入，測試已正確適應），
   皆判定不需採納，Approve。獨立重跑 mutation test 確認一致。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260923-09`/`-07` work-log（同款修法）
+
+---
+
+### WMOM-20260924-02 — `FarmSelector.tsx` authFetch 補齊（WMOM-20260923-10 sub-task）
+
+- **Status**: done
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單第二項
+- **Priority**: high（sidebar 底部風場切換器 + 建立風場 modal 共 3 處端點，切換/建立皆
+  `SUPERVISOR`/`ADMIN`-only 寫入，enforce 開啟後裸 fetch 會使 farm 管理功能整面失效）
+- **Estimate**: 40 min（實際）
+- **Source**: `WMOM-20260923-10`（前端 authFetch 稽核，2026-09-23）稽核清單第二項，本次 autonomous
+  session 接手
+- **Description**:
+  `frontend/components/FarmSelector.tsx`（sidebar 底部風場切換器）3 處 fetch 呼叫（GET
+  `/api/farms`、POST `/api/farms/{farmId}/activate`、POST `/api/farms`）全部裸 `fetch`，未帶
+  `Authorization` header。後端列表端點掛 `require_authenticated()`，切換/建立兩個寫入端點皆掛
+  `require_role(Role.SUPERVISOR)`。
+- **Deliverable**：
+  - `FarmSelector.tsx`：`import { authFetch } from '../services/authClient'`，3 處
+    `fetch(` → `authFetch(`（僅替換呼叫方式，method/headers/body 參數完全不動）。
+  - `FarmSelector.test.tsx`：新增「authFetch 稽核」describe block，4 測——已登入時 mount GET +
+    切換 POST activate + 建立 POST /api/farms 皆帶 `Authorization: Bearer <token>`；未登入時
+    三處皆不帶（驗證 `WMOM_AUTH_ENFORCE=false` 過渡期行為不變）。
+- **Verify**：
+  - Mutation-verified：暫時 sed 把 3 處 `authFetch(` 改回 `fetch(`，重跑此檔測試 → 3 個「已登入」
+    新測試如預期 fail（mount + 切換 + 建立），「未登入」測試維持 pass（符合預期——該測試本就只
+    驗證無 token 時三種寫法行為一致，不區分 fetch vs authFetch），已還原確認 `git diff --stat`
+    乾淨、3 處 `authFetch` 呼叫皆在。
+  - backend 未動（純 frontend 改動）1103 passed 不變；frontend `npx tsc --noEmit` 0 error、
+    `npx vitest run` 1232→1236 passed（58 files 不變，+4 新測）、`npx vite build` OK。
+- **Review**: code-reviewer subagent review：0 must-fix、0 should-fix、2 nice-to-have（「未登入」
+  測試對 fetch/authFetch 不敏感、`callsMatching`/`authHeaderOf` 與姊妹檔 `calls()` 邏輯些微重複，
+  皆判定不需改動），Approve。獨立重新讀全檔 + grep 確認無遺漏裸 fetch、交叉核對後端
+  `require_role` 標註、獨立重跑 vitest 確認測試數一致。
+- **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01` work-log（同款修法）
 
 ---
 
