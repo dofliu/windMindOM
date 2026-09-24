@@ -14,6 +14,7 @@ import { type AppSettings, DataSourceType } from '../types';
 import { Btn, Card, Field, Input, PageHeader, Select, StatusPill } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import type { SourceMode } from '../hooks/useSourceGate';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -131,7 +132,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   }, [settings]);
 
   const refreshWindStatus = () => {
-    fetch(`${API_BASE}/api/config/wind`)
+    authFetch(`${API_BASE}/api/config/wind`)
       .then(r => {
         setApiConnected(true);
         return r.json();
@@ -140,7 +141,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       .catch(() => setApiConnected(false));
   };
   const refreshGridStatus = () => {
-    fetch(`${API_BASE}/api/config/grid`)
+    authFetch(`${API_BASE}/api/config/grid`)
       .then(r => r.json())
       .then(setGridStatus)
       .catch(() => {});
@@ -148,7 +149,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   // 隨 wind/grid 一起每 5 秒輪詢：gate 是安全網，若使用者開著本頁期間來源被別處切換（如切到
   // live），這裡要能跟上、及時擋掉即時控制，而非停在 mount 當下的過期狀態（review Should-fix）。
   const refreshSourceKind = () => {
-    fetch(`${API_BASE}/api/source/status`)
+    authFetch(`${API_BASE}/api/source/status`)
       .then(r => (r.ok ? r.json() : null))
       .then((data: { kind?: SourceMode | null } | null) => setSourceKind(data ? data.kind ?? null : null))
       .catch(() => setSourceKind(null));
@@ -167,7 +168,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/turbine-spec`)
+    authFetch(`${API_BASE}/api/config/turbine-spec`)
       .then(r => r.json())
       .then((spec: TurbineSpec) => {
         setTurbineSpec(spec);
@@ -184,7 +185,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
         });
       })
       .catch(() => {});
-    fetch(`${API_BASE}/api/config/turbine-spec/presets`)
+    authFetch(`${API_BASE}/api/config/turbine-spec/presets`)
       .then(r => r.json())
       .then(setSpecPresets)
       .catch(() => {});
@@ -195,7 +196,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   const handleSetProfile = async (profile: string) => {
     setWindProfile(profile);
     try {
-      const res = await fetch(`${API_BASE}/api/config/wind`, {
+      const res = await authFetch(`${API_BASE}/api/config/wind`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile }),
@@ -213,7 +214,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
 
   const handleSetCustomWind = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/config/wind`, {
+      const res = await authFetch(`${API_BASE}/api/config/wind`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -236,7 +237,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
 
   const handleSetGridProfile = async (profile: string) => {
     setGridProfile(profile);
-    await fetch(`${API_BASE}/api/config/grid`, {
+    await authFetch(`${API_BASE}/api/config/grid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile }),
@@ -247,7 +248,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   };
 
   const handleSetCustomGrid = async () => {
-    await fetch(`${API_BASE}/api/config/grid`, {
+    await authFetch(`${API_BASE}/api/config/grid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -261,7 +262,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
   };
 
   const handleSetPreset = async (preset: string) => {
-    const res = await fetch(`${API_BASE}/api/config/turbine-spec`, {
+    const res = await authFetch(`${API_BASE}/api/config/turbine-spec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preset }),
@@ -291,7 +292,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ settings, onSave, lang = 'z
       const s = String(v ?? '');
       payload[k] = s === '' ? null : parseFloat(s);
     }
-    const res = await fetch(`${API_BASE}/api/config/turbine-spec`, {
+    const res = await authFetch(`${API_BASE}/api/config/turbine-spec`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

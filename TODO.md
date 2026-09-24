@@ -16,7 +16,16 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-02 — `WMOM-20260923-10` sub-task 2/7：`FarmSelector.tsx`
+最後更新：2026-09-24（WMOM-20260924-03 — `WMOM-20260923-10` sub-task 3/7：`SettingsPage.tsx`
+authFetch 補齊。`/admin/settings` 系統設定面板 11 處裸 fetch（5 條 GET config wind/grid/
+source-status/turbine-spec/presets + **6 個 `SUPERVISOR`-only 寫入**：wind/grid profile+
+自訂、turbine-spec preset+套用規格）全改 `authFetch`，比照姊妹 PR
+WMOM-20260923-07/-09/-20260924-01/-02 手法。新增 8 測（已登入時 mount 5 GET 合併斷言 + 6 個
+POST 各自斷言 header；未登入時驗證過渡期行為不變），皆 mutation-verified（sed 改回裸 fetch →
+7 測如預期 fail、未登入對照組維持 pass → 已還原）。backend 未動 1103 passed 不變；frontend
+1236→1244 passed（+8 新測）、tsc 0、build OK。`WMOM-20260923-10` 稽核清單尚餘 4 支純讀取元件：
+`CostPage`/`EventComparisonView`/`HistoryPage`/`TrendChartPanel`。）
+前一 session：WMOM-20260924-02 — `WMOM-20260923-10` sub-task 2/7：`FarmSelector.tsx`
 authFetch 補齊。sidebar 底部風場切換器 3 處裸 fetch（GET `/api/farms` 列表 + POST
 `/api/farms/{id}/activate` 切換 + POST `/api/farms` 建立，後兩者皆 `SUPERVISOR`-only 寫入）全改
 `authFetch`，比照姊妹 PR WMOM-20260923-07/-09/WMOM-20260924-01 手法。新增 4 測（已登入時 mount

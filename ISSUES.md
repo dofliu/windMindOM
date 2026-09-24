@@ -16,8 +16,8 @@
 | open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 118 |
-| **total (active)** | **130** |
+| done | 119 |
+| **total (active)** | **131** |
 
 最後更新：2026-09-24（**WMOM-20260924-02 — `WMOM-20260923-10` sub-task：`FarmSelector.tsx`
 authFetch 補齊**：sidebar 底部風場切換器 3 處 fetch 呼叫（GET 列表 + POST 切換/建立，後兩者皆
@@ -3517,8 +3517,11 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     `SUPERVISOR`/`ADMIN` 寫入**，風險同 `OperatorControlCard`）全改 `authFetch`，新增 4 測
     （mount GET + 切換 POST + 建立 POST 皆帶 header + 未登入行為不變對照組），皆
     mutation-verified。
-  - [ ] `SettingsPage.tsx:134,143,151,170,187,198,216,239,250,264,294` — `/api/config/*`
-    （**多處為 `SUPERVISOR` 寫入**：wind/grid/turbine-spec 設定變更）
+  - [x] ~~`SettingsPage.tsx:134,143,151,170,187,198,216,239,250,264,294`~~ — ✅ 2026-09-24
+    完成（WMOM-20260924-03）。`/api/config/*` 11 處（5 條 GET + **6 個 `SUPERVISOR`
+    寫入**：wind/grid profile+自訂、turbine-spec preset+套用規格）全改 `authFetch`，
+    新增 8 測（mount 5 條 GET 合併斷言 + 6 個 POST 各自斷言 header + 未登入行為不變對照組），
+    皆 mutation-verified。
   - [ ] `CostPage.tsx:693` — GET `/api/farms`（讀取，任何登入者）
   - [ ] `EventComparisonView.tsx:79` — GET `/api/maintenance/events/compare`（讀取）
   - [ ] `HistoryPage.tsx:145,158` — `/api/i18n/tags`、`/api/turbines/{id}/history`（讀取）
@@ -3603,6 +3606,49 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   皆判定不需改動），Approve。獨立重新讀全檔 + grep 確認無遺漏裸 fetch、交叉核對後端
   `require_role` 標註、獨立重跑 vitest 確認測試數一致。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01` work-log（同款修法）
+
+---
+
+### WMOM-20260924-03 — `SettingsPage.tsx` authFetch 補齊（WMOM-20260923-10 sub-task）
+
+- **Status**: done
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單第三項
+- **Priority**: high（`/admin/settings` 系統設定面板 11 處端點，6 個為 `SUPERVISOR`-only 寫入
+  ——風況/電網/機組規格設定變更，enforce 開啟後整頁設定會靜默 401 失效）
+- **Estimate**: 45 min（實際）
+- **Source**: `WMOM-20260923-10`（前端 authFetch 稽核，2026-09-23）稽核清單第三項，本次 autonomous
+  session 接手
+- **Description**:
+  `frontend/components/SettingsPage.tsx` 11 處 fetch 呼叫（行號 134/143/151/170/187/198/216/
+  239/250/264/294）全部裸 `fetch`，未帶 `Authorization` header。逐一交叉核對後端
+  `modules/monitoring/server/routers/config.py`：5 條 GET（`/api/config/wind`、
+  `/api/config/grid`、`/api/source/status`、`/api/config/turbine-spec`、
+  `/api/config/turbine-spec/presets`）皆掛 `require_authenticated()`；6 個 POST
+  （wind profile / 自訂風況、grid profile / 自訂電網、turbine-spec preset / 套用規格）皆掛
+  `require_role(Role.SUPERVISOR)`。
+- **Deliverable**：
+  - `SettingsPage.tsx`：`import { authFetch } from '../services/authClient'`，11 處
+    `fetch(` → `authFetch(`（僅替換呼叫方式，method/headers/body/既有錯誤處理完全不動）。
+  - `SettingsPage.test.tsx`：新增「authFetch 稽核」describe block，8 測——已登入時 mount
+    5 條 GET 合併一測逐一斷言 header、6 個 POST 各自斷言該次呼叫的 `Authorization` header；
+    未登入時上述 5 GET + 6 POST 合併一測驗證皆不帶 header（`WMOM_AUTH_ENFORCE=false`
+    過渡期行為不變）。
+- **Verify**：
+  - Mutation-verified：暫時 `sed -i 's/authFetch(/fetch(/g'` 全部改回裸 fetch，單獨跑
+    `-t "authFetch"` 子集 → 8 測中 7 個「已登入」新測試如預期 fail，「未登入」對照組維持
+    pass（該測試本質斷言 header 為 `undefined`，改回裸 fetch 仍為 undefined，非測試盲區），
+    已用備份還原（`cp` 而非 `git checkout`，避免誤蓋未 commit 的新測試檔）確認 11 處
+    `authFetch` 呼叫皆在。
+  - backend 未動（純 frontend 改動）1103 passed, 7 skipped, 1 xfailed 不變；frontend
+    `npx tsc --noEmit` 0 error、`npx vitest run` 1236→1244 passed（58 files 不變，+8
+    新測）、`npx vite build` OK。
+- **Review**: code-reviewer subagent review：0 must-fix、0 should-fix、2 nice-to-have
+  （既有 `refreshWindStatus` 等 fetch effect 未檢查 `r.ok` 就解析 body，隨 M6 cutover
+  逼近漸成真實缺口，非本次引入不修，建議 cutover 前另開一輪統一補 guard；ISSUES.md
+  staging 時序提醒，已確認同 commit 一併送出），Approve。獨立交叉核對後端
+  `require_authenticated`/`require_role` 標註、驗證新增測試非空泛斷言、確認 mutation
+  結果與既有 24 測無迴歸風險。
+- **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`/`-02` work-log（同款修法）
 
 ---
 
