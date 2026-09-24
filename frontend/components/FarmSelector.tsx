@@ -10,6 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../theme/ThemeProvider';
 import { Btn, Card, Field, Input } from './ui';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -68,7 +69,7 @@ const FarmSelector: React.FC<Props> = ({ lang }) => {
 
   const fetchFarms = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/farms`);
+      const res = await authFetch(`${API_BASE}/api/farms`);
       if (!res.ok) return;
       const data = await res.json();
       setFarms(data.farms || []);
@@ -82,7 +83,7 @@ const FarmSelector: React.FC<Props> = ({ lang }) => {
     if (farmId === activeFarmId || switching) return;
     setSwitching(true);
     try {
-      const res = await fetch(`${API_BASE}/api/farms/${farmId}/activate`, { method: 'POST' });
+      const res = await authFetch(`${API_BASE}/api/farms/${farmId}/activate`, { method: 'POST' });
       if (res.ok) {
         setActiveFarmId(farmId);
         setIsOpen(false);
@@ -284,7 +285,7 @@ const CreateFarmModal: React.FC<CreateModalProps> = ({ lang, onClose, onCreated 
     setCreating(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/api/farms`, {
+      const res = await authFetch(`${API_BASE}/api/farms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
