@@ -37,6 +37,7 @@ import {
   Select,
 } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -690,7 +691,7 @@ const CostPage: React.FC<CostPageProps> = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/farms`);
+        const res = await authFetch(`${API_BASE}/api/farms`);
         if (!res.ok) return;
         const body = await res.json();
         if (cancelled) return;

@@ -16,15 +16,21 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-03 — `WMOM-20260923-10` sub-task 3/7：`SettingsPage.tsx`
-authFetch 補齊。`/admin/settings` 系統設定面板 11 處裸 fetch（5 條 GET config wind/grid/
-source-status/turbine-spec/presets + **6 個 `SUPERVISOR`-only 寫入**：wind/grid profile+
-自訂、turbine-spec preset+套用規格）全改 `authFetch`，比照姊妹 PR
-WMOM-20260923-07/-09/-20260924-01/-02 手法。新增 8 測（已登入時 mount 5 GET 合併斷言 + 6 個
-POST 各自斷言 header；未登入時驗證過渡期行為不變），皆 mutation-verified（sed 改回裸 fetch →
-7 測如預期 fail、未登入對照組維持 pass → 已還原）。backend 未動 1103 passed 不變；frontend
-1236→1244 passed（+8 新測）、tsc 0、build OK。`WMOM-20260923-10` 稽核清單尚餘 4 支純讀取元件：
-`CostPage`/`EventComparisonView`/`HistoryPage`/`TrendChartPanel`。）
+最後更新：2026-09-24（WMOM-20260924-04 — `WMOM-20260923-10` sub-task 4/7：`CostPage.tsx`
+authFetch 補齊。`/admin/cost` 成本模型頁 1 處裸 fetch（mount 時 GET `/api/farms`，供
+dataset/farm selector，後端 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照
+姊妹 PR WMOM-20260923-07/-09/-20260924-01/-02/-03 手法。新增 2 測（已登入時 mount GET 帶
+`Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回
+裸 fetch → 已登入測試如預期 fail → 用備份還原，非 `git checkout`）。backend 未動 1103
+passed 不變；frontend 1244→1246 passed（+2 新測）、tsc 0、build OK。code-reviewer review：
+Approve，0 must-fix（附帶說明：reviewer 過程中誤執行 `git checkout` 重置 working tree，已
+自行發現並手動重建，本 session 事後獨立以 `git diff` + 全套重跑確認未受影響）。
+`WMOM-20260923-10` 稽核清單尚餘 3 支純讀取元件：`EventComparisonView`/`HistoryPage`/
+`TrendChartPanel`。）
+前一 session：WMOM-20260924-03 — `WMOM-20260923-10` sub-task 3/7：`SettingsPage.tsx`
+authFetch 補齊。`/admin/settings` 系統設定面板 11 處裸 fetch（5 條 GET + 6 個
+`SUPERVISOR`-only 寫入）全改 `authFetch`，新增 8 測皆 mutation-verified。backend 未動
+1103 passed 不變；frontend 1236→1244 passed（+8 新測）、tsc 0、build OK。）
 前一 session：WMOM-20260924-02 — `WMOM-20260923-10` sub-task 2/7：`FarmSelector.tsx`
 authFetch 補齊。sidebar 底部風場切換器 3 處裸 fetch（GET `/api/farms` 列表 + POST
 `/api/farms/{id}/activate` 切換 + POST `/api/farms` 建立，後兩者皆 `SUPERVISOR`-only 寫入）全改
@@ -176,12 +182,11 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   export 端點一樣需要 auth 卻仍用裸 `fetch`，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，純技術
   債，見 ISSUES.md 該 issue 條目
 - [ ] **WMOM-20260923-10**（**優先**，M6 auth cutover 前置阻塞）— 前端 authFetch 稽核：7 支元件
-  尚餘 5 支（`FaultInjectionPanel` 已於 2026-09-24 完成 WMOM-20260924-01；`FarmSelector` 已於
-  2026-09-24 完成 WMOM-20260924-02）：`CostPage`/`EventComparisonView`/`HistoryPage`/
-  `SettingsPage`/`TrendChartPanel` 仍裸 `fetch` 未帶 `Authorization` header，其中 `SettingsPage`
-  含 SUPERVISOR-only 寫入端點，優先接手；`WMOM-20260716-05i`（cutover 翻 `WMOM_AUTH_ENFORCE=true`）
-  前必須清空。拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），優先序見 ISSUES.md 該
-  issue 條目
+  尚餘 3 支（`FaultInjectionPanel`/`FarmSelector`/`SettingsPage`/`CostPage` 已於 2026-09-24
+  陸續完成 WMOM-20260924-01~04）：`EventComparisonView`/`HistoryPage`/`TrendChartPanel` 仍裸
+  `fetch` 未帶 `Authorization` header（皆純讀取端點，風險較低）；`WMOM-20260716-05i`（cutover 翻
+  `WMOM_AUTH_ENFORCE=true`）前必須清空。拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單
+  模式），優先序見 ISSUES.md 該 issue 條目
 
 ### 需劉老師決策才能開工
 
