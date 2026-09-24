@@ -34,6 +34,7 @@ const ReferenceArea: React.FC<any> = RawReferenceArea as unknown as React.FC<any
 const ReferenceLine: React.FC<any> = RawReferenceLine as unknown as React.FC<any>;
 import type { TurbineData } from '../types';
 import EventComparisonView from './EventComparisonView';
+import { authFetch } from '../services/authClient';
 import {
   Btn,
   Card,
@@ -142,7 +143,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
   }, [turbines]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/i18n/tags?lang=${lang}`)
+    authFetch(`${API_BASE}/api/i18n/tags?lang=${lang}`)
       .then(r => r.json())
       .then(setTagLabels)
       .catch(() => {});
@@ -155,7 +156,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
     if (rangeStart) params.set('start', new Date(rangeStart).toISOString());
     if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
 
-    fetch(`${API_BASE}/api/turbines/${selectedTurbineId}/history?${params.toString()}`, {
+    authFetch(`${API_BASE}/api/turbines/${selectedTurbineId}/history?${params.toString()}`, {
       signal: ctrl.signal,
     })
       .then(r => r.json())

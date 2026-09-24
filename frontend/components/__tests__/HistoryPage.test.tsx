@@ -33,6 +33,7 @@ import React from 'react';
 import HistoryPage from '../HistoryPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import { TurbineStatus, type TurbineData } from '../../types';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 // compare tab 的 EventComparisonView 有自己的 fetch / 圖表依賴，mock 成 sentinel
 // 讓「切到多機比較」測試聚焦於 tab 接線，且不污染 single 模式的 fetch 斷言。
@@ -427,5 +428,58 @@ describe('HistoryPage — i18n 標籤對映', () => {
     tagLabels = { WTUR_TurSt: '渦輪狀態' };
     await renderHistory();
     expect(screen.getAllByText('渦輪狀態').length).toBeGreaterThan(0);
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10）──────────────────────────────────────
+//
+// 上方既有測試用 fetchedUrls() 只比對 URL，對「裸 fetch vs authFetch」不敏感
+// （同款根因見 WMOM-20260923-07/-09/-20260924-01~05）。故另補這組直接檢查
+// `Authorization` header 內容的專測，鎖住本次修復（兩處 fetch 呼叫：mount 時
+// GET /api/i18n/tags 與 GET /api/turbines/:id/history，皆讀取端點、後端掛
+// require_authenticated()）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+function callsMatching(pathFragment: string): Array<[string, RequestInit | undefined]> {
+  return fetchMock.mock.calls
+    .map(c => [String(c[0]), c[1] as RequestInit | undefined] as [string, RequestInit | undefined])
+    .filter(([u]) => u.includes(pathFragment));
+}
+
+describe('HistoryPage — authFetch 稽核（WMOM-20260923-10）', () => {
+  afterEach(() => {
+    clearAuthToken();
+  });
+
+  it('已登入（有 token）→ mount 時 GET i18n/tags 與 history 皆帶 Authorization header', async () => {
+    setAuthToken('test-token-history');
+    await renderHistory();
+    const tagCalls = callsMatching('/api/i18n/tags');
+    const historyCalls = callsMatching('/api/turbines/WT001/history');
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(historyCalls.length).toBeGreaterThan(0);
+    for (const [, init] of tagCalls) {
+      expect(authHeaderOf(init)).toBe('Bearer test-token-history');
+    }
+    for (const [, init] of historyCalls) {
+      expect(authHeaderOf(init)).toBe('Bearer test-token-history');
+    }
+  });
+
+  it('未登入（無 token）→ mount 時 GET i18n/tags 與 history 皆不帶 Authorization header（過渡期行為不變）', async () => {
+    await renderHistory();
+    const tagCalls = callsMatching('/api/i18n/tags');
+    const historyCalls = callsMatching('/api/turbines/WT001/history');
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(historyCalls.length).toBeGreaterThan(0);
+    for (const [, init] of tagCalls) {
+      expect(authHeaderOf(init)).toBeUndefined();
+    }
+    for (const [, init] of historyCalls) {
+      expect(authHeaderOf(init)).toBeUndefined();
+    }
   });
 });
