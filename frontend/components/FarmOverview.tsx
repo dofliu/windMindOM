@@ -171,7 +171,7 @@ const TrendCard: React.FC<{
     if (range === '1H') return;
     let cancelled = false;
     const fetchData = () => {
-      fetch(`${API_BASE}/api/turbines/farm-trend?range=${RANGE_TO_API[range]}&points=150`)
+      authFetch(`${API_BASE}/api/turbines/farm-trend?range=${RANGE_TO_API[range]}&points=150`)
         .then(r => r.json())
         .then(res => {
           if (cancelled) return;
