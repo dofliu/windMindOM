@@ -27,6 +27,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import React from 'react';
 import CostPage from '../CostPage';
@@ -445,5 +446,61 @@ describe('CostPage 成本模型主入口', () => {
     expect(screen.getByRole('button', { name: 'Run forecast' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run lifetime sim' })).toBeInTheDocument();
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10）──────────────────────────────────────
+//
+// 上方既有測試用 routeFetch 只比對 URL 前綴，對「裸 fetch vs authFetch」不敏感
+// （同款根因見 WMOM-20260923-07/-09/-20260924-01/-02/-03）。故另補這組直接檢查
+// `Authorization` header 內容的專測，鎖住本次修復（唯一一處 fetch 呼叫：mount 時
+// GET /api/farms，讀取端點、後端掛 require_authenticated()）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+function farmsGetCalls(): Array<[string, RequestInit | undefined]> {
+  return fetchMock.mock.calls
+    .map(c => [String(c[0]), c[1] as RequestInit | undefined] as [string, RequestInit | undefined])
+    .filter(([u]) => u.includes('/api/farms'));
+}
+
+describe('CostPage — authFetch 稽核（WMOM-20260923-10）', () => {
+  beforeEach(() => {
+    mockedUseCostData.mockReset();
+    mockedUseCostData.mockReturnValue(makeCost());
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input: string) => {
+      const res = routeFetch(String(input));
+      return res
+        ? Promise.resolve(res)
+        : Promise.reject(new Error(`Unexpected fetch in test: ${String(input)}`));
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    clearAuthToken();
+  });
+
+  it('已登入（有 token）→ mount 時 GET /api/farms 帶 Authorization header', async () => {
+    setAuthToken('test-token-costpage');
+    await renderCost();
+    const calls = farmsGetCalls();
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-costpage');
+  });
+
+  it('未登入（無 token）→ mount 時 GET /api/farms 不帶 Authorization header（過渡期行為不變）', async () => {
+    const calls0 = farmsGetCalls();
+    expect(calls0).toHaveLength(0);
+    await renderCost();
+    const calls = farmsGetCalls();
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1])).toBeUndefined();
   });
 });

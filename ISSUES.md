@@ -16,18 +16,29 @@
 | open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 119 |
-| **total (active)** | **131** |
+| done | 120 |
+| **total (active)** | **132** |
 
-最後更新：2026-09-24（**WMOM-20260924-02 — `WMOM-20260923-10` sub-task：`FarmSelector.tsx`
-authFetch 補齊**：sidebar 底部風場切換器 3 處 fetch 呼叫（GET 列表 + POST 切換/建立，後兩者皆
-`SUPERVISOR`-only 寫入）全改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09/WMOM-20260924-01）
-手法。新增 4 測（已登入時 mount GET + 切換 POST + 建立 POST 皆帶 `Authorization` header；未登入
-時驗證過渡期行為不變），皆 mutation-verified。code-reviewer review：0 must-fix、0 should-fix、
-2 nice-to-have（皆為記錄性說明，不需改動），Approve。backend 未動 1103 passed 不變；frontend
-1232→1236 passed（+4 新測）、tsc 0、build OK。`WMOM-20260923-10` 稽核清單（7 支元件）尚餘 5 支：
-`SettingsPage`（含 SUPERVISOR 寫入，優先）> `CostPage`/`EventComparisonView`/`HistoryPage`/
-`TrendChartPanel`（純讀取）。
+最後更新：2026-09-24（**WMOM-20260924-04 — `WMOM-20260923-10` sub-task：`CostPage.tsx`
+authFetch 補齊**：`/admin/cost` 成本模型頁 dataset/farm selector 用的 mount fetch（GET
+`/api/farms`，任何登入者可讀）改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09/
+WMOM-20260924-01/-02/-03）手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未
+登入時驗證過渡期行為不變），皆 mutation-verified。code-reviewer review：0 must-fix，Approve
+（附帶說明：reviewer 過程中誤執行 `git checkout` 重置 working tree，已自行發現並手動重建，
+本 session 事後獨立以 `git diff` + 全套重跑確認內容與行為未受影響）。backend 未動 1103
+passed 不變；frontend 1244→1246 passed（+2 新測）、tsc 0、build OK。`WMOM-20260923-10`
+稽核清單（7 支元件）尚餘 3 支純讀取元件：`EventComparisonView`/`HistoryPage`/
+`TrendChartPanel`。
+前一 session：WMOM-20260924-03 — `WMOM-20260923-10` sub-task：`SettingsPage.tsx` authFetch
+補齊：`/admin/settings` 系統設定面板 11 處 fetch 呼叫（5 條 GET + 6 個 `SUPERVISOR`-only 寫入：
+wind/grid profile+自訂、turbine-spec preset+套用規格）全改 `authFetch`，新增 8 測皆
+mutation-verified。code-reviewer review：0 must-fix、0 should-fix、2 nice-to-have，Approve。
+backend 未動 1103 passed 不變；frontend 1236→1244 passed（+8 新測）、tsc 0、build OK。
+前一 session：WMOM-20260924-02 — `WMOM-20260923-10` sub-task：`FarmSelector.tsx`
+authFetch 補齊：sidebar 底部風場切換器 3 處 fetch 呼叫（GET 列表 + POST 切換/建立，後兩者皆
+`SUPERVISOR`-only 寫入）全改 `authFetch`，新增 4 測皆 mutation-verified。code-reviewer
+review：0 must-fix、0 should-fix、2 nice-to-have，Approve。backend 未動 1103 passed 不變；
+frontend 1232→1236 passed（+4 新測）、tsc 0、build OK。
 前一 session：WMOM-20260924-01 — `WMOM-20260923-10` sub-task：`FaultInjectionPanel.tsx`
 authFetch 補齊：`/admin` 故障模擬頁 6 處 fetch 呼叫（含 3 個 `SUPERVISOR`-only 寫入：注入/清除
 故障/執行測試計畫）全改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09）手法。新增 5 測（已登入
@@ -3522,13 +3533,16 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     寫入**：wind/grid profile+自訂、turbine-spec preset+套用規格）全改 `authFetch`，
     新增 8 測（mount 5 條 GET 合併斷言 + 6 個 POST 各自斷言 header + 未登入行為不變對照組），
     皆 mutation-verified。
-  - [ ] `CostPage.tsx:693` — GET `/api/farms`（讀取，任何登入者）
+  - [x] ~~`CostPage.tsx:693`~~ — ✅ 2026-09-24 完成（WMOM-20260924-04）。GET `/api/farms`
+    （讀取，任何登入者）改 `authFetch`，新增 2 測（已登入/未登入 header 斷言），
+    mutation-verified。
   - [ ] `EventComparisonView.tsx:79` — GET `/api/maintenance/events/compare`（讀取）
   - [ ] `HistoryPage.tsx:145,158` — `/api/i18n/tags`、`/api/turbines/{id}/history`（讀取）
   - [ ] `TrendChartPanel.tsx:61,69` — `/api/i18n/tags`、`/api/turbines/{id}/trend`（讀取）
-  - 共 7 支檔案、約 20+ 處呼叫，2 支已完成。優先序建議：`FaultInjectionPanel`（done）/
-    `FarmSelector`（done）/`SettingsPage`（皆含 SUPERVISOR/ADMIN 寫入，enforce 後會整面失效）> 其餘
-    純讀取元件（enforce 後仍可用但 401 會被吞、UI 卡在載入態不會導回登入頁）。
+  - 共 7 支檔案、約 20+ 處呼叫，4 支已完成。優先序建議：`FaultInjectionPanel`（done）/
+    `FarmSelector`（done）/`SettingsPage`（done，皆含 SUPERVISOR/ADMIN 寫入）/`CostPage`
+    （done）> 其餘 3 支純讀取元件（enforce 後仍可用但 401 會被吞、UI 卡在載入態不會導回
+    登入頁）。
 - **Deliverable**：逐檔比照 WMOM-20260923-07/-08/-09/-20260924-01 手法——改 `authFetch` + 補 auth
   header 測試 + mutation-verified；拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），
   一個 session 做一支避免單一 PR 範圍過大。全部完成後回頭勾掉
@@ -3649,6 +3663,41 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   `require_authenticated`/`require_role` 標註、驗證新增測試非空泛斷言、確認 mutation
   結果與既有 24 測無迴歸風險。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`/`-02` work-log（同款修法）
+
+---
+
+### WMOM-20260924-04 — `CostPage.tsx` authFetch 補齊（WMOM-20260923-10 sub-task）
+
+- **Status**: done
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單第四項
+- **Priority**: medium（純讀取端點，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，但 cutover
+  前必須清空）
+- **Estimate**: 20 min（實際）
+- **Source**: `WMOM-20260923-10`（前端 authFetch 稽核，2026-09-23）稽核清單第四項，本次
+  autonomous session 接手
+- **Description**:
+  `frontend/components/CostPage.tsx:693` 僅 1 處裸 `fetch`（mount 時 `GET
+  ${API_BASE}/api/farms`，供成本模型頁 dataset/farm selector 用）。交叉核對後端
+  `modules/monitoring/server/routers/farms.py::list_farms` 掛 `require_authenticated()`
+  （任何登入者可讀）。
+- **Deliverable**：
+  - `CostPage.tsx`：`import { authFetch } from '../services/authClient'`，1 處
+    `fetch(` → `authFetch(`（僅替換呼叫方式，`!res.ok` early-return / payload 解析完全不動）。
+  - `CostPage.test.tsx`：新增「authFetch 稽核」describe block，2 測——已登入時 mount GET
+    帶 `Authorization` header、未登入時不帶 header（過渡期行為不變對照組）。
+- **Verify**：
+  - Mutation-verified：暫時把 `authFetch(...)` 改回 `fetch(...)`，單獨跑 `-t "authFetch"`
+    子集 → 「已登入」新測試如預期 fail、「未登入」對照組維持 pass（本質斷言 undefined，
+    非測試盲區），已用 `/tmp/CostPage.tsx.bak` 備份還原（非 `git checkout`）確認修復仍在。
+  - backend 未動 1103 passed, 7 skipped, 1 xfailed 不變；frontend `npx tsc --noEmit`
+    0 error、`npx vitest run` 1244→1246 passed（58 files 不變，+2 新測）、`npx vite build`
+    OK。
+- **Review**: code-reviewer subagent review：Approve，0 must-fix。獨立重跑 mutation-verify
+  確認結果一致，交叉核對 `authFetch` 簽章與呼叫點吻合、新測試斷言真實
+  `RequestInit.headers.Authorization` 非空泛斷言、對既有 15 測無迴歸風險。附帶說明：
+  reviewer 過程中誤執行 `git checkout` 重置 working tree，已自行發現並手動重建，本 session
+  事後獨立以 `git diff` + 全套重跑確認內容與行為未受影響。
+- **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`/`-02`/`-03` work-log（同款修法）
 
 ---
 
