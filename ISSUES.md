@@ -3642,7 +3642,12 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - backend 未動（純 frontend 改動）1103 passed, 7 skipped, 1 xfailed 不變；frontend
     `npx tsc --noEmit` 0 error、`npx vitest run` 1236→1244 passed（58 files 不變，+8
     新測）、`npx vite build` OK。
-- **Review**: （code-reviewer subagent review 待補）
+- **Review**: code-reviewer subagent review：0 must-fix、0 should-fix、2 nice-to-have
+  （既有 `refreshWindStatus` 等 fetch effect 未檢查 `r.ok` 就解析 body，隨 M6 cutover
+  逼近漸成真實缺口，非本次引入不修，建議 cutover 前另開一輪統一補 guard；ISSUES.md
+  staging 時序提醒，已確認同 commit 一併送出），Approve。獨立交叉核對後端
+  `require_authenticated`/`require_role` 標註、驗證新增測試非空泛斷言、確認 mutation
+  結果與既有 24 測無迴歸風險。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`/`-02` work-log（同款修法）
 
 ---

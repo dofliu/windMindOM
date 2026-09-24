@@ -47,7 +47,27 @@ TODO.md 一致建議下一支優先接 `SettingsPage.tsx`（含多處 `SUPERVISO
 
 ## Review
 
-（下方由 code-reviewer subagent 填寫）
+code-reviewer subagent review：0 must-fix、0 should-fix、2 nice-to-have，**Approve**。
+
+- 逐一交叉核對後端 `require_authenticated()`/`require_role(SUPERVISOR)` 標註與本次改動的
+  11 處呼叫皆吻合，確認 `grep -n "fetch("` 無殘留裸 fetch。
+- 驗證新增 8 測非空泛斷言：`setAuthToken`/`clearAuthToken` 走真實 `authClient.ts`（非
+  mock），`callsExact` 用 `endsWith` 避免 `turbine-spec` 與 `turbine-spec/presets`
+  URL 前綴誤判；交叉核對本次 mutation-verified 的說法屬實（工作記錄的 7/8 fail 結果與
+  獨立重新推演一致）。
+- 對既有 24 測無迴歸風險：既有測試用 `postBodies`/`lastPostBody`（URL 子字串 + method）
+  比對，不斷言 `fetchMock` 呼叫的完整參數簽章，故 `authFetch` 額外帶入的 `{ headers: {} }`
+  不影響既有斷言。
+- 2 個 nice-to-have（皆不需本次修改）：
+  1. `refreshWindStatus`/`refreshGridStatus`/mount 時 turbine-spec 相關 fetch effect 未檢查
+     `r.ok` 就呼叫 `.json()`（`refreshSourceKind` 已有 `r.ok ? r.json() : null` 防護，其餘
+     沒有）——**此為既有行為、非本次引入**，但隨 M6 cutover 逼近漸成真實缺口：enforce 開啟後
+     真實 401 會被當成正常回應解析，`refreshWindStatus` 甚至會在 401 時仍把 `apiConnected`
+     設 `true`。建議在 `WMOM-20260716-05i` cutover 前另開一輪，把 `SettingsPage.tsx` 現有的
+     fetch effect 統一補上 `r.ok` guard（不只本次改動的呼叫點）。本次不修，已記錄於此供
+     cutover 前參考。
+  2. 提醒 `ISSUES.md` 當下 staging 狀態（review 當下尚未一併 commit）——已確認為時序問題，
+     所有檔案已在同一個 commit（`6b2dc11`）內一併送出，非遺漏。
 
 ## Wrap-up
 
