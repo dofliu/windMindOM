@@ -30,6 +30,7 @@ import SettingsPage from '../SettingsPage';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import { type AppSettings, DataSourceType } from '../../types';
 import type { SourceMode } from '../../hooks/useSourceGate';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 // ─── fixtures（型別嚴格，不用 as 強轉）─────────────────────────────────────
 
@@ -526,5 +527,177 @@ describe('SettingsPage 系統設定面板', () => {
     const after = screen.getByRole('heading', { name: '資料源' });
     // Section 穩定（module scope）→ 就地 reconcile → 同一節點；若退回 inline 定義則會是新節點。
     expect(after).toBe(before);
+  });
+
+  // ── authFetch 稽核（WMOM-20260923-10）────────────────────────────────────
+  //
+  // 上方既有測試皆用 `lastPostBody` / `defaultFetch` 比對 URL + method，對「裸 fetch
+  // vs authFetch」不敏感（同款根因見 WMOM-20260923-07/-09/-20260924-01/-02）。故另補
+  // 這組直接檢查 `Authorization` header 內容的專測，鎖住本次修復（11 處 fetch 呼叫皆
+  // 改用 `authFetch`：5 條 GET 讀取端點後端掛 `require_authenticated()`，6 個 POST
+  // 皆 `require_role(SUPERVISOR)` 寫入——風況/電網/機組規格設定變更）。
+
+  function callsExact(urlSuffix: string, method: string): Array<[string, RequestInit | undefined]> {
+    return fetchMock.mock.calls
+      .filter(
+        ([u, init]) =>
+          String(u).endsWith(urlSuffix) &&
+          ((init as RequestInit | undefined)?.method ?? 'GET').toUpperCase() === method,
+      )
+      .map(([u, init]) => [String(u), init as RequestInit | undefined]);
+  }
+
+  function authHeaderOf(init: RequestInit | undefined): string | undefined {
+    return (init?.headers as Record<string, string> | undefined)?.Authorization;
+  }
+
+  describe('SettingsPage — authFetch 稽核（WMOM-20260923-10）', () => {
+    it('已登入（有 token）→ mount 時 5 條 GET（wind/grid/source-status/turbine-spec/presets）皆帶 Authorization header', async () => {
+      setAuthToken('test-token-mount');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        for (const suffix of [
+          '/api/config/wind',
+          '/api/config/grid',
+          '/api/source/status',
+          '/api/config/turbine-spec',
+          '/api/config/turbine-spec/presets',
+        ]) {
+          const calls = callsExact(suffix, 'GET');
+          expect(calls).toHaveLength(1);
+          expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-mount');
+        }
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用風況 profile POST /api/config/wind 帶 Authorization header', async () => {
+      setAuthToken('test-token-wind-profile');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '平靜 (2 m/s)' }));
+        });
+        const calls = callsExact('/api/config/wind', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-wind-profile');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用自訂風況 POST /api/config/wind 帶 Authorization header', async () => {
+      setAuthToken('test-token-wind-custom');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '套用自訂風況' }));
+        });
+        const calls = callsExact('/api/config/wind', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-wind-custom');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用電網 profile POST /api/config/grid 帶 Authorization header', async () => {
+      setAuthToken('test-token-grid-profile');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '低頻' }));
+        });
+        const calls = callsExact('/api/config/grid', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-grid-profile');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用自訂電網 POST /api/config/grid 帶 Authorization header', async () => {
+      setAuthToken('test-token-grid-custom');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '套用自訂電網' }));
+        });
+        const calls = callsExact('/api/config/grid', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-grid-custom');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用機型 preset POST /api/config/turbine-spec 帶 Authorization header', async () => {
+      setAuthToken('test-token-preset');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: /Z72-2MW \(2000kW\)/ }));
+        });
+        const calls = callsExact('/api/config/turbine-spec', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-preset');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('已登入（有 token）→ 套用風機規格 POST /api/config/turbine-spec 帶 Authorization header', async () => {
+      setAuthToken('test-token-spec');
+      try {
+        await renderSettings(makeSettings(DataSourceType.SIMULATION));
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: '套用規格' }));
+        });
+        const calls = callsExact('/api/config/turbine-spec', 'POST');
+        expect(calls).toHaveLength(1);
+        expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-spec');
+      } finally {
+        clearAuthToken();
+      }
+    });
+
+    it('未登入（無 token）→ 5 條 GET + 6 個 POST 呼叫皆不帶 Authorization header（過渡期行為不變）', async () => {
+      fetchMock.mockImplementation(statefulConfigFetch());
+      await renderSettings(makeSettings(DataSourceType.SIMULATION));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '平靜 (2 m/s)' }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '套用自訂風況' }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '低頻' }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '套用自訂電網' }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Z72-2MW \(2000kW\)/ }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '套用規格' }));
+      });
+      const checks: Array<[string, string]> = [
+        ['/api/config/wind', 'GET'],
+        ['/api/config/grid', 'GET'],
+        ['/api/source/status', 'GET'],
+        ['/api/config/turbine-spec', 'GET'],
+        ['/api/config/turbine-spec/presets', 'GET'],
+        ['/api/config/wind', 'POST'],
+        ['/api/config/grid', 'POST'],
+        ['/api/config/turbine-spec', 'POST'],
+      ];
+      for (const [suffix, method] of checks) {
+        const calls = callsExact(suffix, method);
+        expect(calls.length).toBeGreaterThan(0);
+        calls.forEach(([, init]) => expect(authHeaderOf(init)).toBeUndefined());
+      }
+    });
   });
 });
