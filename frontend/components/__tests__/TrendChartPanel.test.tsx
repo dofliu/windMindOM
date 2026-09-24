@@ -50,6 +50,7 @@ vi.mock('recharts', () => {
 
 import TrendChartPanel from '../TrendChartPanel';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
 
@@ -403,5 +404,58 @@ describe('TrendChartPanel — 容錯（fetch reject 不崩潰）', () => {
     installFetch({ trendBody: {} }); // 無 data 欄位
     await renderPanel({ lang: 'zh' });
     expect(screen.getByText('即時趨勢圖')).toBeInTheDocument();
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10 sub-task 7/7）───────────────────────────
+//
+// 上方既有測試用 trendCalls()/i18nCalls() 只比對 URL，對「裸 fetch vs authFetch」不敏感
+// （同款根因見 WMOM-20260923-07/-09/-20260924-01~06）。故另補這組直接檢查
+// `Authorization` header 內容的專測，鎖住本次修復（兩處 fetch 呼叫：mount 時
+// GET /api/i18n/tags 與輪詢 GET /api/turbines/:id/trend，皆讀取端點、後端掛
+// require_authenticated()）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+function callsMatching(pathFragment: string): Array<[string, RequestInit | undefined]> {
+  return fetchMock.mock.calls
+    .map(c => [String(c[0]), c[1] as RequestInit | undefined] as [string, RequestInit | undefined])
+    .filter(([u]) => u.includes(pathFragment));
+}
+
+describe('TrendChartPanel — authFetch 稽核（WMOM-20260923-10）', () => {
+  afterEach(() => {
+    clearAuthToken();
+  });
+
+  it('已登入（有 token）→ mount 時 GET i18n/tags 與 trend 皆帶 Authorization header', async () => {
+    setAuthToken('test-token-trend');
+    await renderPanel({ turbineId: 'WT001' });
+    const tagCalls = callsMatching('/api/i18n/tags');
+    const trendFetchCalls = callsMatching('/api/turbines/WT001/trend');
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(trendFetchCalls.length).toBeGreaterThan(0);
+    for (const [, init] of tagCalls) {
+      expect(authHeaderOf(init)).toBe('Bearer test-token-trend');
+    }
+    for (const [, init] of trendFetchCalls) {
+      expect(authHeaderOf(init)).toBe('Bearer test-token-trend');
+    }
+  });
+
+  it('未登入（無 token）→ mount 時 GET i18n/tags 與 trend 皆不帶 Authorization header（過渡期行為不變）', async () => {
+    await renderPanel({ turbineId: 'WT001' });
+    const tagCalls = callsMatching('/api/i18n/tags');
+    const trendFetchCalls = callsMatching('/api/turbines/WT001/trend');
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(trendFetchCalls.length).toBeGreaterThan(0);
+    for (const [, init] of tagCalls) {
+      expect(authHeaderOf(init)).toBeUndefined();
+    }
+    for (const [, init] of trendFetchCalls) {
+      expect(authHeaderOf(init)).toBeUndefined();
+    }
   });
 });

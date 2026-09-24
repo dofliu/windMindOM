@@ -13,19 +13,27 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 122 |
-| **total (active)** | **134** |
+| done | 124 |
+| **total (active)** | **135** |
 
-最後更新：2026-09-24（**WMOM-20260924-06 — `WMOM-20260923-10` sub-task：`HistoryPage.tsx`
-authFetch 補齊**：歷史資料頁 2 處裸 fetch（mount 時 GET `/api/i18n/tags` + mount/篩選變更時 GET
-`/api/turbines/{id}/history`，皆任何登入者可讀，後者帶 `AbortController` signal）改 `authFetch`，
-比照姊妹 PR（WMOM-20260923-07/-09/WMOM-20260924-01~05）手法。新增 2 測（已登入時兩條 mount GET
-皆帶 `Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified。backend 未動
-1103 passed 不變；frontend 1248→1250 passed（+2 新測）、tsc 0、build OK。`WMOM-20260923-10`
-稽核清單（7 支元件）尚餘 1 支純讀取元件：`TrendChartPanel`。）
+最後更新：2026-09-24（**WMOM-20260924-07 — `WMOM-20260923-10` sub-task（清單收尾）：
+`TrendChartPanel.tsx` authFetch 補齊**：即時趨勢圖面板 2 處裸 fetch（mount 時 GET
+`/api/i18n/tags` + mount/preset/自訂 tag/turbineId 變更時且每 2 秒輪詢 GET
+`/api/turbines/{id}/trend`，皆任何登入者可讀）改 `authFetch`，比照姊妹 PR
+（WMOM-20260923-07/-09/WMOM-20260924-01~06）手法。新增 2 測（已登入時兩條 mount GET 皆帶
+`Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified。backend 未動
+1103 passed 不變；frontend 1250→1252 passed（+2 新測）、tsc 0、build OK。**`WMOM-20260923-10`
+稽核清單（7 支元件）至此全數完成，已標 done**，並回頭勾掉
+`docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
+request 都帶 token」項目。）
+前一 session：WMOM-20260924-06 — `WMOM-20260923-10` sub-task：`HistoryPage.tsx`
+authFetch 補齊：歷史資料頁 2 處裸 fetch（mount 時 GET `/api/i18n/tags` + mount/篩選變更時 GET
+`/api/turbines/{id}/history`，皆任何登入者可讀，後者帶 `AbortController` signal）改
+`authFetch`，新增 2 測皆 mutation-verified。backend 未動 1103 passed 不變；frontend
+1248→1250 passed（+2 新測）、tsc 0、build OK。
 前一 session：WMOM-20260924-05 — `WMOM-20260923-10` sub-task：`EventComparisonView.tsx`
 authFetch 補齊：多風機事件比較面板 1 處裸 fetch（mount + filter 變更時 GET
 `/api/maintenance/events/compare`，任何登入者可讀）改 `authFetch`，比照姊妹 PR
@@ -3518,7 +3526,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260923-10 — 前端 authFetch 稽核：其餘 7 支元件遺漏（M6 auth cutover 前置阻塞）
 
-- **Status**: open
+- **Status**: done（2026-09-24，`TrendChartPanel.tsx` WMOM-20260924-07 完成，7 支元件全數清空）
 - **Milestone**: **M6 auth cutover（WMOM-20260716-05i）前置阻塞**——`docs/product/
   WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表明列「前端所有寫入 request 都帶
   token」，本次稽核發現此項目前**不成立**
@@ -3556,16 +3564,16 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     `/api/i18n/tags`、GET `/api/turbines/{id}/history`（讀取，含 `AbortController` signal）
     全改 `authFetch`，新增 2 測（mount 兩條 GET 合併斷言 header / 未登入行為不變對照組），
     mutation-verified。
-  - [ ] `TrendChartPanel.tsx:61,69` — `/api/i18n/tags`、`/api/turbines/{id}/trend`（讀取）
-  - 共 7 支檔案、約 20+ 處呼叫，6 支已完成。優先序建議：`FaultInjectionPanel`（done）/
-    `FarmSelector`（done）/`SettingsPage`（done，皆含 SUPERVISOR/ADMIN 寫入）/`CostPage`
-    （done）/`EventComparisonView`（done）/`HistoryPage`（done）> 最後 1 支純讀取元件（enforce
-    後仍可用但 401 會被吞、UI 卡在載入態不會導回登入頁）。
+  - [x] ~~`TrendChartPanel.tsx:61,69`~~ — ✅ 2026-09-24 完成（WMOM-20260924-07，清單收尾第七項）。
+    GET `/api/i18n/tags`、GET `/api/turbines/{id}/trend`（讀取，含 2 秒輪詢）全改 `authFetch`，
+    新增 2 測（mount 兩條 GET 合併斷言 header / 未登入行為不變對照組），mutation-verified。
+  - 共 7 支檔案、約 20+ 處呼叫，**7 支全數完成**。已回頭勾掉
+    `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表對應項。
 - **Deliverable**：逐檔比照 WMOM-20260923-07/-08/-09/-20260924-01 手法——改 `authFetch` + 補 auth
   header 測試 + mutation-verified；拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），
   一個 session 做一支避免單一 PR 範圍過大。全部完成後回頭勾掉
-  `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表對應項。
-- **Reference**: WMOM-20260923-09 work-log、WMOM-20260924-01、
+  `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表對應項。**（已完成）**
+- **Reference**: WMOM-20260923-09 work-log、WMOM-20260924-01~-07、
   `docs/product/WMOM-20260716-05_auth_enforcement_plan.md`
 
 ---
@@ -3788,6 +3796,44 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   nice-to-have（CSV 匯出 `window.open` 無法附帶 auth header 屬另案；docstring 未提
   `authFetch` 依賴為既有慣例缺口），皆未採納（非阻塞，範圍與姊妹 PR 一致）。詳見 work-log。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`~`-05` work-log（同款修法）
+
+---
+
+### WMOM-20260924-07 — `TrendChartPanel.tsx` authFetch 補齊（WMOM-20260923-10 sub-task，清單收尾）
+
+- **Status**: done
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單第七項
+  （最後一支），完成後 `WMOM-20260923-10` 整項可標 done
+- **Priority**: medium（純讀取端點，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，但 cutover
+  前必須清空）
+- **Estimate**: 20 min（實際）
+- **Source**: `WMOM-20260923-10`（前端 authFetch 稽核，2026-09-23）稽核清單第七項，本次
+  autonomous session 接手
+- **Description**:
+  `frontend/components/TrendChartPanel.tsx:61,69` 2 處裸 `fetch`：
+  1. mount 時（`useEffect([lang])`）GET `${API_BASE}/api/i18n/tags?lang=...`（圖例 i18n 對映）
+  2. mount + preset/自訂 tag/turbineId 變更時，且每 2 秒輪詢（`setInterval(fetchTrend, 2000)`）
+     GET `${API_BASE}/api/turbines/{id}/trend?tags=...&limit=120`（趨勢資料）。
+  交叉核對後端兩端點皆掛 `require_authenticated()`（任何登入者可讀）。
+- **Deliverable**：
+  - `TrendChartPanel.tsx`：`import { authFetch } from '../services/authClient'`，2 處
+    `fetch(` → `authFetch(`（僅替換呼叫方式，`.then/.catch` 鏈完全不動）。
+  - `TrendChartPanel.test.tsx`：新增「authFetch 稽核」describe block，2 測——已登入時兩條
+    mount GET（含輪詢首發）皆帶 `Authorization` header、未登入時皆不帶 header（過渡期行為
+    不變對照組）。
+- **Verify**：
+  - Mutation-verified：暫時用備份還原法（`/tmp/TrendChartPanel.tsx.bak`，非 `git checkout`）
+    把兩處 `authFetch(...)` 改回 `fetch(...)`，重跑此檔測試 → 「已登入」新測試如預期 fail
+    （`expected undefined to be 'Bearer test-token-trend'`）、「未登入」對照組維持 pass（本質
+    斷言 undefined，非測試盲區），已還原確認修復仍在、全檔 29 測全數 pass。
+  - backend 未動（本次純前端變更）：`1103 passed, 7 skipped, 1 xfailed`，與既有基準一致；
+    frontend `npx tsc --noEmit` 0 error、`npx vitest run` 1250→1252 passed（58 files 不變，
+    +2 新測）、`npx vite build` OK。
+- **Review**: code-reviewer subagent review：Approve，0 must-fix、0 should-fix。確認
+  `authFetch` 對兩處呼叫方的 `.then(r => r.json())`/`.catch(() => {})` 鏈無行為影響；2 秒輪詢
+  下 `authFetch` 401 handler 重複觸發是既有跨元件已接受的特性（`TurbineDetail.tsx` 既有 3 秒
+  輪詢同款模式），非本次引入的新問題；grep 確認無漏改。詳見 work-log。
+- **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`~`-06` work-log（同款修法）
 
 ---
 
