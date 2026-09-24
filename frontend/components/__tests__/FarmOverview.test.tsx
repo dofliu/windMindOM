@@ -366,6 +366,35 @@ describe('FarmOverview — TrendCard', () => {
     await renderOverview({ turbines: TWO_HEALTHY });
     expect(screen.getByText('資料收集中…')).toBeInTheDocument();
   });
+
+  it('已登入（有 token）→ mount 觸發的 farm-trend fetch 走 authFetch 帶 Authorization header（WMOM-20260923-08）', async () => {
+    // 驗證 fetchData 真的走 authFetch 而非裸 fetch：`expect.any(Object)` 無法區分
+    // 兩者（authFetch 內部仍是包一層 fetch），必須實際檢查 header 內容。
+    setAuthToken('test-token-farm-trend');
+    try {
+      await renderOverview({ turbines: TWO_HEALTHY });
+      const trendCall = fetchMock.mock.calls.find(([url]: [string]) =>
+        String(url).includes('/api/turbines/farm-trend'),
+      );
+      expect(trendCall).toBeDefined();
+      const [, init] = trendCall as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe(
+        'Bearer test-token-farm-trend',
+      );
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  it('未登入（無 token）→ farm-trend fetch 不帶 Authorization header（過渡期行為不變）', async () => {
+    await renderOverview({ turbines: TWO_HEALTHY });
+    const trendCall = fetchMock.mock.calls.find(([url]: [string]) =>
+      String(url).includes('/api/turbines/farm-trend'),
+    );
+    expect(trendCall).toBeDefined();
+    const [, init] = trendCall as [string, RequestInit | undefined];
+    expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBeUndefined();
+  });
 });
 
 // ─── 語系 ────────────────────────────────────────────────────────────────────

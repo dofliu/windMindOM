@@ -16,7 +16,19 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-07 — `WMOM-20260923-10` sub-task 7/7（清單收尾）：
+最後更新：2026-09-24（WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
+`authFetch`（一致性技術債，`WMOM-20260923-07` review 登記的 nice-to-have follow-up）。
+`TrendCard` 內僅存的一處裸 fetch（`/api/turbines/farm-trend`，後端
+`require_authenticated()` 任何登入者可讀）改 `authFetch`，比照同檔案匯出鈕已建立的手法。
+新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證過渡期行為不變），皆
+mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail，用 scratchpad 備份而非
+`git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1252→1254 passed（+2
+新測，58 files 不變）、tsc 0、build OK。`FarmOverview.tsx` 全檔至此無裸 `fetch` 殘留。
+code-reviewer review：Approve，0 must-fix，1 should-fix（範圍外發現：遞迴重掃
+`frontend/components/` 全樹找到 `components/field/MyOrdersMode.tsx:31` 仍是裸
+fetch——`WMOM-20260923-10` 原稽核指令未遞迴子目錄漏掉這支現場工程師頁面，登記新 follow-up
+**WMOM-20260924-08**、估時 15 min、🔵 autonomous-friendly，非本次範圍）。）
+前一 session：WMOM-20260924-07 — `WMOM-20260923-10` sub-task 7/7（清單收尾）：
 `TrendChartPanel.tsx` authFetch 補齊。即時趨勢圖面板 2 處裸 fetch（mount 時 GET `/api/i18n/tags`
 + mount/preset/自訂 tag/turbineId 變更時且每 2 秒輪詢 GET `/api/turbines/{id}/trend`，皆後端
 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照姊妹 PR
@@ -207,16 +219,18 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   清單尚餘 c~f**（風機細節 `限載`/`安排檢查`、維護中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有
   明確 API 對應與估時，可逐項繼續認領（`d` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做；
   其餘 3 項無阻塞）
-- [ ] **WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性技術債，
-  15 min，🔵 autonomous-friendly）：WMOM-20260923-07 review 附帶發現，farm-trend 端點與剛接好的
-  export 端點一樣需要 auth 卻仍用裸 `fetch`，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，純技術
-  債，見 ISSUES.md 該 issue 條目
-- [ ] **WMOM-20260923-10**（**優先**，M6 auth cutover 前置阻塞）— 前端 authFetch 稽核：7 支元件
-  尚餘 2 支（`FaultInjectionPanel`/`FarmSelector`/`SettingsPage`/`CostPage`/`EventComparisonView`
-  已於 2026-09-24 陸續完成 WMOM-20260924-01~05）：`HistoryPage`/`TrendChartPanel` 仍裸
-  `fetch` 未帶 `Authorization` header（皆純讀取端點，風險較低）；`WMOM-20260716-05i`（cutover 翻
-  `WMOM_AUTH_ENFORCE=true`）前必須清空。拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單
-  模式），優先序見 ISSUES.md 該 issue 條目
+- [x] ~~**WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性
+  技術債）~~ — ✅ 2026-09-24 完成，見上方「最後更新」。`FarmOverview.tsx` 全檔至此無裸
+  `fetch` 殘留。
+- [x] ~~**WMOM-20260923-10**（M6 auth cutover 前置阻塞）— 前端 authFetch 稽核（7 支元件）~~ —
+  ✅ 2026-09-24（WMOM-20260924-01~07）全數完成並標 done，
+  `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
+  request 都帶 token」已勾選。**⚠ 但該稽核指令未遞迴子目錄，實際並未窮盡**——見下方
+  WMOM-20260924-08。
+- [ ] **WMOM-20260924-08**（M6 auth cutover 前置阻塞，🔵 autonomous-friendly，15 min）—
+  `components/field/MyOrdersMode.tsx:31` `fetchActiveFarmId()` 仍是裸 `fetch`（GET
+  `/api/farms`）：`WMOM-20260923-10` 稽核盲區（掃描指令未遞迴 `components/field/` 子目錄）。
+  同款修法：`authFetch` + 2 測 + mutation-verified，見 ISSUES.md 該 issue 條目。
 
 ### 需劉老師決策才能開工
 

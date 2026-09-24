@@ -16,10 +16,23 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 124 |
-| **total (active)** | **135** |
+| done | 125 |
+| **total (active)** | **136** |
 
-最後更新：2026-09-24（**WMOM-20260924-07 — `WMOM-20260923-10` sub-task（清單收尾）：
+最後更新：2026-09-24（**WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
+`authFetch`**：`TrendCard` 內僅存的一處裸 `fetch`（`/api/turbines/farm-trend`，後端
+`require_authenticated()` 任何登入者可讀）改 `authFetch`，比照同檔案 WMOM-20260923-07
+匯出鈕已建立的手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證
+過渡期行為不變），皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail
+`Cannot read properties of undefined (reading 'headers')`，用 scratchpad 備份而非
+`git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1252→1254 passed（+2
+新測，58 files 不變）、tsc 0、build OK。此為 `WMOM-20260923-07` review 時登記的
+nice-to-have follow-up，`FarmOverview.tsx` 全檔至此無裸 `fetch` 殘留。code-reviewer
+subagent review：Approve，0 must-fix，1 should-fix（範圍外發現：`grep -rln` 遞迴重掃
+`frontend/components/` 全樹後找到 `components/field/MyOrdersMode.tsx:31` 仍是裸
+fetch——`WMOM-20260923-10` 原稽核指令未遞迴子目錄，漏掉這支現場工程師頁面，登記為新
+follow-up **WMOM-20260924-08**、非本次範圍）。）
+前一 session：**WMOM-20260924-07 — `WMOM-20260923-10` sub-task（清單收尾）：
 `TrendChartPanel.tsx` authFetch 補齊**：即時趨勢圖面板 2 處裸 fetch（mount 時 GET
 `/api/i18n/tags` + mount/preset/自訂 tag/turbineId 變更時且每 2 秒輪詢 GET
 `/api/turbines/{id}/trend`，皆任何登入者可讀）改 `authFetch`，比照姊妹 PR
@@ -3462,7 +3475,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性技術債）
 
-- **Status**: open
+- **Status**: done（2026-09-24 完成，autonomous session）
 - **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
 - **Priority**: low（功能面不受影響——`WMOM_AUTH_ENFORCE=false` 過渡期兩種寫法行為相同；只在
   enforce=true 且未登入時才會看出差異：farm-trend 靜默 401 後 `.catch` 吞掉、UI 停在「資料收集
@@ -3483,6 +3496,19 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     （`import { authFetch } from '../services/authClient'`，已被本次匯出鈕改動引入同檔案）
   - 更新/新增對應 `FarmOverview.test.tsx` 斷言（比照 WMOM-20260923-07 的 auth header 測試手法）
 - **Reference**: WMOM-20260923-07 work-log、code-reviewer review nice-to-have #3
+- **Completion summary**:
+  - ✅ `TrendCard` 的 `fetchData` 改用 `authFetch`（一行改動，import 已在同檔案由匯出鈕引入）
+  - ✅ 新增 2 測（已登入 mount GET 帶 `Authorization` header / 未登入行為不變對照組），皆
+    mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail，用 scratchpad 備份
+    而非 `git checkout` 還原確認）
+  - ✅ backend 未動 1103 passed 不變；frontend 1252→1254 passed（+2 新測）、tsc 0、build OK
+  - ✅ code-reviewer subagent review：見 work-log
+    `work-logs/2026-09/2026-09-24-farmoverview-farmtrend-authfetch.md`
+  - `FarmOverview.tsx` 全檔至此無裸 `fetch` 殘留（匯出鈕 + farm-trend 皆已 authFetch 化）
+- **Files changed**:
+  - `M frontend/components/FarmOverview.tsx` — `TrendCard.fetchData` fetch→authFetch
+  - `M frontend/components/__tests__/FarmOverview.test.tsx` — +2 tests
+  - `+ work-logs/2026-09/2026-09-24-farmoverview-farmtrend-authfetch.md`
 
 ---
 
@@ -3834,6 +3860,40 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   下 `authFetch` 401 handler 重複觸發是既有跨元件已接受的特性（`TurbineDetail.tsx` 既有 3 秒
   輪詢同款模式），非本次引入的新問題；grep 確認無漏改。詳見 work-log。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`~`-06` work-log（同款修法）
+
+---
+
+### WMOM-20260924-08 — `MyOrdersMode.tsx` authFetch 缺口（`WMOM-20260923-10` 稽核盲區）
+
+- **Status**: open
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單
+  原本標記「7 支元件全數清空」，但本次發現這支漏網之魚，故該清單並未真正窮盡
+- **Priority**: medium（純讀取端點，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能；但現場工程師
+  是 CLAUDE.md §15 明列的關鍵 persona，cutover 後靜默 401 體驗影響不小）
+- **Estimate**: 15 min（同款修法：1 處 fetch→authFetch + 2 測）
+- **Source**: `WMOM-20260923-08`（本次 farm-trend authFetch 修正）code-reviewer subagent review
+  的 should-fix（範圍外發現，未阻塞本次 PR）
+- **Description**:
+  `frontend/components/field/MyOrdersMode.tsx:31` 的 `fetchActiveFarmId()`（GET
+  `${API_BASE}/api/farms`，取目前 active farm_id，供「我的工單」列表過濾用）仍是裸 `fetch`，
+  未帶 `Authorization` header；該端點與其他已修元件用的 `/api/farms` 端點相同，後端掛
+  `require_authenticated()`。
+
+  **根因**：`WMOM-20260923-10`（2026-09-23 稽核）掃描指令只對 `frontend/components/*.tsx`
+  一層跑 grep，未遞迴進子目錄，導致 `components/field/` 子目錄下的檔案從一開始就不在掃描
+  範圍內，`MyOrdersMode.tsx` 因此被漏掉且未被登記為 follow-up。本次（WMOM-20260923-08）
+  review 時用 `grep -rln` 遞迴重掃 `frontend/components/` 全樹，確認**這是唯一一處**殘留的
+  裸 fetch（`components/ui/`、`components/tour/`、`components/reporting/` 等其餘子目錄皆
+  已清空）。
+- **Deliverable**:
+  - `MyOrdersMode.tsx`：`import { authFetch } from '../../services/authClient'`，
+    `fetchActiveFarmId()` 內 `fetch(` → `authFetch(`
+  - 對應 `MyOrdersMode.test.tsx`（若尚無測試檔需新建）新增 2 測（已登入帶 header / 未登入
+    行為不變），比照 `FarmOverview.tsx`/`WMOM-20260924-01~07` 系列手法，mutation-verified
+  - 完成後在本 issue 補 Completion summary + 標 done
+- **Reference**: `WMOM-20260923-08` work-log（`work-logs/2026-09/
+  2026-09-24-farmoverview-farmtrend-authfetch.md`）、`WMOM-20260923-10`（原稽核 issue，範圍
+  界定教訓）
 
 ---
 
