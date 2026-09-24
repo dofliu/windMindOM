@@ -171,7 +171,9 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 - 前端：登入流程、token attach、401 導回登入。
 - **cutover 前檢查**（翻 `true` 前）：
   - [ ] 4 支 workflow router 全遷移
-  - [ ] 前端所有寫入 request 都帶 token
+  - [x] 前端所有寫入 request 都帶 token（2026-09-24，`WMOM-20260923-10` 稽核清單 7 支元件
+    〔`FaultInjectionPanel`/`FarmSelector`/`SettingsPage`/`CostPage`/`EventComparisonView`/
+    `HistoryPage`/`TrendChartPanel`〕全數改 `authFetch`，`WMOM-20260924-01~07` 逐檔完成）
   - [ ] admin 已用 `WMOM_ADMIN_USER/PASSWORD` bootstrap + 佈建真實使用者
   - [ ] staging 以 `enforce=true` 跑完整 lifecycle demo 通過
   - [ ] 回滾方案：翻回 `false` 即恢復（已驗證）

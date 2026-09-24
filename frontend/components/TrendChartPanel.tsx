@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { useTheme } from '../theme/ThemeProvider';
 import { rightAxisTags } from '../utils/chartAxes';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 
@@ -58,7 +59,7 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
 
   // Fetch i18n labels
   useEffect(() => {
-    fetch(`${API_BASE}/api/i18n/tags?lang=${lang}`)
+    authFetch(`${API_BASE}/api/i18n/tags?lang=${lang}`)
       .then(r => r.json()).then(setTagLabels).catch(() => {});
   }, [lang]);
 
@@ -66,7 +67,7 @@ const TrendChartPanel: React.FC<TrendChartPanelProps> = ({ turbineId, lang = 'zh
   const fetchTrend = useCallback(() => {
     if (!activeTags.length) return;
     const tagsParam = activeTags.join(',');
-    fetch(`${API_BASE}/api/turbines/${turbineId}/trend?tags=${tagsParam}&limit=120`)
+    authFetch(`${API_BASE}/api/turbines/${turbineId}/trend?tags=${tagsParam}&limit=120`)
       .then(r => r.json())
       .then(res => {
         if (res.data) {

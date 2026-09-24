@@ -16,7 +16,22 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-06 — `WMOM-20260923-10` sub-task 6/7：
+最後更新：2026-09-24（WMOM-20260924-07 — `WMOM-20260923-10` sub-task 7/7（清單收尾）：
+`TrendChartPanel.tsx` authFetch 補齊。即時趨勢圖面板 2 處裸 fetch（mount 時 GET `/api/i18n/tags`
++ mount/preset/自訂 tag/turbineId 變更時且每 2 秒輪詢 GET `/api/turbines/{id}/trend`，皆後端
+`require_authenticated()` 任何登入者可讀）改 `authFetch`，比照姊妹 PR
+WMOM-20260923-07/-09/-20260924-01~06 手法。新增 2 測（已登入時兩條 mount GET 皆帶
+`Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回
+裸 fetch → 已登入測試如預期 fail → 用備份還原，非 `git checkout`）。backend 未動 1103
+passed 不變；frontend 1250→1252 passed（+2 新測）、tsc 0、build OK。code-reviewer review：
+Approve，0 must-fix、0 should-fix（確認 2 秒輪詢下 `authFetch` 401 handler 重複觸發為既有跨
+元件已接受特性，非本次新增問題；`.then/.catch` 鏈無行為影響；grep 確認無漏改）。
+**`WMOM-20260923-10` 稽核清單（7 支元件）至此全數完成，已標 done**，並回頭勾掉
+`docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
+request 都帶 token」項目。⚠ 附帶再次提醒：`docs/routines/autonomous-daily-worker-prompt.md`
+內文仍停在 v3（舊 baseline），已連續多個 session 落後於實際 cron trigger prompt（v4.1），
+建議劉老師找時間同步。）
+前一 session：WMOM-20260924-06 — `WMOM-20260923-10` sub-task 6/7：
 `HistoryPage.tsx` authFetch 補齊。歷史資料頁 2 處裸 fetch（mount 時 GET `/api/i18n/tags` +
 mount/篩選變更時 GET `/api/turbines/{id}/history`，後者帶 `AbortController` signal，皆後端
 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照姊妹 PR
