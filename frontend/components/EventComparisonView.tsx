@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { TurbineData } from '../types';
 import { Btn, Card, Field, Input, Select, StatusPill, type PillTone } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -76,7 +77,7 @@ const EventComparisonView: React.FC<Props> = ({ turbines, lang = 'zh' }) => {
     if (rangeEnd) params.set('end', new Date(rangeEnd).toISOString());
     if (eventTypeFilter) params.set('event_type', eventTypeFilter);
 
-    fetch(`${API_BASE}/api/maintenance/events/compare?${params.toString()}`)
+    authFetch(`${API_BASE}/api/maintenance/events/compare?${params.toString()}`)
       .then(r => r.json())
       .then(data => {
         setTimeline(data.timeline || []);

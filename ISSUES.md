@@ -16,11 +16,18 @@
 | open | 12 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 120 |
-| **total (active)** | **132** |
+| done | 121 |
+| **total (active)** | **133** |
 
-最後更新：2026-09-24（**WMOM-20260924-04 — `WMOM-20260923-10` sub-task：`CostPage.tsx`
-authFetch 補齊**：`/admin/cost` 成本模型頁 dataset/farm selector 用的 mount fetch（GET
+最後更新：2026-09-24（**WMOM-20260924-05 — `WMOM-20260923-10` sub-task：`EventComparisonView.tsx`
+authFetch 補齊**：多風機事件比較面板 1 處裸 fetch（mount + filter 變更時 GET
+`/api/maintenance/events/compare`，任何登入者可讀）改 `authFetch`，比照姊妹 PR
+（WMOM-20260923-07/-09/WMOM-20260924-01~04）手法。新增 2 測（已登入時 mount GET 帶
+`Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified。backend 未動 1103
+passed 不變；frontend 1246→1248 passed（+2 新測）、tsc 0、build OK。`WMOM-20260923-10` 稽核清單
+（7 支元件）尚餘 2 支純讀取元件：`HistoryPage`/`TrendChartPanel`。）
+前一 session：WMOM-20260924-04 — `WMOM-20260923-10` sub-task：`CostPage.tsx`
+authFetch 補齊：`/admin/cost` 成本模型頁 dataset/farm selector 用的 mount fetch（GET
 `/api/farms`，任何登入者可讀）改 `authFetch`，比照姊妹 PR（WMOM-20260923-07/-09/
 WMOM-20260924-01/-02/-03）手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未
 登入時驗證過渡期行為不變），皆 mutation-verified。code-reviewer review：0 must-fix，Approve
@@ -3536,13 +3543,15 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - [x] ~~`CostPage.tsx:693`~~ — ✅ 2026-09-24 完成（WMOM-20260924-04）。GET `/api/farms`
     （讀取，任何登入者）改 `authFetch`，新增 2 測（已登入/未登入 header 斷言），
     mutation-verified。
-  - [ ] `EventComparisonView.tsx:79` — GET `/api/maintenance/events/compare`（讀取）
+  - [x] ~~`EventComparisonView.tsx:79`~~ — ✅ 2026-09-24 完成（WMOM-20260924-05）。GET
+    `/api/maintenance/events/compare`（讀取）改 `authFetch`，新增 2 測（已登入/未登入 header
+    斷言），mutation-verified。
   - [ ] `HistoryPage.tsx:145,158` — `/api/i18n/tags`、`/api/turbines/{id}/history`（讀取）
   - [ ] `TrendChartPanel.tsx:61,69` — `/api/i18n/tags`、`/api/turbines/{id}/trend`（讀取）
-  - 共 7 支檔案、約 20+ 處呼叫，4 支已完成。優先序建議：`FaultInjectionPanel`（done）/
+  - 共 7 支檔案、約 20+ 處呼叫，5 支已完成。優先序建議：`FaultInjectionPanel`（done）/
     `FarmSelector`（done）/`SettingsPage`（done，皆含 SUPERVISOR/ADMIN 寫入）/`CostPage`
-    （done）> 其餘 3 支純讀取元件（enforce 後仍可用但 401 會被吞、UI 卡在載入態不會導回
-    登入頁）。
+    （done）/`EventComparisonView`（done）> 其餘 2 支純讀取元件（enforce 後仍可用但 401 會被吞、
+    UI 卡在載入態不會導回登入頁）。
 - **Deliverable**：逐檔比照 WMOM-20260923-07/-08/-09/-20260924-01 手法——改 `authFetch` + 補 auth
   header 測試 + mutation-verified；拆成每檔一個 sub-issue（比照 `WMOM-20260507-02` 清單模式），
   一個 session 做一支避免單一 PR 範圍過大。全部完成後回頭勾掉
@@ -3698,6 +3707,39 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   reviewer 過程中誤執行 `git checkout` 重置 working tree，已自行發現並手動重建，本 session
   事後獨立以 `git diff` + 全套重跑確認內容與行為未受影響。
 - **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`/`-02`/`-03` work-log（同款修法）
+
+---
+
+### WMOM-20260924-05 — `EventComparisonView.tsx` authFetch 補齊（WMOM-20260923-10 sub-task）
+
+- **Status**: done
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單第五項
+- **Priority**: medium（純讀取端點，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能，但 cutover
+  前必須清空）
+- **Estimate**: 20 min（實際）
+- **Source**: `WMOM-20260923-10`（前端 authFetch 稽核，2026-09-23）稽核清單第五項，本次
+  autonomous session 接手
+- **Description**:
+  `frontend/components/EventComparisonView.tsx:79` 僅 1 處裸 `fetch`（mount + filter 變更時
+  `GET ${API_BASE}/api/maintenance/events/compare`，供多風機事件比較用）。交叉核對後端該端點
+  掛 `require_authenticated()`（任何登入者可讀）。（同檔案 `exportEvents()` 的
+  `window.open(...)` 屬瀏覽器導覽下載、非 `fetch` 呼叫，無法附帶 header，不在本次範圍內，
+  行為與既有 `FarmOverview.tsx` 匯出模式一致。）
+- **Deliverable**：
+  - `EventComparisonView.tsx`：`import { authFetch } from '../services/authClient'`，1 處
+    `fetch(` → `authFetch(`（僅替換呼叫方式，`.then/.catch/.finally` 鏈完全不動）。
+  - `EventComparisonView.test.tsx`：新增「authFetch 稽核」describe block，2 測——已登入時
+    mount GET 帶 `Authorization` header、未登入時不帶 header（過渡期行為不變對照組）。
+- **Verify**：
+  - Mutation-verified：暫時用備份還原法（`/tmp/EventComparisonView.tsx.bak`，非
+    `git checkout`）把 `authFetch(...)` 改回 `fetch(...)`，重跑此檔測試 → 「已登入」新測試如
+    預期 fail（`expected undefined to be 'Bearer ...'`）、「未登入」對照組維持 pass（本質斷言
+    undefined，非測試盲區），已還原確認修復仍在、`git diff --stat` 乾淨。
+  - backend 未動（本次純前端變更，未安裝/重跑 Python 依賴的 session 中並行驗證 tsc/vitest/build，
+    backend baseline 另行確認，見下方 Verify 完整記錄）；frontend `npx tsc --noEmit` 0 error、
+    `npx vitest run` 1246→1248 passed（58 files 不變，+2 新測）、`npx vite build` OK。
+- **Review**: 見 work-log（本次 session 執行 code-reviewer subagent review 後回填）。
+- **Reference**: `WMOM-20260923-10`、`WMOM-20260924-01`~`-04` work-log（同款修法）
 
 ---
 
