@@ -29,6 +29,7 @@ import React from 'react';
 import EventComparisonView from '../EventComparisonView';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 import type { TurbineData } from '../../types';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
 
@@ -489,5 +490,43 @@ describe('EventComparisonView — 容錯', () => {
     await renderView({ lang: 'zh', turbines: [] });
     expect(screen.queryByRole('button', { name: 'WT001' })).not.toBeInTheDocument();
     expect(compareCalls().length).toBe(0);
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260923-10）──────────────────────────────────────
+//
+// 上方既有測試用 compareCalls() 只比對 URL，對「裸 fetch vs authFetch」不敏感
+// （同款根因見 WMOM-20260923-07/-09/-20260924-01~04）。故另補這組直接檢查
+// `Authorization` header 內容的專測，鎖住本次修復（唯一一處 fetch 呼叫：mount 時
+// GET /api/maintenance/events/compare，讀取端點、後端掛 require_authenticated()）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+function compareCallsWithHeaders(): Array<[string, RequestInit | undefined]> {
+  return fetchMock.mock.calls
+    .map(c => [String(c[0]), c[1] as RequestInit | undefined] as [string, RequestInit | undefined])
+    .filter(([u]) => u.includes('/events/compare'));
+}
+
+describe('EventComparisonView — authFetch 稽核（WMOM-20260923-10）', () => {
+  afterEach(() => {
+    clearAuthToken();
+  });
+
+  it('已登入（有 token）→ mount 時 GET compare 帶 Authorization header', async () => {
+    setAuthToken('test-token-eventcompare');
+    await renderView({ lang: 'zh' });
+    const calls = compareCallsWithHeaders();
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1])).toBe('Bearer test-token-eventcompare');
+  });
+
+  it('未登入（無 token）→ mount 時 GET compare 不帶 Authorization header（過渡期行為不變）', async () => {
+    await renderView({ lang: 'zh' });
+    const calls = compareCallsWithHeaders();
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1])).toBeUndefined();
   });
 });
