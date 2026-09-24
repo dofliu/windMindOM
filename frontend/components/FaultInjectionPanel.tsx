@@ -19,6 +19,7 @@ import {
   type PillTone,
 } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -89,11 +90,11 @@ const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
   const [planResult, setPlanResult] = useState<TestPlanResult | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/faults/scenarios`)
+    authFetch(`${API_BASE}/api/faults/scenarios`)
       .then(r => r.json())
       .then(setScenarios)
       .catch(() => {});
-    fetch(`${API_BASE}/api/faults/test-plans`)
+    authFetch(`${API_BASE}/api/faults/test-plans`)
       .then(r => r.json())
       .then(setTestPlans)
       .catch(() => {});
@@ -103,7 +104,7 @@ const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
   }, []);
 
   const refreshActive = () => {
-    fetch(`${API_BASE}/api/faults/active`)
+    authFetch(`${API_BASE}/api/faults/active`)
       .then(r => r.json())
       .then(setActiveFaults)
       .catch(() => {});
@@ -111,7 +112,7 @@ const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
 
   const handleInject = async () => {
     if (!selectedScenario) return;
-    const res = await fetch(`${API_BASE}/api/faults/inject`, {
+    const res = await authFetch(`${API_BASE}/api/faults/inject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -128,7 +129,7 @@ const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
   };
 
   const handleClearAll = async () => {
-    await fetch(`${API_BASE}/api/faults/clear`, {
+    await authFetch(`${API_BASE}/api/faults/clear`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -145,7 +146,7 @@ const FaultInjectionPanel: React.FC<Props> = ({ lang = 'zh' }) => {
       u(`Running plan "${planId}"…`, `正在執行測試計畫「${planId}」…`),
     );
     try {
-      const res = await fetch(`${API_BASE}/api/faults/test-plans/${planId}/run`, {
+      const res = await authFetch(`${API_BASE}/api/faults/test-plans/${planId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ time_step: 10 }),
