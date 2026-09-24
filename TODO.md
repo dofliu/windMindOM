@@ -16,14 +16,23 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260924-05 — `WMOM-20260923-10` sub-task 5/7：
-`EventComparisonView.tsx` authFetch 補齊。多風機事件比較面板 1 處裸 fetch（mount + filter
-變更時 GET `/api/maintenance/events/compare`，後端 `require_authenticated()` 任何登入者可讀）
-改 `authFetch`，比照姊妹 PR WMOM-20260923-07/-09/-20260924-01~04 手法。新增 2 測（已登入時
-mount GET 帶 `Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified
-（authFetch 改回裸 fetch → 已登入測試如預期 fail → 用備份還原，非 `git checkout`）。backend
-未動 1103 passed 不變；frontend 1246→1248 passed（+2 新測）、tsc 0、build OK。
-`WMOM-20260923-10` 稽核清單尚餘 2 支純讀取元件：`HistoryPage`/`TrendChartPanel`。）
+最後更新：2026-09-24（WMOM-20260924-06 — `WMOM-20260923-10` sub-task 6/7：
+`HistoryPage.tsx` authFetch 補齊。歷史資料頁 2 處裸 fetch（mount 時 GET `/api/i18n/tags` +
+mount/篩選變更時 GET `/api/turbines/{id}/history`，後者帶 `AbortController` signal，皆後端
+`require_authenticated()` 任何登入者可讀）改 `authFetch`，比照姊妹 PR
+WMOM-20260923-07/-09/-20260924-01~05 手法。新增 2 測（已登入時兩條 mount GET 皆帶
+`Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回
+裸 fetch → 已登入測試如預期 fail → 用備份還原，非 `git checkout`）。backend 未動 1103
+passed 不變；frontend 1248→1250 passed（+2 新測）、tsc 0、build OK。code-reviewer review：
+Approve，0 must-fix、0 should-fix、2 nice-to-have（CSV 匯出 `window.open` 無法附帶 auth
+header 屬另案，已記錄；docstring 未提 authFetch 依賴為既有慣例缺口，非本次範圍），皆未採納
+（非阻塞）。`WMOM-20260923-10` 稽核清單尚餘 1 支純讀取元件：`TrendChartPanel`。）
+前一 session：WMOM-20260924-05 — `WMOM-20260923-10` sub-task 5/7：`EventComparisonView.tsx`
+authFetch 補齊。多風機事件比較面板 1 處裸 fetch（mount + filter 變更時 GET
+`/api/maintenance/events/compare`，後端 `require_authenticated()` 任何登入者可讀）改
+`authFetch`，比照姊妹 PR WMOM-20260923-07/-09/-20260924-01~04 手法。新增 2 測皆
+mutation-verified。backend 未動 1103 passed 不變；frontend 1246→1248 passed（+2 新測）、
+tsc 0、build OK。
 前一 session：WMOM-20260924-04 — `WMOM-20260923-10` sub-task 4/7：`CostPage.tsx`
 authFetch 補齊。`/admin/cost` 成本模型頁 1 處裸 fetch（mount 時 GET `/api/farms`，供
 dataset/farm selector，後端 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照
