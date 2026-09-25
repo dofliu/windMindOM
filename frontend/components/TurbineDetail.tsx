@@ -114,6 +114,14 @@ interface TurbineDetailProps {
   onDispatch: (turbine: TurbineData, faultAnalysis: string) => void;
   activeWorkOrder?: WorkOrder;
   lang?: 'en' | 'zh';
+  /**
+   * PageHeader『安排檢查』鈕（`WMOM-20260507-02` sub-task d，WMOM-20260925-05）——
+   * 導覽到 `/admin/workflow` 定檢計畫頁籤並預先過濾此風機。帶入的 turbineId 用
+   * `turbine.name`（workflow module 的 turbine_id 慣例，與 `CreateWorkOrderWizard`
+   * 一致，非 `WT{padded id}` 這個 monitoring/control API 專用格式）。未提供則按鈕
+   * 不渲染 onClick（fallback no-op，避免舊呼叫端漏傳時整頁炸開）。
+   */
+  onNavigateInspection?: (turbineId: string) => void;
 }
 
 // ─── Operator Control Panel（保留所有指令）─────────────────────
@@ -1100,6 +1108,7 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
   onDispatch,
   activeWorkOrder,
   lang = 'zh',
+  onNavigateInspection,
 }) => {
   const { C } = useTheme();
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
@@ -1191,7 +1200,11 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
             >
               {tr('Stop', '停機')}
             </Btn>
-            <Btn variant="primary" ariaLabel={tr('Inspect', '安排檢查')}>
+            <Btn
+              variant="primary"
+              ariaLabel={tr('Inspect', '安排檢查')}
+              onClick={() => onNavigateInspection?.(turbine.name)}
+            >
               {tr('Inspect', '安排檢查')}
             </Btn>
           </>

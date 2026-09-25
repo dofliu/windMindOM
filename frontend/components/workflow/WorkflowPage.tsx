@@ -11,7 +11,7 @@
  * 不接 farm_id 參數 — 內部跑 /api/farms 拿 active_farm_id（與 FarmSelector 同來源）。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Btn, Card, PageHeader, StatusPill } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
@@ -45,18 +45,33 @@ import CreateMaterialRequestWizard from './CreateMaterialRequestWizard';
 import MaterialRequestDetailModal from './MaterialRequestDetailModal';
 import InventoryListPanel from './InventoryListPanel';
 import InventoryDetailDrawer from './InventoryDetailDrawer';
+import InspectionScheduleListPanel from './InspectionScheduleListPanel';
+import CreateInspectionScheduleModal from './CreateInspectionScheduleModal';
+import InspectionScheduleDetailModal from './InspectionScheduleDetailModal';
+import { useInspectionSchedules } from '../../hooks/useInspectionSchedules';
+import type {
+  CreateInspectionSchedulePayload,
+  InspectionScheduleResponse,
+} from '../../services/inspectionScheduleService';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
-type Tab = 'orders' | 'material' | 'inventory' | 'approval';
+type Tab = 'orders' | 'material' | 'inventory' | 'inspection' | 'approval';
 
 interface Props {
   lang: Lang;
   /** 從 AppShell 傳進來的目前 farm 內 turbine 列表（給 wizard 風機選單用）。 */
   turbines: TurbineData[];
+  /**
+   * 深連結：從 `TurbineDetail` header『安排檢查』鈕導覽進來時帶入，直接開
+   * inspection 頁籤並預先過濾該風機（WMOM-20260925-05，`WMOM-20260507-02` sub-task d）。
+   * 只在 mount 時讀一次（App.tsx 切換 view 時本元件會整個 remount，見該檔案 switch
+   * render 慣例），非 controlled prop。
+   */
+  initialInspectionTurbineId?: string;
 }
 
-const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
+const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbineId }) => {
   const { C } = useTheme();
   const { currentUser } = useCurrentUser();
   const ui = (en: string, zh: string) => (lang === 'zh' ? zh : en);
@@ -89,7 +104,7 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   }, []);
 
   // ── Tab state ──
-  const [tab, setTab] = useState<Tab>('orders');
+  const [tab, setTab] = useState<Tab>(initialInspectionTurbineId ? 'inspection' : 'orders');
 
   // ── Orders tab state ──
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatus | 'all'>('all');
@@ -123,6 +138,18 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
     search: invSearch,
   });
 
+  // ── Inspection tab state ──
+  const [inspTurbineId, setInspTurbineId] = useState<string | 'all'>(
+    initialInspectionTurbineId ?? 'all',
+  );
+  const [inspActiveOnly, setInspActiveOnly] = useState(false);
+
+  const inspHook = useInspectionSchedules({
+    farmId,
+    turbineId: inspTurbineId === 'all' ? undefined : inspTurbineId,
+    activeOnly: inspActiveOnly,
+  });
+
   // ── Approval tab state ──
   const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
   const [subjectTypeFilter, setSubjectTypeFilter] = useState<SignoffSubjectType | 'all'>('all');
@@ -139,6 +166,25 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
   const [selectedWO, setSelectedWO] = useState<WorkOrderResponse | null>(null);
   const [selectedMR, setSelectedMR] = useState<MaterialRequestResponse | null>(null);
   const [selectedInvItem, setSelectedInvItem] = useState<InventoryItemResponse | null>(null);
+  const [showInspWizard, setShowInspWizard] = useState(false);
+  const [selectedInspSchedule, setSelectedInspSchedule] =
+    useState<InspectionScheduleResponse | null>(null);
+  const [schedulerMsg, setSchedulerMsg] = useState('');
+
+  const handleRunScheduler = useCallback(async () => {
+    try {
+      const result = await inspHook.runScheduler();
+      setSchedulerMsg(
+        result.spawned.length > 0
+          ? ui(`Spawned ${result.spawned.length} work order(s)`, `已建立 ${result.spawned.length} 張工單`)
+          : ui('No schedules due', '目前沒有到期的計畫'),
+      );
+    } catch (e) {
+      setSchedulerMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTimeout(() => setSchedulerMsg(''), 4000);
+    }
+  }, [inspHook.runScheduler, lang]);
   const [approvalAction, setApprovalAction] = useState<{
     mode: ApprovalMode;
     pending: PendingSignoffItem;
@@ -158,6 +204,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       setShowMRWizard(false);
     },
     [mrHook],
+  );
+
+  const handleCreateInsp = useCallback(
+    async (req: Omit<CreateInspectionSchedulePayload, 'farm_id'>) => {
+      await inspHook.create(req);
+      setShowInspWizard(false);
+    },
+    [inspHook],
   );
 
   // 把 selected detail 維持與 list 同步（list patch 後 re-select 最新一筆）
@@ -188,6 +242,21 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
       setSelectedInvItem(fresh);
     }
   }, [invHook.rawItems, selectedInvItem]);
+
+  // 同上：inspection detail modal 開啟期間 activate/deactivate/save 完成後 list
+  // 會 patch，從 items sync 拿最新 row。
+  useEffect(() => {
+    if (!selectedInspSchedule) return;
+    const fresh = inspHook.items.find(x => x.id === selectedInspSchedule.id);
+    if (fresh && fresh !== selectedInspSchedule) {
+      setSelectedInspSchedule(fresh);
+    }
+  }, [inspHook.items, selectedInspSchedule]);
+
+  const turbineOptions = useMemo(
+    () => turbines.map(t => ({ value: t.name, label: t.name })),
+    [turbines],
+  );
 
   // ── No farm fallback ──
   if (farmFetchError) {
@@ -259,6 +328,27 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
             >
               + {ui('Create material request', '建立領料單')}
             </Btn>
+          ) : tab === 'inspection' ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {schedulerMsg && (
+                <StatusPill tone="accent" size="sm">
+                  {schedulerMsg}
+                </StatusPill>
+              )}
+              <Btn
+                onClick={handleRunScheduler}
+                ariaLabel={ui('Run scheduler', '執行排程檢查')}
+              >
+                {ui('Run scheduler', '執行排程檢查')}
+              </Btn>
+              <Btn
+                variant="primary"
+                onClick={() => setShowInspWizard(true)}
+                ariaLabel={ui('Create inspection schedule', '建立定檢計畫')}
+              >
+                + {ui('Create inspection schedule', '建立定檢計畫')}
+              </Btn>
+            </div>
           ) : null
         }
       />
@@ -288,6 +378,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           ariaPressed={tab === 'inventory'}
         >
           {ui('Inventory', '庫存')}
+        </Btn>
+        <Btn
+          variant={tab === 'inspection' ? 'primary' : 'ghost'}
+          onClick={() => setTab('inspection')}
+          ariaLabel={ui('Inspection schedules tab', '定檢計畫頁籤')}
+          ariaPressed={tab === 'inspection'}
+        >
+          {ui('Inspection schedules', '定檢計畫')}
         </Btn>
         <Btn
           variant={tab === 'approval' ? 'primary' : 'ghost'}
@@ -351,6 +449,23 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onSearchChange={setInvSearch}
           onSelect={setSelectedInvItem}
           onRefresh={invHook.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'inspection' && (
+        <InspectionScheduleListPanel
+          items={inspHook.items}
+          total={inspHook.total}
+          loading={inspHook.loading}
+          error={inspHook.error}
+          turbineOptions={turbineOptions}
+          turbineId={inspTurbineId}
+          onTurbineIdChange={setInspTurbineId}
+          activeOnly={inspActiveOnly}
+          onActiveOnlyChange={setInspActiveOnly}
+          onSelect={setSelectedInspSchedule}
+          onRefresh={inspHook.refresh}
           lang={lang}
         />
       )}
@@ -456,6 +571,29 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines }) => {
           onAdjust={invHook.adjust}
           loadAdjustments={invHook.listAdjustments}
           onClose={() => setSelectedInvItem(null)}
+          lang={lang}
+        />
+      )}
+
+      {showInspWizard && (
+        <CreateInspectionScheduleModal
+          turbineOptions={turbineOptions}
+          preselectTurbineId={
+            inspTurbineId === 'all' ? initialInspectionTurbineId : inspTurbineId
+          }
+          onClose={() => setShowInspWizard(false)}
+          onSubmit={handleCreateInsp}
+          lang={lang}
+        />
+      )}
+
+      {selectedInspSchedule && (
+        <InspectionScheduleDetailModal
+          schedule={selectedInspSchedule}
+          onClose={() => setSelectedInspSchedule(null)}
+          onUpdate={inspHook.updateMetadata}
+          onActivate={inspHook.activate}
+          onDeactivate={inspHook.deactivate}
           lang={lang}
         />
       )}

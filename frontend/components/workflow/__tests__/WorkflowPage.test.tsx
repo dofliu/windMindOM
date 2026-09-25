@@ -45,10 +45,15 @@ import {
   type CreateMaterialRequestPayload,
 } from '../../../services/materialService';
 import { type InventoryItemResponse } from '../../../services/inventoryService';
+import { type InspectionScheduleResponse } from '../../../services/inspectionScheduleService';
 import { type MockUser } from '../../../services/mockUsers';
 import { useWorkOrders, type UseWorkOrdersResult } from '../../../hooks/useWorkOrders';
 import { useMaterialRequests, type UseMaterialRequestsResult } from '../../../hooks/useMaterialRequests';
 import { useInventory, type UseInventoryResult } from '../../../hooks/useInventory';
+import {
+  useInspectionSchedules,
+  type UseInspectionSchedulesResult,
+} from '../../../hooks/useInspectionSchedules';
 import { usePendingApprovals, type UsePendingApprovalsResult } from '../../../hooks/usePendingApprovals';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { type TurbineData, TurbineStatus } from '../../../types';
@@ -58,12 +63,14 @@ import { type TurbineData, TurbineStatus } from '../../../types';
 vi.mock('../../../hooks/useWorkOrders');
 vi.mock('../../../hooks/useMaterialRequests');
 vi.mock('../../../hooks/useInventory');
+vi.mock('../../../hooks/useInspectionSchedules');
 vi.mock('../../../hooks/usePendingApprovals');
 vi.mock('../../../hooks/useCurrentUser');
 
 const mockedUseWorkOrders = useWorkOrders as unknown as Mock;
 const mockedUseMaterialRequests = useMaterialRequests as unknown as Mock;
 const mockedUseInventory = useInventory as unknown as Mock;
+const mockedUseInspectionSchedules = useInspectionSchedules as unknown as Mock;
 const mockedUsePendingApprovals = usePendingApprovals as unknown as Mock;
 const mockedUseCurrentUser = useCurrentUser as unknown as Mock;
 
@@ -122,6 +129,20 @@ vi.mock('../InventoryListPanel', () => ({
     >
       庫存清單 ({p.items.length})
       <button onClick={() => p.items[0] && p.onSelect(p.items[0])}>選庫存</button>
+    </div>
+  ),
+}));
+
+vi.mock('../InspectionScheduleListPanel', () => ({
+  default: (p: ListPanelMockProps<InspectionScheduleResponse>) => (
+    <div
+      data-testid="insp-list-panel"
+      data-total={p.total}
+      data-loading={String(p.loading)}
+      data-error={p.error ?? ''}
+    >
+      定檢計畫清單 ({p.items.length})
+      <button onClick={() => p.items[0] && p.onSelect(p.items[0])}>選定檢計畫</button>
     </div>
   ),
 }));
@@ -188,6 +209,24 @@ vi.mock('../MaterialRequestDetailModal', () => ({
 
 vi.mock('../InventoryDetailDrawer', () => ({
   default: () => <div data-testid="inv-detail-drawer">庫存詳情</div>,
+}));
+
+interface CreateInspWizardMockProps {
+  onSubmit: (req: { turbine_id: string; title: string; recurrence: string }) => Promise<void>;
+  onClose: () => void;
+}
+
+vi.mock('../CreateInspectionScheduleModal', () => ({
+  default: (p: CreateInspWizardMockProps) => (
+    <div data-testid="create-insp-modal">
+      建立定檢計畫
+      <button onClick={() => p.onSubmit(INSP_CREATE_REQ)}>送出定檢計畫</button>
+    </div>
+  ),
+}));
+
+vi.mock('../InspectionScheduleDetailModal', () => ({
+  default: () => <div data-testid="insp-detail-modal">定檢計畫詳情</div>,
 }));
 
 vi.mock('../ApprovalActionDialog', () => ({
@@ -302,6 +341,29 @@ function makeInventoryItem(over: Partial<InventoryItemResponse> = {}): Inventory
   };
 }
 
+/** InspectionScheduleResponse 工廠：全列必填欄位，over 覆寫。 */
+function makeInspectionSchedule(
+  over: Partial<InspectionScheduleResponse> = {},
+): InspectionScheduleResponse {
+  return {
+    id: 'insp-001',
+    farm_id: 'farm-001',
+    turbine_id: 'WTG-01',
+    title: '齒輪箱季度定檢',
+    description: '',
+    recurrence: 'quarterly',
+    interval_days: null,
+    next_due_at: '2026-09-01T00:00:00Z',
+    active: true,
+    last_spawned_at: null,
+    last_spawned_work_order_id: null,
+    created_at: '2026-06-04T00:00:00Z',
+    created_by: null,
+    updated_at: '2026-06-04T00:00:00Z',
+    ...over,
+  };
+}
+
 /** PendingSignoffItem 工廠：step + chain 全列必填欄位，over 覆寫。 */
 function makePending(over: Partial<PendingSignoffItem> = {}): PendingSignoffItem {
   return {
@@ -349,6 +411,12 @@ const MR_CREATE_REQ: CreateMaterialRequestPayload = {
   farm_id: 'farm-001',
   requester_id: 'user-leader-001',
   items: [],
+};
+
+const INSP_CREATE_REQ = {
+  turbine_id: 'WTG-01',
+  title: '新定檢計畫',
+  recurrence: 'quarterly',
 };
 
 // turbines 只作為 prop 傳進被 mock 的 CreateWorkOrderWizard，本測試不對其內容斷言。
@@ -422,6 +490,24 @@ function makeInv(over: Partial<UseInventoryResult> = {}): UseInventoryResult {
     warehousesLoading: false,
     adjust: vi.fn(),
     listAdjustments: vi.fn(),
+    ...over,
+  };
+}
+
+function makeInspectionSchedules(
+  over: Partial<UseInspectionSchedulesResult> = {},
+): UseInspectionSchedulesResult {
+  return {
+    items: [],
+    total: 0,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    create: vi.fn(),
+    updateMetadata: vi.fn(),
+    activate: vi.fn(),
+    deactivate: vi.fn(),
+    runScheduler: vi.fn().mockResolvedValue({ spawned: [] }),
     ...over,
   };
 }
@@ -501,6 +587,7 @@ beforeEach(() => {
   mockedUseWorkOrders.mockReturnValue(makeWO());
   mockedUseMaterialRequests.mockReturnValue(makeMR());
   mockedUseInventory.mockReturnValue(makeInv());
+  mockedUseInspectionSchedules.mockReturnValue(makeInspectionSchedules());
   mockedUsePendingApprovals.mockReturnValue(makeApprovals());
   mockedUseCurrentUser.mockReturnValue(makeCurrentUserResult());
 });
@@ -587,6 +674,22 @@ describe('WorkflowPage — tab 切換', () => {
     expect(screen.queryByRole('button', { name: '建立領料單' })).not.toBeInTheDocument();
   });
 
+  it('切到定檢計畫 tab：渲染定檢計畫面板 + 顯示執行排程檢查/建立計畫按鈕', async () => {
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    expect(screen.getByTestId('insp-list-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('inv-list-panel')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '定檢計畫頁籤' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: '執行排程檢查' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '建立定檢計畫' })).toBeInTheDocument();
+    // 其餘 tab 的 create 按鈕不應出現
+    expect(screen.queryByRole('button', { name: '建立工單' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '建立領料單' })).not.toBeInTheDocument();
+  });
+
   it('切到簽核 tab：渲染待簽面板 + 無 create 按鈕', async () => {
     await renderWorkflow();
     fireEvent.click(screen.getByRole('button', { name: '簽核頁籤' }));
@@ -644,6 +747,18 @@ describe('WorkflowPage — 子面板 props wiring', () => {
     expect(panel).toHaveAttribute('data-error', '庫存載入失敗');
   });
 
+  it('定檢計畫面板收到 useInspectionSchedules 的 total / loading / error', async () => {
+    mockedUseInspectionSchedules.mockReturnValue(
+      makeInspectionSchedules({ total: 5, loading: true, error: '定檢計畫載入失敗' }),
+    );
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    const panel = screen.getByTestId('insp-list-panel');
+    expect(panel).toHaveAttribute('data-total', '5');
+    expect(panel).toHaveAttribute('data-loading', 'true');
+    expect(panel).toHaveAttribute('data-error', '定檢計畫載入失敗');
+  });
+
   it('待簽面板收到 usePendingApprovals 的 total / loading / error', async () => {
     mockedUsePendingApprovals.mockReturnValue(
       makeApprovals({ total: 2, loading: true, error: '簽核載入失敗' }),
@@ -683,6 +798,18 @@ describe('WorkflowPage — row 點選開 modal / drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: '庫存頁籤' }));
     fireEvent.click(screen.getByRole('button', { name: '選庫存' }));
     expect(screen.getByTestId('inv-detail-drawer')).toBeInTheDocument();
+  });
+
+  it('點定檢計畫 row → InspectionScheduleDetailModal 開啟', async () => {
+    const sched = makeInspectionSchedule();
+    mockedUseInspectionSchedules.mockReturnValue(
+      makeInspectionSchedules({ items: [sched], total: 1 }),
+    );
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    expect(screen.queryByTestId('insp-detail-modal')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '選定檢計畫' }));
+    expect(screen.getByTestId('insp-detail-modal')).toBeInTheDocument();
   });
 
   it('點核准 → ApprovalActionDialog 開啟（approve 接線）', async () => {
@@ -731,6 +858,54 @@ describe('WorkflowPage — 建立 wizard 接線', () => {
     expect(create).toHaveBeenCalledWith(MR_CREATE_REQ);
     expect(screen.queryByTestId('create-mr-wizard')).not.toBeInTheDocument();
   });
+
+  it('點建立定檢計畫 → modal 開啟；送出 → inspHook.create 帶正確 req + modal 關閉', async () => {
+    const create = vi.fn().mockResolvedValue(makeInspectionSchedule());
+    mockedUseInspectionSchedules.mockReturnValue(makeInspectionSchedules({ create }));
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    fireEvent.click(screen.getByRole('button', { name: '建立定檢計畫' }));
+    expect(screen.getByTestId('create-insp-modal')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByText('送出定檢計畫'));
+    });
+    expect(create).toHaveBeenCalledWith(INSP_CREATE_REQ);
+    // handleCreateInsp 第二半契約：create 成功後 modal 應關閉（比照 handleCreate/handleCreateMR）
+    expect(screen.queryByTestId('create-insp-modal')).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkflowPage — 定檢計畫「執行排程檢查」接線', () => {
+  it('點擊 → 呼叫 inspHook.runScheduler()', async () => {
+    const runScheduler = vi.fn().mockResolvedValue({ spawned: [] });
+    mockedUseInspectionSchedules.mockReturnValue(makeInspectionSchedules({ runScheduler }));
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '執行排程檢查' }));
+    });
+    expect(runScheduler).toHaveBeenCalledTimes(1);
+  });
+
+  it('spawn 成功顯示筆數訊息', async () => {
+    const runScheduler = vi.fn().mockResolvedValue({
+      spawned: [
+        {
+          schedule_id: 'insp-001',
+          work_order_id: 'wo-999',
+          turbine_id: 'WTG-01',
+          next_due_at: '2026-12-01T00:00:00Z',
+        },
+      ],
+    });
+    mockedUseInspectionSchedules.mockReturnValue(makeInspectionSchedules({ runScheduler }));
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '定檢計畫頁籤' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '執行排程檢查' }));
+    });
+    expect(screen.getByText('已建立 1 張工單')).toBeInTheDocument();
+  });
 });
 
 describe('WorkflowPage — 語系', () => {
@@ -739,6 +914,7 @@ describe('WorkflowPage — 語系', () => {
     expect(screen.getByRole('button', { name: 'Work orders tab' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Material requests tab' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Inventory tab' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inspection schedules tab' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approval tab' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create work order' })).toBeInTheDocument();
     // negative：en 模式不應出現中文 tab 名（守住 ui() 映射未對調）

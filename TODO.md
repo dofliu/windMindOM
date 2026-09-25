@@ -16,7 +16,34 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（**WMOM-20260505-22 後端完成** — `inspection_schedule` 定檢計畫 +
+最後更新：2026-09-25（**WMOM-20260925-05 完成** — `WMOM-20260505-22` 前端收尾：`inspection_
+schedule` 定檢計畫管理併入既有 `WorkflowPage.tsx`（新增第 5 個 tab「定檢計畫」，非獨立路由）+
+`TurbineDetail.tsx` header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)` 深連結。新增
+`inspectionScheduleService.ts` API client + `useInspectionSchedules` hook（沿用
+`useInventory` 模式，create/activate/deactivate/runScheduler 完成後皆 refetch 整列表以維持
+`next_due_at` 排序正確）+ `InspectionScheduleListPanel`/`CreateInspectionScheduleModal`/
+`InspectionScheduleDetailModal` 三支元件。`App.tsx` 新增 `inspectionDeepLinkTurbineId` state，
+`handleNavSelect` 一般導覽時清空避免深連結過濾殘留跨 session。新增 66 測皆
+mutation-verified。**code-reviewer subagent review 抓到 2 must-fix + 2 should-fix，
+must-fix 與 should-fix 全數已修復**：①`onNavigateInspection` 呼叫順序寫反，同一
+event handler 內兩個 `setState` 被 React batch 導致深連結恆為 no-op（永遠停在預設
+tab、不帶風機過濾）——改成 `handleNavSelect(id, opts)` 單一 setState 呼叫的結構性
+修法，非僅調換順序；②`useInspectionSchedules` 的 `activate`/`deactivate` 誤用
+`patchLocal` 違反自己 docstring 宣稱的 refetch 行為，`active_only` filter 下暫停
+計畫不會即時從列表消失——已改為 `fetchList()`；③`CreateInspectionScheduleModal`
+的 `canSubmit` 只檢查 turbineId 非空字串未驗證是否仍在 turbineOptions 內，已改
+`turbineOptions.some(...)` 並補 1 個 regression test。backend 未動；frontend
+tsc 0、`npx vitest run` 63 files **1354 passed**（零 regression）、`npx vite
+build` OK。`WMOM-20260505-22`（後端+前端）與 `WMOM-20260507-02`（PageHeader
+placeholder 按鈕清單，6 個 sub-task 全數完成）皆標 done。**誠實揭露**：`App.tsx`
+深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test 檔，既有慣例——這正是
+must-fix #1 沒被自動化測試抓到、只能靠 code review 人工發現的根本原因）；
+`useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款 workflow CRUD hook
+既有模式，只透過 `WorkflowPage.test.tsx` mock 間接驗證接線）。**下個 session**：見
+下方「需劉老師決策」清單、PR C（檢視情境掛載 app，需先寫 broker 子設計），或評估
+M6 critical path 剩餘項（WMOM-20260720-04/-08 殘項、footprint、PostgreSQL
+row-lock、HTTPS 部署）。）
+前一 session：2026-09-25（**WMOM-20260505-22 後端完成** — `inspection_schedule` 定檢計畫 +
 scheduler auto-spawn：domain（`Recurrence` enum + 純函式）+ repository
 （`InspectionScheduleRepository`）+ service（`run_inspection_scheduler`，手動觸發 API、冪等、
 撞 multi-WO constraint 跳過不漏排，刻意不加背景 cron）+ router（7 endpoints）全套完成，79 測
@@ -343,10 +370,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   定檢計畫 + scheduler auto-spawn 後端~~ — ✅ 2026-09-25 **後端**完成（domain + repository +
   service + router，79 測 mutation-verified，code review 1 must-fix + 1 should-fix 皆已修
   復），見上方「最後更新」。**前端未做**，拆成新 issue，見下一項。
-- [ ] **WMOM-20260925-05**（`WMOM-20260507-02` sub-task d 本體）— `inspection_schedule` 前端：
-  `TurbineDetail.tsx` header『安排檢查』鈕接線 + `/admin/workflow/inspection` 定檢計畫管理頁
-  （列表/建立/編輯/暫停恢復/手動觸發 scheduler）。API 已齊全（見 ISSUES.md 該 issue 條目的
-  API 一覽），無設計歧義，🔵 autonomous-friendly，估半天~1 天，建議下個 session 優先接手。
+- [x] ~~**WMOM-20260925-05**（`WMOM-20260507-02` sub-task d 本體）— `inspection_schedule` 前端~~ —
+  ✅ 2026-09-25 完成，見上方「最後更新」。`WMOM-20260507-02` 6 個 sub-task 全數完成，該 issue
+  已標 done。
 
 ### 需劉老師決策才能開工
 

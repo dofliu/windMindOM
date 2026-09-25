@@ -148,6 +148,12 @@ const AppShell: React.FC = () => {
   const [view, setView] = useState<ViewId>('overview');
   const [selectedTurbine, setSelectedTurbine] = useState<TurbineData | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // `TurbineDetail` header『安排檢查』鈕深連結（WMOM-20260925-05）：帶入的
+  // turbine_id 只在下一次 `view === 'workflow'` mount 時讀一次（見 WorkflowPage
+  // `initialInspectionTurbineId` prop docstring），故不需要在切走後清空。
+  const [inspectionDeepLinkTurbineId, setInspectionDeepLinkTurbineId] = useState<
+    string | undefined
+  >(undefined);
 
   // ── Modals ──
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
@@ -215,7 +221,7 @@ const AppShell: React.FC = () => {
   }, []);
 
   const handleNavSelect = useCallback(
-    (id: string) => {
+    (id: string, opts?: { inspectionTurbineId?: string }) => {
       const next = id as ViewId;
       setView(next);
       if (next === 'turbine') {
@@ -225,6 +231,15 @@ const AppShell: React.FC = () => {
       } else if (next === 'overview') {
         setSelectedTurbine(null);
       }
+      // 深連結過濾只在明確帶 `opts.inspectionTurbineId` 時才設（`onNavigateInspection`
+      // 呼叫點），其餘所有一般導覽（含 sidebar 直接點擊、`onNavigateReports` 等零參數
+      // 呼叫）一律清空——單一 `setState` 呼叫、依當次呼叫的 `opts` 決定值，不再依賴
+      // 「呼叫端要記得用對的順序呼叫兩個各自獨立的 setState」這種容易寫反的隱性
+      // 前提（WMOM-20260925-05 code review 抓到的 must-fix：原本用「先設值、再讓
+      // 這裡蓋回 undefined，靠呼叫端事後再設一次」的寫法，同一個 event handler 內
+      // React state 更新會 batch，呼叫順序寫反時最終值恆為 undefined，深連結整個
+      // 是 no-op）。
+      setInspectionDeepLinkTurbineId(opts?.inspectionTurbineId);
     },
     [selectedTurbine, turbines],
   );
@@ -320,6 +335,9 @@ const AppShell: React.FC = () => {
               wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
             )}
             lang={lang}
+            onNavigateInspection={turbineId =>
+              handleNavSelect('workflow', { inspectionTurbineId: turbineId })
+            }
           />
         );
       case 'maintenance':
@@ -332,7 +350,13 @@ const AppShell: React.FC = () => {
           />
         );
       case 'workflow':
-        return <WorkflowPage lang={lang} turbines={turbines} />;
+        return (
+          <WorkflowPage
+            lang={lang}
+            turbines={turbines}
+            initialInspectionTurbineId={inspectionDeepLinkTurbineId}
+          />
+        );
       case 'history':
         return <HistoryPage turbines={turbines} lang={lang} />;
       case 'cost':
