@@ -74,6 +74,11 @@ c~f，其中 **c（風機細節『限載』）已有明確 API 對應（`POST /a
 
 - `WMOM-20260507-02` 尚餘 sub-task d~f（`d` 依賴 `WMOM-20260505-22` `inspection_schedule`
   尚未做；`e` 維護中心 `+ 新工單`／`f` 風場總覽 `+ 新報告` 皆無阻塞，可繼續認領）。
+  `TurbineDetail.tsx` PageHeader 三個 actions 至此僅剩「安排檢查」（sub-task d）仍是
+  placeholder。
+- code-reviewer 留下的 nice-to-have（`CurtailModal` 送出中 Cancel/✕ 未 disable，
+  unmount 後 setState 警告——`CreateFarmModal` 也有同款既存模式）未修，若之後要一併重構
+  兩個 modal，可用 `isMountedRef` guard 或 `AbortController` 處理，非本次範圍。
 - ⚠ 附帶再次提醒（已連續多個 session 提醒）：`docs/routines/autonomous-daily-worker-
   prompt.md` canonical 文件內文仍停在舊版本（v3，baseline 638/59），落後於實際 cron
   trigger 送入的 prompt（v4.1，baseline 1103/1267→1275），建議劉老師找時間同步。
@@ -107,9 +112,30 @@ c~f，其中 **c（風機細節『限載』）已有明確 API 對應（`POST /a
 
 ## Review
 
-（待補——code-reviewer subagent review 進行中，結果回填後補齊本節 + 視 must-fix 補一輪
-verify）
+code-reviewer subagent review：**Approve，0 must-fix**，1 should-fix、1 nice-to-have。
+
+- **Should-fix（已修）**：review 當下 `ISSUES.md` 仍標 `in_progress`、work-log Review/Wrap-up
+  留白——時序問題（先跑 review 再收尾），已在收到結果後改 `done` + 補齊全部追蹤檔案。
+- **Nice-to-have（未採納，記錄性）**：`CurtailModal.handleSubmit` 送出中 Cancel/✕ 按鈕未
+  `disabled`，若使用者在請求 pending 時關窗，稍後 `finally` 對已 unmount 元件呼叫
+  `setSubmitting`/`setError` 會觸發 React console warning。reviewer 確認這是**逐字複製
+  `FarmSelector.tsx` `CreateFarmModal.handleCreate` 既有的相同結構**（非本次新增問題，是既有
+  慣例本身就有的既存模式），維持現狀，不因此擴大本次修改範圍。
+- reviewer 獨立重跑 `tsc --noEmit`（0 error）+ `vitest run TurbineDetail.test.tsx`（83
+  passed）；另做 2 輪本 session 未涵蓋的 mutation-verify（移除負值檢查 `|| powerLimitKw < 0`
+  → 「輸入負值」測試如預期 fail；body 故意漏 `turbineId` → 2 個「送出 body」測試如預期
+  fail），確認測試不是同義反覆、真的在鎖住對應邏輯，皆用 scratchpad 備份 + md5sum 核對還原。
+  獨立確認 aria-label 無撞名（`OperatorControlCard` 的「設定限載」與 modal 的「確認限載」
+  文字不同）、`stubFetch()` 加 `ok: true` 對既有 25 處呼叫點無副作用（production code 唯一
+  讀 `res.ok` 之處就是本次新增的 `CurtailModal`）、後端 `CurtailCommand` schema 與前端
+  body 完全對齊。
 
 ## Wrap-up
 
-（待 review 完成後補齊：ISSUES.md/STATUS.yaml/TODO.md 最終同步 + 誠實揭露段落）
+- `ISSUES.md`（`WMOM-20260925-02` 標 done + completion summary、`WMOM-20260507-02` sub-task
+  c 打勾、統計表 in_progress 1→0、done 127→128、total 137→138）已同步更新。
+- 本次沒有引入未受自動化測試保護的邏輯；新增的 8 個測試皆逐一 mutation-verified（本 session
+  1 輪 + reviewer 獨立 2 輪，共 3 種變異皆如預期 fail）。
+- ⚠ 誠實揭露：`CurtailModal` 送出中 Cancel/✕ 未 disable 這個 nice-to-have（見上方 Review），
+  是複製既有 `CreateFarmModal` 就有的既存行為模式，非本次引入的新風險，決定不在本次範圍內
+  修正（避免無謂擴大單一 UI 接線 issue 的變更面）。

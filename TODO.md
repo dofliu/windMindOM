@@ -16,7 +16,18 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（**WMOM-20260925-01 完成** — `frontend/hooks/*.ts` authFetch 稽核
+最後更新：2026-09-25（**WMOM-20260925-02 完成** — `TurbineDetail.tsx` PageHeader『限載』鈕
+接線（`WMOM-20260507-02` sub-task c）：新增 `CurtailModal`（比照 `FarmSelector.tsx` 的
+`CreateFarmModal` 遮罩/`role="dialog"` 慣例）收 kW 值後打 `authFetch POST
+/api/control/curtail`（`SUPERVISOR`-only），是右欄 `OperatorControlCard` 限載輸入的重複
+入口（比照 sub-task b『停機』header 鈕先例）。留空 = 解除限載、前端擋負值、後端非 2xx 顯示
+`detail` 不關窗。+8 vitest 皆 mutation-verified（本 session 1 輪 + code-reviewer 獨立
+2 輪）。backend 未動 1103 passed 不變；frontend tsc 0、1267→1275 passed（60 files，零
+regression）、build OK。code-reviewer review：Approve，0 must-fix。`WMOM-20260507-02`
+清單尚餘 sub-task d~f（`d` 依賴 `WMOM-20260505-22` 尚未做；`e`/`f` 無阻塞可續接）。
+**下個 session**：可續接 `WMOM-20260507-02` sub-task e（維護中心 `+ 新工單`）/ f（風場總覽
+`+ 新報告`），或見下方「需劉老師決策」清單、PR C（需先寫 broker 子設計）。）
+前一 session（WMOM-20260925-01）：`frontend/hooks/*.ts` authFetch 稽核
 缺口一次做完全部 sub-task（未依建議拆多 session，因修法完全一致無設計歧義）：
 `useSettings.ts`（`POST /api/config/simulation`+`/datasource`，皆 SUPERVISOR）、
 `useMaintenanceData.ts`（2 GET + 3 個 SUPERVISOR 寫入 + 2 內部 refresh GET）、
@@ -252,11 +263,12 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
-- [x] ~~**WMOM-20260507-02 sub-task a/b** — 風場總覽「匯出」/風機細節「停機」鈕接線~~ — ✅
-  WMOM-20260923-07（a）+ WMOM-20260923-09（b）完成，見上方「最後更新」。**`WMOM-20260507-02`
-  清單尚餘 c~f**（風機細節 `限載`/`安排檢查`、維護中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有
-  明確 API 對應與估時，可逐項繼續認領（`d` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做；
-  其餘 3 項無阻塞）
+- [x] ~~**WMOM-20260507-02 sub-task a/b/c** — 風場總覽「匯出」/風機細節「停機」/風機細節
+  「限載」鈕接線~~ — ✅ WMOM-20260923-07（a）+ WMOM-20260923-09（b）+
+  WMOM-20260925-02（c）完成，見上方「最後更新」。**`WMOM-20260507-02` 清單尚餘 d~f**
+  （風機細節 `安排檢查`、維護中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有明確 API 對應與
+  估時，可逐項繼續認領（`d` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做；其餘 2 項
+  無阻塞）
 - [x] ~~**WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性
   技術債）~~ — ✅ 2026-09-24 完成，見上方「最後更新」。`FarmOverview.tsx` 全檔至此無裸
   `fetch` 殘留。
@@ -271,6 +283,8 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**WMOM-20260925-01**（M6 auth cutover 真正前置阻塞）— `frontend/hooks/*.ts`
   authFetch 稽核缺口~~ — ✅ 2026-09-25 完成，見上方「最後更新」。4 支 hook + `App.tsx`
   一次做完，`frontend/` 全樹至此無裸 `fetch` 殘留；cutover 檢查表已重新勾選。
+- [x] ~~**WMOM-20260925-02**（`WMOM-20260507-02` sub-task c）— `TurbineDetail.tsx` header
+  『限載』鈕接線~~ — ✅ 2026-09-25 完成，見上方「最後更新」。
 
 ### 需劉老師決策才能開工
 
