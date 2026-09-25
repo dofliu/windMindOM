@@ -16,10 +16,26 @@
 | open | 10 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 127 |
-| **total (active)** | **137** |
+| done | 128 |
+| **total (active)** | **138** |
 
-最後更新：2026-09-24（**WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
+最後更新：2026-09-25（**WMOM-20260925-02 — `TurbineDetail.tsx` header『限載』鈕接線
+（`WMOM-20260507-02` sub-task c）**：PageHeader「限載」鈕原為零功能 placeholder，新增
+`CurtailModal`（比照 `FarmSelector.tsx` 的 `CreateFarmModal` 遮罩/`role="dialog"` 慣例）
+收 kW 值後打 `authFetch POST /api/control/curtail`（`SUPERVISOR`-only），是右欄
+`OperatorControlCard` 限載輸入的重複入口（比照 sub-task b『停機』header 鈕先例，不重寫
+`OperatorControlCard` 邏輯）。留空 = 解除限載（語意與既有 `setCurtail` 一致）、前端擋負值/
+非數字、後端非 2xx 顯示 `detail` 訊息不關窗。新增 8 測（開關 dialog、送出 kW 值/留空解除、
+前端擋負值、後端錯誤顯示、`authFetch` header），皆 mutation-verified；另修共用
+`stubFetch()` helper 補 `ok: true`（原缺此欄位會讓新寫的 `res.ok` 檢查誤判）。backend 未動
+1103 passed 不變；frontend tsc 0、1267→1275 passed（60 files，+8 新測，零 regression）、
+build OK。code-reviewer subagent review：**Approve，0 must-fix**，1 should-fix（本 issue
+狀態同步收尾，已修正）、1 nice-to-have（`CurtailModal` 送出中 Cancel/✕ 未 disable——逐字
+複製 `CreateFarmModal` 既有相同結構，非本次新增問題，未採納）。reviewer 獨立額外做 2 輪
+mutation-verify（移除負值檢查、body 漏 `turbineId`）確認測試非同義反覆。`WMOM-20260507-02`
+清單尚餘 sub-task d~f（`d` 依賴 `WMOM-20260505-22` `inspection_schedule` 尚未做；`e`/`f`
+無阻塞可續接）。）
+前一 session：2026-09-24（**WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
 `authFetch`**：`TrendCard` 內僅存的一處裸 `fetch`（`/api/turbines/farm-trend`，後端
 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照同檔案 WMOM-20260923-07
 匯出鈕已建立的手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證
@@ -3460,7 +3476,10 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     走 `authFetch` 直接呼叫 `POST /api/control/command { command: 'stop' }`；同一次順帶修復
     `OperatorControlCard` 4 處既有 `fetch` 缺口（改 `authFetch`，該卡片指令端點皆
     `SUPERVISOR`-only 寫入）。新增 7 測皆 mutation-verified。
-  - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
+  - [x] ~~**c. 風機細節 `限載`**~~ — ✅ 2026-09-25 完成（**WMOM-20260925-02**）。`CurtailModal`
+    inline modal（比照 `CreateFarmModal` 慣例）收 kW 值 → `authFetch POST /api/control/
+    curtail`；PageHeader「限載」鈕是右欄 `OperatorControlCard` 限載輸入的重複入口，比照
+    sub-task b 先例。新增 8 測皆 mutation-verified。
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
   - [ ] **e. 維護中心 `+ 新工單`** — 開 modal：選風機 + 描述 + 選技師 → `POST /api/maintenance/work-orders`（API 已存在）。**估時 2h**
   - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend）
@@ -3470,6 +3489,54 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260925-02 — `TurbineDetail.tsx` header『限載』鈕接線（WMOM-20260507-02 sub-task c）
+
+- **Status**: done（2026-09-25 完成，autonomous session）
+- **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
+- **Priority**: low（UX polish；限載功能本身已可從右欄「操作控制」卡片完整操作，本 issue
+  只補 PageHeader 這個重複入口）
+- **Estimate**: 1h
+- **Source**: `WMOM-20260507-02` sub-task c，autonomous session 認領
+- **Description**:
+  `frontend/components/TurbineDetail.tsx` PageHeader actions 的「限載」鈕（約 1021 行）目前是
+  零功能 placeholder（`<Btn ariaLabel={tr('Curtail', '限載')}>{tr('Curtail', '限載')}</Btn>`，
+  無 `onClick`）。同頁右欄 `OperatorControlCard` 已有完整限載輸入（kW 值 + 設定/解除，走
+  `authFetch` 打 `POST /api/control/curtail`，`SUPERVISOR`-only），比照 sub-task b（`停機`
+  header 鈕）先例——同一支端點的重複入口，用 inline modal 收 kW 值後打同一支 API，不重寫
+  `OperatorControlCard` 邏輯。
+- **Deliverable**:
+  - 新增 `CurtailModal`（比照 `FarmSelector.tsx` 的 `CreateFarmModal` 遮罩 + `role="dialog"`
+    + `Card` 樣式慣例）：單一 kW 數字輸入框（留空 = 解除限載，語意與 `OperatorControlCard.
+    setCurtail` 一致）+ 取消 / 設定按鈕，送出打 `authFetch POST /api/control/curtail`
+    （`SUPERVISOR`-only，未授權會 403，於 modal 內顯示錯誤訊息不關窗）
+  - PageHeader「限載」鈕 `onClick` 開啟 modal；成功送出後關閉 modal（`OperatorControlCard`
+    自身 3s 輪詢會反映最新狀態，不在此另外維護狀態顯示，比照 sub-task b 決策）
+  - `TurbineDetail.test.tsx` 新增測試：開/關 modal、送出 kW 值打對 endpoint/body、留空送出視同
+    解除（`powerLimitKw: null`）、已登入時帶 `Authorization` header、非 2xx 顯示錯誤不關窗
+  - 完成後本 issue 標 done + 回頭勾選 `WMOM-20260507-02` sub-task c
+- **Completion summary**:
+  - ✅ `CurtailModal` 新增（遮罩 + `role="dialog"` + `Card`，比照 `CreateFarmModal` 慣例）+
+    PageHeader「限載」鈕接線，成功後關窗、`OperatorControlCard` 自身輪詢反映最新狀態
+  - ✅ 新增 8 測（開關 dialog、送出 kW 值/留空解除、前端擋負值、後端非 2xx 顯示 `detail`、
+    `authFetch` header），皆 mutation-verified；`stubFetch()` 共用 helper 補 `ok: true`
+  - ✅ backend 未動 1103 passed 不變；frontend tsc 0、1267→1275 passed（60 files，+8 新測，
+    零 regression）、build OK
+  - ✅ code-reviewer subagent review：**Approve，0 must-fix**。1 should-fix（本 issue 狀態
+    需同步收尾，已修正）；1 nice-to-have（`CurtailModal` 送出中 Cancel/✕ 未 disable，
+    unmount 後 `setState` 可能觸發 console warning——**逐字複製 `CreateFarmModal.
+    handleCreate` 既有相同結構，非本次新增問題**，未採納，留給未來若要一併重構兩個
+    modal 時參考）。reviewer 獨立額外做 2 輪 mutation-verify（移除負值檢查、body 漏
+    `turbineId` 欄位）皆如預期 fail，確認測試非同義反覆
+  - `TurbineDetail.tsx` 全檔 PageHeader 三個 actions（限載/停機/安排檢查）至此僅剩
+    `安排檢查`（sub-task d，依賴 `WMOM-20260505-22` `inspection_schedule`）為 placeholder
+- **Files changed**:
+  - `M frontend/components/TurbineDetail.tsx` — 新增 `CurtailModal` + 接線
+  - `M frontend/components/__tests__/TurbineDetail.test.tsx` — +8 測 + `stubFetch()` 補 `ok: true`
+  - `+ work-logs/2026-09/2026-09-25-turbinedetail-curtail-header-button.md`
+- **Reference**: `WMOM-20260507-02`、`WMOM-20260923-09`（sub-task b 先例）
 
 ---
 
