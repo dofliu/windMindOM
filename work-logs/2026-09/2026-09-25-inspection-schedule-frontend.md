@@ -178,12 +178,17 @@ autonomous-friendly，選為本次工作。
   零 regression，本次未變）；frontend 修改前基準 `npx tsc --noEmit` 0 error（已在既有
   main 上驗證過，未重跑修改前的 vitest 全套，因為本次是新增檔案為主，直接以修改後
   結果與 issue completion summary 記錄的前次基準 1288 passed 比對）。
-- 修改後：`npx tsc --noEmit` 0 error；`npx vitest run`（新增/修改的 5 個測試檔案，
-  169 tests）全數 pass，含發現並修復 `CreateInspectionScheduleModal.test.tsx` 2 個
-  因 `<option>` 文字碰撞導致的假失敗（見 §6）；`npx vitest run`（全套 63 files）
-  **1353 passed**，零 regression；`npx vite build` OK。backend 未動任何 Python
-  檔案，重跑全套 6 module + `tests/` 確認 `1182 passed, 7 skipped, 1 xfailed`
+- 修改後（review 修復前）：`npx tsc --noEmit` 0 error；`npx vitest run`（新增/修改
+  的 5 個測試檔案，169 tests）全數 pass，含發現並修復 `CreateInspectionScheduleModal
+  .test.tsx` 2 個因 `<option>` 文字碰撞導致的假失敗（見 §6）；`npx vitest run`（全套
+  63 files）**1353 passed**，零 regression；`npx vite build` OK。backend 未動任何
+  Python 檔案，重跑全套 6 module + `tests/` 確認 `1182 passed, 7 skipped, 1 xfailed`
   （逐位元組與開工 baseline 一致）。
+- **review 修復後（最終狀態）**：`npx tsc --noEmit` 0 error；`npx vitest run`
+  （全套 63 files）**1354 passed**（+1，`CreateInspectionScheduleModal.test.tsx`
+  should-fix #3 的新 regression test）、零 regression；`npx vite build` OK。
+  backend 未動，不重跑（review 修復僅涉及 3 個 frontend 檔案：
+  `App.tsx`/`useInspectionSchedules.ts`/`CreateInspectionScheduleModal.tsx`）。
 - **Mutation-verified**（逐一針對關鍵邏輯改回錯誤版本 → 確認新測會 fail → 用
   scratchpad 備份 + 手動還原，非依賴 `git checkout`——避免誤救不到本次新增的
   未追蹤檔案）：
@@ -203,26 +208,89 @@ autonomous-friendly，選為本次工作。
      閱讀層級驗證**（讀過 `renderContent()` switch-case 確認 view 切換時
      `WorkflowPage` 確實會整個 remount + 讀過 batch 語意確認呼叫順序），未做
      mutation-verify，已如實記錄於下方「哪些部分沒有自動化測試保護」。
-  5. `useInspectionSchedules.ts` 的 `create`/`activate`/`deactivate`/`runScheduler`
-     改成不呼叫 `fetchList()`（即改回 local patch 或完全不更新）→ 因為 hook 本身
-     無獨立單元測試（見下方誠實揭露），此項同樣僅程式碼閱讀層級驗證邏輯正確性，
-     未做 mutation-verify。
+  5. `useInspectionSchedules.ts` 的 `create`/`runScheduler` 改成不呼叫
+     `fetchList()`（即改回 local patch 或完全不更新）→ 因為 hook 本身無獨立單元
+     測試（見下方誠實揭露），此項同樣僅程式碼閱讀層級驗證邏輯正確性，未做
+     mutation-verify。**⚠ 此項驗證後來被 code-reviewer 抓到反例**：`activate`/
+     `deactivate` 當時誤用 `patchLocal` 而非 docstring 宣稱的 refetch，恰好就是
+     這裡「僅程式碼閱讀層級驗證、未 mutation-verify」的邏輯本身有 bug 卻沒被
+     發現的實例——見下方 Review §must-fix #2，已修復為 `fetchList()`。
 
 ## Review
 
-code-reviewer subagent review：見下方 Wrap-up 前的 review 結果（本 work-log 於
-review 執行後同步補齊本段與追蹤檔案）。
+code-reviewer subagent review：**2 must-fix + 2 should-fix + 1 nice-to-have，must-fix
+與 should-fix 全數已修復**：
+
+- **Must-fix #1（已修）— 深連結整個是 no-op**：`onNavigateInspection` 的呼叫順序是先
+  `setInspectionDeepLinkTurbineId(turbineId)` 再 `handleNavSelect('workflow')`，而
+  `handleNavSelect` 內部無條件把同一個 state 設回 `undefined`；同一個 event handler
+  內兩個 `setState` 呼叫會被 React batch，最終值以**後呼叫**的為準，導致
+  `inspectionDeepLinkTurbineId` 恆為 `undefined`——點『安排檢查』鈕確實會切到
+  workflow 頁，但永遠停在預設「工單」tab、不會帶風機過濾，本次新增功能的頭號賣點
+  在正式程式碼裡是壞的（`TurbineDetail.test.tsx`/`WorkflowPage.test.tsx` 皆只在各自
+  元件邊界測試，測不到 `App.tsx` 這層接線問題，reviewer 精準指出「沒有
+  App.tsx-level 整合測試能抓到這個」）。**修法**：不是單純調換呼叫順序（那只是把
+  「呼叫端要記得用對順序呼叫兩個獨立 setState」這個脆弱前提換一個方向繼續存在），
+  改成結構性修正——`handleNavSelect` 簽章加一個 optional 第二參數
+  `opts?: { inspectionTurbineId?: string }`，內部只有**一次** `setState` 呼叫
+  `setInspectionDeepLinkTurbineId(opts?.inspectionTurbineId)`，一般導覽零參數呼叫
+  → 自動清空，`onNavigateInspection` → `handleNavSelect('workflow', {
+  inspectionTurbineId: turbineId })` → 一次呼叫直接帶對值，徹底消除「兩個呼叫、順序
+  決定結果」這個 bug class（而非只修這一個實例）。`Sidebar.onSelect: (id: string) =>
+  void` 與新簽章結構相容（TS 允許函式實作帶額外 optional 參數），`tsc --noEmit`
+  0 error 確認。**因 `App.tsx` 本身無測試檔（既有慣例，見下方誠實揭露），此修復
+  未做自動化 mutation-verify**，僅重新 `tsc --noEmit` + 人工重讀
+  `renderContent()`/`handleNavSelect`/`onNavigateInspection` 三處呼叫點確認邏輯
+  正確（單一 setState 呼叫已消除原本的 race，無需靠呼叫順序推理正確性）。
+- **Must-fix #2（已修）— `activate`/`deactivate` 違反自己的 docstring**：hook
+  docstring 宣稱「create / activate / deactivate / runScheduler 完成後皆 refetch
+  整個列表」，但 `activate`/`deactivate` 實作誤用 `patchLocal`（只原地改
+  `active` 欄位，不受 `active_only` server-side filter 影響）——使用者若正在看
+  「僅啟用中」列表時暫停一筆計畫，該筆不會依過濾條件從列表消失，`total` 計數也
+  不會更新，直到手動 refresh 或切換 filter。修法：`activate`/`deactivate` 改成
+  比照 `create`/`runScheduler`呼叫 `await fetchList()`，`patchLocal` 現在只留給
+  `updateMetadata`（純文字欄位、不影響排序或 filter 成員資格）使用。frontend
+  1354 passed（含既有的 `InspectionScheduleDetailModal.test.tsx` Pause/Resume
+  測試，改成 refetch 後這些測試因 mock 的 `onActivate`/`onDeactivate` 直接回傳
+  即可維持 pass，未受影響——這幾支測試本來就只斷言「呼叫哪個 callback + local
+  state 用回傳值同步」，不涉及 refetch 與否，故無需改測試）。
+- **Should-fix #3（已修）— `canSubmit` 只檢查 turbineId 非空字串，未驗證是
+  `turbineOptions` 之一**：若 `preselectTurbineId`（`TurbineDetail` 深連結帶入）
+  指向一個已不在目前風場清單內的過期風機（例如使用者點擊安排檢查後、modal
+  開啟前風機被移出風場的競態），前端會顯示成可送出的啟用態按鈕，實際送出會被
+  後端 422 拒絕。修法：`canSubmit` 改成 `turbineOptions.some(o => o.value ===
+  turbineId)`，新增 1 個 regression test 並 mutation-verified（改回
+  `turbineId.trim() !== ''` → 新測「preselectTurbineId 不在 turbineOptions
+  內」如預期 fail：`expected element not to be disabled`，還原後 19 測全數
+  pass）。frontend 1353→**1354 passed**。
+- **Should-fix #4（未動，reviewer 標記非阻塞）**：`handleRunScheduler` 等 async
+  handler 直接綁 `onClick`（non-void-returning function 綁給 void-expecting
+  prop），reviewer 明確標註「與檔案內其餘既有 handler 一致、錯誤已在內部 catch、
+  非本次新增問題，僅供 lint 風格意識」，未修改。
+- **Nice-to-have（未採納）**：`recurrenceLabel` 的天數是寫死近似值（如「約 91
+  天」），reviewer 建議未來若要改可考慮抽共用常數避免與後端 mapping 漂移；純
+  cosmetic，本次不動。
+- reviewer 獨立確認：`turbine_id` 全樹一致使用 `turbine.name`（無
+  `WT${...}`/`padStart` 洩漏到新檔案）；`useInspectionSchedules` 的
+  AbortController race handling 正確；`WorkflowPage.test.tsx` 的 mock 隔離正確
+  （global fetch stub 對未預期 URL 一律 reject，不會有真實 fetch 漏過）；3 支新
+  元件測試檔案內容有意義非同義反覆。
 
 ## Wrap-up
 
 - ISSUES.md / STATUS.yaml / TODO.md 已同步更新（見上方「產出清單」）。
 - **誠實揭露：哪些部分沒有自動化測試保護**：
-  1. `App.tsx` 的深連結 state 管理（`inspectionDeepLinkTurbineId` + `handleNavSelect`
-     清空邏輯 + `onNavigateInspection` callback 的 batch 覆蓋順序）——本 repo
-     `App.tsx` 本身無任何 `App.test.tsx`（既有慣例，非本次引入的缺口），只能靠讀
-     程式碼推論正確性，未做瀏覽器實測。`TurbineDetail.test.tsx` 只驗證
-     `onNavigateInspection` 被呼叫時帶對參數（`turbine.name`），不驗證 `App.tsx`
-     收到後的實際導覽行為（切 view、清空/設定深連結 state）。
+  1. `App.tsx` 的深連結 state 管理（`handleNavSelect(id, opts)` + `onNavigateInspection`
+     callback）——本 repo `App.tsx` 本身無任何 `App.test.tsx`（既有慣例，非本次引入
+     的缺口；本次也判斷幫 15+ 個 hook 的元件建全套 mock 測試基礎設施超出這次 bug fix
+     的合理範圍，未動手補），只能靠讀程式碼推論正確性 + `tsc --noEmit` 型別檢查，
+     未做瀏覽器實測。**這正是本次 review 抓到 must-fix #1 的根本原因**——原始實作的
+     bug（呼叫順序寫反導致深連結恆為 no-op）就是因為沒有任何測試能在這層抓到，
+     只能靠 code review 人工發現。修復後改成單一 `setState` 呼叫的結構性設計（而非
+     繼續依賴呼叫順序），**降低了同類 bug 再次發生的機率，但仍不等於有測試鎖住**；
+     `TurbineDetail.test.tsx` 只驗證 `onNavigateInspection` 被呼叫時帶對參數
+     （`turbine.name`），`WorkflowPage.test.tsx` 只驗證 `initialInspectionTurbineId`
+     prop 直接傳入時的行為，兩者都測不到 `App.tsx` 這一層把兩者串起來的邏輯。
   2. `useInspectionSchedules.ts` hook 本身無獨立單元測試——沿用 repo 既有慣例
      （`useInventory`/`useWorkOrders`/`useMaterialRequests` 等同款 workflow CRUD
      hook 也都只透過 `WorkflowPage.test.tsx` 的 mock 間接驗證「WorkflowPage 有正確

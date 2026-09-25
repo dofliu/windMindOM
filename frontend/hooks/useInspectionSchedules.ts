@@ -130,20 +130,24 @@ export function useInspectionSchedules(
     async (id: string) => {
       if (!farmId) throw new Error('farm_id required');
       const updated = await inspectionScheduleApi.activate(id, farmId);
-      patchLocal(updated);
+      // refetch（非 patchLocal）：`activeOnly` 是 server-side filter，deactivate
+      // 後若目前正在看「僅啟用中」，該筆必須從列表消失，patchLocal 只會原地把
+      // active 欄位翻成 false，不會依過濾條件移除該 row（code review 抓到的
+      // must-fix：docstring 早已宣稱 refetch，實作卻誤用 patchLocal）。
+      await fetchList();
       return updated;
     },
-    [farmId, patchLocal],
+    [farmId, fetchList],
   );
 
   const deactivate = useCallback(
     async (id: string) => {
       if (!farmId) throw new Error('farm_id required');
       const updated = await inspectionScheduleApi.deactivate(id, farmId);
-      patchLocal(updated);
+      await fetchList();
       return updated;
     },
-    [farmId, patchLocal],
+    [farmId, fetchList],
   );
 
   const runScheduler = useCallback(async () => {

@@ -2584,22 +2584,51 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - ✅ `TurbineDetail.tsx`：新增 optional prop `onNavigateInspection`，PageHeader『安排檢查』
     鈕 `onClick` 帶 `turbine.name`（workflow module 的 `turbine_id` 慣例，與
     `CreateWorkOrderWizard` 一致，非 monitoring/control API 專用的 `WT{padded id}` 格式）
-  - ✅ `App.tsx`：新增 `inspectionDeepLinkTurbineId` state，`handleNavSelect` 內每次一般導覽
-    皆清空（避免下次單純點 sidebar 進 workflow 頁時卡在上次深連結的風機過濾），
-    `onNavigateInspection` callback 在呼叫 `handleNavSelect('workflow')` 之後緊接著設回目標
-    turbine（同一 event handler 內 React state 更新 batch，最終值以後者為準）
-  - ✅ 新增 66 測（`InspectionScheduleListPanel` 20 + `CreateInspectionScheduleModal` 18 +
-    `InspectionScheduleDetailModal` 19 + `WorkflowPage` inspection tab wiring 8 +
-    `TurbineDetail` 安排檢查鈕接線 2 -1 重複算法差異，實際淨增以 vitest 總數為準）皆
-    mutation-verified（改回錯誤邏輯 → 確認新測會 fail → 還原）
+  - ✅ `App.tsx`：新增 `inspectionDeepLinkTurbineId` state；`handleNavSelect` 簽章加
+    optional 第二參數 `opts?: { inspectionTurbineId?: string }`，內部單一 `setState`
+    呼叫 `setInspectionDeepLinkTurbineId(opts?.inspectionTurbineId)`——一般導覽零參數
+    呼叫即自動清空，`onNavigateInspection` 呼叫 `handleNavSelect('workflow', {
+    inspectionTurbineId: turbineId })` 一次呼叫直接帶對值（此設計是 code review
+    must-fix #1 修復後的最終版本，見下方）。
+  - ✅ 新增測試涵蓋 3 支新元件（`InspectionScheduleListPanel` 20 測 +
+    `CreateInspectionScheduleModal` 19 測 + `InspectionScheduleDetailModal` 19
+    測）+ `WorkflowPage` inspection tab wiring（8 測）+ `TurbineDetail` 安排檢查
+    鈕接線（2 測），vitest 總數 1288→**1354 passed**（+66，零 regression），關鍵
+    邏輯分支皆 mutation-verified（改回錯誤邏輯 → 確認新測會 fail → 還原）
   - ✅ backend 未動（零 Python 變更）；frontend tsc 0 error、`npx vitest run` 全套
-    1353 passed（63 files，較前次基準 +65～+67，取決於前次確切基準數字）、`npx vite build` OK
+    **1354 passed**（63 files，較前次基準 +66）、`npx vite build` OK
+  - ✅ **code-reviewer subagent review 抓到 2 must-fix + 2 should-fix，must-fix
+    與 should-fix 全數已修復**（should-fix #4 為記錄性、reviewer 標記非阻塞未修，
+    nice-to-have 未採納）：
+    1. **must-fix**：`onNavigateInspection` 呼叫順序寫反（先設值、後被
+       `handleNavSelect` 內部無條件清空覆蓋），同一 event handler 內兩個 `setState`
+       呼叫被 React batch，最終值恆為 `undefined`——本次新增功能的深連結整個是
+       no-op（切到 workflow 頁但恆停在預設 tab、不帶風機過濾），`TurbineDetail
+       .test.tsx`/`WorkflowPage.test.tsx` 皆測不到這層 `App.tsx` 接線問題。**修法**：
+       結構性重構為 `handleNavSelect(id, opts)` 單一 setState 呼叫（見上方），
+       非僅調換順序（避免同 bug class 換個方向再犯）。
+    2. **must-fix**：`useInspectionSchedules.ts` 的 `activate`/`deactivate` 誤用
+       `patchLocal`，與 hook 自己 docstring 宣稱的「完成後皆 refetch 整個列表」
+       矛盾——`active_only` 是 server-side filter，暫停一筆計畫時若正在看「僅啟用
+       中」列表，該筆不會依過濾條件消失。已改為 `fetchList()`，`patchLocal` 現在
+       只留給 `updateMetadata`（不影響排序/filter 成員資格）使用。
+    3. **should-fix**：`CreateInspectionScheduleModal` 的 `canSubmit` 只檢查
+       `turbineId` 非空字串，未驗證是否仍在 `turbineOptions` 內（`preselectTurbineId`
+       深連結帶入過期風機值的競態）。已改為 `turbineOptions.some(o => o.value ===
+       turbineId)`，新增 1 個 regression test 並 mutation-verified。
+    4. **should-fix（未修，reviewer 標記非阻塞）**：`handleRunScheduler` 等 async
+       handler 直接綁 `onClick`，與檔案內既有其餘 handler 一致、錯誤已內部 catch，
+       純 lint 風格提醒。
   - **誠實揭露自動化測試邊界**：
-    - `App.tsx` 的 `inspectionDeepLinkTurbineId` 深連結 state 管理（含 `handleNavSelect` 清空
-      邏輯 + `onNavigateInspection` callback 內的 batch 覆蓋順序）**沒有自動化測試保護**——
-      本 repo `App.tsx` 本身無任何 `App.test.tsx`（既有慣例，非本次引入的缺口），只能靠讀
-      程式碼推論 + 人工瀏覽器驗證；`TurbineDetail.test.tsx` 只驗證 `onNavigateInspection`
-      被呼叫時帶對參數，不驗證 `App.tsx` 收到後實際導覽行為
+    - `App.tsx` 的 `inspectionDeepLinkTurbineId` 深連結 state 管理（`handleNavSelect
+      (id, opts)` + `onNavigateInspection` callback）**沒有自動化測試保護**——本
+      repo `App.tsx` 本身無任何 `App.test.tsx`（既有慣例，非本次引入的缺口，也判斷
+      補一套涵蓋 15+ hook 的 App 層 mock 測試基礎設施超出本次 bug fix 的合理範圍）。
+      這正是 review 抓到 must-fix #1 的根本原因：沒有任何測試能在這層抓到「呼叫
+      順序寫反」的 bug，只能靠 code review 人工發現；修復後改成單一 setState 呼叫
+      的結構性設計降低同類 bug 再發生的機率，但仍不等於有測試鎖住。
+      `TurbineDetail.test.tsx` 只驗證 `onNavigateInspection` 被呼叫時帶對參數，不
+      驗證 `App.tsx` 收到後實際導覽行為
     - `CreateInspectionScheduleModal`/`InspectionScheduleDetailModal` 的 `recurrence` Select
       下拉選項渲染（含 `<option>` 文字）有測試覆蓋，但 UI 視覺呈現（modal 定位、z-index 疊層
       是否真的蓋住背景）僅程式碼閱讀層級把關，未做瀏覽器視覺驗證

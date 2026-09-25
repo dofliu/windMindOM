@@ -50,8 +50,12 @@ const CreateInspectionScheduleModal: React.FC<Props> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // 驗證 turbineId 確實是 turbineOptions 之一（非只檢查非空字串）——防
+  // `preselectTurbineId` 帶入一個已不在目前風場清單內的過期值（例如風機在使用者從
+  // TurbineDetail 點擊安排檢查、到本 modal 開啟之間的空檔被移出風場），送出會打一支
+  // 後端 422 卻在前端顯示成看似可送出的啟用態按鈕（code review should-fix）。
   const canSubmit =
-    turbineId.trim() !== '' &&
+    turbineOptions.some(o => o.value === turbineId) &&
     title.trim() !== '' &&
     (recurrence !== 'custom_days' ||
       (Number.isFinite(parseInt(intervalDays, 10)) && parseInt(intervalDays, 10) > 0));

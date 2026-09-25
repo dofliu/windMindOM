@@ -221,7 +221,7 @@ const AppShell: React.FC = () => {
   }, []);
 
   const handleNavSelect = useCallback(
-    (id: string) => {
+    (id: string, opts?: { inspectionTurbineId?: string }) => {
       const next = id as ViewId;
       setView(next);
       if (next === 'turbine') {
@@ -231,13 +231,15 @@ const AppShell: React.FC = () => {
       } else if (next === 'overview') {
         setSelectedTurbine(null);
       }
-      // 一般導覽（含 sidebar 直接點『工單管理』）視為離開深連結情境，清掉先前
-      // 『安排檢查』鈕留下的 turbine 過濾（WMOM-20260925-05）——避免下次單純點
-      // sidebar 進 workflow 頁時仍卡在上次 inspect 深連結的風機過濾。
-      // `onNavigateInspection` 會在呼叫本函式之後緊接著呼叫
-      // `setInspectionDeepLinkTurbineId(turbineId)`，同一個 event handler 內的
-      // state 更新會 batch，最終值以該次呼叫為準，此處的清空不會覆蓋它。
-      setInspectionDeepLinkTurbineId(undefined);
+      // 深連結過濾只在明確帶 `opts.inspectionTurbineId` 時才設（`onNavigateInspection`
+      // 呼叫點），其餘所有一般導覽（含 sidebar 直接點擊、`onNavigateReports` 等零參數
+      // 呼叫）一律清空——單一 `setState` 呼叫、依當次呼叫的 `opts` 決定值，不再依賴
+      // 「呼叫端要記得用對的順序呼叫兩個各自獨立的 setState」這種容易寫反的隱性
+      // 前提（WMOM-20260925-05 code review 抓到的 must-fix：原本用「先設值、再讓
+      // 這裡蓋回 undefined，靠呼叫端事後再設一次」的寫法，同一個 event handler 內
+      // React state 更新會 batch，呼叫順序寫反時最終值恆為 undefined，深連結整個
+      // 是 no-op）。
+      setInspectionDeepLinkTurbineId(opts?.inspectionTurbineId);
     },
     [selectedTurbine, turbines],
   );
@@ -333,10 +335,9 @@ const AppShell: React.FC = () => {
               wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
             )}
             lang={lang}
-            onNavigateInspection={turbineId => {
-              setInspectionDeepLinkTurbineId(turbineId);
-              handleNavSelect('workflow');
-            }}
+            onNavigateInspection={turbineId =>
+              handleNavSelect('workflow', { inspectionTurbineId: turbineId })
+            }
           />
         );
       case 'maintenance':

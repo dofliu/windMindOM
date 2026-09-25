@@ -126,6 +126,14 @@ describe('CreateInspectionScheduleModal 建立定檢計畫', () => {
     expect(screen.getByRole('button', { name: '建立計畫' })).toBeDisabled();
   });
 
+  it('preselectTurbineId 不在 turbineOptions 內（過期值）→ 按鈕 disabled（守 code review should-fix：不能只檢查非空字串）', () => {
+    renderModal({ preselectTurbineId: 'WTG-99-已移出風場' });
+    fireEvent.change(screen.getByRole('textbox', { name: '標題' }), {
+      target: { value: '有標題但風機值無效' },
+    });
+    expect(screen.getByRole('button', { name: '建立計畫' })).toBeDisabled();
+  });
+
   it('title 填妥（quarterly，非 custom_days）→ 按鈕啟用', () => {
     renderModal();
     fireEvent.change(screen.getByRole('textbox', { name: '標題' }), {

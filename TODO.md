@@ -24,14 +24,25 @@ schedule` 定檢計畫管理併入既有 `WorkflowPage.tsx`（新增第 5 個 ta
 `next_due_at` 排序正確）+ `InspectionScheduleListPanel`/`CreateInspectionScheduleModal`/
 `InspectionScheduleDetailModal` 三支元件。`App.tsx` 新增 `inspectionDeepLinkTurbineId` state，
 `handleNavSelect` 一般導覽時清空避免深連結過濾殘留跨 session。新增 66 測皆
-mutation-verified。backend 未動；frontend tsc 0、`npx vitest run` 63 files
-**1353 passed**（零 regression）、`npx vite build` OK。`WMOM-20260505-22`（後端+前端）與
-`WMOM-20260507-02`（PageHeader placeholder 按鈕清單，6 個 sub-task 全數完成）皆標 done。
-**誠實揭露**：`App.tsx` 深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test 檔，既有
-慣例）；`useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款 workflow CRUD hook
-既有模式，只透過 `WorkflowPage.test.tsx` mock 間接驗證接線）。**下個 session**：見下方「需
-劉老師決策」清單、PR C（檢視情境掛載 app，需先寫 broker 子設計），或評估 M6 critical path
-剩餘項（WMOM-20260720-04/-08 殘項、footprint、PostgreSQL row-lock、HTTPS 部署）。）
+mutation-verified。**code-reviewer subagent review 抓到 2 must-fix + 2 should-fix，
+must-fix 與 should-fix 全數已修復**：①`onNavigateInspection` 呼叫順序寫反，同一
+event handler 內兩個 `setState` 被 React batch 導致深連結恆為 no-op（永遠停在預設
+tab、不帶風機過濾）——改成 `handleNavSelect(id, opts)` 單一 setState 呼叫的結構性
+修法，非僅調換順序；②`useInspectionSchedules` 的 `activate`/`deactivate` 誤用
+`patchLocal` 違反自己 docstring 宣稱的 refetch 行為，`active_only` filter 下暫停
+計畫不會即時從列表消失——已改為 `fetchList()`；③`CreateInspectionScheduleModal`
+的 `canSubmit` 只檢查 turbineId 非空字串未驗證是否仍在 turbineOptions 內，已改
+`turbineOptions.some(...)` 並補 1 個 regression test。backend 未動；frontend
+tsc 0、`npx vitest run` 63 files **1354 passed**（零 regression）、`npx vite
+build` OK。`WMOM-20260505-22`（後端+前端）與 `WMOM-20260507-02`（PageHeader
+placeholder 按鈕清單，6 個 sub-task 全數完成）皆標 done。**誠實揭露**：`App.tsx`
+深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test 檔，既有慣例——這正是
+must-fix #1 沒被自動化測試抓到、只能靠 code review 人工發現的根本原因）；
+`useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款 workflow CRUD hook
+既有模式，只透過 `WorkflowPage.test.tsx` mock 間接驗證接線）。**下個 session**：見
+下方「需劉老師決策」清單、PR C（檢視情境掛載 app，需先寫 broker 子設計），或評估
+M6 critical path 剩餘項（WMOM-20260720-04/-08 殘項、footprint、PostgreSQL
+row-lock、HTTPS 部署）。）
 前一 session：2026-09-25（**WMOM-20260505-22 後端完成** — `inspection_schedule` 定檢計畫 +
 scheduler auto-spawn：domain（`Recurrence` enum + 純函式）+ repository
 （`InspectionScheduleRepository`）+ service（`run_inspection_scheduler`，手動觸發 API、冪等、

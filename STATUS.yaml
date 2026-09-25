@@ -9,15 +9,23 @@ last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260925-05
   # header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)` 深連結（App.tsx 新增
   # `inspectionDeepLinkTurbineId` state，`handleNavSelect` 一般導覽時清空避免深連結過濾
   # 殘留跨 session）。新增 `inspectionScheduleService.ts` + `useInspectionSchedules` hook
-  # （沿用 `useInventory` 模式，create/activate/deactivate/runScheduler 完成後皆 refetch
-  # 整列表以維持 `next_due_at` server-side 排序正確）+ `InspectionScheduleListPanel`/
+  # （沿用 `useInventory` 模式）+ `InspectionScheduleListPanel`/
   # `CreateInspectionScheduleModal`/`InspectionScheduleDetailModal` 三支元件。新增 66 測
-  # 皆 mutation-verified。backend 未動；frontend tsc 0、`npx vitest run` 63 files
-  # **1353 passed**（零 regression）、build OK。`WMOM-20260505-22`（後端+前端）與
-  # `WMOM-20260507-02`（PageHeader placeholder 按鈕清單，6 個 sub-task 全數完成）皆標
-  # done。誠實揭露：`App.tsx` 深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test
-  # 檔，既有慣例）；`useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款
-  # workflow CRUD hook 既有模式）。**前一 session（WMOM-20260505-22 後端，完成；前端拆
+  # 皆 mutation-verified。**code-reviewer subagent review 抓到 2 must-fix + 2
+  # should-fix，皆已修復**：①深連結 `onNavigateInspection` 呼叫順序寫反，同一 event
+  # handler 內兩個 `setState` 被 React batch 導致深連結恆為 no-op——改成
+  # `handleNavSelect(id, opts)` 單一 setState 呼叫的結構性修法；②`activate`/
+  # `deactivate` 誤用 `patchLocal` 違反自己 docstring 宣稱的 refetch 行為，
+  # `active_only` filter 下暫停計畫不會即時消失——已改為 `fetchList()`；③
+  # `CreateInspectionScheduleModal` 的 `canSubmit` 未驗證 turbineId 是否仍在
+  # turbineOptions 內，已改用 `.some(...)` 並補 regression test。backend 未動；
+  # frontend tsc 0、`npx vitest run` 63 files **1354 passed**（零 regression）、
+  # build OK。`WMOM-20260505-22`（後端+前端）與 `WMOM-20260507-02`（PageHeader
+  # placeholder 按鈕清單，6 個 sub-task 全數完成）皆標 done。誠實揭露：`App.tsx`
+  # 深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test 檔，既有慣例——這正是
+  # must-fix #1 沒被自動化測試抓到、只能靠 code review 人工發現的根本原因）；
+  # `useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款 workflow CRUD
+  # hook 既有模式）。**前一 session（WMOM-20260505-22 後端，完成；前端拆
   # WMOM-20260925-05）**：`inspection_schedule` 定檢計畫 + scheduler auto-spawn 後端全套——
   # domain（`Recurrence` enum + `compute_next_due`/`recurrence_interval_days` 純函式 +
   # `InspectionSchedule` dataclass）+ repository（`InspectionScheduleRepository`：CRUD +
