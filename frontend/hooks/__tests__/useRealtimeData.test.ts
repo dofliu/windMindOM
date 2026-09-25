@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useRealtimeData } from '../useRealtimeData';
 import { TurbineStatus } from '../../types';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Handler = ((ev?: unknown) => void) | null;
 
@@ -161,5 +162,61 @@ describe('useRealtimeData WebSocket 生命週期', () => {
     });
 
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260925-01）───────────────────────────────────────
+//
+// 初始 REST fetch + WS 斷線輪詢 fallback 皆打 `GET /api/turbines`（後端
+// `require_authenticated()`），先前是裸 fetch。本組鎖住兩處都已改 authFetch。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+describe('useRealtimeData — authFetch 稽核（WMOM-20260925-01）', () => {
+  const fetchMock = vi.fn().mockResolvedValue({ json: () => [] });
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    fetchMock.mockClear();
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    clearAuthToken();
+  });
+
+  it('已登入 → 初始 REST fetch 帶 Authorization header', () => {
+    setAuthToken('test-token-realtime');
+    renderHook(() => useRealtimeData());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(authHeaderOf(fetchMock.mock.calls[0][1] as RequestInit | undefined)).toBe(
+      'Bearer test-token-realtime',
+    );
+  });
+
+  it('未登入 → 初始 REST fetch 不帶 Authorization header（過渡期行為不變）', () => {
+    renderHook(() => useRealtimeData());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(authHeaderOf(fetchMock.mock.calls[0][1] as RequestInit | undefined)).toBeUndefined();
+  });
+
+  it('已登入 → WS 斷線輪詢 fallback（5 秒）帶 Authorization header', () => {
+    setAuthToken('test-token-realtime');
+    renderHook(() => useRealtimeData());
+    fetchMock.mockClear();
+    // WS readyState 停在 CONNECTING（非 OPEN）→ 輪詢 fallback 條件成立。
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(authHeaderOf(fetchMock.mock.calls[0][1] as RequestInit | undefined)).toBe(
+      'Bearer test-token-realtime',
+    );
   });
 });

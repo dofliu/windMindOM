@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { type AppSettings, DataSourceType } from '../types';
+import { authFetch } from '../services/authClient';
 
 const SETTINGS_KEY = 'windFarmAppSettings_v2';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
@@ -36,7 +37,7 @@ export const useSettings = () => {
                     prevSettings.simulation.baseWindSpeed !== newSettings.simulation.baseWindSpeed ||
                     prevSettings.simulation.turbulenceIntensity !== newSettings.simulation.turbulenceIntensity;
                 if (simChanged) {
-                    fetch(`${API_BASE}/api/config/simulation`, {
+                    authFetch(`${API_BASE}/api/config/simulation`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -47,7 +48,7 @@ export const useSettings = () => {
                     }).catch(err => console.warn('Failed to sync simulation config:', err.message));
                 }
             } else if (newSettings.dataSource === DataSourceType.OPC_DA) {
-                fetch(`${API_BASE}/api/config/datasource`, {
+                authFetch(`${API_BASE}/api/config/datasource`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

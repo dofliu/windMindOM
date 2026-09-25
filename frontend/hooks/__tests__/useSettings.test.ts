@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSettings } from '../useSettings';
+import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 const fetchMock = vi.fn();
 
@@ -65,5 +66,50 @@ describe('useSettings — baseWindSpeed sync', () => {
       result.current.saveSettings({ ...base, simulation: { ...base.simulation } });
     });
     expect(simCall()).toBeFalsy();
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260925-01）───────────────────────────────────────
+//
+// `POST /api/config/simulation` / `POST /api/config/datasource` 後端皆
+// `require_role(SUPERVISOR)`——先前是裸 fetch，未帶 Authorization header 會被 401
+// 靜默拒絕（catch 吞掉，UI 無提示）。本組鎖住 authFetch 化後 header 有正確帶入。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+describe('useSettings — authFetch 稽核（WMOM-20260925-01）', () => {
+  afterEach(() => {
+    clearAuthToken();
+  });
+
+  it('已登入 → POST /api/config/simulation 帶 Authorization header', () => {
+    setAuthToken('test-token-settings');
+    const { result } = renderHook(() => useSettings());
+    const base = result.current.settings;
+    act(() => {
+      result.current.saveSettings({
+        ...base,
+        simulation: { ...base.simulation, baseWindSpeed: base.simulation.baseWindSpeed + 1 },
+      });
+    });
+    const call = simCall();
+    expect(call).toBeTruthy();
+    expect(authHeaderOf(call![1] as RequestInit)).toBe('Bearer test-token-settings');
+  });
+
+  it('未登入 → POST /api/config/simulation 不帶 Authorization header（過渡期行為不變）', () => {
+    const { result } = renderHook(() => useSettings());
+    const base = result.current.settings;
+    act(() => {
+      result.current.saveSettings({
+        ...base,
+        simulation: { ...base.simulation, baseWindSpeed: base.simulation.baseWindSpeed + 1 },
+      });
+    });
+    const call = simCall();
+    expect(call).toBeTruthy();
+    expect(authHeaderOf(call![1] as RequestInit)).toBeUndefined();
   });
 });

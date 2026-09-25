@@ -5,6 +5,7 @@ import {
     type WorkOrder,
     WorkOrderStatus,
 } from '../types';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 
@@ -70,8 +71,8 @@ export const useMaintenanceData = () => {
   const refresh = useCallback(async () => {
     try {
       const [techRes, woRes] = await Promise.all([
-        fetch(`${API_BASE}/api/maintenance/technicians`),
-        fetch(`${API_BASE}/api/maintenance/work-orders`),
+        authFetch(`${API_BASE}/api/maintenance/technicians`),
+        authFetch(`${API_BASE}/api/maintenance/work-orders`),
       ]);
       if (techRes.ok) {
         const techData = await techRes.json();
@@ -97,7 +98,7 @@ export const useMaintenanceData = () => {
     if (!tech || tech.status === TechnicianStatus.DISPATCHED) return;
     const newStatus = tech.status === TechnicianStatus.ON_DUTY ? 'OFF_DUTY' : 'ON_DUTY';
     try {
-      const res = await fetch(`${API_BASE}/api/maintenance/technicians/${technicianId}/status`, {
+      const res = await authFetch(`${API_BASE}/api/maintenance/technicians/${technicianId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -117,7 +118,7 @@ export const useMaintenanceData = () => {
     turbineId: number, turbineName: string, faultDescription: string, technicianId: number
   ) => {
     try {
-      const res = await fetch(`${API_BASE}/api/maintenance/work-orders`, {
+      const res = await authFetch(`${API_BASE}/api/maintenance/work-orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ turbineId, turbineName, faultDescription, technicianId }),
@@ -126,7 +127,7 @@ export const useMaintenanceData = () => {
         const wo = await res.json();
         setWorkOrders(prev => [apiToWorkOrder(wo), ...prev]);
         // Refresh technicians to pick up DISPATCHED status
-        const techRes = await fetch(`${API_BASE}/api/maintenance/technicians`);
+        const techRes = await authFetch(`${API_BASE}/api/maintenance/technicians`);
         if (techRes.ok) {
           const techData = await techRes.json();
           setTechnicians((techData.data || []).map(apiToTechnician));
@@ -146,7 +147,7 @@ export const useMaintenanceData = () => {
       if (updates.notes !== undefined) body.notes = updates.notes;
       if (updates.photos !== undefined) body.photos = updates.photos;
 
-      const res = await fetch(`${API_BASE}/api/maintenance/work-orders/${workOrderId}`, {
+      const res = await authFetch(`${API_BASE}/api/maintenance/work-orders/${workOrderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -158,7 +159,7 @@ export const useMaintenanceData = () => {
         );
         // Refresh technicians if completed (tech released)
         if (updates.status === WorkOrderStatus.COMPLETED) {
-          const techRes = await fetch(`${API_BASE}/api/maintenance/technicians`);
+          const techRes = await authFetch(`${API_BASE}/api/maintenance/technicians`);
           if (techRes.ok) {
             const techData = await techRes.json();
             setTechnicians((techData.data || []).map(apiToTechnician));

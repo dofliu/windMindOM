@@ -13,10 +13,10 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
+| open | 10 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 126 |
+| done | 127 |
 | **total (active)** | **137** |
 
 最後更新：2026-09-24（**WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
@@ -3920,7 +3920,24 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260925-01 — `hooks/*.ts` authFetch 稽核缺口（`WMOM-20260923-10` 稽核未涵蓋 hooks 層）
 
-- **Status**: open
+- **Status**: done（2026-09-25）
+- **Completion summary**：4 支 hook（`useSettings.ts`/`useMaintenanceData.ts`/
+  `useRealtimeData.ts`/`useI18n.ts`）全部 sub-task + 額外發現的 `App.tsx:166` 一次做完
+  （未依建議拆多 session，因修法完全一致、無設計歧義）。逐一重讀後端源碼核對角色設定
+  （`config.py`/`maintenance.py`/`turbines.py`/`i18n.py`/`farms.py`）與 issue 描述一致。
+  13 處 `fetch(` → `authFetch(`；新增/追加測試 11 個（`useSettings` +2、
+  `useMaintenanceData` 新檔 +4、`useRealtimeData` +3、`useI18n` 新檔 +2），皆逐一
+  mutation-verified（改回裸 fetch → 對應「已登入」header 斷言如預期 fail，用 scratchpad
+  備份還原確認）。`frontend/` 全樹遞迴 grep 確認無裸 fetch 殘留（除 `authClient.ts` 自身
+  wrapper 實作 + 刻意繞過 401 handler 的 `authApi.login`）。`App.tsx` 該處無自動化測試
+  （元件零 render test 基礎設施，需 mock ~15 個子元件，判斷超出本次範圍），僅程式碼閱讀 +
+  `tsc --noEmit` 驗證，已誠實記錄於 work-log。已回頭把 `docs/product/WMOM-20260716-05_
+  auth_enforcement_plan.md` §6 cutover 檢查表該項目重新勾選。backend 未動 1103 passed
+  不變；frontend tsc 0 error、1256→1267 passed（58→60 files，+11 新測，零 regression）、
+  build OK。code-reviewer subagent review：**Approve，0 must-fix**，2 nice-to-have（皆
+  pre-existing 或範圍確認性質，未採納：①`useSettings.ts` 兩個寫入呼叫是 fire-and-forget
+  未把 401 錯誤浮到 UI，屬既有行為非本次引入，宜另開「UI 浮現 auth 錯誤」issue；②reviewer
+  獨立確認 `frontend/` 全樹〔非僅 `hooks/`〕已無裸 fetch 殘留）。
 - **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）**前置阻塞**——比
   `WMOM-20260924-08` 更嚴重：本 issue 涵蓋的是**寫入端點**，且 cutover 檢查表原本已勾選
   「前端所有寫入 request 都帶 token」，此發現直接推翻該勾選（已於 WMOM-20260924-08

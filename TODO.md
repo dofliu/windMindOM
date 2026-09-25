@@ -16,7 +16,27 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（WMOM-20260924-08 — `MyOrdersMode.tsx` fetchActiveFarmId() 補
+最後更新：2026-09-25（**WMOM-20260925-01 完成** — `frontend/hooks/*.ts` authFetch 稽核
+缺口一次做完全部 sub-task（未依建議拆多 session，因修法完全一致無設計歧義）：
+`useSettings.ts`（`POST /api/config/simulation`+`/datasource`，皆 SUPERVISOR）、
+`useMaintenanceData.ts`（2 GET + 3 個 SUPERVISOR 寫入 + 2 內部 refresh GET）、
+`useRealtimeData.ts`（初始 REST fetch + WS 斷線輪詢 fallback）、`useI18n.ts`
+（`GET /api/i18n/tags/all`）、額外發現的 `App.tsx:166`（`GET /api/farms` 健康檢查）共
+13 處 `fetch(` 改 `authFetch(`。逐一重讀後端 router 源碼核對角色設定與 issue 描述一致。
+新增/追加測試 11 個（`useMaintenanceData`/`useI18n` 新建測試檔），皆逐一
+mutation-verified（改回裸 fetch → 對應已登入 header 斷言如預期 fail，scratchpad 備份
+還原）。`frontend/` 全樹遞迴 grep 確認無裸 fetch 殘留。`App.tsx` 該處因元件零 render
+test 基礎設施（需 mock ~15 個子元件，超出本次範圍）僅程式碼閱讀 + tsc 驗證，已誠實記錄。
+已回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表
+「前端所有寫入 request 都帶 token」**重新勾選**——`WMOM-20260925-01` 完成，M6 auth cutover
+的前端側阻塞已清除（cutover 本身〔翻 `WMOM_AUTH_ENFORCE=true`〕仍是獨立、需另評估時機的
+動作）。backend 未動 1103 passed 不變；frontend tsc 0、1256→1267 passed（58→60 files，
++11 新測，零 regression）、build OK。code-reviewer subagent review：**Approve，0
+must-fix**，2 nice-to-have（`useSettings.ts` 寫入失敗未浮現 UI 錯誤——既有行為非本次引入，
+宜另開 issue；reviewer 獨立確認全樹無殘留裸 fetch），皆未採納/非本次範圍。
+**下個 session**：見下方「需劉老師決策」與「可立即接手」清單，M6 critical path 優先
+`WMOM-20260720-04`/`-08` 系列殘項或情境比較 A2 Part 4（差異圖）/ PR C。）
+前一 session（WMOM-20260924-08）：`MyOrdersMode.tsx` fetchActiveFarmId() 補
 `authFetch`（一致性技術債，`WMOM-20260923-08` review 登記的 follow-up）。GET `/api/farms`
 （後端 `require_authenticated()`）改 `authFetch`，新增 2 測皆 mutation-verified。backend
 未動 1103 passed 不變；frontend 1254→1256 passed（+2 新測）、tsc 0、build OK。
@@ -248,13 +268,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**WMOM-20260924-08**（M6 auth cutover 前置阻塞）— `MyOrdersMode.tsx` authFetch
   缺口~~ — ✅ 2026-09-25 完成，見上方「最後更新」。`components/field/` 全樹至此無裸
   `fetch` 殘留。
-- [ ] **WMOM-20260925-01**（M6 auth cutover 真正前置阻塞，high priority）— `frontend/
-  hooks/*.ts` authFetch 稽核缺口：`WMOM-20260923-10` 系列稽核從未涵蓋 `hooks/` 目錄，
-  `useSettings.ts`/`useMaintenanceData.ts` 內對 `SUPERVISOR`-only 端點的**寫入**呼叫仍缺
-  auth header。建議拆法：`useSettings.ts`（注意「SettingsPage 本身已修但透過 hook 呼叫
-  未修」陷阱）→ `useMaintenanceData.ts` → `useRealtimeData.ts`+`useI18n.ts`（純讀取可
-  合併）。見 ISSUES.md 該 issue 條目詳細說明。**完成前不得翻
-  `WMOM_AUTH_ENFORCE=true`**（cutover 檢查表已回頭取消勾選）。
+- [x] ~~**WMOM-20260925-01**（M6 auth cutover 真正前置阻塞）— `frontend/hooks/*.ts`
+  authFetch 稽核缺口~~ — ✅ 2026-09-25 完成，見上方「最後更新」。4 支 hook + `App.tsx`
+  一次做完，`frontend/` 全樹至此無裸 `fetch` 殘留；cutover 檢查表已重新勾選。
 
 ### 需劉老師決策才能開工
 
