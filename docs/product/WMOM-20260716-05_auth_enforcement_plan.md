@@ -171,9 +171,16 @@ cutover（翻 `WMOM_AUTH_ENFORCE=true`）前請對此表逐列確認；`ADMIN` �
 - 前端：登入流程、token attach、401 導回登入。
 - **cutover 前檢查**（翻 `true` 前）：
   - [ ] 4 支 workflow router 全遷移
-  - [x] 前端所有寫入 request 都帶 token（2026-09-24，`WMOM-20260923-10` 稽核清單 7 支元件
-    〔`FaultInjectionPanel`/`FarmSelector`/`SettingsPage`/`CostPage`/`EventComparisonView`/
-    `HistoryPage`/`TrendChartPanel`〕全數改 `authFetch`，`WMOM-20260924-01~07` 逐檔完成）
+  - [ ] 前端所有寫入 request 都帶 token（⚠ 2026-09-25 取消勾選：`WMOM-20260923-10` 稽核清單
+    7 支元件〔`FaultInjectionPanel`/`FarmSelector`/`SettingsPage`/`CostPage`/
+    `EventComparisonView`/`HistoryPage`/`TrendChartPanel`〕已於 `WMOM-20260924-01~07` 全數
+    改 `authFetch`，但該稽核指令只 grep `components/*.tsx`，未涵蓋 `frontend/hooks/*.ts`。
+    `WMOM-20260924-08` review 時遞迴重掃發現 `hooks/useSettings.ts`
+    （`POST /api/config/simulation`/`POST /api/config/datasource`，皆
+    `require_role(SUPERVISOR)`）+ `hooks/useMaintenanceData.ts`（`PATCH .../technicians/
+    {id}/status`、`POST`/`PATCH /work-orders`，皆 `require_role(SUPERVISOR)`）內的裸
+    `fetch` 寫入呼叫仍缺 `Authorization` header，cutover 後會整面靜默 401。追蹤於
+    **WMOM-20260925-01**，完成前不得翻 `WMOM_AUTH_ENFORCE=true`）
   - [ ] admin 已用 `WMOM_ADMIN_USER/PASSWORD` bootstrap + 佈建真實使用者
   - [ ] staging 以 `enforce=true` 跑完整 lifecycle demo 通過
   - [ ] 回滾方案：翻回 `false` 即恢復（已驗證）

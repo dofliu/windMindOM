@@ -15,6 +15,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useTheme } from '../../theme/ThemeProvider';
 import { workOrderApi } from '../../services/workOrderService';
 import type { WorkOrderResponse } from '../../services/workOrderService';
+import { authFetch } from '../../services/authClient';
 import { Card, Btn, PageHeader, StatusPill, Field, Input } from '../ui';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
@@ -28,7 +29,7 @@ const FINISHABLE = 'in_progress';
 
 /** 取目前 active farm_id（與 FarmSelector / WorkflowPage 同來源 /api/farms）。 */
 async function fetchActiveFarmId(): Promise<string | null> {
-  const res = await fetch(`${API_BASE}/api/farms`);
+  const res = await authFetch(`${API_BASE}/api/farms`);
   if (!res.ok) throw new Error(`/api/farms ${res.status}`);
   const data = (await res.json()) as { active_farm_id?: string | null };
   return data.active_farm_id ?? null;

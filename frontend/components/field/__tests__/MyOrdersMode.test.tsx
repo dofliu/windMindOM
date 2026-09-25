@@ -17,6 +17,7 @@ import React from 'react';
 import { ThemeProvider } from '../../../theme/ThemeProvider';
 import { MyOrdersMode } from '../MyOrdersMode';
 import { workOrderApi } from '../../../services/workOrderService';
+import { setAuthToken, clearAuthToken } from '../../../services/authClient';
 
 vi.mock('../../../services/workOrderService', () => ({
   workOrderApi: { list: vi.fn(), finish: vi.fn() },
@@ -117,5 +118,47 @@ describe('MyOrdersMode', () => {
     fireEvent.change(screen.getByLabelText('實際工時'), { target: { value: '3.5' } });
     expect(submit).toBeDisabled();
     expect(mockedFinish).not.toHaveBeenCalled();
+  });
+});
+
+// ─── authFetch 稽核（WMOM-20260924-08）──────────────────────────────────────
+//
+// 上方既有 setFarmsFetch 只驗回傳值，對「裸 fetch vs authFetch」不敏感（同款根因見
+// WMOM-20260923-07/-09/-10 系列）。故另補這組直接檢查 `Authorization` header 內容的
+// 專測，鎖住本次修復（唯一一處 fetch 呼叫：mount 時 GET /api/farms，讀取端點）。
+
+function authHeaderOf(init: RequestInit | undefined): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
+describe('MyOrdersMode — authFetch 稽核（WMOM-20260924-08）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedList.mockResolvedValue({ total: 0, items: [] });
+    setFarmsFetch('farm1');
+  });
+
+  afterEach(() => {
+    cleanup();
+    clearAuthToken();
+  });
+
+  it('已登入（有 token）→ mount 時 GET /api/farms 帶 Authorization header', async () => {
+    setAuthToken('test-token-myorders');
+    renderMode();
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1] as RequestInit | undefined)).toBe(
+      'Bearer test-token-myorders',
+    );
+  });
+
+  it('未登入（無 token）→ mount 時 GET /api/farms 不帶 Authorization header（過渡期行為不變）', async () => {
+    renderMode();
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(authHeaderOf(calls[0][1] as RequestInit | undefined)).toBeUndefined();
   });
 });

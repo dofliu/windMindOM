@@ -16,8 +16,8 @@
 | open | 11 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 125 |
-| **total (active)** | **136** |
+| done | 126 |
+| **total (active)** | **137** |
 
 最後更新：2026-09-24（**WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
 `authFetch`**：`TrendCard` 內僅存的一處裸 `fetch`（`/api/turbines/farm-trend`，後端
@@ -3865,7 +3865,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260924-08 — `MyOrdersMode.tsx` authFetch 缺口（`WMOM-20260923-10` 稽核盲區）
 
-- **Status**: open
+- **Status**: done（2026-09-25）
 - **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）前置阻塞——`WMOM-20260923-10` 稽核清單
   原本標記「7 支元件全數清空」，但本次發現這支漏網之魚，故該清單並未真正窮盡
 - **Priority**: medium（純讀取端點，`WMOM_AUTH_ENFORCE=false` 過渡期不影響功能；但現場工程師
@@ -3894,6 +3894,82 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Reference**: `WMOM-20260923-08` work-log（`work-logs/2026-09/
   2026-09-24-farmoverview-farmtrend-authfetch.md`）、`WMOM-20260923-10`（原稽核 issue，範圍
   界定教訓）
+- **Completion summary（2026-09-25）**：`MyOrdersMode.tsx:31` `fetchActiveFarmId()` 的裸
+  `fetch` 改 `authFetch`（import 同款 `../../services/authClient`）。`MyOrdersMode.test.tsx`
+  新增 2 測（已登入時 mount GET `/api/farms` 帶 `Authorization` header；未登入時驗證過渡期
+  行為不變），皆 mutation-verified（改回裸 fetch → 已登入測試如預期 fail
+  `expected undefined to be 'Bearer test-token-myorders'`，用 scratchpad 備份而非
+  `git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1254→1256 passed（+2
+  新測，58 files 不變）、tsc 0、build OK。
+
+  **⚠ 但本次 review 過程中發現稽核範圍本身仍有更大缺口**：遞迴 grep `frontend/hooks/*.ts`
+  （非 `components/`）發現至少 4 支 hook 內共數十處裸 `fetch`，其中
+  `hooks/useMaintenanceData.ts`（`MaintenanceHub.tsx` 消費）與 `hooks/useSettings.ts`
+  （`SettingsPage.tsx` 消費）內含對 `require_role(Role.SUPERVISOR)` 端點的**寫入**呼叫
+  （分別是 `/api/maintenance/technicians/{id}/status` PATCH、`/api/maintenance/work-orders`
+  POST/PATCH、`/api/config/simulation` POST、`/api/config/datasource` POST），全部未帶
+  `Authorization` header——嚴重度等同已修復的 `FaultInjectionPanel`/`SettingsPage`
+  元件層缺口，但因為呼叫藏在 `hooks/` 而非 `components/` 內，`WMOM-20260923-10` 系列稽核
+  （皆只 grep `components/*.tsx`）完全沒掃到。已獨立開新 issue **WMOM-20260925-01**
+  追蹤，並已回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover
+  檢查表「前端所有寫入 request 都帶 token」項目**取消勾選**（該勾選宣稱現已證實不成立，
+  cutover 前必須先處理 WMOM-20260925-01 否則翻 `WMOM_AUTH_ENFORCE=true` 後
+  `MaintenanceHub`/`SettingsPage` 的寫入操作會整面靜默失敗）。
+
+---
+
+### WMOM-20260925-01 — `hooks/*.ts` authFetch 稽核缺口（`WMOM-20260923-10` 稽核未涵蓋 hooks 層）
+
+- **Status**: open
+- **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）**前置阻塞**——比
+  `WMOM-20260924-08` 更嚴重：本 issue 涵蓋的是**寫入端點**，且 cutover 檢查表原本已勾選
+  「前端所有寫入 request 都帶 token」，此發現直接推翻該勾選（已於 WMOM-20260924-08
+  completion summary 回頭取消勾選）
+- **Priority**: high（`useMaintenanceData.ts`/`useSettings.ts` 內對 `SUPERVISOR`-only
+  端點的寫入呼叫缺 auth header，`WMOM_AUTH_ENFORCE=true` 後會整面靜默 401 失敗，且無 UI
+  錯誤提示——`MaintenanceHub`/`SettingsPage` 皆全站高頻使用頁面）
+- **Estimate**: 需拆成多個 sub-task（每支 hook 各自的呼叫方數量與角色組合不同，估
+  1-2 個 session）
+- **Source**: `WMOM-20260924-08` review 過程中主動遞迴重掃 `frontend/hooks/` 全樹發現
+  （`WMOM-20260923-10` 原稽核指令只掃 `components/*.tsx` 一層，完全未涵蓋 `hooks/`）
+- **Description**：
+  `grep -rn "fetch(" frontend/hooks/` 找到以下裸 fetch 呼叫，依風險排序：
+  1. **`hooks/useSettings.ts`**（`SettingsPage.tsx` 消費）：`POST /api/config/simulation`
+     +`POST /api/config/datasource`，後端皆 `require_role(Role.SUPERVISOR)`。⚠ 注意：
+     `SettingsPage.tsx` 本身的裸 fetch 已在 `WMOM-20260924-03` 全數修復，但該元件透過
+     `useSettings()` hook 呼叫這兩個端點，hook 內部呼叫並未被那次修復觸及——**同一頁面
+     內兩種不同呼叫路徑，一種已修、一種未修**，需特別小心避免誤判「SettingsPage 已全修」。
+  2. **`hooks/useMaintenanceData.ts`**（`MaintenanceHub.tsx` 消費）：3 個 GET（`/api/
+     maintenance/technicians`、`/api/maintenance/work-orders` ×2 refresh 呼叫）+ 3 個
+     寫入（`PATCH .../technicians/{id}/status`、`POST /work-orders`、
+     `PATCH /work-orders/{id}`），寫入端點皆 `require_role(Role.SUPERVISOR)`。同款理由：
+     `MaintenanceHub.tsx` 本身在 `WMOM-20260923-01` 只補了 render 測試（fetch 經 mock，
+     未觸及 auth header），該元件的實際 fetch 呼叫其實全部委派給這支 hook。
+  3. **`hooks/useRealtimeData.ts`**：2 處 `GET /api/turbines`（純讀取，`require_
+     authenticated()`，風險同過往已修的純讀取元件）。
+  4. **`hooks/useI18n.ts`**：1 處 `GET /api/i18n/tags/all`（純讀取，`require_
+     authenticated()`）。
+
+  **⚠ 補充（code-reviewer subagent 獨立驗證時發現，本次未列入原掃描）**：
+  `frontend/App.tsx:166` 亦有一處裸 `fetch`，尚未核對對應端點與角色設定，下個 session
+  接手時請一併確認並納入範圍。
+
+  **務必先個別確認每個端點目前的 `dependencies=[Depends(...)]` 設定**（本次調查以
+  2026-09-25 程式碼為準，逐一讀 `modules/monitoring/server/routers/config.py` +
+  `modules/monitoring/server/routers/maintenance.py` 源碼核對，未假設）。
+- **Deliverable**：
+  - 4 支 hook 全數裸 `fetch` → `authFetch`（import `../services/authClient`）
+  - 每支 hook 對應測試檔（若尚無需新建）補已登入/未登入對照測試，寫入端點另補
+    SUPERVISOR 呼叫的 header 斷言，皆 mutation-verified
+  - 全數完成後回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6
+    checklist「前端所有寫入 request 都帶 token」重新勾選
+  - 建議依風險排序拆 session：`useSettings.ts`（sub-task 1，SUPERVISOR 寫入且已知
+    「同頁面兩種呼叫路徑」陷阱）→ `useMaintenanceData.ts`（sub-task 2，SUPERVISOR 寫入
+    + 高頻使用頁面）→ `useRealtimeData.ts` + `useI18n.ts`（sub-task 3，純讀取，可合併
+    一次做完）
+- **Reference**: `WMOM-20260924-08` work-log（`work-logs/2026-09/
+  2026-09-25-myordersmode-authfetch.md`）、`docs/product/WMOM-20260716-05_auth_
+  enforcement_plan.md` §6
 
 ---
 

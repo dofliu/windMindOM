@@ -16,7 +16,25 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-24（WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
+最後更新：2026-09-25（WMOM-20260924-08 — `MyOrdersMode.tsx` fetchActiveFarmId() 補
+`authFetch`（一致性技術債，`WMOM-20260923-08` review 登記的 follow-up）。GET `/api/farms`
+（後端 `require_authenticated()`）改 `authFetch`，新增 2 測皆 mutation-verified。backend
+未動 1103 passed 不變；frontend 1254→1256 passed（+2 新測）、tsc 0、build OK。
+code-reviewer review：Approve，0 must-fix。**⚠ 重大發現**：本 session 主動遞迴重掃
+`frontend/hooks/*.ts`（`WMOM-20260923-10` 系列稽核從未涵蓋此目錄，只掃了
+`components/*.tsx`），發現 `hooks/useSettings.ts`（`POST /api/config/simulation` +
+`POST /api/config/datasource`，皆 `require_role(SUPERVISOR)`）與
+`hooks/useMaintenanceData.ts`（`PATCH .../technicians/{id}/status`、
+`POST`/`PATCH /work-orders`，皆 `require_role(SUPERVISOR)`）內的裸 fetch **寫入呼叫**仍缺
+`Authorization` header——嚴重度高於已修復的純讀取缺口，`WMOM_AUTH_ENFORCE=true` cutover
+後會讓 `MaintenanceHub`/`SettingsPage` 的寫入操作整面靜默 401。code-reviewer subagent 獨立
+recursive grep 得到相同結論（另補一處 `App.tsx:166` 待核對）。已開新 issue
+**WMOM-20260925-01**（high priority，M6 auth cutover 前置阻塞）追蹤，並回頭把
+`docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
+request 都帶 token」**取消勾選**——完成 WMOM-20260925-01 前不得翻
+`WMOM_AUTH_ENFORCE=true`。**下個 session 優先接手 WMOM-20260925-01**（見 ISSUES.md 建議
+拆法：`useSettings.ts` → `useMaintenanceData.ts` → `useRealtimeData.ts`+`useI18n.ts`）。）
+前一 session：WMOM-20260923-08 — `FarmOverview.tsx` farm-trend fetch 補
 `authFetch`（一致性技術債，`WMOM-20260923-07` review 登記的 nice-to-have follow-up）。
 `TrendCard` 內僅存的一處裸 fetch（`/api/turbines/farm-trend`，後端
 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照同檔案匯出鈕已建立的手法。
@@ -227,10 +245,16 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入
   request 都帶 token」已勾選。**⚠ 但該稽核指令未遞迴子目錄，實際並未窮盡**——見下方
   WMOM-20260924-08。
-- [ ] **WMOM-20260924-08**（M6 auth cutover 前置阻塞，🔵 autonomous-friendly，15 min）—
-  `components/field/MyOrdersMode.tsx:31` `fetchActiveFarmId()` 仍是裸 `fetch`（GET
-  `/api/farms`）：`WMOM-20260923-10` 稽核盲區（掃描指令未遞迴 `components/field/` 子目錄）。
-  同款修法：`authFetch` + 2 測 + mutation-verified，見 ISSUES.md 該 issue 條目。
+- [x] ~~**WMOM-20260924-08**（M6 auth cutover 前置阻塞）— `MyOrdersMode.tsx` authFetch
+  缺口~~ — ✅ 2026-09-25 完成，見上方「最後更新」。`components/field/` 全樹至此無裸
+  `fetch` 殘留。
+- [ ] **WMOM-20260925-01**（M6 auth cutover 真正前置阻塞，high priority）— `frontend/
+  hooks/*.ts` authFetch 稽核缺口：`WMOM-20260923-10` 系列稽核從未涵蓋 `hooks/` 目錄，
+  `useSettings.ts`/`useMaintenanceData.ts` 內對 `SUPERVISOR`-only 端點的**寫入**呼叫仍缺
+  auth header。建議拆法：`useSettings.ts`（注意「SettingsPage 本身已修但透過 hook 呼叫
+  未修」陷阱）→ `useMaintenanceData.ts` → `useRealtimeData.ts`+`useI18n.ts`（純讀取可
+  合併）。見 ISSUES.md 該 issue 條目詳細說明。**完成前不得翻
+  `WMOM_AUTH_ENFORCE=true`**（cutover 檢查表已回頭取消勾選）。
 
 ### 需劉老師決策才能開工
 
