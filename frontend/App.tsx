@@ -300,6 +300,7 @@ const AppShell: React.FC = () => {
             onSelectTurbine={handleSelectTurbine}
             settings={settings}
             lang={lang}
+            onNavigateReports={() => handleNavSelect('reports')}
           />
         );
       case 'turbine':
