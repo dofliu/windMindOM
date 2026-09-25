@@ -18,6 +18,7 @@ import type {
   ReturnReason,
   StockKind,
 } from '../../services/materialService';
+import type { Recurrence } from '../../services/inspectionScheduleService';
 
 type Lang = 'en' | 'zh';
 
@@ -236,6 +237,20 @@ export function returnReasonLabel(r: ReturnReason, lang: Lang): string {
     wrong_part: ['Wrong part', '拿錯料件'],
     failed_install: ['Failed install', '試裝失敗'],
     other: ['Other', '其他'],
+  };
+  const [en, zh] = map[r];
+  return lang === 'zh' ? zh : en;
+}
+
+// ─── Inspection Schedule label（WMOM-20260925-05） ───────────────────────
+
+export function recurrenceLabel(r: Recurrence, lang: Lang): string {
+  const map: Record<Recurrence, [string, string]> = {
+    monthly: ['Monthly (~30d)', '每月（約 30 天）'],
+    quarterly: ['Quarterly (~91d)', '每季（約 91 天）'],
+    semi_annual: ['Semi-annual (~182d)', '每半年（約 182 天）'],
+    annual: ['Annual (~365d)', '每年（約 365 天）'],
+    custom_days: ['Custom', '自訂天數'],
   };
   const [en, zh] = map[r];
   return lang === 'zh' ? zh : en;

@@ -3,7 +3,21 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260505-22 後端，完成；前端拆
+last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260925-05，完成）**：
+  # `WMOM-20260505-22` 前端收尾——`inspection_schedule` 定檢計畫管理併入既有
+  # `WorkflowPage.tsx`（新增第 5 個 tab「定檢計畫」，非獨立路由）+ `TurbineDetail.tsx`
+  # header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)` 深連結（App.tsx 新增
+  # `inspectionDeepLinkTurbineId` state，`handleNavSelect` 一般導覽時清空避免深連結過濾
+  # 殘留跨 session）。新增 `inspectionScheduleService.ts` + `useInspectionSchedules` hook
+  # （沿用 `useInventory` 模式，create/activate/deactivate/runScheduler 完成後皆 refetch
+  # 整列表以維持 `next_due_at` server-side 排序正確）+ `InspectionScheduleListPanel`/
+  # `CreateInspectionScheduleModal`/`InspectionScheduleDetailModal` 三支元件。新增 66 測
+  # 皆 mutation-verified。backend 未動；frontend tsc 0、`npx vitest run` 63 files
+  # **1353 passed**（零 regression）、build OK。`WMOM-20260505-22`（後端+前端）與
+  # `WMOM-20260507-02`（PageHeader placeholder 按鈕清單，6 個 sub-task 全數完成）皆標
+  # done。誠實揭露：`App.tsx` 深連結 state 管理無自動化測試保護（`App.tsx` 本身無 test
+  # 檔，既有慣例）；`useInspectionSchedules` hook 內部邏輯無獨立單元測試（沿用同款
+  # workflow CRUD hook 既有模式）。**前一 session（WMOM-20260505-22 後端，完成；前端拆
   # WMOM-20260925-05）**：`inspection_schedule` 定檢計畫 + scheduler auto-spawn 後端全套——
   # domain（`Recurrence` enum + `compute_next_due`/`recurrence_interval_days` 純函式 +
   # `InspectionSchedule` dataclass）+ repository（`InspectionScheduleRepository`：CRUD +
@@ -250,15 +264,14 @@ milestones:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
     status: in_progress
-    progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業發現新缺口（WMOM-20260925-01，hooks/ 層 SUPERVISOR 寫入未帶 token，cutover 前必須先修）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸
+    progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 10
-  in_progress: 1  # 0→1（WMOM-20260505-22 後端完成、前端拆 WMOM-20260925-05；open 淨額不變：
-                  # -22 open→in_progress、新開 -05 open，一減一增）
+  open: 8  # 10→8（WMOM-20260925-05 open→done、WMOM-20260507-02 open→done）
+  in_progress: 0  # 1→0（WMOM-20260505-22 in_progress→done，前端 WMOM-20260925-05 完成）
   blocked: 0
-  done: 130
-             # total 141（10+1+0+130=141，與 ISSUES.md 一致）
+  done: 133  # 130→133（+WMOM-20260505-22 +WMOM-20260925-05 +WMOM-20260507-02）
+             # total 141（8+0+133=141，與 ISSUES.md 一致）
 
 inherited_baseline:
   source: digiWindTurbine

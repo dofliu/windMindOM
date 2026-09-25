@@ -2469,8 +2469,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260505-22 — `inspection_schedule` 定檢計畫 + scheduler auto-spawn
 
-- **Status**: in_progress（**後端已完成**，2026-09-25 autonomous session；**前端 UI 未做**，見下方
-  completion summary 與新開 follow-up **WMOM-20260925-05**）
+- **Status**: done（後端 + 前端皆完成，2026-09-25 兩個 autonomous session；前端見
+  **WMOM-20260925-05** completion summary）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
 - **Priority**: medium
 - **Estimate**: 1-1.5 工作天 → 後端實際約 1 session（含 code review 修復）；前端另計
@@ -2484,8 +2484,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     → spawn WO（本次刻意設計為**手動觸發 API**而非背景 daily cron，見 completion summary 決策說明）
   - ✅ `modules/workflow/routers/inspection_router.py`：CRUD 定檢計畫 + query「下次檢查時間」
     （`GET /inspection-schedules` 依 `next_due_at` 升冪排序）+ `run-scheduler` 觸發端點
-  - ❌ frontend `/admin/workflow/inspection` 計畫列表 + 編輯 + 「下次到期」dashboard — **未做**，
-    見 **WMOM-20260925-05**
+  - ✅ frontend `/admin/workflow` 定檢計畫頁籤（列表 + 建立 + 編輯 + 暫停/恢復 + 手動觸發
+    scheduler）+ `TurbineDetail` 安排檢查鈕深連結 — 見 **WMOM-20260925-05**
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - etech 對應：`server/regularlistForm.js` + `server/regularSetting.js`
@@ -2524,9 +2524,9 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     repro script 的同一個 traceback，證實修法確實堵住那個洞。
   - ✅ backend 1103→**1182 passed**（7 skipped, 1 xfailed，零 regression）；frontend 未動
     1288 passed（60 files）不變、tsc 0、build OK
-  - ❌ **前端未做**：`TurbineDetail.tsx` header『安排檢查』鈕接線（`WMOM-20260507-02`
-    sub-task d 本體）+ `/admin/workflow/inspection` 定檢計畫管理頁（列表/建立/編輯）— 見
-    **WMOM-20260925-05**
+  - ✅ **前端已完成**（2026-09-25 第二個 autonomous session，**WMOM-20260925-05**）：
+    `TurbineDetail.tsx` header『安排檢查』鈕接線（`WMOM-20260507-02` sub-task d 本體）+
+    `/admin/workflow` 定檢計畫頁籤（列表/建立/編輯/暫停恢復/手動觸發 scheduler）
   - **決策**：`run-scheduler` 刻意設計為手動觸發 API 而非背景 daily cron（repo 目前無
     APScheduler 等排程框架；reporting/cost 模組既有週期性彙總也都是 on-demand 觸發模式；避免
     重蹈 WMOM-20260720-04/-08 那類背景執行緒生命週期硬化債）。未來若要自動觸發，可用
@@ -2537,7 +2537,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260925-05 — `WMOM-20260505-22` 前端：定檢計畫管理頁 + `TurbineDetail` 安排檢查鈕
 
-- **Status**: open
+- **Status**: done（2026-09-25 完成，autonomous session）
 - **Milestone**: 不卡 M2-M6 主線
 - **Priority**: medium（`WMOM-20260507-02` sub-task d 最後一項阻塞已解除依賴，接手即可做）
 - **Estimate**: 半天~1 天
@@ -2562,6 +2562,51 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - `TurbineDetail.tsx` header『安排檢查』鈕接線
   - 走 `components/ui/` 元件庫 + `theme/`，不寫死 hex（比照全站慣例）
 - **Reference**: `WMOM-20260505-22` completion summary、`DN-01` §3.3
+- **Completion summary（2026-09-25 autonomous session）**：
+  - ✅ **判定**：併入既有 `WorkflowPage.tsx` 頁面架構（新增第 5 個 tab「定檢計畫」），未獨立開
+    `/admin/workflow/inspection` 路由——與既有 orders/material/inventory/approval 4 個 tab
+    同一層級，沿用同一套 active-farm 載入 + tab 切換骨架，比照既有慣例（非架構決策，未寫
+    decision_log）
+  - ✅ `frontend/services/inspectionScheduleService.ts`：API client（沿用 `inventoryService.ts`
+    fetch helper pattern），涵蓋 7 endpoints
+  - ✅ `frontend/hooks/useInspectionSchedules.ts`：CRUD hook（沿用 `useInventory` 模式）；
+    create/activate/deactivate/runScheduler 完成後皆 refetch 整個列表（而非 local patch）——
+    因為列表依 `next_due_at` server-side 排序，local patch 無法正確插入新排序位置
+  - ✅ `frontend/components/workflow/InspectionScheduleListPanel.tsx`：turbine filter +
+    active-only toggle + row 顯示標題/風機/週期/下次到期/active·paused pill/最近派工時間
+  - ✅ `frontend/components/workflow/CreateInspectionScheduleModal.tsx`：單頁表單（風機/標題/
+    說明/週期/自訂天數），刻意不提供 `first_due_at` 輸入（交後端預設「現在起算一個週期後」，
+    避免時區轉換複雜度）；本 modal 自己不呼叫 `onClose()`，比照 `CreateWorkOrderWizard` 慣例
+    交呼叫端（`WorkflowPage.handleCreateInsp`）決定
+  - ✅ `frontend/components/workflow/InspectionScheduleDetailModal.tsx`：編輯標題/說明/週期/
+    自訂天數（Save → `PATCH`）+ Pause/Resume 切換（獨立於 Save，即時生效，比照 `CurtailModal`
+    先例）
+  - ✅ `TurbineDetail.tsx`：新增 optional prop `onNavigateInspection`，PageHeader『安排檢查』
+    鈕 `onClick` 帶 `turbine.name`（workflow module 的 `turbine_id` 慣例，與
+    `CreateWorkOrderWizard` 一致，非 monitoring/control API 專用的 `WT{padded id}` 格式）
+  - ✅ `App.tsx`：新增 `inspectionDeepLinkTurbineId` state，`handleNavSelect` 內每次一般導覽
+    皆清空（避免下次單純點 sidebar 進 workflow 頁時卡在上次深連結的風機過濾），
+    `onNavigateInspection` callback 在呼叫 `handleNavSelect('workflow')` 之後緊接著設回目標
+    turbine（同一 event handler 內 React state 更新 batch，最終值以後者為準）
+  - ✅ 新增 66 測（`InspectionScheduleListPanel` 20 + `CreateInspectionScheduleModal` 18 +
+    `InspectionScheduleDetailModal` 19 + `WorkflowPage` inspection tab wiring 8 +
+    `TurbineDetail` 安排檢查鈕接線 2 -1 重複算法差異，實際淨增以 vitest 總數為準）皆
+    mutation-verified（改回錯誤邏輯 → 確認新測會 fail → 還原）
+  - ✅ backend 未動（零 Python 變更）；frontend tsc 0 error、`npx vitest run` 全套
+    1353 passed（63 files，較前次基準 +65～+67，取決於前次確切基準數字）、`npx vite build` OK
+  - **誠實揭露自動化測試邊界**：
+    - `App.tsx` 的 `inspectionDeepLinkTurbineId` 深連結 state 管理（含 `handleNavSelect` 清空
+      邏輯 + `onNavigateInspection` callback 內的 batch 覆蓋順序）**沒有自動化測試保護**——
+      本 repo `App.tsx` 本身無任何 `App.test.tsx`（既有慣例，非本次引入的缺口），只能靠讀
+      程式碼推論 + 人工瀏覽器驗證；`TurbineDetail.test.tsx` 只驗證 `onNavigateInspection`
+      被呼叫時帶對參數，不驗證 `App.tsx` 收到後實際導覽行為
+    - `CreateInspectionScheduleModal`/`InspectionScheduleDetailModal` 的 `recurrence` Select
+      下拉選項渲染（含 `<option>` 文字）有測試覆蓋，但 UI 視覺呈現（modal 定位、z-index 疊層
+      是否真的蓋住背景）僅程式碼閱讀層級把關，未做瀏覽器視覺驗證
+    - `useInspectionSchedules.ts` hook 本身無獨立單元測試（沿用 repo 既有慣例——
+      `useInventory`/`useWorkOrders`/`useMaterialRequests` 等同款 workflow CRUD hook 也都
+      只透過 `WorkflowPage.test.tsx` 的 mock 間接驗證接線，hook 內部的 fetch URL 組裝 /
+      `patchLocal` 邏輯本身不是這次新引入的覆蓋缺口，是延續既有模式）
 
 ---
 
@@ -3598,7 +3643,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260507-02 — PageHeader placeholder 按鈕逐步補功能
 
-- **Status**: open
+- **Status**: done（2026-09-25 全部 6 個 sub-task a-f 完成，autonomous session 收尾 d）
 - **Milestone**: 不卡 M2-M5 主線，可隨時挑著補
 - **Priority**: low（UX polish；功能都可在 detail 頁完成）
 - **Estimate**: 每個 0.5-2h，依 API 是否存在
@@ -3619,7 +3664,12 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     inline modal（比照 `CreateFarmModal` 慣例）收 kW 值 → `authFetch POST /api/control/
     curtail`；PageHeader「限載」鈕是右欄 `OperatorControlCard` 限載輸入的重複入口，比照
     sub-task b 先例。新增 8 測皆 mutation-verified。
-  - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
+  - [x] ~~**d. 風機細節 `安排檢查`**~~ — ✅ 2026-09-25 完成（**WMOM-20260925-05**）。
+    `TurbineDetail.tsx` header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)`，
+    導覽到 `/admin/workflow` 定檢計畫頁籤並預先過濾該風機；新增 `InspectionScheduleListPanel`
+    + `CreateInspectionScheduleModal` + `InspectionScheduleDetailModal` 三支元件 +
+    `useInspectionSchedules` hook + `inspectionScheduleService.ts` client，接上
+    `WMOM-20260505-22` 後端 7 endpoints。新增 66 測皆 mutation-verified。
   - [x] ~~**e. 維護中心 `+ 新工單`**~~ — ✅ 2026-09-25 完成（**WMOM-20260925-03**）。
     `NewWorkOrderModal`（比照 `CurtailModal`/`DispatchModal`/`CreateFarmModal` 慣例）：
     選風機（新增 `turbines` prop）+ 描述 + 選技師（僅列 `ON_DUTY`）→ 既有

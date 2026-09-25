@@ -148,6 +148,12 @@ const AppShell: React.FC = () => {
   const [view, setView] = useState<ViewId>('overview');
   const [selectedTurbine, setSelectedTurbine] = useState<TurbineData | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // `TurbineDetail` header『安排檢查』鈕深連結（WMOM-20260925-05）：帶入的
+  // turbine_id 只在下一次 `view === 'workflow'` mount 時讀一次（見 WorkflowPage
+  // `initialInspectionTurbineId` prop docstring），故不需要在切走後清空。
+  const [inspectionDeepLinkTurbineId, setInspectionDeepLinkTurbineId] = useState<
+    string | undefined
+  >(undefined);
 
   // ── Modals ──
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
@@ -225,6 +231,13 @@ const AppShell: React.FC = () => {
       } else if (next === 'overview') {
         setSelectedTurbine(null);
       }
+      // 一般導覽（含 sidebar 直接點『工單管理』）視為離開深連結情境，清掉先前
+      // 『安排檢查』鈕留下的 turbine 過濾（WMOM-20260925-05）——避免下次單純點
+      // sidebar 進 workflow 頁時仍卡在上次 inspect 深連結的風機過濾。
+      // `onNavigateInspection` 會在呼叫本函式之後緊接著呼叫
+      // `setInspectionDeepLinkTurbineId(turbineId)`，同一個 event handler 內的
+      // state 更新會 batch，最終值以該次呼叫為準，此處的清空不會覆蓋它。
+      setInspectionDeepLinkTurbineId(undefined);
     },
     [selectedTurbine, turbines],
   );
@@ -320,6 +333,10 @@ const AppShell: React.FC = () => {
               wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
             )}
             lang={lang}
+            onNavigateInspection={turbineId => {
+              setInspectionDeepLinkTurbineId(turbineId);
+              handleNavSelect('workflow');
+            }}
           />
         );
       case 'maintenance':
@@ -332,7 +349,13 @@ const AppShell: React.FC = () => {
           />
         );
       case 'workflow':
-        return <WorkflowPage lang={lang} turbines={turbines} />;
+        return (
+          <WorkflowPage
+            lang={lang}
+            turbines={turbines}
+            initialInspectionTurbineId={inspectionDeepLinkTurbineId}
+          />
+        );
       case 'history':
         return <HistoryPage turbines={turbines} lang={lang} />;
       case 'cost':

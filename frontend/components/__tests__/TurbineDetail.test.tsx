@@ -146,10 +146,12 @@ async function renderDetail(
     activeWorkOrder?: WorkOrder;
     onBack?: () => void;
     onDispatch?: (t: TurbineData, fa: string) => void;
+    onNavigateInspection?: (turbineId: string) => void;
   } = {},
 ) {
   const onBack = opts.onBack ?? vi.fn();
   const onDispatch = opts.onDispatch ?? vi.fn();
+  const onNavigateInspection = opts.onNavigateInspection ?? vi.fn();
   let utils!: ReturnType<typeof render>;
   await act(async () => {
     utils = render(
@@ -160,11 +162,12 @@ async function renderDetail(
           onDispatch={onDispatch}
           activeWorkOrder={opts.activeWorkOrder}
           lang={opts.lang ?? 'zh'}
+          onNavigateInspection={onNavigateInspection}
         />
       </ThemeProvider>,
     );
   });
-  return { ...utils, onBack, onDispatch };
+  return { ...utils, onBack, onDispatch, onNavigateInspection };
 }
 
 beforeEach(() => {
@@ -199,6 +202,38 @@ describe('TurbineDetail — 殼層與 header', () => {
     expect(screen.getByRole('button', { name: '限載' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停機' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '安排檢查' })).toBeInTheDocument();
+  });
+
+  // ─── header「安排檢查」接線（WMOM-20260507-02 sub-task d，WMOM-20260925-05）───
+  // 導覽到 workflow 定檢計畫頁籤並帶入 turbine_id；workflow module 的 turbine_id
+  // 慣例用 `turbine.name`（與 CreateWorkOrderWizard 一致），非 monitoring/control
+  // API 專用的 `WT{padded id}` 格式，故明確斷言帶的是 name 而非 id。
+  it('點 header 安排檢查鈕 → onNavigateInspection 帶 turbine.name（非 WT{id} 格式）', async () => {
+    const { onNavigateInspection } = await renderDetail({
+      turbine: makeTurbine({ id: 7, name: 'WTG-07' }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: '安排檢查' }));
+    expect(onNavigateInspection).toHaveBeenCalledWith('WTG-07');
+    expect(onNavigateInspection).not.toHaveBeenCalledWith('WT007');
+  });
+
+  it('未傳入 onNavigateInspection（optional prop 未接線的舊呼叫端）→ 點擊安排檢查鈕不拋錯', async () => {
+    // 直接 render，不透過 renderDetail 的預設 vi.fn() 補全，驗證 fallback no-op 真的生效。
+    await act(async () => {
+      render(
+        <ThemeProvider>
+          <TurbineDetail
+            turbine={makeTurbine()}
+            onBack={vi.fn()}
+            onDispatch={vi.fn()}
+            lang="zh"
+          />
+        </ThemeProvider>,
+      );
+    });
+    expect(() => {
+      fireEvent.click(screen.getByRole('button', { name: '安排檢查' }));
+    }).not.toThrow();
   });
 
   // ─── header「停機」接線（WMOM-20260507-02 sub-task b + WMOM-20260923-09）───
