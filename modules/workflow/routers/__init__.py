@@ -28,9 +28,18 @@ Endpoints:
 - PATCH /api/workflow/inventory/{item_id}             (metadata 不動 stock)
 - POST  /api/workflow/inventory/{item_id}/adjust      (手動 +/- + audit log)
 - GET   /api/workflow/inventory/{item_id}/adjustments
+
+**inspection-schedule (WMOM-20260505-22)** — exported as ``inspection_router``:
+- POST  /api/workflow/inspection-schedules
+- GET   /api/workflow/inspection-schedules
+- GET   /api/workflow/inspection-schedules/{id}
+- PATCH /api/workflow/inspection-schedules/{id}
+- POST  /api/workflow/inspection-schedules/{id}/{activate|deactivate}
+- POST  /api/workflow/inspection-schedules/run-scheduler
 """
 
 from .approval_router import router as approval_router
+from .inspection_router import router as inspection_router
 from .inventory_router import router as inventory_router
 from .material_request_router import router as material_request_router
 from .work_order_router import router
@@ -40,4 +49,5 @@ __all__ = [
     "approval_router",
     "material_request_router",
     "inventory_router",
+    "inspection_router",
 ]

@@ -196,9 +196,11 @@ from modules.cost.routers import (  # noqa: E402
     router as cost_router,
 )
 
-# WMOM-20260504-17 / -18 / -20260509-03 / -04: workflow + approval + material_request + inventory
+# WMOM-20260504-17 / -18 / -20260509-03 / -04 / -20260505-22:
+# workflow + approval + material_request + inventory + inspection_schedule
 from modules.workflow.routers import (  # noqa: E402
     approval_router,
+    inspection_router,
     inventory_router,
     material_request_router,
     router as workflow_router,
@@ -230,6 +232,7 @@ app.include_router(workflow_router)
 app.include_router(approval_router)
 app.include_router(material_request_router)
 app.include_router(inventory_router)
+app.include_router(inspection_router)
 app.include_router(reporting_router)
 app.include_router(knowledge_router)
 app.include_router(auth_router)

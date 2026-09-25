@@ -3,7 +3,30 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260925-04，完成）**：`FarmOverview.tsx` PageHeader
+last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260505-22 後端，完成；前端拆
+  # WMOM-20260925-05）**：`inspection_schedule` 定檢計畫 + scheduler auto-spawn 後端全套——
+  # domain（`Recurrence` enum + `compute_next_due`/`recurrence_interval_days` 純函式 +
+  # `InspectionSchedule` dataclass）+ repository（`InspectionScheduleRepository`：CRUD +
+  # `due_only` 查詢 + `record_spawn`，共用 `work_order_repository` engine cache）+ service
+  # （`run_inspection_scheduler`：手動觸發、冪等、撞 multi-WO constraint 跳過不推進不漏排；
+  # 刻意不加背景 cron，比照 reporting/cost 既有 on-demand 慣例，避免重蹈 WMOM-20260720-04/-08
+  # 背景執行緒硬化債）+ router（7 endpoints，CRUD=LEADER/SUPERVISOR、list/get=任何登入者、
+  # `run-scheduler`=SUPERVISOR only）+ 79 個新測試（domain/repository/service/router 四層）
+  # 皆 mutation-verified。**code-reviewer subagent review 抓到 1 must-fix + 1
+  # should-fix，皆已修復**：PATCH 可把排程改成 `recurrence=custom_days` 卻不帶
+  # `interval_days` 寫入無效狀態，scheduler 下次到期時 `work_order_repo.create()` 先成功建
+  # 真實工單、`record_spawn()` 才 raise `ValueError`（未 catch）——工單已建但 `next_due_at`
+  # 沒推進，變成每次呼叫 `run-scheduler` 都重複 spawn（reviewer 獨立寫 repro script 實測
+  # 重現「兩次呼叫→兩張重複工單+兩次 500」）；`create()` 同款驗證原本只在沒帶
+  # `first_due_at` 時才會跑，帶了會繞過。修法：三層防禦（`create()` 無條件驗證 +
+  # `update_metadata()` 驗證合併後最終狀態 + scheduler 建工單前再驗證一次），新增 6 個
+  # regression test 逐一 mutation-verified（其中 scheduler 層 mutation 精確重現 reviewer
+  # repro script 的同一個 traceback，證實修法確實堵住那個洞，不是修了另一個問題）。
+  # backend 1103→**1182 passed**（7 skipped, 1 xfailed，+79，零 regression）；frontend
+  # 未動 1288 passed（60 files）不變、tsc 0、build OK。**前端未做**（`TurbineDetail.tsx`
+  # 安排檢查鈕接線 + 定檢計畫管理頁），拆成新 follow-up **WMOM-20260925-05**（open，API
+  # 已齊全可直接接手）。`WMOM-20260505-22` 狀態標 `in_progress`（非 `done`，避免誤判整個
+  # issue 已完工）。**前一 session（WMOM-20260925-04，完成）**：`FarmOverview.tsx` PageHeader
   # 『+ 新報告』鈕接線（`WMOM-20260507-02` sub-task f）——認領前依 issue 建議先讀
   # `modules/reporting/routers/reporting_router.py` 摸清報告類型（僅 monthly/annual-budget
   # 兩種），發現 `ReportsPage.tsx`（`/admin/reports`，M4 `WMOM-20260509-09` 早已完整實作
@@ -163,7 +186,16 @@ session 完成**；WMOM-20260509-F6（PostgreSQL row-lock）2026-09-23 重新調
 `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停在 v3（baseline backend 638 /
 frontend 59），已明顯落後於本次 cron trigger 實際送入的 prompt（v4.1，baseline 1103/1267），
 建議劉老師找時間把 cron trigger 目前設定同步回這份文件（WMOM-20260923-05 work-log 已提醒過，
-本次二次提醒）。"
+本次二次提醒）。
+**2026-09-25（WMOM-20260505-22 後端完成，autonomous session）**：`inspection_schedule` 定檢
+計畫 + scheduler auto-spawn 後端全套（domain/repository/service/router，79 測皆
+mutation-verified；code-reviewer 抓到 1 must-fix + 1 should-fix 皆已修復，詳見上方
+last_updated 與 ISSUES.md WMOM-20260505-22 completion summary）。backend 1103→1182
+passed，frontend 未動 1288 passed 不變。**`WMOM-20260507-02` sub-task d 的依賴已解除，
+但前端本身未做**——拆成新 **WMOM-20260925-05**（open，API 已齊全，下個 session 可直接
+接手：`TurbineDetail.tsx` 安排檢查鈕 + `/admin/workflow/inspection` 定檢計畫管理頁）。
+**下次接手**：優先 WMOM-20260925-05（前端，無設計歧義）；其餘見 TODO.md「需劉老師決策」
+清單與 PR C（需先寫 broker 子設計）。"
 technologies:
   - FastAPI
   - React
@@ -222,10 +254,11 @@ milestones:
 
 issue_stats:
   open: 10
-  in_progress: 0
+  in_progress: 1  # 0→1（WMOM-20260505-22 後端完成、前端拆 WMOM-20260925-05；open 淨額不變：
+                  # -22 open→in_progress、新開 -05 open，一減一增）
   blocked: 0
-  done: 130  # 129→130（新開 WMOM-20260925-04 並同 session 完成 +1）
-             # total 140（10+0+0+130=140，與 ISSUES.md 一致）
+  done: 130
+             # total 141（10+1+0+130=141，與 ISSUES.md 一致）
 
 inherited_baseline:
   source: digiWindTurbine
