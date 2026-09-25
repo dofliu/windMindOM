@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ScadaTagI18n } from '../types';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 const STORAGE_KEY = 'windFarmLang';
@@ -13,7 +14,7 @@ export const useI18n = () => {
   const [tagLabels, setTagLabels] = useState<ScadaTagI18n>({});
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/i18n/tags/all`)
+    authFetch(`${API_BASE}/api/i18n/tags/all`)
       .then(res => res.json())
       .then(setTagLabels)
       .catch(() => {});

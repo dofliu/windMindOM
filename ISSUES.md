@@ -3920,7 +3920,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260925-01 — `hooks/*.ts` authFetch 稽核缺口（`WMOM-20260923-10` 稽核未涵蓋 hooks 層）
 
-- **Status**: open
+- **Status**: in_progress（2026-09-25 autonomous session 認領，一次做完全部 sub-task）
 - **Milestone**: M6 auth cutover（`WMOM-20260716-05i`）**前置阻塞**——比
   `WMOM-20260924-08` 更嚴重：本 issue 涵蓋的是**寫入端點**，且 cutover 檢查表原本已勾選
   「前端所有寫入 request 都帶 token」，此發現直接推翻該勾選（已於 WMOM-20260924-08

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { type TurbineData, TurbineStatus, type FaultInfo } from '../types';
+import { authFetch } from '../services/authClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8100/ws/realtime';
@@ -233,7 +234,7 @@ export const useRealtimeData = () => {
   // Initial REST fetch
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE}/api/turbines`)
+    authFetch(`${API_BASE}/api/turbines`)
       .then(res => res.json())
       .then((data: ApiTurbineReading[]) => {
         if (!cancelled) setTurbines(data.map(apiToTurbineData));
@@ -294,7 +295,7 @@ export const useRealtimeData = () => {
     const pollInterval = setInterval(() => {
       if (disposed) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        fetch(`${API_BASE}/api/turbines`)
+        authFetch(`${API_BASE}/api/turbines`)
           .then(res => res.json())
           .then((data: ApiTurbineReading[]) => {
             if (!disposed) setTurbines(data.map(apiToTurbineData));

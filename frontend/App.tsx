@@ -49,6 +49,7 @@ import { Btn, Sidebar, type NavItem } from './components/ui';
 import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/farmHeader';
 import { sourceCardToMode } from './utils/sourceMode';
 import { useSourceGate, type SourceMode, type SelectResult } from './hooks/useSourceGate';
+import { authFetch } from './services/authClient';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -163,7 +164,7 @@ const AppShell: React.FC = () => {
     const check = async () => {
       let res: Response;
       try {
-        res = await fetch(`${API_BASE}/api/farms`);
+        res = await authFetch(`${API_BASE}/api/farms`);
       } catch {
         if (!cancelled) setBackendHealthy(false);
         return;
