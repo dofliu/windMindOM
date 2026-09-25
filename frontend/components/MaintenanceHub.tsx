@@ -17,10 +17,12 @@ import {
   WorkOrderStatus,
   TechnicianStatus,
   type Technician,
+  type TurbineData,
 } from '../types';
 import {
   Btn,
   Card,
+  Field,
   PageHeader,
   StatusPill,
   Select,
@@ -32,9 +34,12 @@ import { useTheme } from '../theme/ThemeProvider';
 
 type MaintenanceData = ReturnType<typeof useMaintenanceData>;
 
+type TurbineOption = Pick<TurbineData, 'id' | 'name'>;
+
 interface MaintenanceHubProps {
   maintenanceData: MaintenanceData;
   onSelectWorkOrder: (workOrder: WorkOrder) => void;
+  turbines: TurbineOption[];
   lang?: 'en' | 'zh';
 }
 
@@ -362,16 +367,189 @@ const WorkOrderTable: React.FC<{
   );
 };
 
+// ─── New work order modal（WMOM-20260507-02 sub-task e）───────
+
+const NewWorkOrderModal: React.FC<{
+  turbines: TurbineOption[];
+  technicians: Technician[];
+  tr: (en: string, zh: string) => string;
+  onClose: () => void;
+  onCreate: (
+    turbineId: number,
+    turbineName: string,
+    faultDescription: string,
+    technicianId?: number,
+  ) => void;
+}> = ({ turbines, technicians, tr, onClose, onCreate }) => {
+  const { C } = useTheme();
+  const [turbineIdStr, setTurbineIdStr] = useState('');
+  const [description, setDescription] = useState('');
+  const [technicianIdStr, setTechnicianIdStr] = useState('');
+
+  // 比照 DispatchModal 慣例：只能指派目前在崗（ON_DUTY）的技師，避免重複派遣已出勤/下班者
+  const available = technicians.filter(t => t.status === TechnicianStatus.ON_DUTY);
+
+  const turbineOptions = [
+    { value: '', label: tr('Select turbine…', '請選擇風機') },
+    ...turbines.map(t => ({ value: String(t.id), label: t.name })),
+  ];
+  const technicianOptions = [
+    { value: '', label: tr('Unassigned', '未指派') },
+    ...available.map(t => ({ value: String(t.id), label: t.name })),
+  ];
+
+  const canSubmit = turbineIdStr !== '' && description.trim() !== '';
+
+  const handleSubmit = () => {
+    const turbine = turbines.find(t => String(t.id) === turbineIdStr);
+    if (!turbine || !description.trim()) return;
+    const requestedTechnicianId = technicianIdStr === '' ? undefined : Number(technicianIdStr);
+    // 10s 輪詢期間該技師狀態可能已變動（不再 ON_DUTY）——送出前重新核對，過期選取視同未指派，
+    // 避免繞過「僅能指派在崗技師」的業務規則（code review should-fix #1）
+    const technicianId =
+      requestedTechnicianId !== undefined && available.some(t => t.id === requestedTechnicianId)
+        ? requestedTechnicianId
+        : undefined;
+    onCreate(turbine.id, turbine.name, description.trim(), technicianId);
+    onClose();
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 200,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
+    >
+      <Card padding={0} style={{ width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+        <div onClick={e => e.stopPropagation()}>
+          <div
+            style={{
+              padding: '14px 18px',
+              borderBottom: `1px solid ${C.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: '"DM Serif Display", serif',
+                fontSize: 20,
+                fontWeight: 400,
+                color: C.text,
+              }}
+            >
+              {tr('New work order', '新工單')}
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label={tr('Close', '關閉')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.sub,
+                fontSize: 18,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label={tr('Turbine', '風機')} fullWidth>
+              <Select
+                value={turbineIdStr}
+                onChange={setTurbineIdStr}
+                options={turbineOptions}
+                ariaLabel={tr('Turbine', '風機')}
+                fullWidth
+              />
+            </Field>
+
+            <Field label={tr('Description', '問題描述')} fullWidth>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={4}
+                placeholder={tr('Describe the issue…', '描述故障 / 工作內容…')}
+                aria-label={tr('Description', '問題描述')}
+                style={{
+                  width: '100%',
+                  background: C.panel,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: 10,
+                  fontSize: 13,
+                  color: C.text,
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </Field>
+
+            <Field label={tr('Technician (optional)', '技師（可留空）')} fullWidth>
+              <Select
+                value={technicianIdStr}
+                onChange={setTechnicianIdStr}
+                options={technicianOptions}
+                ariaLabel={tr('Technician (optional)', '技師（可留空）')}
+                fullWidth
+              />
+            </Field>
+          </div>
+
+          <div
+            style={{
+              padding: '12px 18px',
+              borderTop: `1px solid ${C.border}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+            }}
+          >
+            <Btn onClick={onClose} ariaLabel={tr('Cancel', '取消')}>
+              {tr('Cancel', '取消')}
+            </Btn>
+            <Btn
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              ariaLabel={tr('Create work order', '建立工單')}
+            >
+              {tr('Create', '建立')}
+            </Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 // ─── Main ──────────────────────────────────────────────────────
 
 const MaintenanceHub: React.FC<MaintenanceHubProps> = ({
   maintenanceData,
   onSelectWorkOrder,
+  turbines,
   lang = 'zh',
 }) => {
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
-  const { technicians, workOrders, toggleTechnicianStatus } = maintenanceData;
+  const { technicians, workOrders, toggleTechnicianStatus, createWorkOrder } = maintenanceData;
   const [filter, setFilter] = useState<'all' | 'open' | 'in_progress' | 'completed'>('all');
+  const [isNewWoModalOpen, setIsNewWoModalOpen] = useState(false);
 
   const filtered = useMemo(() => {
     if (filter === 'all') return workOrders;
@@ -408,7 +586,11 @@ const MaintenanceHub: React.FC<MaintenanceHubProps> = ({
               ariaLabel={tr('Filter', '篩選')}
               width={140}
             />
-            <Btn variant="primary" ariaLabel={tr('New work order', '新工單')}>
+            <Btn
+              variant="primary"
+              onClick={() => setIsNewWoModalOpen(true)}
+              ariaLabel={tr('New work order', '新工單')}
+            >
               + {tr('New work order', '新工單')}
             </Btn>
           </>
@@ -433,6 +615,16 @@ const MaintenanceHub: React.FC<MaintenanceHubProps> = ({
           <WeekCalendar workOrders={workOrders} tr={tr} />
         </div>
       </div>
+
+      {isNewWoModalOpen && (
+        <NewWorkOrderModal
+          turbines={turbines}
+          technicians={technicians}
+          tr={tr}
+          onClose={() => setIsNewWoModalOpen(false)}
+          onCreate={createWorkOrder}
+        />
+      )}
     </div>
   );
 };

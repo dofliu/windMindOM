@@ -326,6 +326,8 @@ const AppShell: React.FC = () => {
           <MaintenanceHub
             maintenanceData={maintenance}
             onSelectWorkOrder={wo => setSelectedWorkOrder(wo)}
+            turbines={turbines}
+            lang={lang}
           />
         );
       case 'workflow':

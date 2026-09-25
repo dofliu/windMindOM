@@ -115,7 +115,7 @@ export const useMaintenanceData = () => {
   }, [technicians]);
 
   const createWorkOrder = useCallback(async (
-    turbineId: number, turbineName: string, faultDescription: string, technicianId: number
+    turbineId: number, turbineName: string, faultDescription: string, technicianId?: number
   ) => {
     try {
       const res = await authFetch(`${API_BASE}/api/maintenance/work-orders`, {

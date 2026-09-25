@@ -65,6 +65,10 @@ function makeTechnician(over: Partial<Technician> = {}): Technician {
   };
 }
 
+function makeTurbine(over: { id?: number; name?: string } = {}) {
+  return { id: over.id ?? 1, name: over.name ?? 'WTG-01' };
+}
+
 interface MaintenanceDataOverrides {
   technicians?: Technician[];
   workOrders?: WorkOrder[];
@@ -85,12 +89,14 @@ function makeMaintenanceData(over: MaintenanceDataOverrides = {}) {
 
 interface RenderOpts extends MaintenanceDataOverrides {
   onSelectWorkOrder?: (wo: WorkOrder) => void;
+  turbines?: { id: number; name: string }[];
   lang?: 'en' | 'zh';
 }
 
 function renderHub(opts: RenderOpts = {}) {
   const onSelectWorkOrder = opts.onSelectWorkOrder ?? vi.fn();
   const toggleTechnicianStatus = opts.toggleTechnicianStatus ?? vi.fn();
+  const turbines = opts.turbines ?? [makeTurbine({ id: 1, name: 'WTG-01' }), makeTurbine({ id: 2, name: 'WTG-02' })];
   const maintenanceData = makeMaintenanceData({
     technicians: opts.technicians,
     workOrders: opts.workOrders,
@@ -101,11 +107,12 @@ function renderHub(opts: RenderOpts = {}) {
       <MaintenanceHub
         maintenanceData={maintenanceData}
         onSelectWorkOrder={onSelectWorkOrder}
+        turbines={turbines}
         lang={opts.lang}
       />
     </ThemeProvider>,
   );
-  return { ...utils, onSelectWorkOrder, toggleTechnicianStatus };
+  return { ...utils, onSelectWorkOrder, toggleTechnicianStatus, maintenanceData, turbines };
 }
 
 afterEach(() => {
@@ -533,5 +540,144 @@ describe('MaintenanceHub — WeekCalendar 本週行程', () => {
   it('沒有任何工單 → 不顯示計數徽章', () => {
     renderHub({ workOrders: [] });
     expect(screen.queryByText(/×\d/)).not.toBeInTheDocument();
+  });
+});
+
+// ─── + 新工單 modal（WMOM-20260507-02 sub-task e）───────────────────────────
+
+describe('MaintenanceHub — 「+ 新工單」modal', () => {
+  it('點擊 header「+ 新工單」鈕 → 開啟 dialog', () => {
+    renderHub();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('點擊 ✕ 關閉 dialog，不呼叫 createWorkOrder', () => {
+    const { maintenanceData } = renderHub();
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(maintenanceData.createWorkOrder).not.toHaveBeenCalled();
+  });
+
+  it('點擊「取消」關閉 dialog，不呼叫 createWorkOrder', () => {
+    const { maintenanceData } = renderHub();
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(maintenanceData.createWorkOrder).not.toHaveBeenCalled();
+  });
+
+  it('未選風機時「建立工單」鈕 disabled，選了風機但描述空白仍 disabled', () => {
+    renderHub();
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    const createBtn = screen.getByRole('button', { name: '建立工單' });
+    expect(createBtn).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('風機'), { target: { value: '1' } });
+    expect(createBtn).toBeDisabled(); // 描述仍空白
+
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '   ' } });
+    expect(createBtn).toBeDisabled(); // 純空白視同空
+  });
+
+  it('選風機 + 輸入描述 + 不選技師 → 送出呼叫 createWorkOrder(turbineId, turbineName, description, undefined) 並關閉 dialog', () => {
+    const { maintenanceData } = renderHub({
+      turbines: [makeTurbine({ id: 2, name: 'WTG-02' })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.change(screen.getByLabelText('風機'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '齒輪箱異音' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立工單' }));
+
+    expect(maintenanceData.createWorkOrder).toHaveBeenCalledWith(2, 'WTG-02', '齒輪箱異音', undefined);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('選風機 + 描述 + 選技師 → technicianId 以 number 型別傳遞', () => {
+    const { maintenanceData } = renderHub({
+      technicians: [makeTechnician({ id: 7, name: '陳大文', status: TechnicianStatus.ON_DUTY })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.change(screen.getByLabelText('風機'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '葉片結冰' } });
+    fireEvent.change(screen.getByLabelText('技師（可留空）'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立工單' }));
+
+    expect(maintenanceData.createWorkOrder).toHaveBeenCalledWith(1, 'WTG-01', '葉片結冰', 7);
+  });
+
+  it('技師下拉只列出 ON_DUTY 技師（DISPATCHED / OFF_DUTY 不出現），確認為分派安全的把關（mutation-verified）', () => {
+    renderHub({
+      technicians: [
+        makeTechnician({ id: 1, name: '在崗甲', status: TechnicianStatus.ON_DUTY }),
+        makeTechnician({ id: 2, name: '派遣中乙', status: TechnicianStatus.DISPATCHED }),
+        makeTechnician({ id: 3, name: '下班丙', status: TechnicianStatus.OFF_DUTY }),
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    const select = screen.getByLabelText('技師（可留空）') as HTMLSelectElement;
+    const optionLabels = Array.from(select.options).map(o => o.textContent);
+    expect(optionLabels).toEqual(['未指派', '在崗甲']);
+    expect(optionLabels).not.toContain('派遣中乙');
+    expect(optionLabels).not.toContain('下班丙');
+  });
+
+  it('風機下拉選項來自 turbines prop（非固定寫死清單）', () => {
+    renderHub({
+      turbines: [makeTurbine({ id: 5, name: 'WTG-05' }), makeTurbine({ id: 6, name: 'WTG-06' })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    const select = screen.getByLabelText('風機') as HTMLSelectElement;
+    const optionLabels = Array.from(select.options).map(o => o.textContent);
+    expect(optionLabels).toEqual(['請選擇風機', 'WTG-05', 'WTG-06']);
+  });
+
+  it('lang=en → dialog 標題與按鈕文案為英文', () => {
+    renderHub({ lang: 'en' });
+    fireEvent.click(screen.getByRole('button', { name: 'New work order' }));
+    expect(screen.getByText('New work order')).toBeInTheDocument();
+    expect(screen.getByLabelText('Turbine')).toBeInTheDocument();
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    expect(screen.getByLabelText('Technician (optional)')).toBeInTheDocument();
+  });
+
+  it('風場沒有任何風機資料（turbines=[]）→ 下拉只剩 placeholder，「建立工單」鈕恆 disabled（邊界狀態不崩潰）', () => {
+    renderHub({ turbines: [] });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    const select = screen.getByLabelText('風機') as HTMLSelectElement;
+    expect(Array.from(select.options).map(o => o.textContent)).toEqual(['請選擇風機']);
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '任意描述' } });
+    expect(screen.getByRole('button', { name: '建立工單' })).toBeDisabled();
+  });
+
+  it('已選技師後其狀態變成非 ON_DUTY（例如 10s 輪詢期間被別處指派走）→ 送出視同未指派，不送出過期 technicianId（code review should-fix #1，mutation-verified）', () => {
+    const technicians = [makeTechnician({ id: 7, name: '陳大文', status: TechnicianStatus.ON_DUTY })];
+    const { maintenanceData, rerender } = renderHub({
+      technicians,
+      turbines: [makeTurbine({ id: 1, name: 'WTG-01' })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.change(screen.getByLabelText('風機'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '測試描述' } });
+    fireEvent.change(screen.getByLabelText('技師（可留空）'), { target: { value: '7' } });
+
+    // 模擬 useMaintenanceData 的 10s 輪詢把該技師狀態改成 DISPATCHED（已被別處指派）
+    maintenanceData.technicians = [
+      makeTechnician({ id: 7, name: '陳大文', status: TechnicianStatus.DISPATCHED }),
+    ];
+    rerender(
+      <ThemeProvider>
+        <MaintenanceHub
+          maintenanceData={maintenanceData}
+          onSelectWorkOrder={vi.fn()}
+          turbines={[makeTurbine({ id: 1, name: 'WTG-01' })]}
+        />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '建立工單' }));
+    expect(maintenanceData.createWorkOrder).toHaveBeenCalledWith(1, 'WTG-01', '測試描述', undefined);
   });
 });

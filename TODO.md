@@ -16,17 +16,32 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（**WMOM-20260925-02 完成** — `TurbineDetail.tsx` PageHeader『限載』鈕
+最後更新：2026-09-25（**WMOM-20260925-03 完成** — `MaintenanceHub.tsx` PageHeader
+『+ 新工單』鈕接線（`WMOM-20260507-02` sub-task e）：新增 `NewWorkOrderModal`（比照
+`TurbineDetail.tsx` `CurtailModal`/`DispatchModal`/`FarmSelector.tsx` `CreateFarmModal`
+遮罩/`role="dialog"` 慣例）：風機 `Select`（新增 `turbines` prop）+ 問題描述 + 技師
+`Select`（僅列 `ON_DUTY`，比照 `DispatchModal` 既有規則）。送出打既有
+`maintenanceData.createWorkOrder`（`useMaintenanceData.ts` 早已實作供 `DispatchModal`
+使用，`POST /api/maintenance/work-orders`，`SUPERVISOR`-only），成功後關窗。
+`createWorkOrder` 第 4 參數 `technicianId` 型別改選填（對齊後端 `Optional[int]`）。
+`App.tsx` 補 `turbines`/`lang`（`lang` 為附帶發現的既有缺口一併修正）。+11 vitest 皆
+mutation-verified（本 session 4 輪 + code review 後補的 should-fix #1 校驗 1 輪）。
+backend 未動 1103 passed 不變；frontend tsc 0、1275→1286 passed（60 files，零
+regression）、build OK。code-reviewer review：Approve，0 must-fix，2 should-fix（技師
+選取與 10s 輪詢資料脫節可能送出過期 id，已修＋補測；沿用 `DispatchModal` 較弱的
+fire-and-forget 模式而非 `CurtailModal` 完整 error state，reviewer 確認不阻塞未修）。
+`WMOM-20260507-02` 清單至此僅剩 sub-task d（依賴 `WMOM-20260505-22` 尚未做）與 f（需先
+確認 reporting module 報告類型 API）。**下個 session**：可續接 `WMOM-20260507-02`
+sub-task f（風場總覽 `+ 新報告`，建議先讀 `modules/reporting/routers/*.py` 摸清可選
+報告類型清單再動工），或見下方「需劉老師決策」清單、PR C（需先寫 broker 子設計）。）
+前一 session（WMOM-20260925-02）：`TurbineDetail.tsx` PageHeader『限載』鈕
 接線（`WMOM-20260507-02` sub-task c）：新增 `CurtailModal`（比照 `FarmSelector.tsx` 的
 `CreateFarmModal` 遮罩/`role="dialog"` 慣例）收 kW 值後打 `authFetch POST
 /api/control/curtail`（`SUPERVISOR`-only），是右欄 `OperatorControlCard` 限載輸入的重複
 入口（比照 sub-task b『停機』header 鈕先例）。留空 = 解除限載、前端擋負值、後端非 2xx 顯示
 `detail` 不關窗。+8 vitest 皆 mutation-verified（本 session 1 輪 + code-reviewer 獨立
 2 輪）。backend 未動 1103 passed 不變；frontend tsc 0、1267→1275 passed（60 files，零
-regression）、build OK。code-reviewer review：Approve，0 must-fix。`WMOM-20260507-02`
-清單尚餘 sub-task d~f（`d` 依賴 `WMOM-20260505-22` 尚未做；`e`/`f` 無阻塞可續接）。
-**下個 session**：可續接 `WMOM-20260507-02` sub-task e（維護中心 `+ 新工單`）/ f（風場總覽
-`+ 新報告`），或見下方「需劉老師決策」清單、PR C（需先寫 broker 子設計）。）
+regression）、build OK。code-reviewer review：Approve，0 must-fix。
 前一 session（WMOM-20260925-01）：`frontend/hooks/*.ts` authFetch 稽核
 缺口一次做完全部 sub-task（未依建議拆多 session，因修法完全一致無設計歧義）：
 `useSettings.ts`（`POST /api/config/simulation`+`/datasource`，皆 SUPERVISOR）、
@@ -263,12 +278,13 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
-- [x] ~~**WMOM-20260507-02 sub-task a/b/c** — 風場總覽「匯出」/風機細節「停機」/風機細節
-  「限載」鈕接線~~ — ✅ WMOM-20260923-07（a）+ WMOM-20260923-09（b）+
-  WMOM-20260925-02（c）完成，見上方「最後更新」。**`WMOM-20260507-02` 清單尚餘 d~f**
-  （風機細節 `安排檢查`、維護中心 `+ 新工單`、風場總覽 `+ 新報告`），皆已有明確 API 對應與
-  估時，可逐項繼續認領（`d` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做；其餘 2 項
-  無阻塞）
+- [x] ~~**WMOM-20260507-02 sub-task a/b/c/e** — 風場總覽「匯出」/風機細節「停機」/風機
+  細節「限載」/維護中心「+ 新工單」鈕接線~~ — ✅ WMOM-20260923-07（a）+
+  WMOM-20260923-09（b）+ WMOM-20260925-02（c）+ WMOM-20260925-03（e）完成，見上方
+  「最後更新」。**`WMOM-20260507-02` 清單僅剩 d/f**（風機細節 `安排檢查` 依賴
+  WMOM-20260505-22 `inspection_schedule` 尚未做；風場總覽 `+ 新報告` 依賴 M4 reporting
+  module，建議先讀 `modules/reporting/routers/*.py` 摸清可選報告類型清單再動工，範圍
+  比 e 模糊）
 - [x] ~~**WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性
   技術債）~~ — ✅ 2026-09-24 完成，見上方「最後更新」。`FarmOverview.tsx` 全檔至此無裸
   `fetch` 殘留。
@@ -285,6 +301,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   一次做完，`frontend/` 全樹至此無裸 `fetch` 殘留；cutover 檢查表已重新勾選。
 - [x] ~~**WMOM-20260925-02**（`WMOM-20260507-02` sub-task c）— `TurbineDetail.tsx` header
   『限載』鈕接線~~ — ✅ 2026-09-25 完成，見上方「最後更新」。
+- [x] ~~**WMOM-20260925-03**（`WMOM-20260507-02` sub-task e）— `MaintenanceHub.tsx`
+  header『+ 新工單』鈕接線~~ — ✅ 2026-09-25 完成，見上方「最後更新」。
+  `WMOM-20260507-02` 清單僅剩 d/f。
 
 ### 需劉老師決策才能開工
 
