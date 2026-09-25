@@ -35,6 +35,8 @@ interface FarmOverviewProps {
   onSelectTurbine: (turbine: TurbineData) => void;
   settings: AppSettings;
   lang?: 'en' | 'zh';
+  /** WMOM-20260507-02 sub-task f：PageHeader「+ 新報告」鈕 → 導向既有 `/admin/reports`（月報/年度預算齊全，不重造 modal）。 */
+  onNavigateReports: () => void;
 }
 
 type TimeRange = '1H' | '6H' | '24H' | '7D';
@@ -633,6 +635,7 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
   onSelectTurbine,
   settings,
   lang = 'zh',
+  onNavigateReports,
 }) => {
   const { C } = useTheme();
   const [mode, setMode] = useState<ViewMode>('cards');
@@ -695,7 +698,11 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
             >
               {tr('Export', '匯出')}
             </Btn>
-            <Btn variant="primary" ariaLabel={tr('New report', '新報告')}>
+            <Btn
+              variant="primary"
+              ariaLabel={tr('New report', '新報告')}
+              onClick={onNavigateReports}
+            >
               + {tr('New Report', '新報告')}
             </Btn>
           </>

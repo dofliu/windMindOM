@@ -16,10 +16,30 @@
 | open | 10 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 129 |
-| **total (active)** | **139** |
+| done | 130 |
+| **total (active)** | **140** |
 
-最後更新：2026-09-25（**WMOM-20260925-03 — `MaintenanceHub.tsx` header『+ 新工單』鈕
+最後更新：2026-09-25（**WMOM-20260925-04 — `FarmOverview.tsx` header『+ 新報告』鈕接線
+（`WMOM-20260507-02` sub-task f）**：PageHeader「+ 新報告」鈕原為零功能 placeholder。
+認領前依 issue 建議先讀 `modules/reporting/routers/reporting_router.py` 摸清報告類型
+（僅 `monthly`/`annual-budget` 兩種），並發現 `frontend/components/reporting/
+ReportsPage.tsx`（`/admin/reports`，M4 `WMOM-20260509-09` 早已做）**已是完整功能頁**
+（monthly/annual 兩 tab、HTML preview + PDF 下載齊全）——**刻意偏離 issue 原文「開
+modal 選報告類型」寫法**，改把按鈕接到既有頁面導覽（`App.tsx` 既有
+`handleNavSelect('reports')`，與 sidebar nav 同路徑）直接跳轉 `/admin/reports`，
+避免重造一個功能較弱的重複子集 modal。`FarmOverviewProps` 新增必填 prop
+`onNavigateReports: () => void`（比照 `onSelectTurbine` 既有必填慣例）；`App.tsx`
+呼叫點補上；新增 2 測（zh/en aria-label 各一點擊接線），皆 mutation-verified。
+backend 未動 1103 passed 不變；frontend tsc 0、1286→1288 passed（60 files，零
+regression）、build OK。code-reviewer subagent review：**Approve，0 must-fix，0
+should-fix**（獨立核對 `handleNavSelect('reports')` 對 `selectedTurbine` 無副作用、
+`FarmOverview` 全站僅一處 render 呼叫點、新測試非同義反覆）；提醒本次「導向既有頁面
+而非開 modal」的決策溝通風險（未來 session 可能誤讀 issue 原文而重複開工建 modal），
+已在本 issue completion summary + work-log 明確記錄化解。**`WMOM-20260507-02` 清單
+至此僅剩 sub-task d**（依賴 `WMOM-20260505-22` `inspection_schedule` 尚未做，持續
+卡著）。**下個 session**：見下方「需劉老師決策」清單、PR C（需先寫 broker 子設計）、
+或評估是否要動 `WMOM-20260505-22` 解開 sub-task d 最後一項阻塞。）
+前一 session：2026-09-25（**WMOM-20260925-03 — `MaintenanceHub.tsx` header『+ 新工單』鈕
 接線（`WMOM-20260507-02` sub-task e）**：PageHeader「+ 新工單」鈕原為零功能
 placeholder，新增 `NewWorkOrderModal`（比照 `TurbineDetail.tsx` `CurtailModal` /
 `DispatchModal` / `FarmSelector.tsx` `CreateFarmModal` 遮罩 + `role="dialog"` 慣例）：
@@ -3513,13 +3533,81 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     選風機（新增 `turbines` prop）+ 描述 + 選技師（僅列 `ON_DUTY`）→ 既有
     `maintenanceData.createWorkOrder` 打 `POST /api/maintenance/work-orders`。新增
     11 測皆 mutation-verified（含 code review 抓到的技師過期選取校驗）。
-  - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend；下次認領前建議先讀 `modules/reporting/routers/*.py` 摸清可選報告類型清單再動工）
+  - [x] ~~**f. 風場總覽 `+ 新報告`**~~ — ✅ 2026-09-25 完成（**WMOM-20260925-04**）。
+    **刻意偏離原文「開 modal 選報告類型」寫法**：`/admin/reports`
+    （`ReportsPage.tsx`，M4 `WMOM-20260509-09` 早已完整實作 monthly/annual 兩 tab +
+    HTML preview + PDF 下載）已涵蓋所需功能，重造 modal 只是功能較弱的重複子集。改把
+    按鈕接到既有頁面導覽（`onClick={onNavigateReports}` → `App.tsx`
+    `handleNavSelect('reports')`，與 sidebar nav 同路徑）。新增 2 測皆
+    mutation-verified。
 - **Deliverable**:
   - 每完成一項，更新本 issue checkbox + commit 訊息帶 `feat(#WMOM-20260507-02): wire {sub-task name}`
   - 全勾完後本 issue close
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260925-04 — `FarmOverview.tsx` header『+ 新報告』鈕接線（WMOM-20260507-02 sub-task f）
+
+- **Status**: done（2026-09-25 完成，autonomous session）
+- **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
+- **Priority**: low（UX polish；報告本身已可透過側邊欄 `Reports` nav 項目完整使用，本
+  issue 只補風場總覽 PageHeader 這個「快捷入口」）
+- **Estimate**: 2-3h（issue 原估）；實作 30 min（判定不需重造 modal，比原估快很多）
+- **Source**: `WMOM-20260507-02` sub-task f，autonomous session 認領
+- **Description**:
+  `frontend/components/FarmOverview.tsx` PageHeader actions 的「+ 新報告」鈕（約
+  698 行）目前是零功能 placeholder（`<Btn variant="primary"
+  ariaLabel={tr('New report', '新報告')}>`，無 `onClick`）。issue 原文建議「開 modal
+  選報告類型（月報 / 年度預算 / custom range）」。認領前依 issue 建議先讀
+  `modules/reporting/routers/reporting_router.py` 摸清可選類型（`GET /templates`
+  回傳僅 2 種：`monthly_v1`/`annual_budget_v1`，無 custom range 支援），並發現
+  `frontend/components/reporting/ReportsPage.tsx`（`/admin/reports`，M4
+  `WMOM-20260509-09` 早已完整實作）**已是齊全功能頁**：monthly/annual 兩 tab、各自
+  串好 `useReports` hook → 對應後端端點，含 HTML preview + PDF 下載。
+- **Decision（刻意偏離 issue 原文）**：
+  不重造一個功能較弱的子集 modal，改把「+ 新報告」鈕接到既有頁面導覽——`App.tsx`
+  既有 `handleNavSelect('reports')`（sidebar nav 點擊也是呼叫它，對 `id='reports'`
+  只會 `setView('reports')`，不觸發 `selectedTurbine` 相關副作用，讀過定義確認安全）。
+  這是本次刻意偏離 issue 原文寫法的設計決策：**明確記錄於此，避免未來 session
+  誤讀「開 modal」字面描述而重複開工**——`WMOM-20260507-02` sub-task f 視為已完工，
+  不是「還沒做」。非架構層級變動（純 UI 路由選擇），未寫入
+  `docs/product/decision_log.md`。
+- **Deliverable**:
+  - `FarmOverviewProps` 新增必填 prop `onNavigateReports: () => void`（比照
+    `onSelectTurbine` 既有必填慣例）
+  - 「+ 新報告」`Btn` 補上 `onClick={onNavigateReports}`
+  - `App.tsx` `<FarmOverview>` 呼叫點補
+    `onNavigateReports={() => handleNavSelect('reports')}`
+  - `FarmOverview.test.tsx` 新增測試覆蓋點擊「+ 新報告」呼叫 `onNavigateReports`
+    （zh/en aria-label 各一）
+  - 完成後本 issue 標 done + 回頭勾選 `WMOM-20260507-02` sub-task f
+- **Completion summary**:
+  - ✅ `onNavigateReports` prop 新增 + 接線完成，`App.tsx` 補呼叫點
+  - ✅ 新增 2 測（zh「新報告」+ en「New report」aria-label 點擊各一），皆
+    mutation-verified（移除 `onClick` → 兩測如預期 fail `expected "spy" to be
+    called 1 times, but got 0 times`，`cp` 備份 + md5sum 核對還原）
+  - ✅ backend 未動 1103 passed 不變；frontend tsc 0、1286→1288 passed（60 files，
+    +2 新測，零 regression）、build OK
+  - ✅ code-reviewer subagent review：**Approve，0 must-fix，0 should-fix**。
+    獨立核對：`onNavigateReports` 必填 prop 設計與 `onSelectTurbine` 慣例一致且
+    `FarmOverview` 全站僅一處 render 呼叫點（tsc 已守住漏傳風險）；
+    `handleNavSelect('reports')` 對 `selectedTurbine` 無副作用、行為與 sidebar nav
+    完全一致；新測試非同義反覆（讀原始碼確認「+ 新報告」鈕在 cards/table 兩模式下
+    皆只渲染一次，無 ambiguous match 風險）；`ReportsPage` 目的地本身不依賴
+    `selectedTurbine`/route params，導頁乾淨無副作用。reviewer 額外提醒本次「導向
+    既有頁面而非開 modal」的決策溝通風險為真實存在，已於本 issue + work-log 明確
+    記錄化解（見上方 Decision 段落）。
+  - ✅ `WMOM-20260507-02` 清單至此僅剩 sub-task d（依賴 `WMOM-20260505-22`
+    `inspection_schedule` 尚未做，持續卡著）
+- **Files changed**:
+  - `M frontend/components/FarmOverview.tsx` — 新增 `onNavigateReports` prop + `onClick` 接線
+  - `M frontend/App.tsx` — `FarmOverview` 呼叫點補 `onNavigateReports`
+  - `M frontend/components/__tests__/FarmOverview.test.tsx` — +2 測 + helper 擴充
+- **Reference**: `WMOM-20260507-02`、`WMOM-20260925-03`（modal 慣例先例，本次刻意
+  不採用）、`WMOM-20260509-09`（`ReportsPage` 原始實作）
 
 ---
 

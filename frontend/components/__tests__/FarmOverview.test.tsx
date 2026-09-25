@@ -169,6 +169,7 @@ async function renderOverview(opts: RenderOpts = {}) {
   const turbines = opts.turbines ?? [makeTurbine()];
   const settings = opts.settings ?? SETTINGS_MOCK;
   const onSelect = vi.fn();
+  const onNavigateReports = vi.fn();
   let utils!: ReturnType<typeof render>;
   await act(async () => {
     utils = render(
@@ -178,13 +179,14 @@ async function renderOverview(opts: RenderOpts = {}) {
           onSelectTurbine={onSelect}
           settings={settings}
           lang={opts.lang}
+          onNavigateReports={onNavigateReports}
         />
       </ThemeProvider>,
     );
     // flush farm-trend fetch chain（fetch → json → setApiData）
     await flushAsync();
   });
-  return { onSelect, ...utils };
+  return { onSelect, onNavigateReports, ...utils };
 }
 
 // 兩台運轉中風機：power 2.1 + 1.0 = 3.1 MW；wind (8+6)/2 = 7.0 m/s。
@@ -311,6 +313,22 @@ describe('FarmOverview — onSelectTurbine 接線', () => {
     fireEvent.click(screen.getByText('WTG-01'));
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0][0]).toMatchObject({ id: 1, name: 'WTG-01' });
+  });
+});
+
+// ─── 「+ 新報告」鈕接線（WMOM-20260507-02 sub-task f） ─────────────────────────
+
+describe('FarmOverview — 「+ 新報告」鈕接線', () => {
+  it('點擊「+ 新報告」→ 呼叫 onNavigateReports（導向 /admin/reports，不開新 modal）', async () => {
+    const { onNavigateReports } = await renderOverview();
+    fireEvent.click(screen.getByRole('button', { name: '新報告' }));
+    expect(onNavigateReports).toHaveBeenCalledTimes(1);
+  });
+
+  it('lang=en：aria-label 為 "New report"，點擊仍正確接線', async () => {
+    const { onNavigateReports } = await renderOverview({ lang: 'en' });
+    fireEvent.click(screen.getByRole('button', { name: 'New report' }));
+    expect(onNavigateReports).toHaveBeenCalledTimes(1);
   });
 });
 
