@@ -127,9 +127,9 @@ interface ControlStatus {
 function stubFetch(status: ControlStatus = {}): ReturnType<typeof vi.fn> {
   const spy = vi.fn((url: string) => {
     if (typeof url === 'string' && url.includes('/api/control/') && url.endsWith('/status')) {
-      return Promise.resolve({ json: () => Promise.resolve(status) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(status) });
     }
-    return Promise.resolve({ json: () => Promise.resolve({}) });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
   });
   // 以 vi.stubGlobal 注入，afterEach 的 vi.unstubAllGlobals() 才能正確還原
   // （直接 `global.fetch = spy` 不受 restoreAllMocks 管理、會跨檔洩漏）。
@@ -255,6 +255,136 @@ describe('TurbineDetail — 殼層與 header', () => {
       expect(call).toBeDefined();
       const [, init] = call as [string, RequestInit];
       expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token-xyz');
+    } finally {
+      clearAuthToken();
+    }
+  });
+
+  // ─── header「限載」接線（WMOM-20260507-02 sub-task c + WMOM-20260925-02）───
+  // 與右欄「操作控制」卡片的限載輸入是同一支 `/api/control/curtail` endpoint 的重複入口，
+  // 此處只驗證 modal 開關 + 送出的 endpoint/body/header，不重複驗證狀態顯示
+  // （OperatorControlCard 自身輪詢已測，見下方「操作控制卡」describe）。
+  it('點 header 限載鈕 → 開啟設定限載 dialog', async () => {
+    await renderDetail({});
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('設定限載')).toBeInTheDocument();
+  });
+
+  it('限載 dialog 點取消 → 關閉不打 API', async () => {
+    const spy = stubFetch({});
+    await renderDetail({});
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(spy.mock.calls.some(([url]) => String(url).includes('/api/control/curtail'))).toBe(false);
+  });
+
+  it('限載 dialog 點 ✕ 關閉鈕 → 關閉不打 API', async () => {
+    await renderDetail({});
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '關閉' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('限載 dialog 輸入 kW 值送出 → POST /api/control/curtail 帶正確 body，成功後關窗', async () => {
+    const spy = stubFetch({});
+    await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('限載 (kW)'), { target: { value: '1500' } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: '確認限載' }));
+    });
+    expect(spy).toHaveBeenCalledWith(
+      'http://localhost:8100/api/control/curtail',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ turbineId: 'WT007', powerLimitKw: 1500 }),
+      }),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('限載 dialog 留空送出 → powerLimitKw 為 null（語意同解除限載）', async () => {
+    const spy = stubFetch({});
+    await renderDetail({ turbine: makeTurbine({ id: 7 }) });
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: '確認限載' }));
+    });
+    expect(spy).toHaveBeenCalledWith(
+      'http://localhost:8100/api/control/curtail',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ turbineId: 'WT007', powerLimitKw: null }),
+      }),
+    );
+  });
+
+  it('限載 dialog 輸入負值 → 前端擋下不送出，顯示錯誤訊息', async () => {
+    const spy = stubFetch({});
+    await renderDetail({});
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('限載 (kW)'), { target: { value: '-5' } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: '確認限載' }));
+    });
+    expect(screen.getByText('請輸入有效的 kW 值')).toBeInTheDocument();
+    expect(spy.mock.calls.some(([url]) => String(url).includes('/api/control/curtail'))).toBe(false);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('限載 dialog 送出後端非 2xx → 顯示後端 detail 訊息，dialog 不關', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (typeof url === 'string' && url.includes('/api/control/curtail')) {
+          return Promise.resolve({
+            ok: false,
+            status: 403,
+            json: () => Promise.resolve({ detail: 'Supervisor role required' }),
+          });
+        }
+        if (typeof url === 'string' && url.endsWith('/status')) {
+          return Promise.resolve({ json: () => Promise.resolve({}) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+    await renderDetail({});
+    fireEvent.click(screen.getByRole('button', { name: '限載' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('限載 (kW)'), { target: { value: '1000' } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: '確認限載' }));
+    });
+    expect(screen.getByText('Supervisor role required')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('已登入（有 token）→ header 限載送出走 authFetch 帶 Authorization header', async () => {
+    const spy = stubFetch({});
+    setAuthToken('test-token-header-curtail');
+    try {
+      await renderDetail({});
+      fireEvent.click(screen.getByRole('button', { name: '限載' }));
+      const dialog = screen.getByRole('dialog');
+      fireEvent.change(within(dialog).getByLabelText('限載 (kW)'), { target: { value: '800' } });
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole('button', { name: '確認限載' }));
+      });
+      const call = spy.mock.calls.find(([url]: [string]) => String(url).includes('/api/control/curtail'));
+      expect(call).toBeDefined();
+      const [, init] = call as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe(
+        'Bearer test-token-header-curtail',
+      );
     } finally {
       clearAuthToken();
     }

@@ -287,6 +287,165 @@ const OperatorControlCard: React.FC<{
   );
 };
 
+// ─── Curtail modal（PageHeader『限載』鈕，WMOM-20260507-02 sub-task c）──────
+// 與右欄 OperatorControlCard 的限載輸入是同一支 endpoint 的重複入口（比照 sub-task b
+// 『停機』header 鈕先例），直接呼叫 `/api/control/curtail`；OperatorControlCard 自身
+// 3s 輪詢會反映最新狀態，故此處不另外維護狀態顯示，成功即關窗。
+
+const CurtailModal: React.FC<{
+  turbineApiId: string;
+  tr: (en: string, zh: string) => string;
+  onClose: () => void;
+}> = ({ turbineApiId, tr, onClose }) => {
+  const { C } = useTheme();
+  const [value, setValue] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const trimmed = value.trim();
+    const powerLimitKw = trimmed === '' ? null : parseFloat(trimmed);
+    if (powerLimitKw !== null && (!Number.isFinite(powerLimitKw) || powerLimitKw < 0)) {
+      setError(tr('Enter a valid kW value', '請輸入有效的 kW 值'));
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await authFetch(`${API_BASE}/api/control/curtail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turbineId: turbineApiId, powerLimitKw }),
+      });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          detail = (await res.json())?.detail ?? '';
+        } catch {
+          /* ignore parse error */
+        }
+        setError(detail || tr('Failed to set curtailment', '設定限載失敗'));
+        return;
+      }
+      onClose();
+    } catch {
+      setError(tr('Network error', '網路錯誤'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 200,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+      }}
+    >
+      <Card
+        padding={0}
+        onClick={undefined}
+        style={{ width: '100%', maxWidth: 380, overflow: 'hidden' }}
+      >
+        <div onClick={e => e.stopPropagation()}>
+          <div
+            style={{
+              padding: '14px 18px',
+              borderBottom: `1px solid ${C.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontFamily: '"DM Serif Display", serif',
+                fontSize: 20,
+                fontWeight: 400,
+                color: C.text,
+              }}
+            >
+              {tr('Set curtailment', '設定限載')}
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label={tr('Close', '關閉')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: C.sub,
+                fontSize: 18,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Field label={tr('Curtailment (kW)', '限載 (kW)')}>
+              <Input
+                type="number"
+                value={value}
+                onChange={setValue}
+                placeholder={tr('Empty = remove curtailment', '留空 = 解除限載')}
+                fullWidth
+                ariaLabel={tr('Curtailment (kW)', '限載 (kW)')}
+              />
+            </Field>
+
+            {error && (
+              <div
+                style={{
+                  background: C.warnSoft,
+                  color: C.warn,
+                  border: `1px solid ${C.warn}`,
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              padding: '12px 18px',
+              borderTop: `1px solid ${C.border}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+            }}
+          >
+            <Btn onClick={onClose} ariaLabel={tr('Cancel', '取消')}>
+              {tr('Cancel', '取消')}
+            </Btn>
+            <Btn
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={submitting}
+              ariaLabel={tr('Confirm curtailment', '確認限載')}
+            >
+              {submitting ? tr('Setting…', '設定中…') : tr('Confirm', '確認')}
+            </Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 // ─── Fault badge ───────────────────────────────────────────────
 
 const FaultBanner: React.FC<{ faults: FaultInfo[]; tr: (en: string, zh: string) => string }> = ({
@@ -954,6 +1113,10 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
   const hasFaults = turbine.activeFaults && turbine.activeFaults.length > 0;
   const subScores = useSubsystemScores(turbine);
 
+  // PageHeader「限載」（WMOM-20260507-02 sub-task c）：開 inline modal 收 kW 值後打
+  // 同一支 `/api/control/curtail` endpoint，是右欄「操作控制」卡片限載輸入的重複入口。
+  const [curtailModalOpen, setCurtailModalOpen] = useState(false);
+
   // PageHeader「停機」（WMOM-20260507-02 sub-task b）：右側「操作控制」卡片的重複入口
   // （設計稿既有意圖，見 docs/design 交接書），直接呼叫同一支 command endpoint，
   // 卡片自身 3s 輪詢會自然反映最新狀態，故不在此另外維護狀態顯示。
@@ -1018,7 +1181,9 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         }
         actions={
           <>
-            <Btn ariaLabel={tr('Curtail', '限載')}>{tr('Curtail', '限載')}</Btn>
+            <Btn ariaLabel={tr('Curtail', '限載')} onClick={() => setCurtailModalOpen(true)}>
+              {tr('Curtail', '限載')}
+            </Btn>
             <Btn
               ariaLabel={tr('Stop', '停機')}
               onClick={handleHeaderStop}
@@ -1032,6 +1197,14 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
           </>
         }
       />
+
+      {curtailModalOpen && (
+        <CurtailModal
+          turbineApiId={turbineApiId}
+          tr={tr}
+          onClose={() => setCurtailModalOpen(false)}
+        />
+      )}
 
       {/* Active fault banner */}
       {hasFaults && <FaultBanner faults={turbine.activeFaults!} tr={tr} />}

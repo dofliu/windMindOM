@@ -14,7 +14,7 @@
 | Status | Count |
 |--------|------|
 | open | 10 |
-| in_progress | 0 |
+| in_progress | 1 |
 | blocked | 0 |
 | done | 127 |
 | **total (active)** | **137** |
@@ -3461,6 +3461,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     `OperatorControlCard` 4 處既有 `fetch` 缺口（改 `authFetch`，該卡片指令端點皆
     `SUPERVISOR`-only 寫入）。新增 7 測皆 mutation-verified。
   - [ ] **c. 風機細節 `限載`** — 開 inline modal 收 kW 值 → `POST /api/control/curtail`。**估時 1h**
+    → 🔄 in_progress，見 **WMOM-20260925-02**
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
   - [ ] **e. 維護中心 `+ 新工單`** — 開 modal：選風機 + 描述 + 選技師 → `POST /api/maintenance/work-orders`（API 已存在）。**估時 2h**
   - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend）
@@ -3470,6 +3471,35 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260925-02 — `TurbineDetail.tsx` header『限載』鈕接線（WMOM-20260507-02 sub-task c）
+
+- **Status**: in_progress
+- **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
+- **Priority**: low（UX polish；限載功能本身已可從右欄「操作控制」卡片完整操作，本 issue
+  只補 PageHeader 這個重複入口）
+- **Estimate**: 1h
+- **Source**: `WMOM-20260507-02` sub-task c，autonomous session 認領
+- **Description**:
+  `frontend/components/TurbineDetail.tsx` PageHeader actions 的「限載」鈕（約 1021 行）目前是
+  零功能 placeholder（`<Btn ariaLabel={tr('Curtail', '限載')}>{tr('Curtail', '限載')}</Btn>`，
+  無 `onClick`）。同頁右欄 `OperatorControlCard` 已有完整限載輸入（kW 值 + 設定/解除，走
+  `authFetch` 打 `POST /api/control/curtail`，`SUPERVISOR`-only），比照 sub-task b（`停機`
+  header 鈕）先例——同一支端點的重複入口，用 inline modal 收 kW 值後打同一支 API，不重寫
+  `OperatorControlCard` 邏輯。
+- **Deliverable**:
+  - 新增 `CurtailModal`（比照 `FarmSelector.tsx` 的 `CreateFarmModal` 遮罩 + `role="dialog"`
+    + `Card` 樣式慣例）：單一 kW 數字輸入框（留空 = 解除限載，語意與 `OperatorControlCard.
+    setCurtail` 一致）+ 取消 / 設定按鈕，送出打 `authFetch POST /api/control/curtail`
+    （`SUPERVISOR`-only，未授權會 403，於 modal 內顯示錯誤訊息不關窗）
+  - PageHeader「限載」鈕 `onClick` 開啟 modal；成功送出後關閉 modal（`OperatorControlCard`
+    自身 3s 輪詢會反映最新狀態，不在此另外維護狀態顯示，比照 sub-task b 決策）
+  - `TurbineDetail.test.tsx` 新增測試：開/關 modal、送出 kW 值打對 endpoint/body、留空送出視同
+    解除（`powerLimitKw: null`）、已登入時帶 `Authorization` header、非 2xx 顯示錯誤不關窗
+  - 完成後本 issue 標 done + 回頭勾選 `WMOM-20260507-02` sub-task c
+- **Reference**: `WMOM-20260507-02`、`WMOM-20260923-09`（sub-task b 先例）
 
 ---
 
