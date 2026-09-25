@@ -16,10 +16,37 @@
 | open | 10 |
 | in_progress | 0 |
 | blocked | 0 |
-| done | 128 |
-| **total (active)** | **138** |
+| done | 129 |
+| **total (active)** | **139** |
 
-最後更新：2026-09-25（**WMOM-20260925-02 — `TurbineDetail.tsx` header『限載』鈕接線
+最後更新：2026-09-25（**WMOM-20260925-03 — `MaintenanceHub.tsx` header『+ 新工單』鈕
+接線（`WMOM-20260507-02` sub-task e）**：PageHeader「+ 新工單」鈕原為零功能
+placeholder，新增 `NewWorkOrderModal`（比照 `TurbineDetail.tsx` `CurtailModal` /
+`DispatchModal` / `FarmSelector.tsx` `CreateFarmModal` 遮罩 + `role="dialog"` 慣例）：
+風機下拉（新增 `turbines` prop，非寫死清單）+ 問題描述 textarea + 技師下拉（僅列
+`ON_DUTY` 技師，比照 `DispatchModal` 既有「只能派遣在崗者」規則）。送出打既有
+`maintenanceData.createWorkOrder`（`useMaintenanceData.ts` 早已實作、原供 `DispatchModal`
+使用，`POST /api/maintenance/work-orders`，`SUPERVISOR`-only），成功後關窗（不額外維護
+送出狀態，比照 sub-task b/c 決策）。`useMaintenanceData.createWorkOrder` 第 4 參數
+`technicianId` 型別由必填 `number` 改選填 `number?`（對齊後端 `Optional[int] = None`
+既有契約，`DispatchModal` 既有呼叫方不受影響）。`App.tsx` 呼叫點補 `turbines`/`lang`
+（`lang` 是附帶發現的既有缺口，先前完全未傳，一併修正）。新增 11 測（開關 dialog、
+取消/✕ 不呼叫 API、必填欄位擋送出 disabled、風機+描述+無技師送出
+`technicianId=undefined`、風機+描述+技師送出 number 型別、技師下拉僅列 `ON_DUTY`、
+風機選項來自 prop、lang=en 文案、`turbines=[]` 邊界、**已選技師於輪詢期間變成非
+`ON_DUTY` → 送出視同未指派**），皆 mutation-verified。backend 未動 1103 passed 不變；
+frontend tsc 0、1275→1286 passed（60 files，+11 新測，零 regression）、build OK。
+code-reviewer subagent review：**Approve，0 must-fix**，2 should-fix（① 技師選取與
+10s 輪詢資料脫節可能送出過期 id，已修：送出前重新核對是否仍在 `available` 內，不在則
+視同未指派，+1 測 mutation-verified；② 本次選擇沿用 `DispatchModal` 的
+fire-and-forget 模式而非同檔案 `CurtailModal` 已示範的 `submitting`/`error` state 完整
+寫法——reviewer 確認屬已誠實揭露的既有系統性缺口非本次新增錯誤，不阻塞，未採納
+修正）+ 3 nice-to-have（`role="dialog"` 缺 `aria-label`——新舊 modal 慣例並存的既有
+現象，未採納；`turbines=[]` 邊界測試缺口，已採納 +1 測；死碼
+`useMockMaintenanceData.ts` 型別未同步放寬，全 repo 無呼叫方不影響，未採納）。
+`WMOM-20260507-02` 清單至此僅剩 sub-task d（依賴 `WMOM-20260505-22` 尚未做）與 f
+（需先確認 reporting module 報告類型 API）。）
+前一 session：2026-09-25（**WMOM-20260925-02 — `TurbineDetail.tsx` header『限載』鈕接線
 （`WMOM-20260507-02` sub-task c）**：PageHeader「限載」鈕原為零功能 placeholder，新增
 `CurtailModal`（比照 `FarmSelector.tsx` 的 `CreateFarmModal` 遮罩/`role="dialog"` 慣例）
 收 kW 值後打 `authFetch POST /api/control/curtail`（`SUPERVISOR`-only），是右欄
@@ -3481,14 +3508,83 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     curtail`；PageHeader「限載」鈕是右欄 `OperatorControlCard` 限載輸入的重複入口，比照
     sub-task b 先例。新增 8 測皆 mutation-verified。
   - [ ] **d. 風機細節 `安排檢查`** — 跳到 `/maintenance` + 預填 turbine 與 inspection scenario；依賴 WMOM-22 `inspection_schedule`。**估時 1h**（但要等 -22 done）
-  - [ ] **e. 維護中心 `+ 新工單`** — 開 modal：選風機 + 描述 + 選技師 → `POST /api/maintenance/work-orders`（API 已存在）。**估時 2h**
-  - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend）
+  - [x] ~~**e. 維護中心 `+ 新工單`**~~ — ✅ 2026-09-25 完成（**WMOM-20260925-03**）。
+    `NewWorkOrderModal`（比照 `CurtailModal`/`DispatchModal`/`CreateFarmModal` 慣例）：
+    選風機（新增 `turbines` prop）+ 描述 + 選技師（僅列 `ON_DUTY`）→ 既有
+    `maintenanceData.createWorkOrder` 打 `POST /api/maintenance/work-orders`。新增
+    11 測皆 mutation-verified（含 code review 抓到的技師過期選取校驗）。
+  - [ ] **f. 風場總覽 `+ 新報告`** — 依賴 M4 reporting module；開 modal 選報告類型（月報 / 年度預算 / custom range）。**估時 2-3h**（要等 M4 backend；下次認領前建議先讀 `modules/reporting/routers/*.py` 摸清可選報告類型清單再動工）
 - **Deliverable**:
   - 每完成一項，更新本 issue checkbox + commit 訊息帶 `feat(#WMOM-20260507-02): wire {sub-task name}`
   - 全勾完後本 issue close
 - **Decision**:
   - 不要把這些按鈕通通砍掉重畫（會破壞跟設計稿的對齊）
   - 不要做「dummy alert / TODO 訊息」假裝有功能（劉老師 2026-05-07：「沒作用沒關係，開發階段」）
+
+---
+
+### WMOM-20260925-03 — `MaintenanceHub.tsx` header『+ 新工單』鈕接線（WMOM-20260507-02 sub-task e）
+
+- **Status**: done（2026-09-25 完成，autonomous session）
+- **Milestone**: 不卡 M2-M6 主線，可隨時挑著補
+- **Priority**: low（UX polish；工單建立本身已可透過 `DispatchModal`（風機故障觸發流程）
+  完成，本 issue 只補維護中心 PageHeader 這個「主動建單」入口）
+- **Estimate**: 2h
+- **Source**: `WMOM-20260507-02` sub-task e，autonomous session 認領
+- **Description**:
+  `frontend/components/MaintenanceHub.tsx` PageHeader actions 的「+ 新工單」鈕（約
+  411 行）目前是零功能 placeholder。`frontend/hooks/useMaintenanceData.ts` 早已完整
+  實作 `createWorkOrder(turbineId, turbineName, faultDescription, technicianId)`
+  （打 `POST /api/maintenance/work-orders`，後端 `require_role(SUPERVISOR)`），但目前
+  唯一呼叫方是 `DispatchModal`（`TurbineDetail.tsx` 風機故障當下的派工流程，風機已固定、
+  無法自由選機）。本 issue 補一個通用入口：任選風機 + 自填描述 + 選技師。
+- **Deliverable**:
+  - 新增 `NewWorkOrderModal`（比照 `TurbineDetail.tsx` `CurtailModal` /
+    `DispatchModal` / `FarmSelector.tsx` `CreateFarmModal` 遮罩 + `role="dialog"` +
+    `Card` 樣式慣例）：風機 `Select`（選項來自新增的 `turbines` prop）+ 問題描述
+    `textarea` + 技師 `Select`（僅列 `ON_DUTY`，比照 `DispatchModal` 既有規則，避免
+    重複指派 `DISPATCHED`/`OFF_DUTY` 者）
+  - 「建立工單」鈕 `disabled={!turbineIdStr || !description.trim()}`（比照
+    `CreateFarmModal.handleCreate` 前例，必填欄位用 disable 擋）
+  - 送出呼叫既有 `maintenanceData.createWorkOrder`（未選技師傳 `undefined`），成功後
+    關窗（不額外維護送出狀態，比照 sub-task b/c 決策，`useMaintenanceData` 自身
+    10s 輪詢會反映最新工單清單）
+  - `MaintenanceHubProps` 新增必填 `turbines` prop；`App.tsx` 呼叫點補上
+  - `MaintenanceHub.test.tsx` 新增測試覆蓋開關 dialog / 必填欄位擋送出 /
+    `technicianId` undefined vs number / 技師下拉僅列 `ON_DUTY` / 風機選項來自 prop
+  - 完成後本 issue 標 done + 回頭勾選 `WMOM-20260507-02` sub-task e
+- **Completion summary**:
+  - ✅ `NewWorkOrderModal` 新增（遮罩 + `role="dialog"` + `Card`，逐行比對
+    code-reviewer 確認近乎逐行沿用 `CurtailModal` 既有慣例）+ PageHeader「+ 新工單」
+    鈕接線
+  - ✅ `useMaintenanceData.createWorkOrder` 第 4 參數 `technicianId` 型別由必填
+    `number` 改選填 `number?`（對齊後端 `Optional[int] = None` 既有契約；全 repo
+    僅 `DispatchModal`/`NewWorkOrderModal` 兩個呼叫方，前者一律有具體 id 不受影響）
+  - ✅ `App.tsx` 補 `turbines` + `lang`（`lang` 為附帶發現的既有缺口，先前完全未傳，
+    一併修正）
+  - ✅ 新增 11 測（開關 dialog、取消/✕ 不呼叫 API、必填欄位擋送出、
+    `technicianId=undefined`/number 兩路徑、技師下拉僅列 `ON_DUTY`、風機選項來自
+    prop、lang=en 文案、`turbines=[]` 邊界、已選技師輪詢期間變成非 `ON_DUTY` →
+    視同未指派），皆 mutation-verified（含 code review round-2 補的 2 測）
+  - ✅ backend 未動 1103 passed 不變；frontend tsc 0、1275→1286 passed（60 files，
+    +11 新測，零 regression）、build OK
+  - ✅ code-reviewer subagent review：**Approve，0 must-fix**。2 should-fix
+    （① 技師選取與 10s 輪詢資料脫節可能送出過期 id，已修＋補測；② 選擇沿用
+    `DispatchModal` fire-and-forget 模式而非 `CurtailModal` 完整 error state 寫法，
+    reviewer 確認屬已誠實揭露的既有系統性缺口，不阻塞，未修）+ 3 nice-to-have（
+    `aria-label` 缺失為新舊 modal 慣例並存的既有現象未採納；`turbines=[]` 邊界測試
+    已採納；死碼 `useMockMaintenanceData.ts` 型別未同步放寬，無呼叫方不影響，未採納）
+  - `WMOM-20260507-02` 清單至此僅剩 sub-task d（依賴 `WMOM-20260505-22`）與 f（依賴
+    確認 reporting module 報告類型）
+- **Files changed**:
+  - `M frontend/components/MaintenanceHub.tsx` — 新增 `NewWorkOrderModal` + prop + 接線
+  - `M frontend/hooks/useMaintenanceData.ts` — `technicianId` 型別選填化
+  - `M frontend/App.tsx` — `MaintenanceHub` 呼叫點補 `turbines`/`lang`
+  - `M frontend/components/__tests__/MaintenanceHub.test.tsx` — +11 測 + `renderHub`
+    fixture 擴充
+  - `+ work-logs/2026-09/2026-09-25-maintenancehub-new-workorder-button.md`
+- **Reference**: `WMOM-20260507-02`、`WMOM-20260923-09`（`DispatchModal` 在崗技師規則
+  先例）、`WMOM-20260925-02`（modal 樣式慣例先例）
 
 ---
 

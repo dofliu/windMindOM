@@ -403,7 +403,13 @@ const NewWorkOrderModal: React.FC<{
   const handleSubmit = () => {
     const turbine = turbines.find(t => String(t.id) === turbineIdStr);
     if (!turbine || !description.trim()) return;
-    const technicianId = technicianIdStr === '' ? undefined : Number(technicianIdStr);
+    const requestedTechnicianId = technicianIdStr === '' ? undefined : Number(technicianIdStr);
+    // 10s 輪詢期間該技師狀態可能已變動（不再 ON_DUTY）——送出前重新核對，過期選取視同未指派，
+    // 避免繞過「僅能指派在崗技師」的業務規則（code review should-fix #1）
+    const technicianId =
+      requestedTechnicianId !== undefined && available.some(t => t.id === requestedTechnicianId)
+        ? requestedTechnicianId
+        : undefined;
     onCreate(turbine.id, turbine.name, description.trim(), technicianId);
     onClose();
   };

@@ -62,7 +62,7 @@ placeholder** ——選為本次工作，開新 issue `WMOM-20260925-03` 追蹤�
   `/admin/maintenance` 頁面無論全站語系設定為何一律 fallback 顯示繁中——本次一併修正，
   非本次範圍擴大，屬同一呼叫點的直接關聯修正）
 - **`frontend/components/__tests__/MaintenanceHub.test.tsx`**：`renderHub()` 補
-  `turbines` fixture（預設 2 台）+ 回傳 `maintenanceData`/`turbines` 供斷言；新增 9 測
+  `turbines` fixture（預設 2 台）+ 回傳 `maintenanceData`/`turbines` 供斷言；新增 9 測（review 後再補 2 測共 11 測）
   （開關 dialog / 取消・✕ 不呼叫 API / 必填欄位擋送出 / 風機+描述+無技師送出
   `technicianId=undefined` / 風機+描述+技師送出 `technicianId` 為 number / 技師下拉只列
   `ON_DUTY` / 風機下拉選項來自 prop / lang=en 文案），皆 mutation-verified
@@ -81,7 +81,7 @@ placeholder** ——選為本次工作，開新 issue `WMOM-20260925-03` 追蹤�
   接線）
 - `frontend/hooks/useMaintenanceData.ts`：1 行型別修正（`technicianId` 選填化）
 - `frontend/App.tsx`：`MaintenanceHub` 呼叫點 +2 行（`turbines`/`lang`）
-- `frontend/components/__tests__/MaintenanceHub.test.tsx`：+9 測 + `renderHub` fixture
+- `frontend/components/__tests__/MaintenanceHub.test.tsx`：+9 測（review 後再補 2 測，共 +11 測） + `renderHub` fixture
   擴充
 - `ISSUES.md`：新增 `WMOM-20260925-03`（含 completion summary）+ 回頭勾選
   `WMOM-20260507-02` sub-task e；統計表 in_progress 0→0（開單即完工）、done 128→129
@@ -122,7 +122,7 @@ placeholder** ——選為本次工作，開新 issue `WMOM-20260925-03` 追蹤�
   建議另開 issue 評估，不在本次 fix）。
 - ⚠ 附帶再次提醒（已連續多個 session 提醒）：`docs/routines/autonomous-daily-worker-
   prompt.md` canonical 文件內文仍停在舊版本（v3，baseline 638/59），落後於實際 cron
-  trigger 送入的 prompt（v4.1，baseline 1103/1275→1284），建議劉老師找時間同步。
+  trigger 送入的 prompt（v4.1，baseline 1103/1275→1286），建議劉老師找時間同步。
 
 ## 5. Open questions（park）
 
@@ -143,8 +143,8 @@ placeholder** ——選為本次工作，開新 issue `WMOM-20260925-03` 追蹤�
   OK。
 - 修改後：backend 未動，不重跑（本次零 Python 變更，已於開工時跑過一次確認 baseline
   後於收尾前再次全套重跑確認）→ **1103 passed 不變**；frontend `npx tsc --noEmit`
-  0 error（見 §4 意外發現的限制說明）、`npx vitest run` 1275→1284 passed（60 files
-  不變，+9 新測，零 regression）、`npx vite build` OK。
+  0 error（見 §4 意外發現的限制說明）、`npx vitest run` 1275→1286 passed（60 files
+  不變，+11 新測，零 regression）、`npx vite build` OK。
 - **Mutation-verified**（scratchpad 備份 + md5sum 核對還原，非 `git checkout`，因
   `MaintenanceHub.test.tsx` 為未追蹤新增測試段落、`git checkout` 無法還原編輯中的
   working tree 內容差異基準）：
@@ -161,8 +161,47 @@ placeholder** ——選為本次工作，開新 issue `WMOM-20260925-03` 追蹤�
 
 ## Review
 
-code-reviewer subagent review：待執行（見下方 Wrap-up 前將呼叫）。
+code-reviewer subagent review：**Approve，0 must-fix**，2 should-fix + 3 nice-to-have。
+
+- **Should-fix #1（已修）**：技師下拉的本地選取狀態與 `useMaintenanceData` 10s 輪詢資料
+  脫節——若使用者開著 modal 超過一輪輪詢、原本選定的在崗技師此時被別處改成
+  `DISPATCHED`/`OFF_DUTY`，`available` 清單會把他移除但 `technicianIdStr` state
+  不會自動清空，送出時仍可能夾帶這個已過期、繞過「僅能指派在崗技師」規則的 id。
+  修法：`handleSubmit` 送出前重新核對 `technicianIdStr` 是否仍在當下 `available`
+  清單內，不在則視同未指派（`technicianId = undefined`）。新增 1 測模擬「選定技師後
+  `technicians` prop 透過 `rerender` 變成 `DISPATCHED`，送出應得到 `undefined`」，
+  mutation-verified（退回舊邏輯 → 如預期送出過期 `7` 而非 `undefined`，已還原）。
+- **Should-fix #2（不修，重新措辭記錄）**：reviewer 指出本次選擇沿用 `DispatchModal`
+  的 fire-and-forget 模式（後端非 2xx 時 UI 無感知），而非同檔案內 `CurtailModal`
+  已示範的 `submitting`/`error` state 完整寫法——精確地說是「同 repo 已有更好範式
+  但這次沒採用」而非「無法做」。reviewer 確認此點本次背景已誠實揭露、且是既有系統性
+  缺口非本次新增邏輯錯誤，不阻塞本次，留給未來若要補這條錯誤回饋路徑時直接照抄
+  `CurtailModal` 寫法即可。
+- **Nice-to-have #1（未採納）**：`role="dialog"` 缺 `aria-label`——`workflow/` 目錄下
+  較新的 modal 有補，但 `CurtailModal`/`DispatchModal`/`FarmSelector` 等舊款慣例皆無，
+  是 repo 內新舊兩代 modal 慣例並存的既有現象，非本次引入，不影響測試。
+- **Nice-to-have #2（已採納）**：補「`turbines=[]`」邊界測試，鎖住風場尚無風機資料時
+  下拉只剩 placeholder、「建立工單」鈕恆 disabled 的 fallback 行為。
+- **Nice-to-have #3（未採納）**：`useMockMaintenanceData.ts`（全 repo 無任何呼叫方的
+  死碼）的 `createWorkOrder` 簽名未同步放寬 `technicianId?`，reviewer 確認不影響本次、
+  留待該 mock hook 未來若重新啟用時一併處理。
+- reviewer 獨立重跑 `vitest run components/__tests__/MaintenanceHub.test.tsx`（58
+  passed）+ `hooks/__tests__/useMaintenanceData.test.ts`（4 passed）確認與 work-log
+  宣稱一致；逐行比對 `CurtailModal` 確認 `NewWorkOrderModal` 樣式為忠實複製既有慣例；
+  確認 `Pick<TurbineData,'id'|'name'>[]` 接 `TurbineData[]` 在 TS 結構化型別下安全
+  （陣列賦值不觸發 excess property check）；確認 `technicianId?: number` 型別放寬
+  全 repo 只有 `DispatchModal`/`NewWorkOrderModal` 兩個呼叫方，前者一律有具體 id 不受
+  影響。
 
 ## Wrap-up
 
-見上方 §3/§4；`ISSUES.md`/`STATUS.yaml`/`TODO.md` 已同步更新（完成 code review 後）。
+- 已修復 1 個 should-fix（技師過期選取校驗）+ 1 個 nice-to-have（`turbines=[]` 邊界
+  測試），共新增 2 測（60→62 於本檔測試數，全站 frontend 1284→1286 passed，60 files
+  不變）。已重跑 `tsc --noEmit`（0 error）+ 全套 `vitest run`（1286 passed）+
+  `vite build`（OK）確認零 regression，並對 should-fix #1 的修法做 mutation-verify
+  （退回舊邏輯 → 新測試如預期 fail，已還原確認）。
+- `ISSUES.md`/`STATUS.yaml`/`TODO.md` 已同步更新（見下方 commit）。
+- 誠實揭露：Should-fix #2（後端寫入失敗時 UI 無感知）刻意不修，留在 `NewWorkOrderModal`
+  作為已知限制；`useMaintenanceData.test.ts` 目前只測 happy path 的 auth header，未涵蓋
+  `createWorkOrder` 非 2xx 失敗路徑的前端行為（因為目前該路徑本來就沒有任何 UI 回饋
+  可供斷言）。

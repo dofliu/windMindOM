@@ -642,4 +642,42 @@ describe('MaintenanceHub — 「+ 新工單」modal', () => {
     expect(screen.getByLabelText('Description')).toBeInTheDocument();
     expect(screen.getByLabelText('Technician (optional)')).toBeInTheDocument();
   });
+
+  it('風場沒有任何風機資料（turbines=[]）→ 下拉只剩 placeholder，「建立工單」鈕恆 disabled（邊界狀態不崩潰）', () => {
+    renderHub({ turbines: [] });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    const select = screen.getByLabelText('風機') as HTMLSelectElement;
+    expect(Array.from(select.options).map(o => o.textContent)).toEqual(['請選擇風機']);
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '任意描述' } });
+    expect(screen.getByRole('button', { name: '建立工單' })).toBeDisabled();
+  });
+
+  it('已選技師後其狀態變成非 ON_DUTY（例如 10s 輪詢期間被別處指派走）→ 送出視同未指派，不送出過期 technicianId（code review should-fix #1，mutation-verified）', () => {
+    const technicians = [makeTechnician({ id: 7, name: '陳大文', status: TechnicianStatus.ON_DUTY })];
+    const { maintenanceData, rerender } = renderHub({
+      technicians,
+      turbines: [makeTurbine({ id: 1, name: 'WTG-01' })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新工單' }));
+    fireEvent.change(screen.getByLabelText('風機'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('問題描述'), { target: { value: '測試描述' } });
+    fireEvent.change(screen.getByLabelText('技師（可留空）'), { target: { value: '7' } });
+
+    // 模擬 useMaintenanceData 的 10s 輪詢把該技師狀態改成 DISPATCHED（已被別處指派）
+    maintenanceData.technicians = [
+      makeTechnician({ id: 7, name: '陳大文', status: TechnicianStatus.DISPATCHED }),
+    ];
+    rerender(
+      <ThemeProvider>
+        <MaintenanceHub
+          maintenanceData={maintenanceData}
+          onSelectWorkOrder={vi.fn()}
+          turbines={[makeTurbine({ id: 1, name: 'WTG-01' })]}
+        />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '建立工單' }));
+    expect(maintenanceData.createWorkOrder).toHaveBeenCalledWith(1, 'WTG-01', '測試描述', undefined);
+  });
 });
