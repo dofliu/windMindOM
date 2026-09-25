@@ -49,6 +49,14 @@ from .inventory_schemas import (
     WarehouseListResponse,
     WarehouseResponse,
 )
+from .inspection_schemas import (
+    CreateInspectionScheduleRequest,
+    InspectionScheduleListResponse,
+    InspectionScheduleResponse,
+    RunSchedulerResponse,
+    SpawnedInspectionResponse,
+    UpdateInspectionScheduleRequest,
+)
 
 __all__ = [
     # signoff
@@ -96,4 +104,11 @@ __all__ = [
     "UpdateInventoryMetadataRequest",
     "WarehouseListResponse",
     "WarehouseResponse",
+    # inspection schedule (WMOM-20260505-22)
+    "CreateInspectionScheduleRequest",
+    "InspectionScheduleListResponse",
+    "InspectionScheduleResponse",
+    "RunSchedulerResponse",
+    "SpawnedInspectionResponse",
+    "UpdateInspectionScheduleRequest",
 ]

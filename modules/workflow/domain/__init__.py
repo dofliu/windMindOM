@@ -55,6 +55,12 @@ from .inventory_state_machine import (
     open_states_mr,
     terminal_states_mr,
 )
+from .inspection_schedule import (
+    InspectionSchedule,
+    Recurrence,
+    compute_next_due,
+    recurrence_interval_days,
+)
 
 __all__ = [
     # Work order + signoff (M3)
@@ -98,4 +104,9 @@ __all__ = [
     "Warehouse",
     "open_states_mr",
     "terminal_states_mr",
+    # Inspection schedule (WMOM-20260505-22)
+    "InspectionSchedule",
+    "Recurrence",
+    "compute_next_due",
+    "recurrence_interval_days",
 ]

@@ -16,7 +16,22 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（**WMOM-20260925-04 完成** — `FarmOverview.tsx` PageHeader
+最後更新：2026-09-25（**WMOM-20260505-22 後端完成** — `inspection_schedule` 定檢計畫 +
+scheduler auto-spawn：domain（`Recurrence` enum + 純函式）+ repository
+（`InspectionScheduleRepository`）+ service（`run_inspection_scheduler`，手動觸發 API、冪等、
+撞 multi-WO constraint 跳過不漏排，刻意不加背景 cron）+ router（7 endpoints）全套完成，79 測
+皆 mutation-verified。code-reviewer subagent review 抓到 **1 must-fix + 1 should-fix**（PATCH
+可寫入 `recurrence=custom_days` 卻缺 `interval_days` 的無效狀態，scheduler 到期時才炸開，造成
+重複 spawn 工單 + 500，reviewer 有獨立 repro script 實測重現；`create()` 驗證原本可被明確帶
+`first_due_at` 繞過），皆已用三層防禦修復（`create()`/`update_metadata()`/scheduler 各自驗證）
+並補 6 個 regression test mutation-verified。backend 1103→**1182 passed**（+79，零
+regression）；frontend 未動 1288 passed（60 files）不變、tsc 0、build OK。**前端未做**
+（`TurbineDetail.tsx` 安排檢查鈕接線 + `/admin/workflow/inspection` 定檢計畫管理頁），拆成新
+**WMOM-20260925-05**（open，API 已齊全可直接接手）。`WMOM-20260505-22` 標 `in_progress`
+（非 `done`，後端完成前端未完成）。**下個 session**：優先接手 **WMOM-20260925-05**（無設計
+歧義，`WMOM-20260507-02` sub-task d 也順便解掉），或見下方「需劉老師決策」清單、PR C（需先
+寫 broker 子設計）。）
+前一 session：2026-09-25（**WMOM-20260925-04 完成** — `FarmOverview.tsx` PageHeader
 『+ 新報告』鈕接線（`WMOM-20260507-02` sub-task f）：認領前先讀
 `modules/reporting/routers/reporting_router.py` 摸清報告類型（僅
 `monthly`/`annual-budget` 兩種），發現 `/admin/reports`（`ReportsPage.tsx`，M4
@@ -298,8 +313,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   細節「限載」/維護中心「+ 新工單」/風場總覽「+ 新報告」鈕接線~~ — ✅ WMOM-20260923-07（a）+
   WMOM-20260923-09（b）+ WMOM-20260925-02（c）+ WMOM-20260925-03（e）+
   WMOM-20260925-04（f）完成，見上方「最後更新」。**`WMOM-20260507-02` 清單僅剩 d**
-  （風機細節 `安排檢查` 依賴 WMOM-20260505-22 `inspection_schedule` 尚未做，持續
-  卡著；f 判定不需重造 modal，改導向既有 `/admin/reports` 頁，見 WMOM-20260925-04
+  （風機細節 `安排檢查`——依賴的 WMOM-20260505-22 `inspection_schedule` 後端已於
+  2026-09-25 完成，**依賴已解除**，但前端本身尚未接線，見下方 WMOM-20260925-05；
+  f 判定不需重造 modal，改導向既有 `/admin/reports` 頁，見 WMOM-20260925-04
   completion summary）
 - [x] ~~**WMOM-20260923-08** — `FarmOverview.tsx` farm-trend fetch 補 `authFetch`（一致性
   技術債）~~ — ✅ 2026-09-24 完成，見上方「最後更新」。`FarmOverview.tsx` 全檔至此無裸
@@ -323,6 +339,14 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   header『+ 新報告』鈕接線~~ — ✅ 2026-09-25 完成，見上方「最後更新」。判定不需重造
   modal，改導向既有 `/admin/reports` 頁。`WMOM-20260507-02` 清單僅剩 d（依賴
   WMOM-20260505-22，持續卡著）。
+- [x] ~~**WMOM-20260505-22**（`WMOM-20260507-02` sub-task d 的阻塞依賴）— `inspection_schedule`
+  定檢計畫 + scheduler auto-spawn 後端~~ — ✅ 2026-09-25 **後端**完成（domain + repository +
+  service + router，79 測 mutation-verified，code review 1 must-fix + 1 should-fix 皆已修
+  復），見上方「最後更新」。**前端未做**，拆成新 issue，見下一項。
+- [ ] **WMOM-20260925-05**（`WMOM-20260507-02` sub-task d 本體）— `inspection_schedule` 前端：
+  `TurbineDetail.tsx` header『安排檢查』鈕接線 + `/admin/workflow/inspection` 定檢計畫管理頁
+  （列表/建立/編輯/暫停恢復/手動觸發 scheduler）。API 已齊全（見 ISSUES.md 該 issue 條目的
+  API 一覽），無設計歧義，🔵 autonomous-friendly，估半天~1 天，建議下個 session 優先接手。
 
 ### 需劉老師決策才能開工
 

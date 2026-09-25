@@ -14,12 +14,27 @@
 | Status | Count |
 |--------|------|
 | open | 10 |
-| in_progress | 0 |
+| in_progress | 1 |
 | blocked | 0 |
 | done | 130 |
-| **total (active)** | **140** |
+| **total (active)** | **141** |
 
-最後更新：2026-09-25（**WMOM-20260925-04 — `FarmOverview.tsx` header『+ 新報告』鈕接線
+最後更新：2026-09-25（**WMOM-20260505-22 後端完成（autonomous session）— `inspection_schedule`
+定檢計畫 + scheduler auto-spawn**：domain（`Recurrence` enum + 純函式）+ ORM/repository
+（`InspectionScheduleRepository`）+ service（`run_inspection_scheduler`，手動觸發、冪等、撞
+multi-WO constraint 時跳過不漏排）+ router（7 endpoints，CRUD=LEADER/SUPERVISOR、
+list/get=任何登入者、`run-scheduler`=SUPERVISOR only）全數完成，79 個新測試皆
+mutation-verified。code-reviewer subagent review 抓到 **1 must-fix**（PATCH 可寫入
+`recurrence=custom_days` 卻缺 `interval_days` 的無效狀態，scheduler 到期時才炸開，造成重複
+spawn 工單 + 500，reviewer 有獨立 repro script 實測重現）+ **1 should-fix**（`create()` 驗證
+可被明確帶 `first_due_at` 繞過），皆已用三層防禦修復（`create()`/`update_metadata()`/
+scheduler 各自驗證）並補 6 個 regression test mutation-verified。backend 1103→**1182
+passed**（+79，零 regression）；frontend 未動 1288 passed（60 files）不變、tsc 0、build OK。
+**前端未做**（`TurbineDetail.tsx` 安排檢查鈕 + 定檢計畫管理頁），拆成新 follow-up
+**WMOM-20260925-05**（open，下個 session 可直接接手，API 已齊全）。`WMOM-20260505-22` 狀態
+改標 `in_progress`（後端 done，前端待補），非直接 `done`——避免未來 session 誤判整個 issue
+已完工。
+前一 session：2026-09-25（**WMOM-20260925-04 — `FarmOverview.tsx` header『+ 新報告』鈕接線
 （`WMOM-20260507-02` sub-task f）**：PageHeader「+ 新報告」鈕原為零功能 placeholder。
 認領前依 issue 建議先讀 `modules/reporting/routers/reporting_router.py` 摸清報告類型
 （僅 `monthly`/`annual-budget` 兩種），並發現 `frontend/components/reporting/
@@ -2454,22 +2469,99 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260505-22 — `inspection_schedule` 定檢計畫 + scheduler auto-spawn
 
-- **Status**: open
+- **Status**: in_progress（**後端已完成**，2026-09-25 autonomous session；**前端 UI 未做**，見下方
+  completion summary 與新開 follow-up **WMOM-20260925-05**）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
 - **Priority**: medium
-- **Estimate**: 1-1.5 工作天
+- **Estimate**: 1-1.5 工作天 → 後端實際約 1 session（含 code review 修復）；前端另計
 - **Source**: DN-01 walkthrough Q7（劉老師 2026-05-05 確認）
 - **Description**:
   定檢清單獨立 entity（如「每月一次塔筒螺栓檢查」「每季一次潤滑油檢查」）。
   Scheduler 把到期 inspection auto-spawn `work_order(type=INSPECTION)`，避免人工漏排。
 - **Deliverable**:
-  - `modules/workflow/domain/inspection_schedule.py`：InspectionSchedule + Recurrence enum
-  - `modules/workflow/services/inspection_scheduler.py`：daily check 到期項 → spawn WO
-  - `modules/workflow/routers/inspection_router.py`：CRUD 定檢計畫 + query「下次檢查時間」
-  - frontend `/admin/workflow/inspection` 計畫列表 + 編輯 + 「下次到期」dashboard
+  - ✅ `modules/workflow/domain/inspection_schedule.py`：InspectionSchedule + Recurrence enum
+  - ✅ `modules/workflow/services/inspection_scheduler.py`：`run_inspection_scheduler()` 到期項
+    → spawn WO（本次刻意設計為**手動觸發 API**而非背景 daily cron，見 completion summary 決策說明）
+  - ✅ `modules/workflow/routers/inspection_router.py`：CRUD 定檢計畫 + query「下次檢查時間」
+    （`GET /inspection-schedules` 依 `next_due_at` 升冪排序）+ `run-scheduler` 觸發端點
+  - ❌ frontend `/admin/workflow/inspection` 計畫列表 + 編輯 + 「下次到期」dashboard — **未做**，
+    見 **WMOM-20260925-05**
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - etech 對應：`server/regularlistForm.js` + `server/regularSetting.js`
+- **Completion summary（後端，2026-09-25 autonomous session）**：
+  - ✅ `modules/workflow/domain/inspection_schedule.py`：`Recurrence` enum（monthly=30天 /
+    quarterly=91天 / semi_annual=182天 / annual=365天 / custom_days=自訂天數）+
+    `recurrence_interval_days()` / `compute_next_due()` 純函式 + `InspectionSchedule` dataclass
+    + `is_due(as_of)` helper（沿襲 `work_order.py` 命名慣例）
+  - ✅ `modules/workflow/repository/inspection_orm.py` + `inspection_repository.py`：
+    `InspectionScheduleORM`（`wmom_inspection_schedules` 表）+
+    `InspectionScheduleRepository`（`create`/`get`/`list`/`update_metadata`/`set_active`/
+    `record_spawn`），共用 `work_order_repository.py` 的 engine cache（沿襲
+    `InventoryRepository` 做法）
+  - ✅ `modules/workflow/services/inspection_scheduler.py`（新 `services/` package）：
+    `run_inspection_scheduler()` 找到期排程 → `WorkOrderRepository.create(type=INSPECTION)`
+    → `record_spawn` 推進 `next_due_at`；冪等設計（spawn 成功立即推進，同週期不重複 spawn）；
+    撞 multi-WO constraint 時 log + 跳過且不推進（下次重試，不漏排）
+  - ✅ `modules/workflow/routers/inspection_router.py`（7 endpoints）：CRUD + activate/deactivate
+    + `run-scheduler` 觸發；角色設計：CRUD = LEADER/SUPERVISOR（比照派工權限）、list/get = 任何
+    登入者、`run-scheduler` = **SUPERVISOR only**（比同模組其他 WorkOrder 相關 endpoint 更嚴格，
+    刻意決策：一次呼叫可能批次跨多風機建工單，見 code review nice-to-have 確認）
+  - ✅ `modules/workflow/schemas/inspection_schemas.py`：request/response models，`custom_days`
+    缺 `interval_days` 在 create 端點提早 422
+  - ✅ 已註冊進 `modules/monitoring/server/app.py`；`GET /openapi.json` 確認 7 個 endpoint 皆
+    正確掛載、無 route 順序衝突
+  - ✅ 79 個新測試（domain 22 + repository 30 + service 11 + router 16），4 個新測試檔，皆
+    mutation-verified（共 8 處關鍵邏輯逐一改回錯誤版本確認測試如預期 fail）
+  - ✅ **code-reviewer subagent review 抓到 1 must-fix + 1 should-fix，皆已修復**：
+    `UpdateInspectionScheduleRequest`（PATCH）缺少「`recurrence=custom_days` 必須帶
+    `interval_days`」驗證，可寫入無效狀態，scheduler 到期時才炸開（工單已建、`next_due_at`
+    沒推進，導致重複 spawn + 500，reviewer 有獨立 repro script 實測重現）；`create()` 同款
+    驗證原本只在沒帶 `first_due_at` 時才會跑，帶了 `first_due_at` 會繞過。修法：三層防禦——
+    `create()` 無條件驗證 + `update_metadata()` 驗證合併後最終狀態（commit 前）+ scheduler
+    建工單前再驗證一次排程合法性（防未來繞過 repository 公開 API 的路徑）。新增 6 個
+    regression test 逐一 mutation-verified，其中 scheduler 層 mutation 精確重現 reviewer
+    repro script 的同一個 traceback，證實修法確實堵住那個洞。
+  - ✅ backend 1103→**1182 passed**（7 skipped, 1 xfailed，零 regression）；frontend 未動
+    1288 passed（60 files）不變、tsc 0、build OK
+  - ❌ **前端未做**：`TurbineDetail.tsx` header『安排檢查』鈕接線（`WMOM-20260507-02`
+    sub-task d 本體）+ `/admin/workflow/inspection` 定檢計畫管理頁（列表/建立/編輯）— 見
+    **WMOM-20260925-05**
+  - **決策**：`run-scheduler` 刻意設計為手動觸發 API 而非背景 daily cron（repo 目前無
+    APScheduler 等排程框架；reporting/cost 模組既有週期性彙總也都是 on-demand 觸發模式；避免
+    重蹈 WMOM-20260720-04/-08 那類背景執行緒生命週期硬化債）。未來若要自動觸發，可用
+    OS-level cron 呼叫這支 API，不需應用層再造排程機制。未寫入 `decision_log.md`（非架構層級
+    變動，純單一 service 的實作範圍決策）。
+
+---
+
+### WMOM-20260925-05 — `WMOM-20260505-22` 前端：定檢計畫管理頁 + `TurbineDetail` 安排檢查鈕
+
+- **Status**: open
+- **Milestone**: 不卡 M2-M6 主線
+- **Priority**: medium（`WMOM-20260507-02` sub-task d 最後一項阻塞已解除依賴，接手即可做）
+- **Estimate**: 半天~1 天
+- **Source**: `WMOM-20260505-22` 後端完成後拆分的前端 follow-up（2026-09-25 autonomous session）
+- **Description**:
+  後端 `inspection_schedule` API 已完整可用（見 `WMOM-20260505-22` completion summary），前端
+  仍缺兩塊：
+  1. `TurbineDetail.tsx` header『安排檢查』鈕（`WMOM-20260507-02` sub-task d 本體）——跳到
+     `/maintenance` 或專屬頁面 + 預填 turbine，讓現場/管理層可以直接幫該風機建立/檢視定檢計畫
+  2. `/admin/workflow/inspection` 定檢計畫管理頁——列表（依到期時間排序）+ 建立 + 編輯 +
+     暫停/恢復 + 手動觸發 `run-scheduler`（目前完全無 UI，只有後端 API）
+- **API 一覽**（供實作參考）：
+  - `POST /api/workflow/inspection-schedules`（LEADER/SUPERVISOR）
+  - `GET /api/workflow/inspection-schedules?farm_id=&turbine_id=&active_only=`（任何登入者，
+    依 `next_due_at` 升冪）
+  - `GET/PATCH /api/workflow/inspection-schedules/{id}`
+  - `POST /api/workflow/inspection-schedules/{id}/{activate|deactivate}`
+  - `POST /api/workflow/inspection-schedules/run-scheduler?farm_id=`（SUPERVISOR only）
+- **Deliverable**:
+  - `frontend/components/workflow/InspectionSchedulePage.tsx`（或併入既有 workflow 頁面架構，
+    依實作時判斷）
+  - `TurbineDetail.tsx` header『安排檢查』鈕接線
+  - 走 `components/ui/` 元件庫 + `theme/`，不寫死 hex（比照全站慣例）
+- **Reference**: `WMOM-20260505-22` completion summary、`DN-01` §3.3
 
 ---
 

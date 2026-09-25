@@ -50,6 +50,11 @@ from .material_request_repository import (
     MaterialRequestRuleViolation,
     get_material_request_repository,
 )
+from .inspection_orm import InspectionScheduleORM
+from .inspection_repository import (
+    InspectionScheduleRepository,
+    get_inspection_repository,
+)
 
 __all__ = [
     # core
@@ -84,4 +89,8 @@ __all__ = [
     "apply_stock_delta_in_session",
     "get_inventory_repository",
     "get_material_request_repository",
+    # inspection schedule (WMOM-20260505-22)
+    "InspectionScheduleORM",
+    "InspectionScheduleRepository",
+    "get_inspection_repository",
 ]
