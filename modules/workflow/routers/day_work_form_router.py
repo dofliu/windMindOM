@@ -8,8 +8,13 @@
 - GET    /api/workflow/day-work-forms/{form_id}            （detail）
 - POST   /api/workflow/day-work-forms/{form_id}/activities （新增一筆活動）
 
-本次範圍**不含** work_order 完工自動寫入 day_work_form 的整合 hook 與前端頁面
-（見 domain 模組 docstring 說明，涉及既有簽核流程耦合風險，另評估）。
+讀取端點 ownership 限制（WMOM-20260926-01 item 3）：``WMOM_AUTH_ENFORCE=true`` 後，
+EMPLOYEE / TREASURY 一律只能查自己的日誌（list 強制收窄 employee_id、by-date/detail
+非本人 403）；LEADER / SUPERVISOR / ADMIN 維持可查全員。enforce=false（過渡期）不限制，
+維持既有全開放行為。
+
+本次範圍**不含** work_order 完工自動寫入 day_work_form 的整合 hook（見 domain 模組
+docstring 說明，涉及既有簽核流程耦合風險，另評估，見 `WMOM-20260926-01` item 2）。
 """
 
 from __future__ import annotations
@@ -20,7 +25,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from modules.auth.dependencies import require_authenticated, require_role, resolve_actor_id
+from modules.auth.dependencies import (
+    require_authenticated,
+    require_role,
+    resolve_actor_id,
+    resolve_actor_when_enforced,
+)
 from modules.auth.roles import Role
 from modules.workflow.domain.day_work_form import ActivityEntry
 from modules.workflow.repository.day_work_form_repository import (
@@ -81,6 +91,19 @@ def _employee_uuid(request: Request, body_employee_id: UUID | None) -> UUID:
         raise HTTPException(status_code=400, detail=f"employee_id 非合法 UUID: {resolved}")
 
 
+# 讀取端點 ownership 限制（WMOM-20260926-01 item 3）：維持可查全員的角色——
+# TREASURY 刻意不列入（issue 原文點名的問題案例，收窄成只能查自己，同 EMPLOYEE）。
+_FULL_VISIBILITY_ROLES = frozenset({Role.LEADER, Role.SUPERVISOR, Role.ADMIN})
+
+
+def _viewer_uuid(actor_id: str) -> UUID:
+    """把 :func:`resolve_actor_when_enforced` 回傳的 ``Actor.id`` 轉 UUID（400 同 ``_employee_uuid``）。"""
+    try:
+        return UUID(actor_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"actor id 非合法 UUID: {actor_id}")
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # get-or-create
 # ─────────────────────────────────────────────────────────────────────────
@@ -118,6 +141,7 @@ async def get_or_create_day_work_form(
     dependencies=[Depends(require_authenticated())],
 )
 async def list_day_work_forms(
+    request: Request,
     farm_id: str = Query(..., min_length=1),
     employee_id: UUID | None = None,
     date_from: date | None = None,
@@ -125,7 +149,14 @@ async def list_day_work_forms(
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> DayWorkFormListResponse:
-    """查詢日誌列表（依 ``work_date`` 降冪，最新在前）。"""
+    """查詢日誌列表（依 ``work_date`` 降冪，最新在前）。
+
+    Ownership 限制：enforce 生效後，EMPLOYEE/TREASURY 一律強制收窄成查自己
+    （忽略帶入的 ``employee_id``）；LEADER/SUPERVISOR/ADMIN 維持可查全員。
+    """
+    viewer = resolve_actor_when_enforced(request)
+    if viewer is not None and viewer.role not in _FULL_VISIBILITY_ROLES:
+        employee_id = _viewer_uuid(viewer.id)
     repo = _get_repo(farm_id)
     items, total = repo.list(
         farm_id=farm_id,
@@ -147,11 +178,24 @@ async def list_day_work_forms(
     dependencies=[Depends(require_authenticated())],
 )
 async def get_day_work_form_by_date(
+    request: Request,
     farm_id: str = Query(..., min_length=1),
     employee_id: UUID = Query(...),
     work_date: date = Query(...),
 ) -> DayWorkFormResponse:
-    """「我今天做了什麼」單日 query——純讀取，尚未建立過回 404（前端可據此決定要不要呼叫建立）。"""
+    """「我今天做了什麼」單日 query——純讀取，尚未建立過回 404（前端可據此決定要不要呼叫建立）。
+
+    Ownership 限制：enforce 生效後，EMPLOYEE/TREASURY 帶入非本人 ``employee_id`` → 403
+    （``employee_id`` 為必填參數，呼叫端明確指定了對象，靜默覆寫比 403 更危險——會讓
+    呼叫端誤以為拿到了指定對象的資料）。
+    """
+    viewer = resolve_actor_when_enforced(request)
+    if (
+        viewer is not None
+        and viewer.role not in _FULL_VISIBILITY_ROLES
+        and _viewer_uuid(viewer.id) != employee_id
+    ):
+        raise HTTPException(status_code=403, detail="只能查詢自己的日誌")
     repo = _get_repo(farm_id)
     form = repo.get_by_date(farm_id=farm_id, employee_id=employee_id, work_date=work_date)
     if form is None:
@@ -168,12 +212,22 @@ async def get_day_work_form_by_date(
     dependencies=[Depends(require_authenticated())],
 )
 async def get_day_work_form(
-    form_id: UUID, farm_id: str = Query(..., min_length=1)
+    request: Request, form_id: UUID, farm_id: str = Query(..., min_length=1)
 ) -> DayWorkFormResponse:
+    """detail query。Ownership 限制：404 優先於 403（不洩漏「這份日誌存在但不是你的」），
+    enforce 生效後 EMPLOYEE/TREASURY 非本人一律 403，比照 ``append_activity`` 既有慣例。
+    """
     repo = _get_repo(farm_id)
     form = repo.get(form_id)
     if form is None:
         raise HTTPException(status_code=404, detail=f"day_work_form {form_id} not found")
+    viewer = resolve_actor_when_enforced(request)
+    if (
+        viewer is not None
+        and viewer.role not in _FULL_VISIBILITY_ROLES
+        and _viewer_uuid(viewer.id) != form.employee_id
+    ):
+        raise HTTPException(status_code=403, detail="只能查詢自己的日誌")
     return DayWorkFormResponse.model_validate(form)
 
 

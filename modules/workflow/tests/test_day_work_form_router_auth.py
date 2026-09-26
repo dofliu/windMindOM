@@ -381,3 +381,191 @@ def test_append_activity_supervisor_cannot_write_others_log_403(client, monkeypa
         headers=_bearer("supervisor", str(uuid4())),
     )
     assert resp.status_code == 403
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 讀取端點 ownership 限制（WMOM-20260926-01 item 3）
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_list_not_enforced_treasury_sees_all(client):
+    """過渡期（enforce=false）：即使帶 TREASURY token 也不限制——維持既有全開放行為。"""
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(employee_id=str(uuid4())),
+    )
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(employee_id=str(uuid4())),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms",
+        params={"farm_id": "changhua"},
+        headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 2
+
+
+def test_list_enforced_treasury_narrowed_to_self(client, monkeypatch):
+    """Ownership 限制核心案例（issue 原文點名的問題）：enforce 後 TREASURY 查全員列表
+    （不帶 employee_id filter）被強制收窄成只看自己——不再看到別人建立的日誌。
+    """
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    treasury_subject = str(uuid4())
+    resp = client.get(
+        "/api/workflow/day-work-forms",
+        params={"farm_id": "changhua"},
+        headers=_bearer("treasury", treasury_subject),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0  # 別人的日誌被收窄掉，TREASURY 自己沒有日誌
+
+
+def test_list_enforced_treasury_cannot_override_employee_id_filter(client, monkeypatch):
+    """即使 TREASURY 明確帶入別人的 employee_id filter，仍被覆寫成自己（忽略帶入值）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms",
+        params={"farm_id": "changhua", "employee_id": other_employee},
+        headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+
+
+def test_list_enforced_supervisor_sees_all(client, monkeypatch):
+    """LEADER/SUPERVISOR/ADMIN 維持可查全員——不因 ownership 限制被誤收窄。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", str(uuid4())),
+    )
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", str(uuid4())),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms",
+        params={"farm_id": "changhua"},
+        headers=_bearer("supervisor", str(uuid4())),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 2
+
+
+def test_by_date_enforced_treasury_other_employee_403(client, monkeypatch):
+    """by-date 帶必填 employee_id——enforce 後 TREASURY 查別人 → 403（不靜默覆寫）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms/by-date",
+        params={
+            "farm_id": "changhua",
+            "employee_id": other_employee,
+            "work_date": WORK_DATE,
+        },
+        headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 403
+
+
+def test_by_date_enforced_employee_self_ok(client, monkeypatch):
+    """by-date 查自己 → 200（不受 ownership 限制影響）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    subject = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", subject),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms/by-date",
+        params={"farm_id": "changhua", "employee_id": subject, "work_date": WORK_DATE},
+        headers=_bearer("employee", subject),
+    )
+    assert resp.status_code == 200
+
+
+def test_by_date_enforced_supervisor_other_employee_ok(client, monkeypatch):
+    """SUPERVISOR 查別人的 by-date → 200（維持可查全員，不受 ownership 限制影響）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms/by-date",
+        params={
+            "farm_id": "changhua",
+            "employee_id": other_employee,
+            "work_date": WORK_DATE,
+        },
+        headers=_bearer("supervisor", str(uuid4())),
+    )
+    assert resp.status_code == 200
+
+
+def test_detail_enforced_treasury_other_employee_403(client, monkeypatch):
+    """detail（by form_id）——enforce 後 TREASURY 查別人的日誌 → 403。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", str(uuid4())),
+    ).json()
+    resp = client.get(
+        f"/api/workflow/day-work-forms/{created['id']}",
+        params={"farm_id": "changhua"},
+        headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 403
+
+
+def test_detail_enforced_employee_self_ok(client, monkeypatch):
+    """detail 查自己的日誌 → 200。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    subject = str(uuid4())
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", subject),
+    ).json()
+    resp = client.get(
+        f"/api/workflow/day-work-forms/{created['id']}",
+        params={"farm_id": "changhua"},
+        headers=_bearer("employee", subject),
+    )
+    assert resp.status_code == 200
+
+
+def test_detail_enforced_not_found_404_before_403(client, monkeypatch):
+    """404 優先於 403——查無此日誌不洩漏「這份日誌存在但不是你的」。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    resp = client.get(
+        f"/api/workflow/day-work-forms/{uuid4()}",
+        params={"farm_id": "changhua"},
+        headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 404
