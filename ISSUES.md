@@ -16,10 +16,24 @@
 | open | 9 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 133 |
-| **total (active)** | **144** |
+| done | 134 |
+| **total (active)** | **145** |
 
-最後更新：2026-09-26（**WMOM-20260926-03 完成（第六個 autonomous session）—
+最後更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）—
+`ScenarioMountBanner.tsx` component render 測試**：`components/ui/` 剩餘 7 支零測試
+primitive 中優先評估的一支（PR C Phase 1 新增，有真正條件邏輯：`error` 決定 `Card`
+tone/是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換），先確認
+`FarmOverview.tsx`/`TurbineDetail.tsx` host page 既有測試從未餵過 `loading`/`error`
+props、這兩條分支完全零覆蓋，非為了補而補。新增
+`frontend/components/ui/__tests__/ScenarioMountBanner.test.tsx`（16 tests，含 code
+review 後補的 1 則），**未修改元件本體任何一行**。5 項關鍵邏輯 mutation-verified。
+code-reviewer subagent review：Approve，0 must-fix，0 should-fix，2 nice-to-have（1
+個採納：補 `error=''` falsy 邊界測試明確鎖住既有行為；1 個未採納：純風格建議）。
+backend 1274 passed 不變；frontend tsc 0、1461→**1477 passed**（69→70 files，+16，
+零 regression）、build OK。`components/ui/` 剩餘 6 支（`Btn`/`Card`/`Field`/`Logo`/
+`PageHeader`/`Stat`）維持既有評估結論（純展示、ROI 低，暫不主動補測試）。詳見
+`work-logs/2026-09/2026-09-26-scenariomountbanner-render-tests.md`。
+**前一 session：WMOM-20260926-03 完成（第六個 autonomous session）—
 PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線**：後端新增
 `GET /api/scenarios/{id}/turbines`/`farm-status` 兩個唯讀端點 + 前端
 `ScenarioMountContext`/`ScenarioMountBanner` + `ScenarioDetail`/`App.tsx` 掛載入口 +
@@ -4920,6 +4934,46 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   頂部「🎯 未來大目標」摘要表 M5-5 行「my work orders · completion（Part B-2 待續）」
   同樣過期（`WMOM-20260608-02` 早於 2026-06-08 完成），已更正為 done 敘述。
 - **Reference**: [`work-logs/2026-09/2026-09-26-workorderdetailmodal-render-tests.md`](work-logs/2026-09/2026-09-26-workorderdetailmodal-render-tests.md)
+
+---
+
+### WMOM-20260926-05 — `ScenarioMountBanner.tsx` component render 測試
+
+- **Status**: done（2026-09-26 第八個 autonomous session）
+- **Milestone**: 工程基礎設施 / 測試覆蓋擴大（EPIC-M5 測試覆蓋擴大系列延續）
+- **Priority**: medium
+- **Estimate**: 1 session
+- **Source**: `WMOM-20260926-04` work-log 建議下次候選——`components/ui/` 剩餘 7 支零測試
+  primitive（`Btn`/`Card`/`Field`/`Logo`/`PageHeader`/`Stat`/`ScenarioMountBanner`），
+  優先評估 `ScenarioMountBanner`（PR C Phase 1／`WMOM-20260926-03` 新增，較新較可能有
+  值得鎖的分支邏輯）。開工前讀過元件源碼確認非純展示 wrapper：`error` 決定 `Card` tone/
+  是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換文案；並 grep 確認
+  `FarmOverview.tsx`/`TurbineDetail.tsx` 兩處消費端既有測試從未餵過 `loading`/`error`
+  props，這兩條分支完全零覆蓋，非為了補而補。
+- **Completion summary**：新增 `frontend/components/ui/__tests__/
+  ScenarioMountBanner.test.tsx`（新檔，16 tests，含 code review 後補的 1 則），**未修改
+  元件本體任何一行**。涵蓋基本顯示（role=status/aria-label/情境名稱/唯讀說明）、lang
+  en/zh 切換（含互斥驗證）、loading 分支（含與 error 同時為 true 時 error 優先的短路
+  行為）、error 分支（Card tone accent/warn 切換、role=alert 錯誤說明 en/zh、error 為
+  空字串的 falsy 邊界）、onExit 接線（zh/en/error 狀態下皆能觸發）。5 項關鍵邏輯
+  mutation-verified（tone 三元 / loading&&!error 短路 / alert 區塊存在性 / lang 三元 /
+  onClick 接線，逐一改回舊邏輯確認對應測試如預期 fail，再還原，用 `/tmp/wom-mutation-
+  backup/` 備份而非 `git checkout`）。backend 1274 passed 不變；frontend tsc 0、
+  1461→**1477 passed**（69→70 files，+16，零 regression）、build OK。
+- **code-reviewer subagent review：Approve，0 must-fix，0 should-fix，2
+  nice-to-have，1 個已採納**：①（已採納）`error?: string | null` 型別允許空字串，
+  元件把空字串當 falsy 處理等同 `null`，原 15 測未鎖住此邊界（若上游未來用 `error: ''`
+  表示「有錯誤但訊息未帶回」會靜默退回無錯誤 UI，正是元件 docstring 自己點名的風險）——
+  新增 1 則測試明確鎖住此為既有/接受行為（15→16 tests）；②（未採納）單一測試同時斷言
+  tone 顏色與無 alert 兩件事，純風格建議、因果關聯合理，維持現狀。reviewer 獨立核對
+  `container.querySelector('[role="status"] > div')` 精準命中 `Card` 的 div（非內層
+  flex-row div 或 alert div）、`hexToRgb` 手法對 `Card` 的 border shorthand 屬性同樣
+  適用、無跨檔案 theme/localStorage 污染，並實際重跑測試檔確認全過。
+- **誠實揭露**：本次是純測試新增，元件本體零修改，無新的生產邏輯風險；新增測試只鎖住
+  `ScenarioMountBanner` 元件自身「收到 props 之後畫什麼」，不覆蓋
+  `ScenarioMountContext`/`useScenarioMountData` 如何把 fetch 狀態往下傳這條路徑（該
+  路徑已有既有 `contexts/__tests__/ScenarioMountContext.test.tsx` 涵蓋）。
+- **Reference**: [`work-logs/2026-09/2026-09-26-scenariomountbanner-render-tests.md`](work-logs/2026-09/2026-09-26-scenariomountbanner-render-tests.md)
 
 ---
 
