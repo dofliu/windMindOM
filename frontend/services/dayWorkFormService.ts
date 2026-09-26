@@ -83,14 +83,28 @@ export interface DayWorkFormListQuery {
 
 // ─── Fetch helpers（與 inspectionScheduleService 同 pattern） ──────────────
 
+/**
+ * 解析 backend 錯誤回應（FastAPI HTTPException 的 `detail`）成可讀字串。
+ *
+ * - `detail` 為字串（HTTPException）→ 直接回。
+ * - `detail` 為陣列（Pydantic v2 422 validation error，例如 `item_id` 不是合法
+ *   UUID）→ 抽每筆的 `msg` 串接，避免把 `[{"type":"uuid_parsing",...}]` 原始
+ *   JSON 丟給現場工程師看（review should-fix，同 `knowledgeService.ts` 手法）。
+ * - 其餘 / 無 body → fallback `HTTP {status}`。
+ */
 async function readError(resp: Response): Promise<string> {
   try {
-    const err = await resp.json();
-    if (err.detail) {
-      return typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+    const body = await resp.json();
+    const detail = body?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+      return detail
+        .map((d: { msg?: string }) => (typeof d?.msg === 'string' ? d.msg : JSON.stringify(d)))
+        .join('；');
     }
+    if (detail) return JSON.stringify(detail);
   } catch {
-    /* ignore */
+    /* fall through */
   }
   return `HTTP ${resp.status}`;
 }

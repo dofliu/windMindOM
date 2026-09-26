@@ -14,7 +14,7 @@
  * 視覺沿用 InspectionScheduleListPanel（filter row + counter + card list）。
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Btn, Card, Field, Input, Select, StatusPill } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
@@ -49,6 +49,8 @@ interface Props {
   lang: Lang;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** 依 `kind` 判斷必填欄位是否齊全（鏡射 domain `ACTIVITY_REQUIRED_FIELDS`，前端提早擋送出）。 */
 function canSubmitActivity(
   kind: ActivityKind,
@@ -58,7 +60,10 @@ function canSubmitActivity(
     case 'completed_wo':
       return fields.woId.trim() !== '';
     case 'inspection_item':
-      return fields.itemId.trim() !== '' && fields.result.trim() !== '';
+      // item_id 無目錄可選（見檔頭說明），維持自由輸入——但先擋一層 UUID 格式，
+      // 避免送出後才收到後端 422（且 400 body 較不友善，見 dayWorkFormService
+      // readError review should-fix）。
+      return UUID_RE.test(fields.itemId.trim()) && fields.result.trim() !== '';
     case 'patrol':
       return fields.area.trim() !== '';
     case 'training':
@@ -92,14 +97,37 @@ const DayWorkFormPanel: React.FC<Props> = ({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  // `workOrderOptions` 常是父層另一個 hook 非同步載入完成才有值——mount 當下可能還是
-  // 空陣列，`useState` 初值抓不到，等它有資料後補選第一筆（只在目前為空時補，不覆蓋
-  // 使用者已手動選的值）。
+  // 已在今天日誌記過「完成工單」的工單不再列入選單（nice-to-have：避免使用者沒
+  // 注意到已經記過而重複記同一張工單——`resetFields` 刻意不清空 `woId`，靠這裡的
+  // 過濾自然把它排除，不需要額外猜下一筆該選誰）。
+  const availableWorkOrderOptions = useMemo(() => {
+    const loggedToday = new Set(
+      (form?.activities ?? [])
+        .filter(a => a.kind === 'completed_wo' && a.wo_id)
+        .map(a => a.wo_id as string),
+    );
+    return workOrderOptions.filter(o => !loggedToday.has(o.id));
+  }, [workOrderOptions, form]);
+
+  // `availableWorkOrderOptions` 常是父層另一個 hook 非同步載入完成才有值——mount 當下
+  // 可能還是空陣列，`useState` 初值抓不到，等它有資料後補選第一筆（只在目前為空時
+  // 補，不覆蓋使用者已手動選的值）。同時處理 review should-fix：目前選中的 `woId`
+  // 若已不在最新清單內（該工單被重新指派給別人、今天已記過被濾掉、或列表 refetch
+  // 後不再出現），原生 `<select>` 對「value 對不到任何 option」的行為是視覺上退回
+  // 顯示第一個 option，但 React state 仍停在舊值——若使用者未重新點選就送出，
+  // payload 會帶著畫面上看不到、卻已經過期的 `wo_id`。兩種情況都補選成目前清單第一筆。
   useEffect(() => {
-    if (!woId && workOrderOptions.length > 0) {
-      setWoId(workOrderOptions[0].id);
+    if (availableWorkOrderOptions.length === 0) {
+      // 清單清空（例如全部指派工單今天都已記錄過）：連帶清掉過期 woId，
+      // 否則 canSubmitActivity 仍看到非空字串而誤判可送出。
+      if (woId !== '') setWoId('');
+      return;
     }
-  }, [workOrderOptions, woId]);
+    const stillValid = availableWorkOrderOptions.some(o => o.id === woId);
+    if (!woId || !stillValid) {
+      setWoId(availableWorkOrderOptions[0].id);
+    }
+  }, [availableWorkOrderOptions, woId]);
 
   const canSubmit = canSubmitActivity(kind, { woId, itemId, result, area, topic });
 
@@ -248,12 +276,17 @@ const DayWorkFormPanel: React.FC<Props> = ({
               hint={
                 workOrderOptions.length === 0
                   ? ui('No work orders assigned to you.', '目前沒有指派給你的工單。')
-                  : undefined
+                  : availableWorkOrderOptions.length === 0
+                    ? ui(
+                        'All assigned work orders already logged today.',
+                        '指派給你的工單今天都已記錄過。',
+                      )
+                    : undefined
               }
             >
               <Select
                 value={woId}
-                options={workOrderOptions.map(o => ({ value: o.id, label: o.label }))}
+                options={availableWorkOrderOptions.map(o => ({ value: o.id, label: o.label }))}
                 onChange={setWoId}
                 ariaLabel={ui('Work order', '工單')}
                 fullWidth

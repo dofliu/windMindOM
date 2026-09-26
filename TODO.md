@@ -16,7 +16,29 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260505-21 後端完成** — `day_work_form` 員工當天工作日誌：
+最後更新：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）**
+— `day_work_form` 前端（工作日誌 tab，本人專用）：`services/dayWorkFormService.ts`（新檔）+
+`hooks/useDayWorkForm.ts`（新檔）+ `components/workflow/DayWorkFormPanel.tsx`（新檔，
+日期選擇 + 當日活動列表 + 新增活動表單 4 kind + 最近日誌歷史僅本人）+ `statusUtils.ts`
+（`activityKindLabel`/`todayAsiaTaipei`）+ `WorkflowPage.tsx`（新增 daywork tab）。
+**code-reviewer subagent review 抓到 1 must-fix + 3 should-fix + 3 nice-to-have，
+must-fix 與 3 個 should-fix 全數已修復**：①`useDayWorkForm.appendActivity` 的
+`setForm` 缺對稱 race 防護（送出期間切日期，較慢回應後到會蓋回舊資料且不自我修正）—
+補 `latestWorkDateRef` 比對，並補 `hooks/__tests__/useDayWorkForm.test.ts`（10 測，
+reviewer 判定 `useInspectionSchedules` 無專屬測試的慣例不適用本 hook）；②
+`myWorkOrderOptions` 誤共用 Orders tab 已過濾的 `wo.items`——改掛獨立
+`useWorkOrders({ farmId })`；③`item_id` 缺 UUID 格式驗證 + 錯誤訊息不友善——補 regex
+前置驗證 + `readError` 比照 `knowledgeService.ts` 解析陣列 422 detail；④過期 `woId`
+未重新對齊——補 `stillValid` 比對（mutation test 過程中額外發現並修正這個修法本身漏
+處理清單變空的邊界、以及第一版測試斷言 channel 選錯無法真正鎖住的問題）。2 個
+nice-to-have 已採納（已記錄過工單排除選單 + `fmtDate` docstring 補充）。frontend
+1354→**1402 passed**（63→65 files，+48，零 regression）；backend 未動 1237 passed
+不變、tsc 0、build OK。`WMOM-20260926-01` 標 `in_progress`（第 1 項完成，第 2 項
+`work_order.finish()` hook + 第 3 項讀取端點 ownership 限制仍 open，皆需設計決策）。
+**下個 session**：優先接手 `WMOM-20260926-01` 剩餘 2 項（先讀
+`state_machine.py`/`approval_router.py` 決定 hook 掛點），或見下方「需劉老師決策」
+清單、PR C（需先寫 broker 子設計）。）
+前一 session：2026-09-26（**WMOM-20260505-21 後端完成** — `day_work_form` 員工當天工作日誌：
 domain（`ActivityKind` enum + `ActivityEntry`/`DayWorkForm` dataclass + `validate_activity_
 entry` 純函式 + `ACTIVITY_REQUIRED_FIELDS` 表）+ repository（`DayWorkFormRepository`：
 `(farm_id, employee_id, work_date)` 唯一索引 natural-key `get_or_create_for_date` + 累加式
@@ -402,11 +424,14 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
   （domain + repository + router + schemas，55 測 mutation-verified，code review 1
   must-fix + 2 should-fix 皆已修復），見上方「最後更新」。**前端 + work_order.finish()
   hook + 讀取端點 ownership 限制未做**，拆成新 issue，見下一項。
-- [ ] **WMOM-20260926-01**（`WMOM-20260505-21` 收尾）— day_work_form 前端頁面（`/admin/
-  workflow` 新 tab）+ work_order.finish() 自動寫入 hook（需先讀 `state_machine.py`/
-  `approval_router.py` 決定掛點，不要照抄 inspection_scheduler 的 auto-spawn 模式，方向
-  相反）+ 讀取端點 ownership 限制（EMPLOYEE 查詢應限本人，LEADER/SUPERVISOR 可查全員）。
-  三項可分次接手，API 已齊全。
+- [x] ~~**WMOM-20260926-01 第 1 項**（`WMOM-20260505-21` 收尾）— day_work_form
+  前端頁面（`/admin/workflow` 工作日誌 tab，本人專用）~~ — ✅ 2026-09-26 完成，見上方
+  「最後更新」。
+- [ ] **WMOM-20260926-01 剩餘 2 項** — work_order.finish() 自動寫入 hook（需先讀
+  `state_machine.py`/`approval_router.py` 決定掛點，不要照抄 inspection_scheduler 的
+  auto-spawn 模式，方向相反）+ 讀取端點 ownership 限制（EMPLOYEE 查詢應限本人，
+  LEADER/SUPERVISOR 可查全員）。兩項可分次接手，皆需先做設計決策（非單純 autonomous
+  可決，見上方「最後更新」的 open questions）。
 
 ### 需劉老師決策才能開工
 

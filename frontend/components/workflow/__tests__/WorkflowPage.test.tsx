@@ -855,6 +855,25 @@ describe('WorkflowPage — 子面板 props wiring', () => {
     expect(panel).toHaveAttribute('data-wo-options', 'wo-mine');
   });
 
+  it('工作日誌面板的工單選單走獨立 useWorkOrders instance，不帶 Orders tab 的 status/search filter（review should-fix：避免跨 tab 過濾污染）', async () => {
+    // Orders tab 自己的 useWorkOrders({ farmId, status, search }) 呼叫（三個 key）
+    // 與工作日誌 tab 專用、無 filter 的 useWorkOrders({ farmId }) 呼叫（僅一個 key）
+    // 必須是兩次「不同形狀參數」的獨立呼叫——若未來有人「優化」成共用同一個 hook
+    // instance，這裡的呼叫參數形狀斷言會先紅，而非等到使用者在 Orders tab 篩選後
+    // 才發現完成工單選單悄悄變空。
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));
+
+    const callArgs = mockedUseWorkOrders.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+    const unfilteredCall = callArgs.find(
+      opts => Object.keys(opts).length === 1 && opts.farmId === 'farm-001',
+    );
+    const ordersTabCall = callArgs.find(opts => 'status' in opts && 'search' in opts);
+
+    expect(unfilteredCall).toBeDefined();
+    expect(ordersTabCall).toBeDefined();
+  });
+
   it('切換工作日誌面板日期 → onWorkDateChange 呼叫時 WorkflowPage 更新 workDate state（重渲染面板 data-date）', async () => {
     await renderWorkflow();
     fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));

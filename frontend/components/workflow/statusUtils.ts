@@ -165,7 +165,16 @@ export function subjectTypeLabel(t: SignoffSubjectType, lang: Lang): string {
   return lang === 'zh' ? zh : en;
 }
 
-/** 短日期：YYYY-MM-DD（明確 Asia/Taipei） */
+/**
+ * 短日期：YYYY-MM-DD（明確 Asia/Taipei）。
+ *
+ * review nice-to-have：也安全用於 bare `date`（無時間，如 `day_work_form`
+ * 的 `work_date`）——`new Date('2026-09-20')` 解析成該日 UTC 00:00，轉
+ * Asia/Taipei（+8，全年無 DST）只會往後跳非跨界，同一曆日不變。這個安全性
+ * **僅因 Asia/Taipei 是正 UTC 偏移**才成立；未來若複製這個手法給負偏移時區
+ * （例如美洲），bare date 會被反向跨日，需改用不經過 `Date`/時區轉換的
+ * 專屬 helper，不能照抄本函式。
+ */
 export function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);

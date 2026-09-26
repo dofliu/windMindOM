@@ -259,6 +259,83 @@ describe('DayWorkFormPanel 新增活動表單 — kind 切換與 canSubmit gatin
     expect(screen.getByRole('button', { name: '新增活動' })).not.toBeDisabled();
   });
 
+  it('已選 woId 從 workOrderOptions 中消失（例如被重新指派）：送出時用目前清單第一筆，不殘留過期 id（review should-fix）', async () => {
+    // 注意：不能只斷言 `select.value`——原生 `<select>` 對「value 對不到任何
+    // option」會自行 fallback 顯示第一個 option（瀏覽器 DOM 層行為），與 React
+    // state 是否正確重新對齊是兩回事（這正是 review should-fix 指出的陷阱）。
+    // 真正該鎖住的是「送出時 payload 帶的 wo_id」，因為那才是讀 React state
+    // 而非讀 DOM 顯示值。
+    const onAppendActivity = vi.fn().mockResolvedValue(makeForm());
+    const { rerender } = render(
+      <ThemeProvider>
+        <DayWorkFormPanel
+          workDate="2026-09-26"
+          onWorkDateChange={vi.fn()}
+          form={makeForm()}
+          loading={false}
+          error={null}
+          history={[]}
+          historyLoading={false}
+          historyError={null}
+          workOrderOptions={WORK_ORDER_OPTIONS}
+          onAppendActivity={onAppendActivity}
+          lang="zh"
+        />
+      </ThemeProvider>,
+    );
+    // 使用者手動選第二筆（wo-2）。
+    fireEvent.change(screen.getByRole('combobox', { name: '工單' }), {
+      target: { value: 'wo-2' },
+    });
+
+    // 清單 refetch 後 wo-2 已不在（例如被重新指派給別人），只剩 wo-3。
+    rerender(
+      <ThemeProvider>
+        <DayWorkFormPanel
+          workDate="2026-09-26"
+          onWorkDateChange={vi.fn()}
+          form={makeForm()}
+          loading={false}
+          error={null}
+          history={[]}
+          historyLoading={false}
+          historyError={null}
+          workOrderOptions={[{ id: 'wo-3', label: 'WO-0003 — 更換軸承' }]}
+          onAppendActivity={onAppendActivity}
+          lang="zh"
+        />
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '新增活動' }));
+    });
+    expect(onAppendActivity).toHaveBeenCalledWith(expect.objectContaining({ wo_id: 'wo-3' }));
+  });
+
+  it('今天已記錄過的工單從選單排除，自動改選其餘可選項（nice-to-have：避免重複記同一張工單）', () => {
+    renderPanel({
+      form: makeForm({
+        activities: [makeActivity({ id: 'a1', kind: 'completed_wo', wo_id: 'wo-1' })],
+      }),
+    });
+    const select = screen.getByRole('combobox', { name: '工單' }) as HTMLSelectElement;
+    // wo-1 已記錄過，選單只剩 wo-2，自動改選它。
+    expect(select.value).toBe('wo-2');
+    expect(select).not.toHaveTextContent('WO-0001');
+  });
+
+  it('指派的工單今天都已記錄過（選單為空）：顯示提示文案，Add 按鈕 disabled', () => {
+    renderPanel({
+      workOrderOptions: [{ id: 'wo-1', label: 'WO-0001 — 更換齒輪箱油封' }],
+      form: makeForm({
+        activities: [makeActivity({ id: 'a1', kind: 'completed_wo', wo_id: 'wo-1' })],
+      }),
+    });
+    expect(screen.getByText('指派給你的工單今天都已記錄過。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新增活動' })).toBeDisabled();
+  });
+
   it('切到 inspection_item：顯示 item_id + result 欄位，未填齊 disabled', () => {
     renderPanel();
     fireEvent.change(screen.getByRole('combobox', { name: '活動類型' }), {
@@ -266,13 +343,27 @@ describe('DayWorkFormPanel 新增活動表單 — kind 切換與 canSubmit gatin
     });
     expect(screen.getByRole('button', { name: '新增活動' })).toBeDisabled();
     fireEvent.change(screen.getByRole('textbox', { name: '定檢項目 ID' }), {
-      target: { value: 'item-1' },
+      target: { value: 'a1b2c3d4-e5f6-4789-a012-3456789abcde' },
     });
     expect(screen.getByRole('button', { name: '新增活動' })).toBeDisabled();
     fireEvent.change(screen.getByRole('textbox', { name: '結果' }), {
       target: { value: '正常' },
     });
     expect(screen.getByRole('button', { name: '新增活動' })).not.toBeDisabled();
+  });
+
+  it('inspection_item：item_id 非合法 UUID 格式時即使 result 已填仍 disabled（review should-fix：避免送出後才收到後端 422）', () => {
+    renderPanel();
+    fireEvent.change(screen.getByRole('combobox', { name: '活動類型' }), {
+      target: { value: 'inspection_item' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: '定檢項目 ID' }), {
+      target: { value: 'not-a-uuid' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: '結果' }), {
+      target: { value: '正常' },
+    });
+    expect(screen.getByRole('button', { name: '新增活動' })).toBeDisabled();
   });
 
   it('切到 patrol：area 為空 disabled，填入後 enabled', () => {
