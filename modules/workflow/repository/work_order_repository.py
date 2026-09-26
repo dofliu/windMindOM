@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, Engine, create_engine, event as sa_event, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -38,6 +40,7 @@ from modules.workflow.domain import (
     WorkOrderType,
     open_states,
 )
+from modules.workflow.domain.day_work_form import ActivityEntry, ActivityKind
 from modules.workflow.domain.work_order import _utc_now
 
 from ._helpers import (
@@ -47,12 +50,19 @@ from ._helpers import (
     str_to_uuid,
     uuid_to_str,
 )
+from .day_work_form_orm import DayWorkFormORM
 from .orm_models import (
     Base,
     ProgressNoteORM,
     WorkOrderEventLogORM,
     WorkOrderORM,
 )
+
+_logger = logging.getLogger(__name__)
+
+# WMOM-20260926-01 item 2：work_order 完工（approve_all）自動寫 day_work_form 用的曆日
+# 時區——比照前端 todayAsiaTaipei() 慣例，用現場工程師的「今天」直覺，非 UTC 曆日。
+_TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -431,6 +441,11 @@ class WorkOrderRepository:
     ) -> WorkOrder:
         """跑 domain state machine + persist + 寫 event log。
 
+        ``approve_all`` 完工時另會觸發 day_work_form 自動寫入 side-effect（WMOM-20260926-01
+        item 2，見 :meth:`_record_completed_wo_activity`）——涵蓋 ``approval_router`` 簽核鏈
+        自動觸發與 ``work_order_router`` 的 ``/approve`` 直接入口兩條完工路徑（兩者都直接呼叫
+        本方法，非經 router 層 ``_run_transition``）。
+
         Raises:
             ``InvalidTransition``: state machine 拒絕（404 → frontend 422 / 409）
             ``LookupError``: work order 不存在
@@ -471,7 +486,58 @@ class WorkOrderRepository:
             )
             sess.commit()
             sess.refresh(orm)
-            return self._to_domain(orm)
+            result = self._to_domain(orm)
+
+        if action == "approve_all":
+            self._record_completed_wo_activity(result)
+
+        return result
+
+    def _record_completed_wo_activity(self, wo: WorkOrder) -> None:
+        """``approve_all`` 完工副作用：幫 ``wo.assignee_id`` 當天 day_work_form append
+        一筆 ``completed_wo`` activity（WMOM-20260926-01 item 2）。
+
+        ``wo.assignee_id`` 理論上在進入 ``AWAITING_SIGNOFF`` 前已被 ``start_work`` guard
+        強制填過，但這裡仍防禦性檢查 ``None``（不是每張工單都保證有 assignee，見
+        state machine 對 ``approve_all`` 本身沒有 guard）。
+
+        刻意 catch 所有 exception 只 log 不 raise：day_work_form 寫入失敗（如 DB lock）
+        不應該讓已經 ``sess.commit()`` 落地的工單關閉本身失敗或回滾——比照
+        ``approval_router.approve_step`` 既有的 catch + log 模式。
+        """
+        if wo.assignee_id is None:
+            return
+        try:
+            # Lazy import：避免 module-level 循環 import（day_work_form_repository 已
+            # 在頂層 import 本模組的 _ENGINE_LOCK / _SCHEMA_INITIALIZED / _get_engine）。
+            from .day_work_form_repository import DayWorkFormRepository
+
+            # 與 WorkOrderRepository 共用同一顆 engine，但該 engine 的 schema
+            # 可能是在 day_work_form 模組被 import 之前就跑過 create_all()，此時
+            # DayWorkFormORM 的 table 不會被建立——這裡用 checkfirst=True 補建。
+            DayWorkFormORM.__table__.create(bind=self._engine, checkfirst=True)
+
+            day_work_repo = DayWorkFormRepository(self._engine)
+            work_date = datetime.now(tz=_TAIPEI_TZ).date()
+            form = day_work_repo.get_or_create_for_date(
+                farm_id=wo.farm_id,
+                employee_id=wo.assignee_id,
+                work_date=work_date,
+            )
+            day_work_repo.append_activity(
+                form.id,
+                ActivityEntry(
+                    kind=ActivityKind.COMPLETED_WO,
+                    wo_id=wo.id,
+                    note=wo.business_key,
+                ),
+            )
+        except Exception:
+            _logger.exception(
+                "work_order %s approve_all 完工：day_work_form 自動寫入失敗"
+                "（assignee_id=%s），已忽略——不影響工單本身已 commit 的關閉",
+                wo.id, wo.assignee_id,
+            )
 
     # ── Constraint helpers ──────────────────────────────────────────
 
