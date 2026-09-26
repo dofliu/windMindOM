@@ -3,7 +3,30 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-25"  # **2026-09-25 autonomous session（WMOM-20260925-05，完成）**：
+last_updated: "2026-09-26"  # **2026-09-26 autonomous session（WMOM-20260505-21，後端完成）**：
+  # `day_work_form` 員工當天工作日誌後端——domain（`ActivityKind` enum + `ActivityEntry`/
+  # `DayWorkForm` dataclass + `validate_activity_entry` 純函式 + `ACTIVITY_REQUIRED_FIELDS`
+  # 表）+ repository（`DayWorkFormRepository`：`(farm_id, employee_id, work_date)` 唯一索引
+  # natural-key `get_or_create_for_date` + 累加式 `append_activity` + query）+ router（5
+  # endpoints：get-or-create/list/by-date/detail/append-activity）全數完成，55 個新測試皆
+  # mutation-verified。**code-reviewer subagent review 抓到 1 must-fix + 3 should-fix + 2
+  # nice-to-have，must-fix 與前兩項 should-fix 已修復**：①`append_activity` 完全沒有
+  # ownership 檢查，任何在職員工可竄改別人的日誌，且**我自己寫的測試字面上把這個錯誤行為
+  # 鎖成預期通過**（`test_append_activity_enforced_employee_ok` 建立者與 append 呼叫者用
+  # 兩個不同隨機 subject 卻斷言 200）——reviewer 用既有測試斷言反證出 bug，修法：
+  # `append_day_work_form_activity` 先 404 查無日誌，再用 `_employee_uuid` 解出呼叫者身分
+  # 比對 `form.employee_id`，不同者一律 403（不分角色，LEADER/SUPERVISOR 也不能代填）；
+  # ②domain 與 schema 各自維護一份 `_REQUIRED_FIELDS` 逐字複製、無 parity 測試——已改成
+  # domain 匯出公開 `ACTIVITY_REQUIRED_FIELDS`，schema 直接 import 同一物件（`is` 比對確認
+  # 單一真實來源）；③`_select_by_natural_key` 缺 `Session` 型別標註已補。讀取端點（list/
+  # by-date/detail）無 ownership 限制（reviewer 判定非阻塞本 PR）+ work_order.finish() 整合
+  # hook + 前端頁面，拆成新 follow-up **WMOM-20260926-01**（open）。新增 3 個 regression test
+  # 鎖住 ownership 修復（過渡期換人 403 + enforce 換人 403 + SUPERVISOR 代填仍 403），皆
+  # mutation-verified（拔掉 ownership 比對 → 3 測如預期 fail）。backend 1182→**1237
+  # passed**（7 skipped, 1 xfailed，+55，零 regression）；frontend 未動 1354 passed（63
+  # files）不變、tsc 0、build OK。`WMOM-20260505-21` 狀態標 `in_progress`（後端 done，前端
+  # 待補），非直接 `done`。**前一 session（2026-09-25 autonomous session，WMOM-20260925-05，
+  # 完成）**：
   # `WMOM-20260505-22` 前端收尾——`inspection_schedule` 定檢計畫管理併入既有
   # `WorkflowPage.tsx`（新增第 5 個 tab「定檢計畫」，非獨立路由）+ `TurbineDetail.tsx`
   # header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)` 深連結（App.tsx 新增
@@ -275,11 +298,18 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 8  # 10→8（WMOM-20260925-05 open→done、WMOM-20260507-02 open→done）
-  in_progress: 0  # 1→0（WMOM-20260505-22 in_progress→done，前端 WMOM-20260925-05 完成）
+  open: 8  # 不變（WMOM-20260505-21 open→in_progress，WMOM-20260926-01 新增 open，一去一來抵銷）
+  in_progress: 1  # 0→1（WMOM-20260505-21 後端完成，前端拆 WMOM-20260926-01）
   blocked: 0
-  done: 133  # 130→133（+WMOM-20260505-22 +WMOM-20260925-05 +WMOM-20260507-02）
-             # total 141（8+0+133=141，與 ISSUES.md 一致）
+  done: 133  # 不變（本次未新增 done issue）
+             # total 142（8+1+133=142，+1 為新增的 WMOM-20260926-01）
+             # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
+             # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
+             # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於
+             # `docs/legacy/issues_changelog_archive.md`（WMOM-20260529-02 抽 changelog
+             # 時連帶影響），本次未展開全面稽核（超出 WMOM-20260505-21 範圍），沿用既有
+             # delta-only 更新慣例，僅記錄供劉老師或未來 session 決定是否要開一個
+             # dedicated 清點 issue。
 
 inherited_baseline:
   source: digiWindTurbine

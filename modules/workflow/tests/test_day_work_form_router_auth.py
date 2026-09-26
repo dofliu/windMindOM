@@ -200,6 +200,7 @@ def test_by_date_not_found_404(client):
 
 
 def test_append_patrol_activity(client):
+    """過渡期（無 token）：body ``employee_id`` 需與建立日誌時同一人（不支援代填）。"""
     employee_id = str(uuid4())
     created = client.post(
         "/api/workflow/day-work-forms",
@@ -208,13 +209,29 @@ def test_append_patrol_activity(client):
     resp = client.post(
         f"/api/workflow/day-work-forms/{created['id']}/activities",
         params={"farm_id": "changhua"},
-        json={"kind": "patrol", "area": "機艙"},
+        json={"kind": "patrol", "area": "機艙", "employee_id": employee_id},
     )
     assert resp.status_code == 200
     activities = resp.json()["activities"]
     assert len(activities) == 1
     assert activities[0]["kind"] == "patrol"
     assert activities[0]["area"] == "機艙"
+
+
+def test_append_activity_different_employee_403(client):
+    """Review must-fix repro：換一個 employee_id 想寫進別人的日誌 → 403（不支援代填）。"""
+    owner_id = str(uuid4())
+    other_id = str(uuid4())
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(employee_id=owner_id),
+    ).json()
+    resp = client.post(
+        f"/api/workflow/day-work-forms/{created['id']}/activities",
+        params={"farm_id": "changhua"},
+        json={"kind": "patrol", "area": "機艙", "employee_id": other_id},
+    )
+    assert resp.status_code == 403
 
 
 def test_append_activity_missing_required_field_422(client):
@@ -226,12 +243,13 @@ def test_append_activity_missing_required_field_422(client):
     resp = client.post(
         f"/api/workflow/day-work-forms/{created['id']}/activities",
         params={"farm_id": "changhua"},
-        json={"kind": "patrol"},  # 缺 area
+        json={"kind": "patrol", "employee_id": employee_id},  # 缺 area
     )
     assert resp.status_code == 422
 
 
 def test_append_activity_not_found_404(client):
+    """404 優先於 403——查無此日誌不需要先解出 employee_id。"""
     resp = client.post(
         f"/api/workflow/day-work-forms/{uuid4()}/activities",
         params={"farm_id": "changhua"},
@@ -305,6 +323,30 @@ def test_append_activity_enforced_treasury_403(client, monkeypatch):
 
 
 def test_append_activity_enforced_employee_ok(client, monkeypatch):
+    """同一人（同 token subject）建立日誌後幫自己補活動 → 200。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    subject = str(uuid4())
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", subject),
+    ).json()
+    resp = client.post(
+        f"/api/workflow/day-work-forms/{created['id']}/activities",
+        params={"farm_id": "changhua"},
+        json={"kind": "patrol", "area": "機艙"},
+        headers=_bearer("employee", subject),
+    )
+    assert resp.status_code == 200
+
+
+def test_append_activity_enforced_different_employee_403(client, monkeypatch):
+    """Review must-fix repro：enforce 模式下換一個人的 token 想寫進別人的日誌 → 403。
+
+    先前這裡誤用兩個不同的隨機 subject 卻斷言 200，字面上鎖住了「任何 EMPLOYEE
+    角色都能寫進任何人日誌」的錯誤行為（code review 抓到）；現在明確拆成
+    ``test_append_activity_enforced_employee_ok``（同一人 OK）與本測試（換人 403）。
+    """
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     created = client.post(
         "/api/workflow/day-work-forms",
@@ -317,4 +359,25 @@ def test_append_activity_enforced_employee_ok(client, monkeypatch):
         json={"kind": "patrol", "area": "機艙"},
         headers=_bearer("employee", str(uuid4())),
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 403
+
+
+def test_append_activity_supervisor_cannot_write_others_log_403(client, monkeypatch):
+    """不支援代填——SUPERVISOR 有寫入權限（role gate 過），但不是日誌本人一樣 403。
+
+    比照 walkthrough Q6「day_work_form 是自填日誌」的設計不變量，不因角色較高
+    就允許代填（與 LEADER/SUPERVISOR 可以查全員日誌是兩件事，見 list/by-date）。
+    """
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", str(uuid4())),
+    ).json()
+    resp = client.post(
+        f"/api/workflow/day-work-forms/{created['id']}/activities",
+        params={"farm_id": "changhua"},
+        json={"kind": "patrol", "area": "機艙"},
+        headers=_bearer("supervisor", str(uuid4())),
+    )
+    assert resp.status_code == 403

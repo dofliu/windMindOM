@@ -190,10 +190,26 @@ async def get_day_work_form(
 async def append_day_work_form_activity(
     form_id: UUID,
     req: AppendActivityRequest,
+    request: Request,
     farm_id: str = Query(..., min_length=1),
 ) -> DayWorkFormResponse:
-    """新增一筆活動到日誌。必填欄位依 ``kind`` 不同，schema 層已先擋一次 422。"""
+    """新增一筆活動到日誌。必填欄位依 ``kind`` 不同，schema 層已先擋一次 422。
+
+    Review must-fix：不支援代填（模組 docstring 明文的設計不變量）——先查出日誌本人
+    （``form.employee_id``），比對呼叫者 ``_employee_uuid`` 解出的身分，不同者一律
+    403，**不分角色**（LEADER/SUPERVISOR 也不能代填，只能查全員，見 querying
+    endpoints 的角色差異）。form 不存在時 404 優先於 403（不洩漏「這份日誌存在但
+    不是你的」這種資訊，統一表現為「查無此日誌」）。
+    """
     repo = _get_repo(farm_id)
+    form = repo.get(form_id)
+    if form is None:
+        raise HTTPException(status_code=404, detail=f"day_work_form {form_id} not found")
+
+    actor_id = _employee_uuid(request, req.employee_id)
+    if actor_id != form.employee_id:
+        raise HTTPException(status_code=403, detail="只能新增到自己的日誌")
+
     entry = ActivityEntry(
         kind=req.kind,
         wo_id=req.wo_id,

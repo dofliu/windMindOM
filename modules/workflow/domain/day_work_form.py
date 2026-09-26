@@ -9,6 +9,11 @@ walkthrough Q6（2026-05-05 劉老師確認，見 ``WMOM-20260505-21``）。
   entity，一份日誌可包含多筆 activity（完成工單 / 定檢項 / 巡視 / 訓練）
 - 本次範圍**不含** work_order 完工自動寫入 day_work_form 的整合 hook（涉及既有簽核
   流程的 ``transition`` 入口，需另評估耦合風險），見 completion summary
+
+``work_date`` 時區語意（review nice-to-have，明文記錄避免前端猜測）：本層只當它是
+不帶時區的日曆日（``date``），**不**自行判斷「今天」——由呼叫端（前端）決定用哪個
+時區換算，建議 Asia/Taipei 曆日（現場工程師的「今天」直覺），非 UTC 曆日（避免
+23:xx–00:xx 交接跨夜巡檢被算到隔天）。
 """
 
 from __future__ import annotations
@@ -34,7 +39,13 @@ class ActivityKind(str, Enum):
 
 
 # 每種 kind 對應的必填欄位（其餘欄位維持 None，不強制清空）。
-_REQUIRED_FIELDS: dict[ActivityKind, tuple[str, ...]] = {
+#
+# Review should-fix：這份表是唯一真實來源——``schemas/day_work_form_schemas.py`` 的
+# ``AppendActivityRequest`` 直接 import 這份表做提早 422 檢查，**不**再各自維護一份
+# 複製品（先前寫法兩層 dict 各自硬編碼同一組規則，沒有測試鎖住兩者一致，日後只改
+# 一邊會靜默漂移）。與 ``inspection_schemas`` 的 custom_days 檢查不同——那邊 schema
+# 檢查的是獨立語意的跨欄位邏輯，這裡純粹是同一份資料的重複，沒有理由拆兩份。
+ACTIVITY_REQUIRED_FIELDS: dict[ActivityKind, tuple[str, ...]] = {
     ActivityKind.COMPLETED_WO: ("wo_id",),
     ActivityKind.INSPECTION_ITEM: ("item_id", "result"),
     ActivityKind.PATROL: ("area",),
@@ -70,7 +81,7 @@ def validate_activity_entry(entry: ActivityEntry) -> None:
     """
     missing = [
         name
-        for name in _REQUIRED_FIELDS[entry.kind]
+        for name in ACTIVITY_REQUIRED_FIELDS[entry.kind]
         if getattr(entry, name) in (None, "")
     ]
     if missing:

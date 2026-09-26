@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from modules.workflow.domain.day_work_form import (
     ActivityEntry,
@@ -105,7 +105,7 @@ class DayWorkFormRepository:
 
     @staticmethod
     def _select_by_natural_key(
-        sess, farm_id: str, employee_id: UUID, work_date: date
+        sess: Session, farm_id: str, employee_id: UUID, work_date: date
     ) -> DayWorkFormORM | None:
         stmt = select(DayWorkFormORM).where(
             DayWorkFormORM.farm_id == farm_id,

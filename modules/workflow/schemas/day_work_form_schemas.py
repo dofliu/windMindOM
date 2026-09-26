@@ -12,18 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from modules.workflow.domain.day_work_form import ActivityKind
-
-# 每種 kind 對應的必填欄位（與 domain ``_REQUIRED_FIELDS`` 刻意各自維護一份——
-# schema 層是提早給明確 422 訊息的第一道關卡，domain ``validate_activity_entry``
-# 才是最終防線，兩層各自獨立驗證同一組規則，同 ``inspection_schemas`` 的
-# custom_days 檢查慣例）。
-_REQUIRED_FIELDS: dict[ActivityKind, tuple[str, ...]] = {
-    ActivityKind.COMPLETED_WO: ("wo_id",),
-    ActivityKind.INSPECTION_ITEM: ("item_id", "result"),
-    ActivityKind.PATROL: ("area",),
-    ActivityKind.TRAINING: ("topic",),
-}
+from modules.workflow.domain.day_work_form import ACTIVITY_REQUIRED_FIELDS, ActivityKind
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -47,9 +36,19 @@ class CreateDayWorkFormRequest(BaseModel):
 class AppendActivityRequest(BaseModel):
     """``POST /api/workflow/day-work-forms/{id}/activities`` body — 新增一筆活動。
 
-    必填欄位依 ``kind`` 不同（見 domain ``_REQUIRED_FIELDS``），這裡先做一層 HTTP
-    層檢查提早給 422（domain ``validate_activity_entry`` 仍是最終防線，repository
-    直接呼叫端一樣受保護）。
+    必填欄位依 ``kind`` 不同（見 domain ``ACTIVITY_REQUIRED_FIELDS``，schema 與
+    domain 共用同一份表——單一真實來源），這裡先做一層 HTTP 層檢查提早給 422
+    （domain ``validate_activity_entry`` 仍是最終防線，repository 直接呼叫端一樣
+    受保護）。
+
+    ``employee_id`` 過渡期（``WMOM_AUTH_ENFORCE=false``）可由 body 帶，同
+    ``CreateDayWorkFormRequest``；enforce 開啟後一律由已驗證 token 決定，body
+    值被忽略。router 會再比對此身分與日誌本人是否一致（不支援代填），見
+    ``day_work_form_router.append_day_work_form_activity`` docstring。
+
+    非本 ``kind`` 相關的欄位（例如 ``kind=patrol`` 卻夾帶 ``wo_id``）不會被清空，
+    會原樣持久化；下游讀取（報表 / cost ledger）須自行以 ``kind`` 過濾，不可假設
+    其餘欄位為 ``None``。
     """
 
     kind: ActivityKind
@@ -59,12 +58,13 @@ class AppendActivityRequest(BaseModel):
     area: Optional[str] = None
     topic: Optional[str] = None
     note: str = ""
+    employee_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def _check_required_fields(self) -> "AppendActivityRequest":
         missing = [
             name
-            for name in _REQUIRED_FIELDS[self.kind]
+            for name in ACTIVITY_REQUIRED_FIELDS[self.kind]
             if getattr(self, name) in (None, "")
         ]
         if missing:
