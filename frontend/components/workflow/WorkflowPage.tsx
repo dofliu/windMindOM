@@ -53,10 +53,13 @@ import type {
   CreateInspectionSchedulePayload,
   InspectionScheduleResponse,
 } from '../../services/inspectionScheduleService';
+import DayWorkFormPanel from './DayWorkFormPanel';
+import { useDayWorkForm } from '../../hooks/useDayWorkForm';
+import { todayAsiaTaipei } from './statusUtils';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
-type Tab = 'orders' | 'material' | 'inventory' | 'inspection' | 'approval';
+type Tab = 'orders' | 'material' | 'inventory' | 'inspection' | 'daywork' | 'approval';
 
 interface Props {
   lang: Lang;
@@ -149,6 +152,31 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
     turbineId: inspTurbineId === 'all' ? undefined : inspTurbineId,
     activeOnly: inspActiveOnly,
   });
+
+  // ── Day work form（工作日誌）tab state ──
+  const [dayWorkDate, setDayWorkDate] = useState<string>(() => todayAsiaTaipei());
+
+  const dayWorkHook = useDayWorkForm({
+    farmId,
+    employeeId: currentUser.id,
+    workDate: dayWorkDate,
+  });
+
+  // 完成工單活動的工單選單需要「本人全部工單」，**不能**共用 `wo`（Orders tab 的
+  // useWorkOrders 實例）——`wo` 依 Orders tab 目前的 `statusFilter`/`search` 做
+  // server-side + client-side 過濾（review should-fix：兩個 tab 邏輯上無關，卻因
+  // WorkflowPage 是單一常駐元件〔切 tab 不 remount〕而共用同一份已過濾資料，會讓
+  // 使用者在 Orders tab 篩過的殘留狀態悄悄影響「完成工單」選單內容，且無任何提示）。
+  // 獨立掛一份無 filter 的 instance，只用它的 items 做本人過濾。
+  const dayWorkWoHook = useWorkOrders({ farmId });
+
+  const myWorkOrderOptions = useMemo(
+    () =>
+      dayWorkWoHook.items
+        .filter(w => w.assignee_id === currentUser.id)
+        .map(w => ({ id: w.id, label: `${w.business_key} — ${w.title}` })),
+    [dayWorkWoHook.items, currentUser.id],
+  );
 
   // ── Approval tab state ──
   const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
@@ -388,6 +416,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
           {ui('Inspection schedules', '定檢計畫')}
         </Btn>
         <Btn
+          variant={tab === 'daywork' ? 'primary' : 'ghost'}
+          onClick={() => setTab('daywork')}
+          ariaLabel={ui('Day work log tab', '工作日誌頁籤')}
+          ariaPressed={tab === 'daywork'}
+        >
+          {ui('Day work log', '工作日誌')}
+        </Btn>
+        <Btn
           variant={tab === 'approval' ? 'primary' : 'ghost'}
           onClick={() => setTab('approval')}
           ariaLabel={ui('Approval tab', '簽核頁籤')}
@@ -466,6 +502,22 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
           onActiveOnlyChange={setInspActiveOnly}
           onSelect={setSelectedInspSchedule}
           onRefresh={inspHook.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'daywork' && (
+        <DayWorkFormPanel
+          workDate={dayWorkDate}
+          onWorkDateChange={setDayWorkDate}
+          form={dayWorkHook.form}
+          loading={dayWorkHook.loading}
+          error={dayWorkHook.error}
+          history={dayWorkHook.history}
+          historyLoading={dayWorkHook.historyLoading}
+          historyError={dayWorkHook.historyError}
+          workOrderOptions={myWorkOrderOptions}
+          onAppendActivity={dayWorkHook.appendActivity}
           lang={lang}
         />
       )}

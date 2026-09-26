@@ -3,7 +3,37 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 autonomous session（WMOM-20260505-21，後端完成）**：
+last_updated: "2026-09-26"  # **2026-09-26 第二個 autonomous session（WMOM-20260926-01
+  # 第 1 項完成）**：`day_work_form` 前端（工作日誌 tab，本人專用）——
+  # `services/dayWorkFormService.ts`（API client，`readError` 比照 `knowledgeService.ts`
+  # 解析陣列 422 detail）+ `hooks/useDayWorkForm.ts`（`workDate` driver 查當日日誌 +
+  # 最近歷史僅本人；`appendActivity` 一律先 `getOrCreate`）+
+  # `components/workflow/DayWorkFormPanel.tsx`（日期選擇 + 活動列表 + 新增活動表單 4
+  # kind + 歷史）+ `statusUtils.ts`（`activityKindLabel`/`todayAsiaTaipei`）+
+  # `WorkflowPage.tsx`（新增 daywork tab）。**code-reviewer subagent review 抓到 1
+  # must-fix + 3 should-fix + 3 nice-to-have，must-fix 與 3 個 should-fix 全數已
+  # 修復**：①`useDayWorkForm.appendActivity` 的 `setForm(updated)` 缺對稱 race
+  # 防護（`fetchForm` 已有 `abortRef` 但 append 完成時沒有同款保護）——使用者送出
+  # 活動期間切換日期，較慢的 append 回應後到會蓋回舊日期資料且不自我修正，補
+  # `latestWorkDateRef` 比對送出當下捕捉的 `workDate` 是否仍是最新值；reviewer 判定
+  # `useInspectionSchedules`「無專屬 hook test」慣例不適用本 hook（有跨請求
+  # staleness + 日期綁定可變目標），已補 `hooks/__tests__/useDayWorkForm.test.ts`
+  # （10 測，含精準重現此 race 的回歸測試）；②`myWorkOrderOptions` 誤共用 Orders
+  # tab 已被 `statusFilter`/`search` 過濾的 `wo.items`——改掛獨立
+  # `useWorkOrders({ farmId })` instance；③`item_id` 缺 UUID 格式驗證 + 錯誤訊息
+  # 對現場工程師不友善——補 regex 前置驗證 + `readError` 改用 `knowledgeService.ts`
+  # 既有的陣列 detail 解析手法；④過期 `woId` 未重新對齊——補 `stillValid` 比對，
+  # **mutation test 過程中額外發現並修正這個修法本身漏處理「清單變空」邊界、以及
+  # 第一版回歸測試斷言 `select.value`（被瀏覽器原生 DOM fallback 掩蓋）選錯觀察
+  # channel 的問題，改斷言送出 payload 才真正鎖住**。2 個 nice-to-have 已採納（已
+  # 記錄過工單自動排除選單 + `fmtDate` docstring 補充安全性假設）；1 個記錄未修
+  # （送出中按鈕 `aria-busy` 需動共用 `Btn` primitive，blast radius 較大）。reviewer
+  # 獨立核對「本人限定」scope-narrowing 前後端一致無漏洞。frontend
+  # 1354→**1402 passed**（63→65 files，+48，零 regression）；backend 未動 1237
+  # passed 不變、tsc 0、build OK。`WMOM-20260926-01` 狀態改標 `in_progress`（第 1
+  # 項完成，第 2 項 `work_order.finish()` hook + 第 3 項讀取端點 ownership 限制仍
+  # open，皆需設計決策）。**前一 session（2026-09-26 第一個 autonomous
+  # session，WMOM-20260505-21 後端完成）**：
   # `day_work_form` 員工當天工作日誌後端——domain（`ActivityKind` enum + `ActivityEntry`/
   # `DayWorkForm` dataclass + `validate_activity_entry` 純函式 + `ACTIVITY_REQUIRED_FIELDS`
   # 表）+ repository（`DayWorkFormRepository`：`(farm_id, employee_id, work_date)` 唯一索引

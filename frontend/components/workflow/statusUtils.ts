@@ -19,6 +19,7 @@ import type {
   StockKind,
 } from '../../services/materialService';
 import type { Recurrence } from '../../services/inspectionScheduleService';
+import type { ActivityKind } from '../../services/dayWorkFormService';
 
 type Lang = 'en' | 'zh';
 
@@ -164,7 +165,16 @@ export function subjectTypeLabel(t: SignoffSubjectType, lang: Lang): string {
   return lang === 'zh' ? zh : en;
 }
 
-/** 短日期：YYYY-MM-DD（明確 Asia/Taipei） */
+/**
+ * 短日期：YYYY-MM-DD（明確 Asia/Taipei）。
+ *
+ * review nice-to-have：也安全用於 bare `date`（無時間，如 `day_work_form`
+ * 的 `work_date`）——`new Date('2026-09-20')` 解析成該日 UTC 00:00，轉
+ * Asia/Taipei（+8，全年無 DST）只會往後跳非跨界，同一曆日不變。這個安全性
+ * **僅因 Asia/Taipei 是正 UTC 偏移**才成立；未來若複製這個手法給負偏移時區
+ * （例如美洲），bare date 會被反向跨日，需改用不經過 `Date`/時區轉換的
+ * 專屬 helper，不能照抄本函式。
+ */
 export function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -254,5 +264,30 @@ export function recurrenceLabel(r: Recurrence, lang: Lang): string {
   };
   const [en, zh] = map[r];
   return lang === 'zh' ? zh : en;
+}
+
+// ─── Day Work Form（WMOM-20260926-01） ───────────────────────────────────
+
+export function activityKindLabel(k: ActivityKind, lang: Lang): string {
+  const map: Record<ActivityKind, [string, string]> = {
+    completed_wo: ['Completed work order', '完成工單'],
+    inspection_item: ['Completed inspection item', '完成定檢項'],
+    patrol: ['Patrol', '巡視'],
+    training: ['Training', '訓練'],
+  };
+  const [en, zh] = map[k];
+  return lang === 'zh' ? zh : en;
+}
+
+/** 今天的曆日（Asia/Taipei，非 UTC——見 `day_work_form.py` domain docstring 建議）。 */
+export function todayAsiaTaipei(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const lookup = (t: string) => parts.find(p => p.type === t)?.value ?? '01';
+  return `${lookup('year')}-${lookup('month')}-${lookup('day')}`;
 }
 

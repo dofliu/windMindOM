@@ -13,13 +13,30 @@
 
 | Status | Count |
 |--------|------|
-| open | 10 |
-| in_progress | 2 |
+| open | 9 |
+| in_progress | 3 |
 | blocked | 0 |
 | done | 130 |
 | **total (active)** | **142** |
 
-最後更新：2026-09-26（**WMOM-20260505-21 後端完成（autonomous session）— `day_work_form`
+最後更新：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）—
+`day_work_form` 前端（工作日誌 tab，本人專用）**：`services/dayWorkFormService.ts` +
+`hooks/useDayWorkForm.ts` + `components/workflow/DayWorkFormPanel.tsx`（新檔）+
+`statusUtils.ts`/`WorkflowPage.tsx`（新增 daywork tab）。code-reviewer subagent review
+抓到 **1 must-fix + 3 should-fix + 3 nice-to-have**，must-fix 與 3 個 should-fix 全數
+已修復：①`useDayWorkForm.appendActivity` 的 `setForm` 缺對稱 race 防護（送出期間切日期
+會蓋回舊資料且不自我修正）——補 `latestWorkDateRef` 比對；②`myWorkOrderOptions` 誤共用
+Orders tab 已過濾的 `wo.items`——改掛獨立 `useWorkOrders({ farmId })`；③`item_id` 缺 UUID
+格式驗證 + 錯誤訊息不友善——補 regex 前置驗證 + `readError` 比照 `knowledgeService.ts`
+解析陣列 detail；④過期 `woId` 未重新對齊——補 `stillValid` 比對（mutation test 過程中
+額外發現並修正這個修法本身漏處理清單變空的邊界、以及第一版回歸測試斷言 channel 選錯的
+問題，詳見 work-log）。2 個 nice-to-have 已採納（已記錄過工單自動排除選單 + `fmtDate`
+docstring 補充）。reviewer 獨立核對「本人限定」scope-narrowing 前後端一致無漏洞。frontend
+1354→**1402 passed**（63→65 files，+48，零 regression）；backend 未動 1237 passed 不變、
+tsc 0、build OK。`WMOM-20260926-01` 狀態改標 `in_progress`（第 1 項完成，第 2、3 項
+`work_order.finish() hook` + `讀取端點 ownership 限制`仍 open）。詳見
+`work-logs/2026-09/2026-09-26-day-work-form-frontend.md`。
+前一 session：2026-09-26（**WMOM-20260505-21 後端完成（autonomous session）— `day_work_form`
 員工當天工作日誌**：domain（`ActivityKind` enum + `ActivityEntry`/`DayWorkForm` dataclass +
 `validate_activity_entry` 純函式）+ ORM/repository（`DayWorkFormRepository`：
 `(farm_id, employee_id, work_date)` 唯一索引 natural-key `get_or_create_for_date` + 累加式
@@ -2551,10 +2568,12 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260926-01 — `WMOM-20260505-21` 前端 + work_order.finish() 整合 hook + 讀取端點 ownership 限制
 
-- **Status**: open
+- **Status**: in_progress（第 1 項前端已完成，2026-09-26 第二個 autonomous session；
+  第 2、3 項仍 open）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
 - **Priority**: medium（讀取端點 ownership 限制項目建議優先，屬 review should-fix 延後項）
-- **Estimate**: 前端 0.5-1 工作天；ownership 限制 + hook 各約 0.5 工作天（可分次接手）
+- **Estimate**: 前端 0.5-1 工作天 → 實際約 1 session（含 code review 修復）；ownership
+  限制 + hook 各約 0.5 工作天（可分次接手，仍待做）
 - **Source**: WMOM-20260505-21 後端 code review（2026-09-26 autonomous session），拆分同
   `WMOM-20260505-22`→`WMOM-20260925-05` 前後端分兩 session 的先例
 - **Description**:
@@ -2562,11 +2581,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   WMOM-20260505-21 完成並通過 code review must-fix 修復，API 已可直接串接。本 issue 收攏
   三項延後工作：
 - **Deliverable**:
-  1. **前端** `/admin/workflow` 新增「工作日誌」頁籤（比照 `inspection_schedule` 併入
+  1. ✅ **前端** `/admin/workflow` 新增「工作日誌」頁籤（比照 `inspection_schedule` 併入
      `WorkflowPage.tsx` 既有 tab 慣例，非獨立路由）：個人填單頁（選日期 get-or-create +
-     append activity 表單，4 種 kind 各自欄位）+ 列表（依角色顯示自己/全員，見下方第 3 項
-     決策後再定案 UI 呈現方式）。走 `frontend/components/ui/` + `frontend/theme/`，不可
-     Tailwind / 硬 hex（`WMOM-20260507-01` UI directive）。
+     append activity 表單，4 種 kind 各自欄位）+ 最近日誌歷史（僅本人；全員瀏覽需第 3 項
+     決策後再定案）。走 `frontend/components/ui/` + `frontend/theme/`，未寫死 hex
+     （`WMOM-20260507-01` UI directive）——見下方 completion summary。
   2. **`work_order.finish()` → day_work_form 自動寫入 hook**：工單完工（走既有簽核
      `approve_all` action 轉 `CLOSED`，非單純 `finish()` 呼叫，見 `state_machine.py` 實際
      transition 路徑）後，自動幫該工單 `assignee_id` 對應員工當天日誌 append 一筆
@@ -2575,7 +2594,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
      專屬路徑（耦合度較低但只覆蓋這一種完工路徑，若未來有其他方式關閉工單會漏掉）？
      建議下個 session 先讀 `state_machine.py` + `approval_router.py` 現況再拍板，不要
      直接照抄 `inspection_scheduler` 的 auto-spawn 模式（那是「排程到期建新工單」，方向
-     相反於「工單完工回寫日誌」）。
+     相反於「工單完工回寫日誌」）。**仍 open**。
   3. **讀取端點 ownership 限制**（review should-fix #4，非阻塞但建議與前端一併規劃）：
      `GET /day-work-forms`（list）/ `GET /day-work-forms/by-date` / `GET
      /day-work-forms/{id}` 目前對任何登入角色開放（`require_authenticated()`），無
@@ -2585,11 +2604,61 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
      （比照 `append_activity` 的 ownership 檢查但反過來——讀取限本人、代填絕對禁止，查詢
      依角色分級）。需要先確認 `require_authenticated()` dependency 能否在 handler 內取得
      role/actor（目前簽章只回傳 `None`，可能需要新的 dependency 或直接解 token payload）。
+     **仍 open**。
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - `modules/workflow/routers/day_work_form_router.py`（現有 5 endpoints + `_employee_uuid`
     ownership pattern，第 2、3 項可沿用同一套比對邏輯）
-  - `work-logs/2026-09/2026-09-26-day-work-form-backend.md`（本次 code review 完整記錄）
+  - `work-logs/2026-09/2026-09-26-day-work-form-backend.md`（後端前一 session 完整記錄）
+  - `work-logs/2026-09/2026-09-26-day-work-form-frontend.md`（本次前端 completion summary
+    + code review 完整記錄）
+- **Completion summary（第 1 項前端，2026-09-26 第二個 autonomous session）**：
+  - ✅ `frontend/services/dayWorkFormService.ts`（新檔）：API client，`readError` 比照
+    `knowledgeService.ts` 手法解析 Pydantic v2 422 陣列 detail（review should-fix）
+  - ✅ `frontend/hooks/useDayWorkForm.ts`（新檔）：`workDate` driver 查當日日誌 + 最近
+    歷史（僅本人）；`appendActivity` 一律先 `getOrCreate` 取得正確 `form.id`；
+    `latestWorkDateRef` 防「送出期間切日期」race（review must-fix，見下方）
+  - ✅ `frontend/components/workflow/DayWorkFormPanel.tsx`（新檔）：日期選擇 + 當日活動
+    列表 + 新增活動表單（4 kind + UUID 格式前置驗證 + 已記錄過工單自動排除選單）+
+    最近日誌歷史
+  - ✅ `frontend/components/workflow/statusUtils.ts`：新增 `activityKindLabel` +
+    `todayAsiaTaipei`
+  - ✅ `frontend/components/workflow/WorkflowPage.tsx`：新增 `daywork` tab，`completed_wo`
+    工單選單走獨立 `useWorkOrders({ farmId })` instance（不共用 Orders tab 已過濾的
+    `wo`，review should-fix）
+  - ✅ **code-reviewer subagent review 抓到 1 must-fix + 3 should-fix + 3
+    nice-to-have，must-fix 與 3 個 should-fix 全數已修復**：
+    1. 🔴 **Must-fix**：`appendActivity` 完成時 `setForm(updated)` 沒有比照 `fetchForm`
+       既有 `abortRef` 的對稱防護——使用者送出期間切換日期，較慢的 append 回應後到會
+       蓋回舊日期資料且不自我修正。修法：`latestWorkDateRef` 比對送出當下捕捉的
+       `workDate` 是否仍是目前最新值，不一致跳過 `setForm`。reviewer 判定
+       `useInspectionSchedules` 的「無專屬 hook test」慣例不適用本 hook（有跨請求
+       staleness + 日期綁定可變目標的組合），已補 `hooks/__tests__/useDayWorkForm.
+       test.ts`（10 測，含精準重現此 race 的回歸測試）。
+    2. 🟡 **Should-fix**：`myWorkOrderOptions` 原共用 Orders tab 已被 `statusFilter`/
+       `search` 過濾的 `wo.items`，切 tab 時完成工單選單會悄悄變空/變少且無提示——
+       改掛獨立 `useWorkOrders({ farmId })` instance。
+    3. 🟡 **Should-fix**：`item_id` 無 UUID 格式驗證 + `readError` 對陣列 422 detail
+       只會 `JSON.stringify` 丟原始 JSON 給現場工程師——補 UUID regex 前置驗證 +
+       `readError` 改用 `knowledgeService.ts` 既有的陣列 detail 解析手法。
+    4. 🟡 **Should-fix**：`workOrderOptions` 變動後過期 `woId` 未重新對齊——補
+       `stillValid` 比對重選第一筆。**mutation test 過程中額外發現並修正**：①
+       這個修法本身漏處理「清單變空」的邊界（`if (length===0) return` 未重置
+       `woId`，導致誤判可送出）；②第一版回歸測試斷言 `select.value` 選錯了觀察
+       channel（瀏覽器對過期 `<select>` value 的原生 DOM fallback 掩蓋了 React
+       state 沒修好的事實），改斷言送出 payload 才真正鎖住。
+    5. 🟢 **Nice-to-have（已採納，改行為）**：已在今天記錄過的 `completed_wo` 工單
+       自動從選單排除，避免重複記同一張工單。
+    6. 🟢 **Nice-to-have（已採納，文件化）**：`fmtDate` 補 docstring 說明其安全性
+       僅因 Asia/Taipei 是正 UTC 偏移，未來勿照抄給負偏移時區。
+    7. 🟢 **Nice-to-have（記錄，未修）**：送出中按鈕 `aria-label` 不隨忙碌狀態變化，
+       需動共用 `Btn` primitive、blast radius 較大，本次不改。
+  - reviewer 獨立核對「本人限定」scope-narrowing 前後端一致無漏洞（`WorkflowPage.tsx`
+    一律傳 `currentUser.id`，UI 無覆寫路徑；後端 append 端點獨立 403 非本人）。
+  - ✅ frontend 1354→**1402 passed**（63→65 files，+48：+33 首輪 +15 review 修復，
+    零 regression）；tsc 0、build OK；backend 未動 1237 passed 不變。
+  - **決策**：第 2、3 項（finish hook + 讀取端點 ownership）維持 open，設計待決，
+    見上方 Deliverable 說明；未寫入 `decision_log.md`（非架構層級變動）。
 
 ---
 
