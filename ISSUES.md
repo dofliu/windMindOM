@@ -19,7 +19,27 @@
 | done | 130 |
 | **total (active)** | **142** |
 
-最後更新：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）—
+最後更新：2026-09-26（**WMOM-20260926-01 第 3 項完成（第三個 autonomous session）—
+讀取端點 ownership 限制**：`list`/`by-date`/`{form_id}` 3 個讀取端點先前只檢查「有沒有
+登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工任一天完整日誌，issue 原文點名的
+問題）。新增 `modules/auth/dependencies.py::resolve_actor_when_enforced`（enforce=false
+過渡期不限制、完全不解 token，比照 `require_role`/`require_authenticated` 的
+enforce-aware gate 風格）；`_FULL_VISIBILITY_ROLES = {LEADER, SUPERVISOR, ADMIN}` 維持
+可查全員，EMPLOYEE 與 TREASURY 收窄成只能查自己（list 靜默覆寫 employee_id filter、
+by-date 必填參數非本人 403、detail 404-before-403 比照既有 `append_activity` 慣例）。
+**code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 2 nice-to-have，
+皆已處理**：①新測試原只用 TREASURY 驗證「非本人」路徑，EMPLOYEE（主要呼叫者）交集案例
+留白——補 3 個 EMPLOYEE 版本測試；②work-log mutation/測試數字兩節原留 TODO——已回填；
+③`_viewer_uuid`/`_employee_uuid` 重複的 UUID 轉換 pattern——已採納，抽出共用 `_to_uuid`
+helper；④cutover 前建議確認前端無依賴 TREASURY 舊行為畫面——記錄供 M6 部署前
+checklist。reviewer 獨立追蹤完整授權邏輯鏈路確認無 bypass。新增 13 測皆
+mutation-verified。backend 1237→**1250 passed**（+13，零 regression）；frontend 未動
+1402 passed 不變、tsc 0、build OK。`WMOM-20260926-01` 狀態維持 `in_progress`（第 1、3
+項完成，第 2 項 `work_order.finish() hook` 仍 open——已讀完 `state_machine.py` +
+`approval_router.py`，掛點答案已寫入 work-log：`WorkOrderRepository.transition()` 內部
+`action == "approve_all"` 時觸發）。詳見
+`work-logs/2026-09/2026-09-26-day-work-form-read-ownership.md`。
+前一 session：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）—
 `day_work_form` 前端（工作日誌 tab，本人專用）**：`services/dayWorkFormService.ts` +
 `hooks/useDayWorkForm.ts` + `components/workflow/DayWorkFormPanel.tsx`（新檔）+
 `statusUtils.ts`/`WorkflowPage.tsx`（新增 daywork tab）。code-reviewer subagent review
@@ -2568,10 +2588,10 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260926-01 — `WMOM-20260505-21` 前端 + work_order.finish() 整合 hook + 讀取端點 ownership 限制
 
-- **Status**: in_progress（第 1 項前端已完成，2026-09-26 第二個 autonomous session；
-  第 2、3 項仍 open）
+- **Status**: in_progress（第 1、3 項已完成，2026-09-26 第二、三個 autonomous session；
+  第 2 項仍 open）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
-- **Priority**: medium（讀取端點 ownership 限制項目建議優先，屬 review should-fix 延後項）
+- **Priority**: medium（第 2 項 `work_order.finish()` hook 為剩餘唯一項目）
 - **Estimate**: 前端 0.5-1 工作天 → 實際約 1 session（含 code review 修復）；ownership
   限制 + hook 各約 0.5 工作天（可分次接手，仍待做）
 - **Source**: WMOM-20260505-21 後端 code review（2026-09-26 autonomous session），拆分同
@@ -2595,16 +2615,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
      建議下個 session 先讀 `state_machine.py` + `approval_router.py` 現況再拍板，不要
      直接照抄 `inspection_scheduler` 的 auto-spawn 模式（那是「排程到期建新工單」，方向
      相反於「工單完工回寫日誌」）。**仍 open**。
-  3. **讀取端點 ownership 限制**（review should-fix #4，非阻塞但建議與前端一併規劃）：
-     `GET /day-work-forms`（list）/ `GET /day-work-forms/by-date` / `GET
-     /day-work-forms/{id}` 目前對任何登入角色開放（`require_authenticated()`），無
-     ownership 限制——TREASURY 庫管也能瀏覽任一員工任一天的完整工作日誌內容。建議：
-     EMPLOYEE 角色查詢時，若帶入的 `employee_id` 非本人（或 `by-date`/`{id}` 對應的日誌
-     不是本人）回 403，或直接忽略帶入值強制查自己；LEADER/SUPERVISOR/ADMIN 維持可查全員
-     （比照 `append_activity` 的 ownership 檢查但反過來——讀取限本人、代填絕對禁止，查詢
-     依角色分級）。需要先確認 `require_authenticated()` dependency 能否在 handler 內取得
-     role/actor（目前簽章只回傳 `None`，可能需要新的 dependency 或直接解 token payload）。
-     **仍 open**。
+  3. ✅ **讀取端點 ownership 限制**（review should-fix #4）：`GET /day-work-forms`（list）/
+     `GET /day-work-forms/by-date` / `GET /day-work-forms/{id}` 新增 enforce-aware
+     ownership narrowing——`EMPLOYEE`/`TREASURY` 一律只能查自己（list 靜默覆寫
+     `employee_id` filter、by-date 非本人 403、detail 404-before-403），
+     `LEADER`/`SUPERVISOR`/`ADMIN` 維持可查全員。見下方 completion summary（第 3 項）。
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - `modules/workflow/routers/day_work_form_router.py`（現有 5 endpoints + `_employee_uuid`
@@ -2659,6 +2674,45 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     零 regression）；tsc 0、build OK；backend 未動 1237 passed 不變。
   - **決策**：第 2、3 項（finish hook + 讀取端點 ownership）維持 open，設計待決，
     見上方 Deliverable 說明；未寫入 `decision_log.md`（非架構層級變動）。
+- **Completion summary（第 3 項讀取端點 ownership 限制，2026-09-26 第三個 autonomous
+  session）**：
+  - ✅ `modules/auth/dependencies.py`：新增 `resolve_actor_when_enforced(request) ->
+    Actor | None`（enforce=false → `None`，完全不解 token，比照 `require_role`/
+    `require_authenticated` 的 enforce-aware gate 風格；與 `resolve_actor_id` 系列
+    「無論 enforce 與否一律信任 token」的 identity-resolution 語意刻意區隔，見
+    work-log 設計決策段落）。
+  - ✅ `modules/workflow/routers/day_work_form_router.py`：
+    - `_FULL_VISIBILITY_ROLES = {LEADER, SUPERVISOR, ADMIN}`（TREASURY 刻意不列入——
+      issue 原文點名的問題案例，收窄成只能查自己，同 EMPLOYEE）
+    - `list_day_work_forms`：非全視角角色靜默覆寫 `employee_id` filter 成自己
+    - `get_day_work_form_by_date`：非全視角角色帶入非本人 `employee_id` → 403
+    - `get_day_work_form`（detail）：404 優先於 403（同 `append_activity` 慣例）
+    - `_to_uuid` 共用 helper（review nice-to-have，`_employee_uuid`/`_viewer_uuid`
+      共用同一份 UUID 轉換 + 400 錯誤格式）
+  - ✅ **code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 2
+    nice-to-have，皆已處理**：
+    1. 🟡 **Should-fix**：新測試只用 TREASURY 驗證「非本人」路徑，EMPLOYEE（本次
+       修法主要呼叫者）與別人交集的案例留白——補 3 個 EMPLOYEE 版本測試
+       （list/by-date/detail），皆 mutation-verified（檔案覆寫回修法前版本確認
+       如預期 fail）。
+    2. 🟡 **Should-fix**：work-log「Mutation 驗證」「驗證」兩節原留 TODO——已回填
+       具體數字與 mutation 驗證細節。
+    3. 🟢 **Nice-to-have（已採納）**：`_viewer_uuid`/`_employee_uuid` 重複的
+       try/UUID/400 pattern——抽出共用 `_to_uuid(label, value)`。
+    4. 🟢 **Nice-to-have（記錄，非本次範圍）**：cutover 前建議確認前端無依賴
+       TREASURY 舊行為畫面，記錄供 M6 部署前 checklist。
+  - reviewer 獨立追蹤完整授權邏輯鏈路（`resolve_actor_when_enforced` →
+    `get_current_actor` → `_FULL_VISIBILITY_ROLES` gating）+ repository 層查詢語意，
+    確認 enforce=true 下無任何靜默失敗開放路徑、list 覆寫對「帶入」與「不帶」
+    `employee_id` 皆無差別覆寫（無「不帶參數就能看全員」漏洞）、三端點的
+    覆寫/403/404-403 行為差異是刻意設計非安全缺口。
+  - ✅ 新增 13 測（10 首輪 + 3 review 補測）皆 mutation-verified；backend
+    1237→**1250 passed**（+13，零 regression）；frontend 未動 1402 passed 不變、
+    tsc 0、build OK。
+  - **下次接手（item 2）**：已讀完 `state_machine.py` + `approval_router.py`，設計
+    答案見 work-log——掛點在 `WorkOrderRepository.transition()` 內部
+    `action == "approve_all"` 時觸發（唯一能同時覆蓋 `approval_router` 自動觸發與
+    `work_order_router` 直接 `/approve` endpoint 兩條路徑的地方）。
 
 ---
 

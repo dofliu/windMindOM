@@ -16,7 +16,23 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）**
+最後更新：2026-09-26（**WMOM-20260926-01 第 3 項完成（第三個 autonomous session）**
+— 讀取端點 ownership 限制：`list`/`by-date`/`{form_id}` 3 個讀取端點原只檢查「有沒有
+登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工任一天完整日誌）。新增
+`modules/auth/dependencies.py::resolve_actor_when_enforced`（enforce=false 過渡期不
+限制，比照 `require_role`/`require_authenticated` 風格）；`_FULL_VISIBILITY_ROLES =
+{LEADER, SUPERVISOR, ADMIN}` 維持可查全員，EMPLOYEE/TREASURY 收窄成只能查自己（list
+靜默覆寫 filter、by-date 非本人 403、detail 404-before-403）。**code-reviewer
+subagent review：Approve，0 must-fix，2 should-fix + 2 nice-to-have，皆已處理**（補
+3 個 EMPLOYEE 版本測試涵蓋先前只測 TREASURY 的交集空白、work-log TODO 回填、
+`_to_uuid` 共用 helper、cutover 前端 checklist 記錄）。新增 13 測皆
+mutation-verified。backend 1237→**1250 passed**（+13，零 regression）；frontend 未動
+1402 passed 不變、tsc 0、build OK。`WMOM-20260926-01` 維持 `in_progress`（第 1、3 項
+完成，第 2 項 `work_order.finish()` hook 仍 open）。**下個 session**：優先接手
+`WMOM-20260926-01` 第 2 項——設計答案已寫入 work-log（掛點：
+`WorkOrderRepository.transition()` 內部 `action == "approve_all"`），或見下方「需
+劉老師決策」清單、PR C（需先寫 broker 子設計）。）
+前一 session：2026-09-26（**WMOM-20260926-01 第 1 項完成（第二個 autonomous session）**
 — `day_work_form` 前端（工作日誌 tab，本人專用）：`services/dayWorkFormService.ts`（新檔）+
 `hooks/useDayWorkForm.ts`（新檔）+ `components/workflow/DayWorkFormPanel.tsx`（新檔，
 日期選擇 + 當日活動列表 + 新增活動表單 4 kind + 最近日誌歷史僅本人）+ `statusUtils.ts`

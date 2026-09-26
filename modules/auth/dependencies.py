@@ -244,3 +244,20 @@ def require_authenticated():
         get_current_actor(request)  # token / dev-fallback / 401
 
     return _dependency
+
+
+def resolve_actor_when_enforced(request: Request) -> Actor | None:
+    """Enforce-aware 選用身分解析——給讀取端點做 ownership narrowing 用（WMOM-20260926-01）。
+
+    - ``WMOM_AUTH_ENFORCE=false``（過渡期）→ ``None``（角色未知，維持現有全開放行為，
+      完全不解 token，與 :func:`require_authenticated` 對稱）。
+    - ``true`` → 已驗證的 ``Actor``（token / dev-fallback，同 :func:`get_current_actor`）。
+
+    與 :func:`resolve_actor_id` / :func:`resolve_actor_id_optional`（無論 enforce
+    與否一律優先信任 token，用於「誰執行了這個寫入」的 audit 身分）刻意不同語意——
+    本函式只在 enforce 生效後才解身分，過渡期完全不限制，避免讀取端點在 cutover
+    前就因為呼叫端剛好帶了 token 而被意外收窄查詢範圍。
+    """
+    if not is_auth_enforced():
+        return None
+    return get_current_actor(request)  # token / dev-fallback / 401
