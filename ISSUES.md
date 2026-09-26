@@ -14,13 +14,29 @@
 | Status | Count |
 |--------|------|
 | open | 9 |
-| in_progress | 3 |
+| in_progress | 2 |
 | blocked | 0 |
-| done | 130 |
+| done | 131 |
 | **total (active)** | **142** |
 
-最後更新：2026-09-26（**WMOM-20260926-01 第 3 項完成（第三個 autonomous session）—
-讀取端點 ownership 限制**：`list`/`by-date`/`{form_id}` 3 個讀取端點先前只檢查「有沒有
+最後更新：2026-09-26（**WMOM-20260926-01 三項全數完成，issue 標 done（第四個
+autonomous session）— `work_order.finish()` → day_work_form 自動寫入 hook**：工單完工
+（`approve_all`：`AWAITING_SIGNOFF → CLOSED`）時，自動幫該工單 `assignee_id` 對應員工
+當天日誌 append 一筆 `completed_wo` activity。掛在 `WorkOrderRepository.transition()`
+內部 `action == "approve_all"`——唯一能同時覆蓋 `approval_router` 簽核鏈自動觸發與
+`work_order_router` 直接 `/approve` 入口兩條完工路徑的地方。`work_date` 用
+Asia/Taipei 曆日；day_work_form 寫入失敗只 log 不影響已 commit 的工單關閉。
+**code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 2 nice-to-have，
+2 個 should-fix 皆已修復**：①`DayWorkFormORM.__table__.create(checkfirst=True)`
+補建 schema 呼叫其實已多餘（reviewer 追出 package `__init__.py` import 順序保證
+table 早已註冊，多打的呼叫在完工熱路徑上每次多一次 engine 連線 + 寫鎖 round
+trip）——已刪除，本 session 獨立驗證 import 順序後才動手；②一個測試名稱宣稱測
+`work_order_router` 直接入口實際只是複製 repository 層測試的假覆蓋——已刪除，改在
+`test_approval_api.py` 新增走完整簽核鏈 HTTP 流程的端到端整合測試；③`created_by`
+比照 router 慣例補齊（nice-to-have，已採納）。新增/調整測試皆 mutation-verified。
+backend 1250→**1255 passed**（+5，零 regression）；frontend 未動 1402 passed 不變、
+tsc 0、build OK。**前一 session（WMOM-20260926-01 第 3 項完成，第三個 autonomous
+session）— 讀取端點 ownership 限制**：`list`/`by-date`/`{form_id}` 3 個讀取端點先前只檢查「有沒有
 登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工任一天完整日誌，issue 原文點名的
 問題）。新增 `modules/auth/dependencies.py::resolve_actor_when_enforced`（enforce=false
 過渡期不限制、完全不解 token，比照 `require_role`/`require_authenticated` 的
@@ -2588,12 +2604,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260926-01 — `WMOM-20260505-21` 前端 + work_order.finish() 整合 hook + 讀取端點 ownership 限制
 
-- **Status**: in_progress（第 1、3 項已完成，2026-09-26 第二、三個 autonomous session；
-  第 2 項仍 open）
+- **Status**: done（三項全數完成，2026-09-26 第二、三、四個 autonomous session）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
-- **Priority**: medium（第 2 項 `work_order.finish()` hook 為剩餘唯一項目）
+- **Priority**: medium（已完成）
 - **Estimate**: 前端 0.5-1 工作天 → 實際約 1 session（含 code review 修復）；ownership
-  限制 + hook 各約 0.5 工作天（可分次接手，仍待做）
+  限制 + hook 各約 0.5 工作天 → 實際各約 1 session（含 code review 修復）
 - **Source**: WMOM-20260505-21 後端 code review（2026-09-26 autonomous session），拆分同
   `WMOM-20260505-22`→`WMOM-20260925-05` 前後端分兩 session 的先例
 - **Description**:
@@ -2606,15 +2621,12 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
      append activity 表單，4 種 kind 各自欄位）+ 最近日誌歷史（僅本人；全員瀏覽需第 3 項
      決策後再定案）。走 `frontend/components/ui/` + `frontend/theme/`，未寫死 hex
      （`WMOM-20260507-01` UI directive）——見下方 completion summary。
-  2. **`work_order.finish()` → day_work_form 自動寫入 hook**：工單完工（走既有簽核
-     `approve_all` action 轉 `CLOSED`，非單純 `finish()` 呼叫，見 `state_machine.py` 實際
-     transition 路徑）後，自動幫該工單 `assignee_id` 對應員工當天日誌 append 一筆
-     `completed_wo` activity。**設計待決**：hook 應掛在 `WorkOrderRepository.transition()`
-     內部（耦合度高，任何 transition 都會經過）還是 `approval_router` 的 `approve_all`
-     專屬路徑（耦合度較低但只覆蓋這一種完工路徑，若未來有其他方式關閉工單會漏掉）？
-     建議下個 session 先讀 `state_machine.py` + `approval_router.py` 現況再拍板，不要
-     直接照抄 `inspection_scheduler` 的 auto-spawn 模式（那是「排程到期建新工單」，方向
-     相反於「工單完工回寫日誌」）。**仍 open**。
+  2. ✅ **`work_order.finish()` → day_work_form 自動寫入 hook**：工單完工（走既有簽核
+     `approve_all` action 轉 `CLOSED`）後，自動幫該工單 `assignee_id` 對應員工當天日誌
+     append 一筆 `completed_wo` activity。掛在 `WorkOrderRepository.transition()` 內部
+     `action == "approve_all"`——這是唯一能同時覆蓋 `approval_router` 簽核鏈自動觸發與
+     `work_order_router` 直接 `/approve` 入口兩條完工路徑的地方。見下方 completion
+     summary（第 2 項）。
   3. ✅ **讀取端點 ownership 限制**（review should-fix #4）：`GET /day-work-forms`（list）/
      `GET /day-work-forms/by-date` / `GET /day-work-forms/{id}` 新增 enforce-aware
      ownership narrowing——`EMPLOYEE`/`TREASURY` 一律只能查自己（list 靜默覆寫
@@ -2713,6 +2725,40 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     答案見 work-log——掛點在 `WorkOrderRepository.transition()` 內部
     `action == "approve_all"` 時觸發（唯一能同時覆蓋 `approval_router` 自動觸發與
     `work_order_router` 直接 `/approve` endpoint 兩條路徑的地方）。
+- **Completion summary（第 2 項 `work_order.finish()` hook，2026-09-26 第四個
+  autonomous session）**：
+  - ✅ `modules/workflow/repository/work_order_repository.py`：`transition()` 收尾在
+    `sess.commit()` 後**跳出 `with self._sessionmaker()` block** 才呼叫新增的
+    `_record_completed_wo_activity(result)`（避免跟 day_work_form 自己的獨立 write
+    transaction 疊在一起造成 SQLite `BEGIN IMMEDIATE` 自我鎖死）；`assignee_id is
+    None` 時 no-op（防禦性，state machine 圖上理論不可達）；lazy import
+    `DayWorkFormRepository`（module-level 會循環 import）；`work_date` 用
+    `ZoneInfo("Asia/Taipei")` 曆日（新增 `_TAIPEI_TZ` 常數），比照前端
+    `todayAsiaTaipei()`；整段包 `try/except Exception` 只 log 不 raise，day_work_form
+    寫入失敗不影響已 commit 的工單關閉。
+  - ✅ 新增 `modules/workflow/tests/test_work_order_finish_day_work_form_hook.py`
+    （4 測，repository 層直接驗證 hook 邏輯）+ `test_approval_api.py` 新增 1 測
+    （HTTP 層端到端整合，走真正的簽核鏈兩階簽核流程）。
+  - ✅ **code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 2
+    nice-to-have，2 個 should-fix 皆已處理**：
+    1. 🟡 **Should-fix**：`DayWorkFormORM.__table__.create(checkfirst=True)` 補建
+       schema 的呼叫其實已多餘（reviewer 追出 `repository/__init__.py` 的 import
+       順序保證 `DayWorkFormORM` 早已註冊在共用 `Base.metadata`），且在工單完工
+       熱路徑上每次都多一次 engine 連線 + `BEGIN IMMEDIATE` 寫鎖 round trip——
+       已刪除該呼叫，本 session 獨立重讀 `__init__.py` 確認 reviewer 論述無誤。
+    2. 🟡 **Should-fix**：`test_approve_all_via_work_order_router_approve_endpoint_
+       also_appends` 名稱宣稱測 router 直接入口，實際只是複製第一個測試直接呼叫
+       `repo.transition()`，是誤導性假覆蓋——已刪除，改在 `test_approval_api.py`
+       新增走完整 FastAPI `TestClient` + 簽核鏈 HTTP 流程的
+       `test_approve_last_step_closes_work_order_also_appends_day_work_form_activity`。
+    3. 🟢 **Nice-to-have（已採納）**：hook 建立日誌時補 `created_by=wo.assignee_id`
+       （比照 router 慣例，純 audit trail 一致性，不影響 ownership 授權）。
+    4. 🟢 **Nice-to-have（記錄，未修）**：`except Exception` 範圍較寬，與既有
+       `approval_router.py` 慣例一致，維持不改。
+  - ✅ 新增/調整測試皆 mutation-verified（含 review 修復後第三輪）；backend
+    1250→**1255 passed**（+5，零 regression）；frontend 未動 1402 passed 不變、
+    tsc 0、build OK。
+  - `WMOM-20260926-01` **三項全數完成，本 issue 標 done**。
 
 ---
 

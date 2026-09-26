@@ -50,7 +50,9 @@ from ._helpers import (
     str_to_uuid,
     uuid_to_str,
 )
-from .day_work_form_orm import DayWorkFormORM
+from .day_work_form_orm import DayWorkFormORM  # noqa: F401 — import 本身即副作用：
+# 讓 DayWorkFormORM 在本模組（含 get_repository() 的 create_all()）跑之前就已註冊在
+# 共用的 Base.metadata 上，見 _record_completed_wo_activity 的說明；不直接引用此 symbol。
 from .orm_models import (
     Base,
     ProgressNoteORM,
@@ -512,17 +514,21 @@ class WorkOrderRepository:
             # 在頂層 import 本模組的 _ENGINE_LOCK / _SCHEMA_INITIALIZED / _get_engine）。
             from .day_work_form_repository import DayWorkFormRepository
 
-            # 與 WorkOrderRepository 共用同一顆 engine，但該 engine 的 schema
-            # 可能是在 day_work_form 模組被 import 之前就跑過 create_all()，此時
-            # DayWorkFormORM 的 table 不會被建立——這裡用 checkfirst=True 補建。
-            DayWorkFormORM.__table__.create(bind=self._engine, checkfirst=True)
-
+            # 不需要額外補 create table：本模組頂層已 import DayWorkFormORM（見檔頭），
+            # 這保證只要本模組（含 get_repository()）被 import，DayWorkFormORM 就已
+            # 註冊在共用的 Base.metadata 上——不依賴 __init__.py 的 import 順序，
+            # get_repository() 的 Base.metadata.create_all() 一定會連帶建好這張表。
+            # 若在這裡額外呼叫 DayWorkFormORM.__table__.create(checkfirst=True)，
+            # 會在 WO 完工這條熱路徑上每次都多開一條 engine 連線 + 觸發本檔
+            # _begin_immediate 的 BEGIN IMMEDIATE 寫鎖 round trip，且是完全不必要的
+            # 重複操作（code review 發現）。
             day_work_repo = DayWorkFormRepository(self._engine)
             work_date = datetime.now(tz=_TAIPEI_TZ).date()
             form = day_work_repo.get_or_create_for_date(
                 farm_id=wo.farm_id,
                 employee_id=wo.assignee_id,
                 work_date=work_date,
+                created_by=wo.assignee_id,
             )
             day_work_repo.append_activity(
                 form.id,

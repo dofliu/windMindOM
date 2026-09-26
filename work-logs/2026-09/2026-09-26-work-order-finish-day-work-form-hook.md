@@ -71,6 +71,15 @@ symbol 不存在，collection error）。
 改回 `if action == "approve_all":`，`git diff --stat` 確認復原後與原始實作完全一致
 （67 insertions / 1 deletion，無漏改），5 測全數 pass。
 
+第三輪（review should-fix 修復後）：
+- 把 `created_by=wo.assignee_id` 移除 → 重跑
+  `test_approve_all_appends_completed_wo_activity`，確認新加的 `assert
+  form.created_by == assignee` 斷言如預期 fail（`None == UUID(...)`），改回後 pass。
+- 把 `if action == "approve_all":` 再次改成不存在的 action 名稱 → 重跑
+  `test_approve_last_step_closes_work_order_also_appends_day_work_form_activity`
+  （新增的 HTTP 層整合測試），確認如預期 fail（`assert None is not None`，日誌
+  完全沒被建立），改回後 pass。
+
 ## 驗證
 
 - backend baseline（`modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/
@@ -84,17 +93,71 @@ symbol 不存在，collection error）。
 
 ## code-reviewer subagent review
 
-（收尾時回填）
+**Approve，0 must-fix，2 should-fix + 2 nice-to-have，2 個 should-fix 皆已修復**：
+
+1. 🟡 **Should-fix**：`DayWorkFormORM.__table__.create(bind=self._engine,
+   checkfirst=True)` 這個補建 schema 的呼叫在本次修法後其實已經多餘——reviewer 獨立追蹤
+   `modules/workflow/repository/__init__.py` 的 import 順序，證實它一律先 import
+   `.work_order_repository`（會定義 `get_repository`）才 import
+   `.day_work_form_orm`/`.day_work_form_repository`，代表任何拿得到
+   `WorkOrderRepository` 的呼叫路徑，`DayWorkFormORM` 早已註冊在共用的 `Base.metadata`
+   上，`get_repository()` 的 `create_all()` 一定會連帶建好該表；多打的這次
+   `checkfirst=True` 呼叫反而在「工單完工」這條熱路徑上，每次都多開一條 engine 連線
+   並觸發本檔 `_begin_immediate` 的 `BEGIN IMMEDIATE` 寫鎖 round trip，造成不必要的
+   延遲/鎖競爭（離岸運維常見的「收工時段密集關單」情境下尤其明顯）——**已修復**：
+   刪除該呼叫，改註解說明本模組頂層 import `DayWorkFormORM` 本身（純為註冊副作用，不
+   依賴 `__init__.py` 順序）已足夠保證 table 存在。獨立驗證：本 session 自己重讀
+   `__init__.py` 的 import 順序（line 26 `work_order_repository` 早於 line 58-59
+   `day_work_form_orm`/`day_work_form_repository`），確認 reviewer 論述無誤才動手改。
+2. 🟡 **Should-fix**：`test_approve_all_via_work_order_router_approve_endpoint_also_appends`
+   名稱宣稱測的是「透過 `work_order_router` 直接入口」，但實際內容跟第一個測試一樣
+   直接呼叫 `repo.transition()`，從未碰觸任何 router，等於是誤導性的假覆蓋（reviewer
+   指出其 docstring 自己也承認「這裡直接驗證 repository 層 API」）——**已修復**：
+   刪除此測試，改在 `test_approval_api.py` 新增
+   `test_approve_last_step_closes_work_order_also_appends_day_work_form_activity`
+   ——完整跑過 FastAPI `TestClient` + 真正的簽核鏈兩階簽核 HTTP 流程（沿用既有
+   `test_approve_last_step_closes_work_order` 的 pattern），驗證 production 唯一
+   真實觸發路徑（`approval_router` 簽核鏈最後一階）也確實觸發 day_work_form
+   自動寫入，而不是只驗證 repository 私有方法本身。
+3. 🟢 **Nice-to-have**（已採納）：hook 呼叫 `get_or_create_for_date` 時未帶
+   `created_by`，導致 hook 自動建立的日誌 `created_by=None`，與
+   `day_work_form_router.get_or_create_day_work_form` 一律帶
+   `created_by=employee_id` 的慣例不一致（純 audit trail 一致性問題，reviewer
+   確認不影響 ownership 授權——授權比對的是 `employee_id` 不是 `created_by`）——
+   已補 `created_by=wo.assignee_id`。
+4. 🟢 **Nice-to-have**（未採納，維持現狀）：`except Exception` 範圍較寬，理論上也會
+   吞掉 `wo.business_key`/`ActivityEntry` 建構本身的程式錯誤，非僅預期的 DB 暫時性
+   失敗。reviewer 自己確認這與既有 `approval_router.py` MATERIAL_REQUEST 分支的
+   `except Exception` 慣例一致，且 repo 無 ruff/flake8 設定會擋 blind-except，本次
+   維持不改（`_logger.exception` 仍保留完整 traceback 供事後除錯）。
+
+reviewer 另外獨立驗證（非發現問題，記錄供未來讀者信任）：circular import 確實只有靠
+lazy import 才能避開（有實際追出「若 module-level import 會在 `_ENGINE_LOCK` 定義
+之前觸發 partial-init ImportError」的反例）；hook 放在 `with
+self._sessionmaker()` block **外面**才呼叫，正確避免了跟工單自己的
+`BEGIN IMMEDIATE` 寫鎖疊在一起自我鎖死；None-assignee 防禦性檢查確認在
+state machine 圖上理論不可達但正確放在 try block 外（不會被吞掉）；Asia/Taipei
+只用於 natural key 的日期分桶，`ActivityEntry.logged_at` 仍是 UTC，語意正確；
+`_begin_immediate` 既有的 BEGIN IMMEDIATE 序列化設計也正確涵蓋了本 hook 的
+併發 append 情境，無 lost-update 風險；多 WO / offshore 生命週期（含 reopen
+再走一輪完工累加多筆 activity）無正確性問題。
+
+修復後重新跑 mutation 驗證（見上方「Mutation 驗證」段落已包含這輪的驗證結果）+
+全套 backend baseline 重跑確認零 regression（1255 passed 不變）。
 
 ## 沒有自動化保護的部分
 
-- 本次測試皆走 `WorkOrderRepository`/`DayWorkFormRepository` 直接呼叫，**未經過**
-  `approval_router.py` 的 FastAPI endpoint（`test_approval_api.py` 等既有 HTTP 層測試
-  未特別驗證 day_work_form 這個新 side-effect 有沒有被觸發）。因為 hook 掛在
-  `WorkOrderRepository.transition()`（repository 層，唯一交會點），HTTP 層兩條路徑
-  （`approval_router`/`work_order_router`）本質上都是呼叫同一段程式碼，理論上不需要
-  額外重複測，但若未來有人在 router 層加了「跳過 repo.transition() 直接改 ORM」的
-  捷徑，這裡不會有測試抓到（可能性低，目前沒有這類 code path）。
+- （review 後已補強）本次已新增 `test_approval_api.py::
+  test_approve_last_step_closes_work_order_also_appends_day_work_form_activity`
+  跑完整 FastAPI `TestClient` + 簽核鏈兩階簽核 HTTP 流程，驗證 production 唯一真實
+  觸發路徑（`approval_router` 最後一階自動觸發）也確實觸發 hook，不再只靠 repository
+  層單元測試。**仍未覆蓋**的是 `work_order_router.py` 的 `/work-orders/{id}/approve`
+  直接入口本身（該 endpoint 有自己的 409 guard：需先驗證 `signoff_chain_id` 存在且
+  `chain.overall_status == APPROVED`，正常流程下 chain 通常已經由 `approval_router`
+  自動觸發過 `approve_all` 而變成 CLOSED，此 endpoint 實務上很難先於簽核鏈被呼叫到；
+  但兩者最終都呼叫同一個 `WorkOrderRepository.transition()`，本次判斷不需要為此再開
+  一支重複的 HTTP 層測試）。若未來有人在 router 層加了「跳過 repo.transition() 直接改
+  ORM」的捷徑，這裡不會有測試抓到（可能性低，目前沒有這類 code path）。
 - `_TAIPEI_TZ`（`ZoneInfo("Asia/Taipei")`）的行為依賴系統時區資料庫（`tzdata`）；測試
   沒有針對「日界線交接時刻」（例如 UTC 15:59/16:00 剛好跨過 Asia/Taipei 午夜）寫專門
   的 freeze-time 測試，只驗證「呼叫當下」的今天日期正確累加，屬於已知但低風險的覆蓋

@@ -2,9 +2,15 @@
 
 對應 [ISSUES.md](../../../ISSUES.md) WMOM-20260926-01 item 2 + work-log
 ``work-logs/2026-09/2026-09-26-day-work-form-read-ownership.md`` 下次接手指南：
-掛點是 ``WorkOrderRepository.transition()`` 內部 ``action == "approve_all"``，同時涵蓋
-``approval_router`` 簽核鏈自動觸發與 ``work_order_router`` ``/approve`` 直接入口兩條路徑
-（兩者都直接呼叫 ``repo.transition()``，不經過 router 層 ``_run_transition``）。
+掛點是 ``WorkOrderRepository.transition()`` 內部 ``action == "approve_all"``。
+
+本檔測試都直接呼叫 repository 層 API（不經 FastAPI router），驗證 hook 本身的邏輯
+（累加、無 assignee 防禦、失敗不中斷）。真正的 HTTP 層端到端整合測試（``approval_router``
+簽核鏈最後一階自動觸發完工 → 驗證 day_work_form 確實被寫入）見
+``test_approval_api.py::test_approve_last_step_closes_work_order_also_appends_day_work_form_activity``
+——那才是 production 唯一真實觸發路徑（``work_order_router`` 的 ``/approve`` 直接入口在
+正常流程下於 chain 尚未 APPROVED 前會被 409 guard 擋下，實務上不太可能先於簽核鏈被呼叫，
+但兩者殊途同歸都呼叫同一個 ``WorkOrderRepository.transition()``，故不需要重複驗證兩次）。
 """
 
 from __future__ import annotations
@@ -80,36 +86,12 @@ def test_approve_all_appends_completed_wo_activity(repo, tmp_path):
         farm_id="台中港曲風場", employee_id=assignee, work_date=_today_taipei()
     )
     assert form is not None
+    assert form.created_by == assignee  # review nice-to-have：比照 router 慣例填 created_by
     assert len(form.activities) == 1
     entry = form.activities[0]
     assert entry.kind == ActivityKind.COMPLETED_WO
     assert entry.wo_id == final.id
     assert entry.note == final.business_key
-
-
-def test_approve_all_via_work_order_router_approve_endpoint_also_appends(
-    repo, tmp_path,
-):
-    """``/work-orders/{id}/approve`` 直接入口（非簽核鏈）也要覆蓋到——兩者都經
-    ``WorkOrderRepository.transition()``，本質上與 approval_router 路徑同一段程式碼，
-    這裡直接驗證 repository 層 API（router 層另有 `_run_transition` 包裝，行為一致）。
-    """
-    assignee = uuid4()
-    wo = _make(repo, assignee_id=assignee)
-    repo.transition(wo.id, "dispatch", actor_id=assignee)
-    repo.transition(wo.id, "start_work")
-    repo.transition(wo.id, "finish", actual_hours=1.5, followup_kind=FollowupKind.NONE)
-    # 模擬 work_order_router.approve() 內部呼叫（不經 approval_router 簽核鏈）
-    final = repo.transition(wo.id, "approve_all")
-    assert final.status == WorkOrderStatus.CLOSED
-
-    dwf_repo = get_day_work_form_repository(str(tmp_path / "wind_farm.db"))
-    form = dwf_repo.get_by_date(
-        farm_id="台中港曲風場", employee_id=assignee, work_date=_today_taipei()
-    )
-    assert form is not None
-    assert len(form.activities) == 1
-    assert form.activities[0].kind == ActivityKind.COMPLETED_WO
 
 
 def test_approve_all_two_work_orders_same_day_accumulates_activities(repo, tmp_path):
