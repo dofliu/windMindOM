@@ -193,6 +193,62 @@ def test_approve_last_step_closes_work_order(client):
     assert wo["closed_at"] is not None
 
 
+def test_approve_last_step_closes_work_order_also_appends_day_work_form_activity(
+    client, tmp_path,
+):
+    """WMOM-20260926-01 item 2 端到端整合測試：走 production 唯一真實的完工路徑——
+    ``approval_router`` 簽核鏈最後一階 HTTP endpoint 自動觸發
+    ``wo_repo.transition(chain.subject_id, "approve_all")``——確認掛在共用
+    ``WorkOrderRepository.transition()`` 內部的 day_work_form 自動寫入 hook
+    （見 ``work_order_repository.py::_record_completed_wo_activity``）也確實被觸發。
+
+    比 ``test_work_order_finish_day_work_form_hook.py`` 裡直接呼叫
+    ``repo.transition()`` 的單元測試更進一步：完整跑過 FastAPI router + 簽核鏈
+    state machine，不是只驗證 repository 私有方法本身。
+    """
+    from modules.workflow.domain.day_work_form import ActivityKind
+    from modules.workflow.repository.day_work_form_repository import (
+        get_day_work_form_repository,
+    )
+    from modules.workflow.repository.work_order_repository import _TAIPEI_TZ
+
+    wo_id, farm_id, finish_data = _create_and_finish_wo(client)
+    assignee_id = finish_data["assignee_id"]
+    qs = f"?farm_id={farm_id}"
+    actor_emp = str(uuid4())
+    actor_lead = str(uuid4())
+
+    pending_emp = client.get(
+        f"/api/workflow/approvals/pending?farm_id={farm_id}&level=employee"
+    ).json()
+    client.post(
+        f"/api/workflow/approvals/{pending_emp['items'][0]['step']['id']}/approve{qs}",
+        json={"actor_id": actor_emp},
+    )
+    pending_lead = client.get(
+        f"/api/workflow/approvals/pending?farm_id={farm_id}&level=leader"
+    ).json()
+    r = client.post(
+        f"/api/workflow/approvals/{pending_lead['items'][0]['step']['id']}/approve{qs}",
+        json={"actor_id": actor_lead, "comment": "all good"},
+    )
+    assert r.json()["subject_status_changed"] is True  # 工單也 close 了
+
+    from datetime import datetime
+    from uuid import UUID
+
+    dwf_repo = get_day_work_form_repository(str(tmp_path / "wind_farm.db"))
+    today_taipei = datetime.now(tz=_TAIPEI_TZ).date()
+    form = dwf_repo.get_by_date(
+        farm_id=farm_id, employee_id=UUID(assignee_id), work_date=today_taipei,
+    )
+    assert form is not None
+    assert len(form.activities) == 1
+    entry = form.activities[0]
+    assert entry.kind == ActivityKind.COMPLETED_WO
+    assert str(entry.wo_id) == wo_id
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # reject_step
 # ─────────────────────────────────────────────────────────────────────────

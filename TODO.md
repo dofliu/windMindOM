@@ -16,8 +16,24 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-01 第 3 項完成（第三個 autonomous session）**
-— 讀取端點 ownership 限制：`list`/`by-date`/`{form_id}` 3 個讀取端點原只檢查「有沒有
+最後更新：2026-09-26（**WMOM-20260926-01 三項全數完成，issue 標 done（第四個
+autonomous session）** — `work_order.finish()` → day_work_form 自動寫入 hook：工單
+完工（`approve_all`：`AWAITING_SIGNOFF → CLOSED`）時，自動幫該工單 `assignee_id`
+對應員工當天日誌 append 一筆 `completed_wo` activity。掛在
+`WorkOrderRepository.transition()` 內部 `action == "approve_all"`——唯一能同時覆蓋
+`approval_router` 簽核鏈自動觸發與 `work_order_router` 直接 `/approve` 入口兩條完工
+路徑的地方。`work_date` 用 Asia/Taipei 曆日；day_work_form 寫入失敗只 log 不影響已
+commit 的工單關閉。**code-reviewer subagent review：Approve，0 must-fix，2
+should-fix + 2 nice-to-have，2 個 should-fix 皆已修復**：①補建 schema 的
+`DayWorkFormORM.__table__.create(checkfirst=True)` 呼叫其實已多餘（reviewer 追出
+package `__init__.py` import 順序保證 table 早已註冊），且在完工熱路徑上每次多一次
+engine 連線 + 寫鎖 round trip——已刪除，本 session 獨立驗證 import 順序後才動手；
+②一個測試名稱宣稱測 `work_order_router` 直接入口實際是複製 repository 層測試的假
+覆蓋——已刪除，改在 `test_approval_api.py` 新增走完整簽核鏈 HTTP 流程的端到端整合
+測試；③`created_by` 比照 router 慣例補齊。新增/調整測試皆 mutation-verified。
+backend 1250→**1255 passed**（+5，零 regression）；frontend 未動 1402 passed 不變、
+tsc 0、build OK。**前一 session（WMOM-20260926-01 第 3 項完成，第三個 autonomous
+session）** — 讀取端點 ownership 限制：`list`/`by-date`/`{form_id}` 3 個讀取端點原只檢查「有沒有
 登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工任一天完整日誌）。新增
 `modules/auth/dependencies.py::resolve_actor_when_enforced`（enforce=false 過渡期不
 限制，比照 `require_role`/`require_authenticated` 風格）；`_FULL_VISIBILITY_ROLES =
@@ -443,11 +459,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**WMOM-20260926-01 第 1 項**（`WMOM-20260505-21` 收尾）— day_work_form
   前端頁面（`/admin/workflow` 工作日誌 tab，本人專用）~~ — ✅ 2026-09-26 完成，見上方
   「最後更新」。
-- [ ] **WMOM-20260926-01 剩餘 2 項** — work_order.finish() 自動寫入 hook（需先讀
-  `state_machine.py`/`approval_router.py` 決定掛點，不要照抄 inspection_scheduler 的
-  auto-spawn 模式，方向相反）+ 讀取端點 ownership 限制（EMPLOYEE 查詢應限本人，
-  LEADER/SUPERVISOR 可查全員）。兩項可分次接手，皆需先做設計決策（非單純 autonomous
-  可決，見上方「最後更新」的 open questions）。
+- [x] ~~**WMOM-20260926-01 剩餘 2 項** — work_order.finish() 自動寫入 hook + 讀取端點
+  ownership 限制~~ — ✅ 2026-09-26 兩項皆完成（第 3 項第三個 session、第 2 項第四個
+  session），見上方「最後更新」。`WMOM-20260926-01` 三項全數完成，該 issue 已標 done。
 
 ### 需劉老師決策才能開工
 

@@ -3,7 +3,55 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 第三個 autonomous session（WMOM-20260926-01
+last_updated: "2026-09-26"  # **2026-09-26 第四個 autonomous session
+  # （WMOM-20260926-01 三項全數完成，issue 標 done）**：`work_order.finish()` →
+  # day_work_form 自動寫入 hook——工單完工（`approve_all`：`AWAITING_SIGNOFF →
+  # CLOSED`）時，自動幫該工單 `assignee_id` 對應員工當天日誌 append 一筆
+  # `completed_wo` activity。掛在 `WorkOrderRepository.transition()` 內部
+  # `action == "approve_all"`——唯一能同時覆蓋 `approval_router` 簽核鏈自動觸發與
+  # `work_order_router` 直接 `/approve` 入口兩條完工路徑的地方（兩者皆直接呼叫
+  # `repo.transition()`，不經過 router 層 `_run_transition`）。`work_date` 用
+  # `ZoneInfo("Asia/Taipei")` 曆日，比照前端 `todayAsiaTaipei()` 慣例；day_work_form
+  # 寫入失敗（如 DB lock）整段包 `try/except Exception` 只 log 不 raise，不影響已
+  # `sess.commit()` 落地的工單關閉本身——比照 `approval_router.approve_step` 既有
+  # catch+log 模式。**code-reviewer subagent review：Approve，0 must-fix，2
+  # should-fix + 2 nice-to-have，2 個 should-fix 皆已修復**：①`DayWorkFormORM.
+  # __table__.create(checkfirst=True)` 補建 schema 的呼叫其實已多餘——reviewer 獨立
+  # 追出 `modules/workflow/repository/__init__.py` 一律先 import
+  # `.work_order_repository` 才 import `.day_work_form_orm`/
+  # `.day_work_form_repository`，代表任何拿得到 `WorkOrderRepository` 的呼叫路徑，
+  # `DayWorkFormORM` 早已註冊在共用 `Base.metadata` 上，`get_repository()` 的
+  # `create_all()` 一定會連帶建好該表；多打的這次 checkfirst 呼叫反而在工單完工這條
+  # 熱路徑上每次都多開一條 engine 連線 + 觸發 `BEGIN IMMEDIATE` 寫鎖 round trip，
+  # 造成不必要的延遲/鎖競爭——已刪除該呼叫，本 session 獨立重讀 `__init__.py` 的
+  # import 順序確認 reviewer 論述無誤才動手改，改註解說明本模組頂層 import
+  # `DayWorkFormORM`（純為註冊副作用）已足夠保證 table 存在，不依賴 `__init__.py`
+  # 順序。②`test_approve_all_via_work_order_router_approve_endpoint_also_appends`
+  # 名稱宣稱測 `work_order_router` 直接入口，實際內容跟另一個測試一樣直接呼叫
+  # `repo.transition()`，從未碰觸任何 router，是誤導性的假覆蓋——已刪除，改在
+  # `test_approval_api.py` 新增
+  # `test_approve_last_step_closes_work_order_also_appends_day_work_form_activity`：
+  # 完整跑過 FastAPI `TestClient` + 真正的簽核鏈兩階簽核 HTTP 流程，驗證 production
+  # 唯一真實觸發路徑（`approval_router` 簽核鏈最後一階）也確實觸發 day_work_form
+  # 自動寫入。③🟢 nice-to-have（已採納）：hook 建立日誌時補
+  # `created_by=wo.assignee_id`（比照 `day_work_form_router` 慣例，純 audit trail
+  # 一致性，reviewer 確認不影響 ownership 授權——授權比對的是 `employee_id` 不是
+  # `created_by`）。④🟢 nice-to-have（記錄，未修）：`except Exception` 範圍較寬，
+  # 理論上也會吞掉程式本身的 bug 而非僅預期的 DB 暫時性失敗，但與既有
+  # `approval_router.py` 慣例一致，維持不改。reviewer 另外獨立驗證（非發現問題）：
+  # circular import 只能靠 lazy import 避開（有實際追出 module-level import 會在
+  # `_ENGINE_LOCK` 定義之前觸發 partial-init `ImportError` 的反例）；hook 放在
+  # `with self._sessionmaker()` block 外面才呼叫，正確避免跟工單自己的
+  # `BEGIN IMMEDIATE` 寫鎖疊在一起自我鎖死；None-assignee 防禦性檢查在 state
+  # machine 圖上理論不可達但正確放在 try block 外（不會被吞掉）；Asia/Taipei 只用於
+  # natural key 日期分桶，`ActivityEntry.logged_at` 仍是 UTC，語意正確；多 WO /
+  # offshore 生命週期（含 reopen 再走一輪完工累加多筆 activity）無正確性問題。新增/
+  # 調整測試皆 mutation-verified（含 review 修復後第三輪，逐一改回舊邏輯確認新測會
+  # fail 再還原）。backend 1250→**1255 passed**（7 skipped, 1 xfailed，+5，零
+  # regression）；frontend 未動 1402 passed 不變、tsc 0、build OK。
+  # `WMOM-20260926-01` 三項全數完成，**issue 狀態改標 done**。
+  #
+  # **前一 session（2026-09-26 第三個 autonomous session，WMOM-20260926-01
   # 第 3 項完成）**：`day_work_form` 讀取端點 ownership 限制——`list`/`by-date`/`{form_id}`
   # 3 個讀取端點先前只檢查「有沒有登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工
   # 任一天完整日誌，issue 原文點名的問題案例）。新增 `modules/auth/dependencies.py::
@@ -355,11 +403,11 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 8  # 不變（WMOM-20260505-21 open→in_progress，WMOM-20260926-01 新增 open，一去一來抵銷）
-  in_progress: 1  # 0→1（WMOM-20260505-21 後端完成，前端拆 WMOM-20260926-01）
+  open: 8  # 不變
+  in_progress: 0  # 1→0（WMOM-20260926-01 三項全數完成，issue 標 done）
   blocked: 0
-  done: 133  # 不變（本次未新增 done issue）
-             # total 142（8+1+133=142，+1 為新增的 WMOM-20260926-01）
+  done: 134  # 133→134（WMOM-20260926-01 done）
+             # total 142（8+0+134=142）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於
