@@ -16,7 +16,32 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-25（**WMOM-20260925-05 完成** — `WMOM-20260505-22` 前端收尾：`inspection_
+最後更新：2026-09-26（**WMOM-20260505-21 後端完成** — `day_work_form` 員工當天工作日誌：
+domain（`ActivityKind` enum + `ActivityEntry`/`DayWorkForm` dataclass + `validate_activity_
+entry` 純函式 + `ACTIVITY_REQUIRED_FIELDS` 表）+ repository（`DayWorkFormRepository`：
+`(farm_id, employee_id, work_date)` 唯一索引 natural-key `get_or_create_for_date` + 累加式
+`append_activity`）+ router（5 endpoints：get-or-create/list/by-date/detail/append-activity）
+全數完成，55 個新測試皆 mutation-verified。**code-reviewer subagent review 抓到 1 must-fix +
+3 should-fix + 2 nice-to-have，must-fix 與前兩項 should-fix 已修復**：①`append_activity`
+完全沒有 ownership 檢查，任何在職員工可竄改別人的日誌，且**我自己寫的測試字面上把這個錯誤
+行為鎖成預期通過**（`test_append_activity_enforced_employee_ok` 建立者與 append 呼叫者用
+兩個不同隨機 subject 卻斷言 200）——reviewer 用既有測試斷言反證出 bug，修法：先 404 查無
+日誌，再比對呼叫者身分與 `form.employee_id`，不同者一律 403（不分角色，LEADER/SUPERVISOR
+也不能代填）；②domain/schema 兩份 `_REQUIRED_FIELDS` 逐字複製、無 parity 測試——已改成
+domain 匯出公開 `ACTIVITY_REQUIRED_FIELDS`，schema 直接 import 同一物件；③repository helper
+缺型別標註已補。讀取端點（list/by-date/detail）無 ownership 限制（reviewer 判定非阻塞本
+PR）+ work_order.finish() 整合 hook + 前端頁面，拆成新 follow-up **WMOM-20260926-01**（open，
+API 已齊全可直接接手，但需先讀 `state_machine.py`/`approval_router.py` 決定 hook 掛點）。
+新增 3 個 regression test 鎖住 ownership 修復，皆 mutation-verified。backend 1182→**1237
+passed**（+55，零 regression）；frontend 未動 1354 passed（63 files）不變、tsc 0、build OK。
+**附帶發現**：`ISSUES.md`/`STATUS.yaml` 頂部統計表數字（141/142）與 raw grep `### WMOM-*` +
+`**Status**` 欄位在 `ISSUES.md` 主文實測數字（114 筆：9 open + 3 in_progress + 102 done）對
+不上，推測與歷史 `WMOM-20260529-02` changelog 抽 archive 有關；本次沿用既有 delta-only 更新
+慣例未展開全面稽核，已在 `STATUS.yaml` `issue_stats` 註解記錄，供劉老師或未來 session 決定
+是否要開一個 dedicated 清點 issue。**下個 session**：優先接手 **WMOM-20260926-01**（前端 +
+finish hook + 讀取端點 ownership 限制，三項可分次做），或見下方「需劉老師決策」清單、PR C
+（需先寫 broker 子設計）。）
+前一 session：2026-09-25（**WMOM-20260925-05 完成** — `WMOM-20260505-22` 前端收尾：`inspection_
 schedule` 定檢計畫管理併入既有 `WorkflowPage.tsx`（新增第 5 個 tab「定檢計畫」，非獨立路由）+
 `TurbineDetail.tsx` header『安排檢查』鈕接上 `onNavigateInspection(turbine.name)` 深連結。新增
 `inspectionScheduleService.ts` API client + `useInspectionSchedules` hook（沿用
@@ -373,6 +398,15 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**WMOM-20260925-05**（`WMOM-20260507-02` sub-task d 本體）— `inspection_schedule` 前端~~ —
   ✅ 2026-09-25 完成，見上方「最後更新」。`WMOM-20260507-02` 6 個 sub-task 全數完成，該 issue
   已標 done。
+- [x] ~~**WMOM-20260505-21** — `day_work_form` 員工日誌後端~~ — ✅ 2026-09-26 **後端**完成
+  （domain + repository + router + schemas，55 測 mutation-verified，code review 1
+  must-fix + 2 should-fix 皆已修復），見上方「最後更新」。**前端 + work_order.finish()
+  hook + 讀取端點 ownership 限制未做**，拆成新 issue，見下一項。
+- [ ] **WMOM-20260926-01**（`WMOM-20260505-21` 收尾）— day_work_form 前端頁面（`/admin/
+  workflow` 新 tab）+ work_order.finish() 自動寫入 hook（需先讀 `state_machine.py`/
+  `approval_router.py` 決定掛點，不要照抄 inspection_scheduler 的 auto-spawn 模式，方向
+  相反）+ 讀取端點 ownership 限制（EMPLOYEE 查詢應限本人，LEADER/SUPERVISOR 可查全員）。
+  三項可分次接手，API 已齊全。
 
 ### 需劉老師決策才能開工
 

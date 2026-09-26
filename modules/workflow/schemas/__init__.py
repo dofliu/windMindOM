@@ -57,6 +57,13 @@ from .inspection_schemas import (
     SpawnedInspectionResponse,
     UpdateInspectionScheduleRequest,
 )
+from .day_work_form_schemas import (
+    ActivityEntryResponse,
+    AppendActivityRequest,
+    CreateDayWorkFormRequest,
+    DayWorkFormListResponse,
+    DayWorkFormResponse,
+)
 
 __all__ = [
     # signoff
@@ -111,4 +118,10 @@ __all__ = [
     "RunSchedulerResponse",
     "SpawnedInspectionResponse",
     "UpdateInspectionScheduleRequest",
+    # day work form (WMOM-20260505-21)
+    "ActivityEntryResponse",
+    "AppendActivityRequest",
+    "CreateDayWorkFormRequest",
+    "DayWorkFormListResponse",
+    "DayWorkFormResponse",
 ]

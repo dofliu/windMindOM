@@ -55,6 +55,11 @@ from .inspection_repository import (
     InspectionScheduleRepository,
     get_inspection_repository,
 )
+from .day_work_form_orm import DayWorkFormORM
+from .day_work_form_repository import (
+    DayWorkFormRepository,
+    get_day_work_form_repository,
+)
 
 __all__ = [
     # core
@@ -93,4 +98,8 @@ __all__ = [
     "InspectionScheduleORM",
     "InspectionScheduleRepository",
     "get_inspection_repository",
+    # day work form (WMOM-20260505-21)
+    "DayWorkFormORM",
+    "DayWorkFormRepository",
+    "get_day_work_form_repository",
 ]

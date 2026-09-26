@@ -14,12 +14,29 @@
 | Status | Count |
 |--------|------|
 | open | 10 |
-| in_progress | 1 |
+| in_progress | 2 |
 | blocked | 0 |
 | done | 130 |
-| **total (active)** | **141** |
+| **total (active)** | **142** |
 
-最後更新：2026-09-25（**WMOM-20260505-22 後端完成（autonomous session）— `inspection_schedule`
+最後更新：2026-09-26（**WMOM-20260505-21 後端完成（autonomous session）— `day_work_form`
+員工當天工作日誌**：domain（`ActivityKind` enum + `ActivityEntry`/`DayWorkForm` dataclass +
+`validate_activity_entry` 純函式）+ ORM/repository（`DayWorkFormRepository`：
+`(farm_id, employee_id, work_date)` 唯一索引 natural-key `get_or_create_for_date` + 累加式
+`append_activity`）+ router（5 endpoints：get-or-create/list/by-date/detail/append-activity）
+全數完成，55 個新測試皆 mutation-verified。code-reviewer subagent review 抓到 **1
+must-fix**（`append_activity` 完全沒有 ownership 檢查，任何在職員工可竄改別人的日誌，且
+**我自己寫的測試字面上把這個錯誤行為鎖成預期通過**——reviewer 用既有測試斷言反證出
+bug）+ **3 should-fix**（domain/schema 兩份 `_REQUIRED_FIELDS` 複製無 parity 測試 / repository
+helper 缺型別標註 / 讀取端點無 ownership 限制），must-fix 與前兩項 should-fix 已修復（讀取端點
+ownership 限制因涉及更廣角色可見性設計，拆進新 follow-up **WMOM-20260926-01**）+ 2
+nice-to-have（`work_date` 時區語意 + kind-irrelevant 欄位持久化，皆已文件化）。新增 3 個
+regression test 鎖住 ownership 修復（過渡期換人 403 + enforce 換人 403 + SUPERVISOR 代填仍
+403）。backend 1182→**1237 passed**（+55，零 regression）；frontend 未動 1354 passed（63
+files）不變、tsc 0、build OK。**前端 + work_order.finish() 整合 hook + 讀取端點 ownership
+限制**拆成新 follow-up **WMOM-20260926-01**（open，下個 session 可接手，API 已齊全）。
+`WMOM-20260505-21` 狀態改標 `in_progress`（後端 done，前端待補），非直接 `done`。
+前一 session：2026-09-25（**WMOM-20260505-22 後端完成（autonomous session）— `inspection_schedule`
 定檢計畫 + scheduler auto-spawn**：domain（`Recurrence` enum + 純函式）+ ORM/repository
 （`InspectionScheduleRepository`）+ service（`run_inspection_scheduler`，手動觸發、冪等、撞
 multi-WO constraint 時跳過不漏排）+ router（7 endpoints，CRUD=LEADER/SUPERVISOR、
@@ -2446,24 +2463,133 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260505-21 — `day_work_form` 員工日誌設計與實作
 
-- **Status**: open
+- **Status**: in_progress（後端完成，2026-09-26 autonomous session；前端 + work_order 整合
+  hook + 讀取端點 ownership 限制拆成新 issue **WMOM-20260926-01**）
 - **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
 - **Priority**: medium
-- **Estimate**: 1-1.5 工作天
+- **Estimate**: 1-1.5 工作天 → 後端實際約 1 session（含 code review 修復）；前端另計
 - **Source**: DN-01 walkthrough Q6（劉老師 2026-05-05 確認）
 - **UI directive（WMOM-20260507-01 後）**：frontend `/admin/workflow/daywork` 必須使用 `frontend/components/ui/` + `frontend/theme/`，不可 Tailwind / 硬 hex。
 - **Description**:
   工單對象 = 風機；員工日誌對象 = 員工 × 當天。兩個 entity 不同，但有引用關係。
   日誌可包含「完成 1 張工單 + 完成 2 個定檢項 + 巡視 + 訓練」等 4 種 activity kind。
 - **Deliverable**:
-  - `modules/workflow/domain/day_work_form.py`：DayWorkForm + ActivityEntry + ActivityKind enum
-  - `modules/workflow/repository/day_work_form_repository.py`
-  - `modules/workflow/routers/day_work_form_router.py`：CRUD + 「我今天做了什麼」query
-  - frontend `/admin/workflow/daywork` 列表 + 個人填單頁
-  - 整合 work_order.finish() 時自動寫進當天 day_work_form
+  - ✅ `modules/workflow/domain/day_work_form.py`：DayWorkForm + ActivityEntry + ActivityKind enum
+  - ✅ `modules/workflow/repository/day_work_form_repository.py`
+  - ✅ `modules/workflow/routers/day_work_form_router.py`：get-or-create + 「我今天做了什麼」
+    query（`by-date`）+ append-activity + list/detail
+  - frontend `/admin/workflow/daywork` 列表 + 個人填單頁 — 見 **WMOM-20260926-01**
+  - 整合 work_order.finish() 時自動寫進當天 day_work_form — 見 **WMOM-20260926-01**
 - **Reference**:
   - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
   - etech 對應：`server/dayworkForm.js` + `pages/dayworkForm.vue`
+- **Completion summary（後端，2026-09-26 autonomous session）**：
+  - ✅ `modules/workflow/domain/day_work_form.py`：`ActivityKind` enum（completed_wo /
+    inspection_item / patrol / training）+ `ActivityEntry` dataclass（kind-specific 欄位皆
+    optional，未使用的維持 `None`）+ `DayWorkForm` dataclass + `validate_activity_entry()`
+    純函式（依 kind 驗證必填欄位，顯式呼叫、非 `__post_init__`，同 `recurrence_interval_days`
+    慣例）+ `ACTIVITY_REQUIRED_FIELDS` 表（domain 與 schema 共用同一份，見 review 修復）
+  - ✅ `modules/workflow/repository/day_work_form_orm.py` + `day_work_form_repository.py`：
+    `DayWorkFormORM`（`wmom_day_work_forms` 表，`(farm_id, employee_id, work_date)` 唯一索引）+
+    `DayWorkFormRepository`（`get_or_create_for_date` 為 natural-key idempotent get-or-create，
+    靠 `work_order_repository` 既有的 `BEGIN IMMEDIATE` 序列化寫入 + `IntegrityError` fallback
+    雙重防禦；`append_activity` 累加式寫入，JSON 序列化 `activities`；`get`/`get_by_date`/
+    `list` 查詢），共用 `work_order_repository` 的 engine cache
+  - ✅ `modules/workflow/routers/day_work_form_router.py`（5 endpoints）：
+    `POST /day-work-forms`（get-or-create，EMPLOYEE/LEADER/SUPERVISOR）、
+    `GET /day-work-forms`（列表，任何登入者）、`GET /day-work-forms/by-date`（「我今天做了
+    什麼」單日 query）、`GET /day-work-forms/{id}`（detail）、
+    `POST /day-work-forms/{id}/activities`（append，EMPLOYEE/LEADER/SUPERVISOR + ownership
+    檢查，見 review must-fix）；employee 身分走 `resolve_actor_id` 雙模式解析（token 優先，
+    過渡期 body fallback），同 `work_order_router._actor_uuid` 慣例
+  - ✅ `modules/workflow/schemas/day_work_form_schemas.py`：request/response models
+  - ✅ 已註冊進 `modules/monitoring/server/app.py`；`GET /openapi.json` 確認 5 個 endpoint 皆
+    正確掛載、`by-date` 與 `{form_id}` 路由無順序衝突（reviewer 獨立核對 `router.routes`
+    確認同一結論）
+  - ✅ 55 個新測試（domain 14 + repository 19 + router 22），3 個新測試檔，皆
+    mutation-verified
+  - ✅ **code-reviewer subagent review 抓到 1 must-fix + 3 should-fix + 2 nice-to-have，
+    must-fix 與 should-fix 皆已修復**：
+    1. 🔴 **Must-fix**：`append_activity` 端點完全沒有驗證呼叫者是否為日誌本人——任何
+       EMPLOYEE/LEADER/SUPERVISOR 角色的登入者只要知道別人的 `form_id`（可從無 ownership
+       限制的 list 端點取得）就能把偽造的活動塞進「別人」的日誌，直接違反模組 docstring
+       自己宣稱的「不支援代填」設計不變量；reviewer 更指出**我自己寫的測試
+       `test_append_activity_enforced_employee_ok` 字面上用兩個不同的隨機 subject（建立者
+       vs. append 呼叫者）卻斷言 200，等於把這個錯誤行為當預期通過鎖住**。修法：
+       `append_day_work_form_activity` 內先 `repo.get(form_id)`（不存在 404 優先，不洩漏
+       「日誌存在但不是你的」），再用 `_employee_uuid` 解出呼叫者身分比對
+       `form.employee_id`，不同者一律 403（**不分角色**，LEADER/SUPERVISOR 也不能代填，
+       只能查全員）；`AppendActivityRequest` 補 `employee_id` 選填欄位（過渡期 body
+       fallback，同 `CreateDayWorkFormRequest`）。修正原本錯誤的測試斷言 + 新增 3 個
+       regression test（過渡期換人 403 + enforce 換人 403 + SUPERVISOR 代填仍 403），
+       mutation-verified（拔掉 ownership 比對 → 3 測如預期 fail）。
+    2. 🟡 **Should-fix**（已修）：domain 與 schema 各自維護一份 `_REQUIRED_FIELDS` 逐字複製
+       （非跨欄位邏輯，純資料重複），沒有測試鎖住兩者一致——已改成 domain 匯出公開的
+       `ACTIVITY_REQUIRED_FIELDS`，schema 直接 import 同一份物件（`is` 比對確認同一物件，
+       非各自一份），消除未來漂移風險。
+    3. 🟡 **Should-fix**（已修）：`_select_by_natural_key` 的 `sess` 參數缺型別標註，補
+       `Session` type hint（同檔案與姊妹 repository 慣例）。
+    4. 🟡 **Should-fix**（記錄，未修，見 WMOM-20260926-01）：`list`/`by-date`/`{form_id}`
+       三個查詢端點對任何登入角色開放（含 TREASURY 庫管），無 ownership 限制，可瀏覽任一
+       員工任一天的完整日誌內容——reviewer 判定這是「非阻塞本次 PR 的 follow-up」，因為
+       涉及更廣的角色可見性設計決策（EMPLOYEE 應只能查自己的 vs LEADER/SUPERVISOR 查
+       全員的分界），與本次 must-fix 的「寫入偽造」風險層級不同，故拆進後續 issue 一併
+       規劃。
+    5. 🟢 **Nice-to-have**（已採納文件化，未改行為）：`work_date` 時區語意——domain
+       docstring 補一句明文規定（建議前端以 Asia/Taipei 曆日換算「今天」，非 UTC 曆日，
+       避免跨夜巡檢誤植隔天）。
+    6. 🟢 **Nice-to-have**（已採納文件化，未改行為）：`AppendActivityRequest` 不會清空
+       與 `kind` 無關的欄位——schema docstring 補充說明下游讀取須自行以 `kind` 過濾。
+  - ✅ backend 1182→**1237 passed**（7 skipped, 1 xfailed，+55，零 regression）；frontend
+    未動 1354 passed（63 files）不變、tsc 0、build OK
+  - **決策**：`work_date` 不強制時區（純 `date`，由前端決定用哪個時區換算「今天」，建議
+    Asia/Taipei）；append-activity 的 ownership 檢查**不分角色**、一律限本人（LEADER/
+    SUPERVISOR 只能「查」全員，不能「代填」）——未寫入 `decision_log.md`（非架構層級變動，
+    是單一 router 的授權範圍決策，已在程式碼註解 + 本 issue + work-log 記錄）。
+
+---
+
+### WMOM-20260926-01 — `WMOM-20260505-21` 前端 + work_order.finish() 整合 hook + 讀取端點 ownership 限制
+
+- **Status**: open
+- **Milestone**: M3 後續 / M4 之間（不阻塞 M3 主線）
+- **Priority**: medium（讀取端點 ownership 限制項目建議優先，屬 review should-fix 延後項）
+- **Estimate**: 前端 0.5-1 工作天；ownership 限制 + hook 各約 0.5 工作天（可分次接手）
+- **Source**: WMOM-20260505-21 後端 code review（2026-09-26 autonomous session），拆分同
+  `WMOM-20260505-22`→`WMOM-20260925-05` 前後端分兩 session 的先例
+- **Description**:
+  `day_work_form` 後端（domain + repository + router + schemas + 55 測）已於
+  WMOM-20260505-21 完成並通過 code review must-fix 修復，API 已可直接串接。本 issue 收攏
+  三項延後工作：
+- **Deliverable**:
+  1. **前端** `/admin/workflow` 新增「工作日誌」頁籤（比照 `inspection_schedule` 併入
+     `WorkflowPage.tsx` 既有 tab 慣例，非獨立路由）：個人填單頁（選日期 get-or-create +
+     append activity 表單，4 種 kind 各自欄位）+ 列表（依角色顯示自己/全員，見下方第 3 項
+     決策後再定案 UI 呈現方式）。走 `frontend/components/ui/` + `frontend/theme/`，不可
+     Tailwind / 硬 hex（`WMOM-20260507-01` UI directive）。
+  2. **`work_order.finish()` → day_work_form 自動寫入 hook**：工單完工（走既有簽核
+     `approve_all` action 轉 `CLOSED`，非單純 `finish()` 呼叫，見 `state_machine.py` 實際
+     transition 路徑）後，自動幫該工單 `assignee_id` 對應員工當天日誌 append 一筆
+     `completed_wo` activity。**設計待決**：hook 應掛在 `WorkOrderRepository.transition()`
+     內部（耦合度高，任何 transition 都會經過）還是 `approval_router` 的 `approve_all`
+     專屬路徑（耦合度較低但只覆蓋這一種完工路徑，若未來有其他方式關閉工單會漏掉）？
+     建議下個 session 先讀 `state_machine.py` + `approval_router.py` 現況再拍板，不要
+     直接照抄 `inspection_scheduler` 的 auto-spawn 模式（那是「排程到期建新工單」，方向
+     相反於「工單完工回寫日誌」）。
+  3. **讀取端點 ownership 限制**（review should-fix #4，非阻塞但建議與前端一併規劃）：
+     `GET /day-work-forms`（list）/ `GET /day-work-forms/by-date` / `GET
+     /day-work-forms/{id}` 目前對任何登入角色開放（`require_authenticated()`），無
+     ownership 限制——TREASURY 庫管也能瀏覽任一員工任一天的完整工作日誌內容。建議：
+     EMPLOYEE 角色查詢時，若帶入的 `employee_id` 非本人（或 `by-date`/`{id}` 對應的日誌
+     不是本人）回 403，或直接忽略帶入值強制查自己；LEADER/SUPERVISOR/ADMIN 維持可查全員
+     （比照 `append_activity` 的 ownership 檢查但反過來——讀取限本人、代填絕對禁止，查詢
+     依角色分級）。需要先確認 `require_authenticated()` dependency 能否在 handler 內取得
+     role/actor（目前簽章只回傳 `None`，可能需要新的 dependency 或直接解 token payload）。
+- **Reference**:
+  - [`docs/design-notes/m3/DN-01-work-order-lifecycle.md`](docs/design-notes/m3/DN-01-work-order-lifecycle.md) §3.3
+  - `modules/workflow/routers/day_work_form_router.py`（現有 5 endpoints + `_employee_uuid`
+    ownership pattern，第 2、3 項可沿用同一套比對邏輯）
+  - `work-logs/2026-09/2026-09-26-day-work-form-backend.md`（本次 code review 完整記錄）
 
 ---
 
