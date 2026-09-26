@@ -203,11 +203,26 @@ describe('WorkOrderDetailModal — 備註與 Save', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Complete work order' })).toBeDisabled();
   });
+
+  // code-reviewer subagent should-fix：此提示文字在元件原始碼只受 `!isCompleted` 控制
+  // （與 photos.length 無關），故「有照片」不會讓它消失——鎖住這個實際行為，避免未來
+  // 誤以為它是依照片數量 gating。
+  it('有照片時（非 completed）「至少需要一張照片」提示仍然顯示（非依照片數量 gating）', () => {
+    renderModal({ workOrder: { photos: ['data:img1'] } });
+    expect(
+      screen.getByText('At least one photo is required to complete the work order.'),
+    ).toBeInTheDocument();
+  });
 });
 
 // ─── Complete 流程 ───────────────────────────────────────────────────────────
 
 describe('WorkOrderDetailModal — Complete 流程', () => {
+  // 已知限制（code-reviewer subagent 確認）：本測試只鎖住 DOM 層 `disabled` 屬性擋下
+  // 點擊；jsdom 對原生 disabled `<button>` 不會派發 click 事件的 React handler，故
+  // `handleComplete` 內部 `if (photos.length > 0)` 邏輯層 guard 無法經由此測試獨立
+  // 驗證（mutation-verify 證實拿掉該 guard、只留 disabled 屬性，本測試仍會通過）。
+  // 該內部 guard 是防禦性重複，非本測試涵蓋範圍。
   it('無照片時點擊 Complete 不觸發 onComplete（disabled 阻擋）', () => {
     const { onComplete } = renderModal({ workOrder: { photos: [] } });
     fireEvent.click(screen.getByRole('button', { name: 'Complete work order' }));

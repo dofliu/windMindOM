@@ -24,12 +24,15 @@
 元件本體任何一行**。涵蓋標題/詳情/技師名稱 fallback、狀態 pill 三態、關閉互動（遮罩/
 Close 鈕/內容區不冒泡）、備註編輯+Save、照片上傳（jsdom 無原生 `DataTransfer`，手刻
 `makeFileList()` stub 繞過）/移除、Complete 流程（無照片 disabled 阻擋/有照片送出正確
-更新後物件）、COMPLETED 唯讀模式。5 項關鍵邏輯 mutation-verified。**誠實揭露**：
-`handleComplete` 內部邏輯層 guard（`if (photos.length>0)`）無法獨立於 DOM 層
-`disabled` 屬性被測到（jsdom 對 disabled button 不派發 click handler），是防禦性
-重複、非本次新增缺口，已誠實標註於測試名稱與 work-log。backend 1274 passed 不變；
-frontend tsc 0、1443→**1460 passed**（68→69 files，+17，零 regression）、build OK。
-**附帶 housekeeping**：`WMOM-20260505-21` Status 過期未同步（其 follow-up
+更新後物件）、COMPLETED 唯讀模式。5 項關鍵邏輯 mutation-verified。**code-reviewer
+subagent review：Approve，0 must-fix，2 should-fix 已採納**（補 1 測鎖住「有照片時
+提示文字仍顯示」的真實行為〔原只受 isCompleted 控制、與照片數量無關〕+ 補程式碼註解
+說明 disabled button 測試無法獨立驗證內部邏輯層 guard），3 個 nice-to-have 未採納。
+**誠實揭露**：`handleComplete` 內部邏輯層 guard（`if (photos.length>0)`）無法獨立於
+DOM 層 `disabled` 屬性被測到（jsdom 對 disabled button 不派發 click handler，
+reviewer 獨立驗證同一結論），是防禦性重複、非本次新增缺口，已誠實標註於測試名稱與
+work-log。backend 1274 passed 不變；frontend tsc 0、1443→**1461 passed**（68→69
+files，+18，零 regression）、build OK。**附帶 housekeeping**：`WMOM-20260505-21` Status 過期未同步（其 follow-up
 `WMOM-20260926-01` 早已全數完成）已更正為 done；`ISSUES.md` 頂部「🎯 未來大目標」
 摘要表 M5-5 行過期敘述（誤寫「Part B-2 待續」，實則 `WMOM-20260608-02` 早於
 2026-06-08 完成）已更正。**下個 session**：`components/ui/` 剩餘 7 支零測試

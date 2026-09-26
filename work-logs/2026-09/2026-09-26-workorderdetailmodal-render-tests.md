@@ -34,11 +34,12 @@ follow-up `WMOM-20260926-01`（前端 + hook + ownership 限制三項）已在�
 
 ## 本 session 做的事
 
-新增 `frontend/components/__tests__/WorkOrderDetailModal.test.tsx`（新檔，17 tests），
-**未修改元件本體任何一行**（`git diff` 對 `WorkOrderDetailModal.tsx` 為空）。延續
-`MaintenanceHub.test.tsx`/`FaultInjectionPanel.test.tsx` 系列既有 render 測試範式
-（`ThemeProvider` 包裹 + jest-dom matcher + `afterEach cleanup`）。元件純由 props
-驅動（`workOrder`/`technicians`/3 個 callback）、無 fetch/hook，是本系列中最單純的一支。
+新增 `frontend/components/__tests__/WorkOrderDetailModal.test.tsx`（新檔，18 tests，
+含 code review 後補的 1 則），**未修改元件本體任何一行**（`git diff` 對
+`WorkOrderDetailModal.tsx` 為空）。延續 `MaintenanceHub.test.tsx`/
+`FaultInjectionPanel.test.tsx` 系列既有 render 測試範式（`ThemeProvider` 包裹 +
+jest-dom matcher + `afterEach cleanup`）。元件純由 props 驅動（`workOrder`/
+`technicians`/3 個 callback）、無 fetch/hook，是本系列中最單純的一支。
 
 涵蓋：
 
@@ -85,20 +86,38 @@ follow-up `WMOM-20260926-01`（前端 + hook + ownership 限制三項）已在�
 
 每次還原後重跑本測試檔確認回到 17 passed 全綠再進行下一項。
 
+## code-reviewer subagent review
+
+**Approve，0 must-fix，2 should-fix + 3 nice-to-have，2 個 should-fix 已採納修復**：
+
+1. 🟡 **Should-fix（已修復）**：reviewer 獨立跑 mutation 實驗發現「At least one photo
+   is required…」提示文字在元件原始碼只受 `!isCompleted` 控制（與 `photos.length`
+   完全無關），但原測試只在「無照片」情境斷言其出現，測試名稱易誤導成「依照片數量
+   gating」。新增 1 則測試明確鎖住「有照片、非 completed 狀態下提示仍然顯示」的真實
+   行為（+1 測，17→18）。
+2. 🟡 **Should-fix（已修復）**：「無照片時點擊 Complete 不觸發 onComplete」測試旁補
+   程式碼註解，明講此測試只鎖住 DOM 層 `disabled` 屬性、`handleComplete` 內部邏輯層
+   guard 因 jsdom 對 disabled button 不派發 click handler 而無法被此測試獨立驗證
+   （reviewer 用獨立 mutation 實驗重新驗證同一結論）。
+3. 🟢 3 個 nice-to-have（未採納，記錄供未來第二輪測試參考）：`technicianId: null`
+   情境（型別允許但目前只測非法 id 999，行為結果相同但型別分支未覆蓋）；一次上傳多張
+   照片 / `files` 為 `null` / `reader.result` 非 string 等邊界分支；Save 不觸發
+   onClose/不改 status 的反向斷言。
+
+reviewer 也獨立確認：jsdom `FileList`/`FileReader` mock 手法合理、未製造假陽性或縮小
+涵蓋範圍；其餘 16 則既有測試依賴實際動態邏輯分支、非同義反覆。
+
 ## 誠實揭露
 
 - **`handleComplete` 內部 `if (photos.length > 0)` 邏輯層 guard 目前沒有測試獨立鎖住**
-  （mutation #2）。原因：`fireEvent.click` 在原生 `disabled` 的 `<button>` 上，jsdom
-  不會派發 `click` 事件的 React handler（瀏覽器原生行為，非 testing-library 限制），
-  所以只要 DOM 層 `disabled` 屬性還在，測試無法觸發到內部 guard 真正執行的路徑。目前
-  「Complete 按鈕 disabled」與「無照片時點擊不觸發 onComplete」兩測實質上都只驗證了
-  DOM 層防線，內部邏輯層 guard 是防禦性重複（defense-in-depth），此元件現況下無法脫離
-  `disabled` 屬性單獨測到——已在測試檔對應 `it()` 名稱維持誠實描述（「disabled 阻擋」），
-  未誇大宣稱涵蓋內部邏輯本身。若未來重構移除 `disabled` 屬性（例如改成一律可點、由
-  `handleComplete` 自行判斷是否動作），現有測試會需要重新設計才能鎖住該邏輯——留意此為
-  已知限制，非本次新增缺口。
-- 本次是純測試新增，元件本體零修改，**無新的生產邏輯風險**；code-reviewer subagent
-  review 進行中，若有 must-fix 會在下方補記。
+  （mutation #2，reviewer 獨立驗證同一結論）。原因：`fireEvent.click` 在原生
+  `disabled` 的 `<button>` 上，jsdom 不會派發 `click` 事件的 React handler（瀏覽器
+  原生行為，非 testing-library 限制），所以只要 DOM 層 `disabled` 屬性還在，測試無法
+  觸發到內部 guard 真正執行的路徑。內部邏輯層 guard 是防禦性重複（defense-in-depth），
+  此元件現況下無法脫離 `disabled` 屬性單獨測到——已在測試檔對應 `it()` 名稱與程式碼
+  註解誠實標註此限制。若未來重構移除 `disabled` 屬性，現有測試會需要重新設計才能鎖住
+  該邏輯。
+- 本次是純測試新增，元件本體零修改，**無新的生產邏輯風險**。
 
 ## 自我測試
 
@@ -106,8 +125,8 @@ follow-up `WMOM-20260926-01`（前端 + hook + ownership 限制三項）已在�
   modules/reporting/tests/ modules/knowledge/tests/ modules/monitoring/tests/
   modules/auth/tests/ tests/ -q` → **1274 passed, 7 skipped, 1 xfailed**（未動，零
   regression）
-- frontend：`npx tsc --noEmit`（0 error）+ `npx vitest run`（**1443 → 1460 passed**，
-  68→69 files，+17，零 regression）+ `npx vite build`（OK）
+- frontend：`npx tsc --noEmit`（0 error）+ `npx vitest run`（**1443 → 1461 passed**，
+  68→69 files，+18，零 regression）+ `npx vite build`（OK）
 
 ## 附帶發現（housekeeping，已於 ISSUES.md 更正）
 

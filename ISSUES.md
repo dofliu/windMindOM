@@ -4892,21 +4892,29 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   重複**（兩者是完全不同的兩支元件，服務不同資料模型：本檔是 legacy in-memory mock
   `WorkOrder`/`Technician`，workflow 版是 backend `WorkOrderResponse`）。
 - **Completion summary**：新增 `frontend/components/__tests__/WorkOrderDetailModal.
-  test.tsx`（新檔，17 tests），**未修改元件本體任何一行**。涵蓋標題/詳情/技師名稱
+  test.tsx`（新檔，18 tests），**未修改元件本體任何一行**。涵蓋標題/詳情/技師名稱
   fallback、狀態 pill 三態、關閉互動（遮罩/Close 鈕/內容區不冒泡）、備註編輯 + Save、
   照片上傳（jsdom 無原生 `DataTransfer`，手刻 `makeFileList()` stub 繞過）/ 移除、
   Complete 流程（無照片 disabled 阻擋 / 有照片送出正確更新後物件）、COMPLETED 唯讀
   模式（textarea disabled、無操作按鈕、空照片提示文案）。5 項關鍵邏輯 mutation-
   verified（disabled 屬性 / N/A fallback / stopPropagation / IN_PROGRESS 狀態文字
   映射逐一拔掉確認對應測試如預期 fail，再還原）。backend 1274 passed 不變；frontend
-  tsc 0、1443→**1460 passed**（68→69 files，+17，零 regression）、build OK。
-  code-reviewer subagent review：見下方。
+  tsc 0、1443→**1461 passed**（68→69 files，+18，零 regression）、build OK。
+- **code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 3
+  nice-to-have，2 個 should-fix 全數已修復**：①reviewer 用獨立 mutation 實驗發現
+  「At least one photo is required…」提示文字實際只受 `!isCompleted` 控制、與照片
+  數量無關，原測試只在無照片情境驗證易誤導成「依數量 gating」——補 1 則測試鎖住「有
+  照片時提示仍顯示」的真實行為；②「無照片時點擊 Complete 不觸發 onComplete」測試旁補
+  程式碼註解，明講此測試只鎖住 DOM 層 `disabled` 屬性、內部邏輯層 guard 因 jsdom 對
+  disabled button 不派發 click handler 而無法被此測試獨立驗證。3 個 nice-to-have
+  （`technicianId: null` 型別分支、多檔上傳等邊界情境、Save 的反向斷言）未採納，留待
+  未來第二輪測試。
 - **誠實揭露**：`handleComplete` 內部 `if (photos.length > 0)` 邏輯層 guard 目前無法
   獨立於 DOM 層 `disabled` 屬性被測到——jsdom 對 `disabled` 的 `<button>` 不會派發
-  `click` 事件的 React handler（瀏覽器原生行為），mutation-verify 證實拿掉內部 guard
-  （只留 `disabled`）17 測仍全過。此邏輯層 guard 是防禦性重複（defense-in-depth），
-  非本次新增缺口，已在測試檔對應 `it()` 名稱誠實標註「disabled 阻擋」而非宣稱鎖住
-  內部邏輯。
+  `click` 事件的 React handler（瀏覽器原生行為），mutation-verify 與 reviewer 獨立
+  實驗皆證實拿掉內部 guard（只留 `disabled`）測試仍全過。此邏輯層 guard 是防禦性重複
+  （defense-in-depth），非本次新增缺口，已在測試檔對應 `it()` 名稱與程式碼註解誠實
+  標註「disabled 阻擋」而非宣稱鎖住內部邏輯。
 - **附帶 housekeeping（已更正）**：`WMOM-20260505-21` 的 `Status` 欄位過期未同步
   （其 follow-up `WMOM-20260926-01` 早已全數完成標 done），已更正為 done；`ISSUES.md`
   頂部「🎯 未來大目標」摘要表 M5-5 行「my work orders · completion（Part B-2 待續）」
