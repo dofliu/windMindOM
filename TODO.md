@@ -16,7 +16,32 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-03 完成（第六個 autonomous session）** —
+最後更新：2026-09-26（**WMOM-20260926-04 完成（第七個 autonomous session）** —
+`WorkOrderDetailModal.tsx`（legacy mock 版，`App.tsx` 'maintenance' 導覽路徑，由
+`MaintenanceHub.onSelectWorkOrder` 觸發，與 backend `WorkOrderResponse` 版本的
+`components/workflow/WorkOrderDetailModal.tsx` 是兩支不同元件）先前零 component render
+測試，新增 `components/__tests__/WorkOrderDetailModal.test.tsx`（17 tests），**未修改
+元件本體任何一行**。涵蓋標題/詳情/技師名稱 fallback、狀態 pill 三態、關閉互動（遮罩/
+Close 鈕/內容區不冒泡）、備註編輯+Save、照片上傳（jsdom 無原生 `DataTransfer`，手刻
+`makeFileList()` stub 繞過）/移除、Complete 流程（無照片 disabled 阻擋/有照片送出正確
+更新後物件）、COMPLETED 唯讀模式。5 項關鍵邏輯 mutation-verified。**code-reviewer
+subagent review：Approve，0 must-fix，2 should-fix 已採納**（補 1 測鎖住「有照片時
+提示文字仍顯示」的真實行為〔原只受 isCompleted 控制、與照片數量無關〕+ 補程式碼註解
+說明 disabled button 測試無法獨立驗證內部邏輯層 guard），3 個 nice-to-have 未採納。
+**誠實揭露**：`handleComplete` 內部邏輯層 guard（`if (photos.length>0)`）無法獨立於
+DOM 層 `disabled` 屬性被測到（jsdom 對 disabled button 不派發 click handler，
+reviewer 獨立驗證同一結論），是防禦性重複、非本次新增缺口，已誠實標註於測試名稱與
+work-log。backend 1274 passed 不變；frontend tsc 0、1443→**1461 passed**（68→69
+files，+18，零 regression）、build OK。**附帶 housekeeping**：`WMOM-20260505-21` Status 過期未同步（其 follow-up
+`WMOM-20260926-01` 早已全數完成）已更正為 done；`ISSUES.md` 頂部「🎯 未來大目標」
+摘要表 M5-5 行過期敘述（誤寫「Part B-2 待續」，實則 `WMOM-20260608-02` 早於
+2026-06-08 完成）已更正。**下個 session**：`components/ui/` 剩餘 7 支零測試
+primitive（`Btn`/`Card`/`Field`/`Logo`/`PageHeader`/`Stat`/`ScenarioMountBanner`）
+多半是極薄展示元件、已被宿主頁面測試間接涵蓋，邊際價值需評估（`ScenarioMountBanner`
+較新較值得優先）；M6 critical path 剩餘項（PostgreSQL row-lock 需 docker、HTTPS
+部署配置需先定部署目標）與物理模型強化（WMOM-20260505-23~28）維持既有阻塞狀態。
+詳見 `work-logs/2026-09/2026-09-26-workorderdetailmodal-render-tests.md`。**前一
+session：2026-09-26（WMOM-20260926-03 完成，第六個 autonomous session）** —
 PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線。後端新增
 `Storage.scenario_turbine_ids()` + `GET /api/scenarios/{id}/turbines`/
 `farm-status` 兩個唯讀端點（格式對齊即時 `/api/turbines*`）；前端新增
