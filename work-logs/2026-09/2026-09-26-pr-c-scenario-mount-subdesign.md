@@ -78,6 +78,41 @@ baseline 不變（見下）。
 - frontend: `npx tsc --noEmit`（0 error）+ `npx vitest run`（**1402 passed, 65 files**）+
   `npx vite build`（OK）→ 與上次記錄一致，零變化
 
+## code-reviewer subagent review（對設計文件本身，非程式碼）
+
+跑 `code-reviewer` subagent 對本次 decision log + issue 文字做架構審查（含交叉核對
+`data_broker.py`/`routers/scenarios.py`/`models.py`/`storage.py`/`App.tsx` 原始碼）。
+**抓到 1 must-fix + 2 should-fix + 3 nice-to-have，must-fix 與 2 個 should-fix 皆已
+修正**：
+
+1. 🔴 **Must-fix（已修正）**：原設計文字誤寫「`farm-status` 端點重用
+   `scenario_turbine_aggregates`」——**架構上不可行**。該聚合是情境全程平均/累積值
+   （`avg_power_mw`/`production_steps`/`estop_steps`...），完全沒有 `FarmStatus`
+   必需的「機組最終 status 分類」「瞬時 windSpeed」欄位（`operatingCount`/
+   `idleCount`/`faultCount`/`offlineCount` 在該聚合裡根本無對應資料）。本 session
+   獨立重讀 `data_broker.py:1027-1046`（`get_farm_status()`）確認其欄位完全來自
+   `get_all_turbines()` 的 status/powerOutput/windSpeed，證實 reviewer 論述無誤——
+   正確做法改為建立在 `/turbines` 端點的「每機組最後一筆讀數」之上套用同款彙整
+   邏輯，已修正 decision log 與 `WMOM-20260926-03` 兩處文字。
+2. 🟡 **Should-fix（已修正）**：`/turbines` 端點「格式對齊 TurbineReading」原文字
+   低估複雜度——`get_history()` 回傳扁平 DB row，不是 `_sim_output_to_reading()`
+   吃的巢狀 simulator 輸出，需要新寫轉換 helper 且處理 `status` 欄位的
+   `operational_state`→`TurbineStatus` enum 映射（否則 pydantic 會炸），已在兩處
+   文字補充提醒。
+3. 🟡 **Should-fix（已修正）**：原文字引用「比照既有 `inspectionDeepLinkTurbineId`
+   用完即清慣例」失真——該欄位原始碼註解自己說「不需要清空」，是「多留著也無妨」
+   的情況，與 `ScenarioMountContext` 清空屬正確性要求的性質不同，已修正措辭並
+   加註需要獨立測試覆蓋。
+4. 🟢 3 個 nice-to-have（N+1 查詢模式備註、情境被刪除的邊界情況、decision log
+   「完全正交/零耦合」措辭過度絕對化——已收斂為「不共享 `_lifecycle_lock` 保護的
+   生命週期狀態，共享既有 storage 讀取路徑的既定風險輪廓」）**皆已採納**。
+
+Reviewer 也核實通過（無問題）：`data_broker.py:654-685`（`get_all_turbines`/
+`get_turbine` 的 mode 檢查）、`select_view_only`（364-385）、`routers/scenarios.py`
+的行號引用、`storage.py:862`（`get_history(limit=1,...)` 確實回傳末筆）、issue ID
+無編號衝突。本 session 對 must-fix 逐一重讀原始碼獨立驗證後才動手修正（未照單全收，
+亦未無視）。
+
 ## 誠實揭露
 
 - 本 session 完全沒有寫測試/程式碼，是 docs-only PR——按 CLAUDE.md §6.3「動到架構/改變

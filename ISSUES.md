@@ -2821,18 +2821,40 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Owner**: -
 - **Description**: `WMOM-20260926-02`（`DEC-20260926-01`）已定案設計，本 issue 是
   Phase 1 實作本體，**無需再重新調查或評估範圍**，直接照設計做：
-  1. **後端**（`modules/monitoring/server/routers/scenarios.py`）新增 2 個唯讀端點：
+  1. **後端**（`modules/monitoring/server/routers/scenarios.py`）新增 2 個唯讀端點
+     （**code-reviewer subagent review 對本節架構有 1 must-fix + 1 should-fix，已修正
+     於下方文字**）：
      - `GET /api/scenarios/{id}/turbines` — 該情境每台機組的最後一筆 reading，
-       格式對齊 `server.models.TurbineReading`。重用 `get_history(limit=1,
+       格式對齊 `server.models.TurbineReading`。查詢面重用 `get_history(limit=1,
        session_id=scenario_id)` 取末筆（`get_scenario_turbine_history` 已有
-       同款查詢先例，line 408）。情境不存在回 404（比照既有端點）。
+       同款查詢先例，line 408）。**⚠ should-fix**：`get_history()` 回傳的是
+       storage 扁平 DB row（`current_amp`/`scada_json` 混合形狀），不是
+       `_sim_output_to_reading()` 吃的即時 simulator 巢狀輸出——**需新寫一個
+       row→`TurbineReading` 轉換 helper**（不是「重用」現成函式），且 DB
+       `status` 欄位存的是原始 `operational_state` 字串（`RUNNING`/`STARTING`/
+       `STOPPING`/`IDLE`/`FAULT`），必須重新套用等同 `_map_state()`
+       （`data_broker.py:24-32`）的映射才能塞進 `TurbineReading.status`
+       （`TurbineStatus` enum 僅 4 種值），否則會有 pydantic `ValidationError`。
+       情境不存在回 404（比照既有端點）。
      - `GET /api/scenarios/{id}/farm-status` — 風場層 KPI，格式對齊
-       `server.models.FarmStatus`。重用 `scenario_turbine_aggregates`
-       （`_load_scenario_summary` 已有同款聚合先例，line 343）換算成
-       `FarmStatus` 形狀（欄位對照需要對照 `server/models.py::FarmStatus`
-       實際定義，換算方式非逐字複製 `ScenarioFarmSummary`——兩者欄位語意
-       不完全相同，需要重新確認每個欄位怎麼從情境聚合資料算出）。
+       `server.models.FarmStatus`。**🔴 must-fix（已修正）**：原設計文字誤寫
+       「重用 `scenario_turbine_aggregates`」——**不可行**，該聚合是情境全程
+       平均/累積值（`avg_power_mw`/`production_steps`/`estop_steps`...），
+       完全沒有「機組最終 status 分類」「瞬時 windSpeed」這些 `FarmStatus`
+       必需欄位（`operatingCount`/`idleCount`/`faultCount`/`offlineCount`
+       在該聚合裡根本無對應資料可算）。**正確做法**：建立在上面 `/turbines`
+       端點已經算出的「每機組最後一筆讀數」清單之上，套用與
+       `data_broker.py::get_farm_status()`（1027-1046，按 status 計數 +
+       sum powerOutput + avg windSpeed）相同的彙整邏輯——兩端點可共用同一份
+       底層資料組裝。
      - 兩者皆 `require_authenticated()`（比照本檔案其餘檢視端點）。
+     - **🟢 nice-to-have**：`/turbines` 若對每台機組各跑一次 `get_history` 是
+       N 次查詢；`scenario_turbine_aggregates` 內部已示範
+       `ROW_NUMBER() OVER (PARTITION BY turbine_id ORDER BY timestamp DESC)`
+       一次查完所有機組末筆的寫法，若實測有感效能問題可參考同款改寫，非強制。
+     - **🟢 nice-to-have**：情境掛載中被 `DELETE /api/scenarios/{id}` 刪除的
+       邊界情況（WS 已停用，使用者要等下次操作才會看到 404）目前無特別處理，
+       驗收時可一併確認前端如何呈現「情境已被移除」。
   2. **前端**：新增 `ScenarioMountContext`（React Context，非 URL route/
      `/api/source/select` mode）：
      - `ScenarioDetail.tsx` 新增「以此情境瀏覽總覽/機組細節」入口 → 設定
@@ -2842,9 +2864,14 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
        不會變，不需要即時更新）、頁面頂部常駐「情境檢視中：{name}（唯讀）」
        banner、**所有寫入操作一律 disabled**（curtail/dispatch/新工單...
        按鈕 + tooltip 說明「情境為唯讀回放」）。
-     - 離開機制：導覽到其他非 FarmOverview/TurbineDetail 頁面時清空 context
-       （比照既有 `inspectionDeepLinkTurbineId` 用完即清的慣例，見
-       `App.tsx::handleNavSelect`）。
+     - 離開機制：導覽到其他非 FarmOverview/TurbineDetail 頁面時清空 context。
+       **🟡 should-fix**：`App.tsx::handleNavSelect` 的 `inspectionDeepLinkTurbineId`
+       單一 setState 寫法可參考（技術手法），但**不是**「用完即清的既有慣例」
+       ——`App.tsx:151-153` 原始註解明確寫「不需要在切走後清空」，該欄位多留著
+       也無妨。`ScenarioMountContext` 的清空是**正確性/資訊安全要求**（避免
+       使用者切頁後仍背景殘留掛載中的凍結情境資料、混淆即時/回放），性質嚴肅
+       得多，需要獨立測試覆蓋（含直接切換到非 mount 頁面、瀏覽器返回等路徑），
+       不能只當作「已驗證過的既有慣例、照抄即可」。
      - 與目前是否有 live/simulation 來源在跑**正交**——掛載情境不需要先切走
        live／不呼叫 `/api/source/select`。
   3. **範圍邊界（明確不做，避免範圍蔓延）**：`MaintenanceHub`/`ReportsPage`/

@@ -672,16 +672,16 @@ DEC-20260720-01 原文把 PR C 定義為「broker 新增『情境檢視』來源
 
 1. **`view` mode 語意維持不變**——不升級、不擴充，仍是 `ScenarioPage` 系列既有「調閱過去情境」用法（DEC-20260720-01 §3 的語意問題到此定案：**不**把 `view` 升級成「掛載到全 app」）。
 2. **新增 2 個唯讀端點**（純附加，`data_broker.py`/`routers/source.py` 一行不動）：
-   - `GET /api/scenarios/{id}/turbines` — 每台機組最後一筆 reading，格式對齊既有 `server.models.TurbineReading`；重用 `get_history(limit=1, session_id=...)` 取末筆的既有模式（`routers/scenarios.py` 的 `get_scenario_turbine_history` 已示範同款查詢）。
-   - `GET /api/scenarios/{id}/farm-status` — 風場層 KPI，格式對齊既有 `server.models.FarmStatus`；重用 `scenario_turbine_aggregates`（`_load_scenario_summary` 已示範同款聚合）換算。
+   - `GET /api/scenarios/{id}/turbines` — 每台機組最後一筆 reading，格式對齊既有 `server.models.TurbineReading`；重用 `get_history(limit=1, session_id=...)` 取末筆的既有模式（`routers/scenarios.py` 的 `get_scenario_turbine_history` 已示範同款查詢）。**注意**：`get_history()` 回傳的是 storage 扁平 DB row（`current_amp`/`scada_json` 混合形狀），不是 `_sim_output_to_reading()` 吃的即時 simulator 巢狀輸出——**需要新寫一個 row→`TurbineReading` 轉換 helper**（非重用 `_sim_output_to_reading`），且 DB `status` 欄位存的是原始 `operational_state` 字串（`RUNNING`/`STARTING`/`STOPPING`/`IDLE`/`FAULT`），必須重新套用等同 `_map_state()`（`data_broker.py:24-32`）的映射才能塞進 `TurbineReading.status`（`TurbineStatus` enum 只有 4 種值），否則會有 pydantic `ValidationError`（code-reviewer subagent review 指出此複雜度未被充分揭露，已補充）。
+   - `GET /api/scenarios/{id}/farm-status` — 風場層 KPI，格式對齊既有 `server.models.FarmStatus`。**不可重用** `scenario_turbine_aggregates`（該聚合是情境全程平均/累積值，無「機組最終 status 分類」「瞬時 windSpeed」等 `FarmStatus` 必需欄位）；正確做法是建立在 `/turbines` 端點已經算出的「每機組最後一筆讀數」清單之上，套用與 `data_broker.py::get_farm_status()`（1027-1046，按 status 計數 operatingCount/idleCount/faultCount/offlineCount + sum powerOutput + avg windSpeed）相同的彙整邏輯——兩個端點可共用同一份底層資料組裝（code-reviewer subagent review 抓到此架構錯誤，已修正）。
 3. **前端新增獨立 `ScenarioMountContext`**（不是新的 `/api/source/select` mode）：`ScenarioDetail` 提供「以此情境瀏覽總覽/機組細節」入口 → 設定 context、導覽到 `FarmOverview`/`TurbineDetail`；兩頁在 context 有值時改呼新端點、停用既有 WS 訂閱（情境資料是凍結快照、不會變）、頁面頂部常駐「情境檢視中：{name}（唯讀）」banner、**所有寫入操作一律 disabled**（curtail/dispatch/新工單...按鈕 + tooltip 說明）。與目前是否有 live/simulation 來源在跑**正交**——掛載情境不需要先切走 live，兩者可並存（使用者可能一邊看 live 總覽一邊另開分頁演練某情境）。
 4. **Phase 1（本次唯一批准範圍）**：`FarmOverview` + `TurbineDetail` 兩頁的唯讀掛載。**Phase 2（deferred，本次不評估不批准）**：DEC-20260720-01 原文「工單/維護在這份資料上演練」——讓使用者在情境資料上建立/操作工單做 what-if 演練。這需要 workflow 模組加 `scenario_id` 隔離（`work_order` 表目前完全無此概念）+ 全新語意決策（演練工單算不算真工單、能不能轉正/棄置），是獨立、量級更大的設計題，故意不併入 Phase 1。`MaintenanceHub`/`ReportsPage`/`CostPage` 併入掛載模式也不在 Phase 1（這些頁面已有自己的 farmId/dataset selector 機制，非本次要解決的痛點）。
 
 ### Rationale
 
-- **不動核心狀態機 = 不引入新的並發風險**：Option A 需要重新論證「情境掛載」如何與剛硬化好的 `_lifecycle_lock`/單一 active source 假設共存（例如：掛載情境時 live 來源該暫停嗎？`switch_mode` 併發呼叫怎麼互動？）——這些問題本身就是「需要獨立子設計」的根源，Option B 完全繞開，因為它根本不共享任何可變全域狀態。
+- **不動 `_lifecycle_lock` 保護的狀態轉換 = 不引入新的並發風險**：Option A 需要重新論證「情境掛載」如何與剛硬化好的 `_lifecycle_lock`/單一 active source 假設共存（例如：掛載情境時 live 來源該暫停嗎？`switch_mode` 併發呼叫怎麼互動？）——這些問題本身就是「需要獨立子設計」的根源。Option B 完全不碰 `start`/`stop`/`switch_mode`/`select_view_only`（`_lifecycle_lock` 保護的方法，見 `data_broker.py:291,310,344,370`），繞開這塊風險；新端點仍會共享既有 `b.storage` 讀取路徑（與 `get_scenario`/`get_scenario_summary`/`get_scenario_turbine_history` 同款、鎖外直接讀，理論上與多場切換间有既有已接受的極小 TOCTOU 窗口，非本次新增風險）——用詞收斂為「不共享可變的生命週期狀態」，而非「零耦合」。
 - **正交設計更貼近實際使用情境**：情境調閱的本質是「回顧一份已凍結的資料」，沒有理由要求使用者先中斷正在監看的 live 畫面才能看歷史情境；Option A 的「單一 active source 服務情境快照」隱含兩者互斥，反而是不必要的限制。
-- **重用既有查詢模式，工程風險低**：新端點的實作模式（`get_history(limit=1, session_id=...)`、`scenario_turbine_aggregates`）在 `routers/scenarios.py` 已有兩個現成先例（`get_scenario_turbine_history`、`_load_scenario_summary`），不是從零設計。
+- **重用既有查詢模式，工程風險低**：`/turbines` 端點的實作模式（`get_history(limit=1, session_id=...)`）在 `routers/scenarios.py` 已有現成先例（`get_scenario_turbine_history`），不是從零設計；`farm-status` 端點則建立在 `/turbines` 之上、套用既有 `get_farm_status()` 彙整邏輯（見上「新增 2 個唯讀端點」§2 已修正版本），同樣有明確可依循的既有模式。
 - **Phase 1/2 切分避免範圍蔓延**：「工單演練」涉及的語意決策（演練工單是否算真工單）本質上是產品決策，混進本次會讓子設計又變成不可控的大題——這正是本 issue 被punt 8 次的根因（把「唯讀掛載」與「可操作的 what-if 演練」混在同一個「PR C」標籤下評估，導致每次評估都覺得太大而跳過）。拆開後 Phase 1 是純讀取端點 + 既有頁面條件式資料來源切換，量級與近期已完成的 `inspection_schedule`/`day_work_form` 單一功能 session 相當。
 
 ### Consequences
