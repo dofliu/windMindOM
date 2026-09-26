@@ -77,6 +77,15 @@ def _get_repo(farm_id: str) -> DayWorkFormRepository:
     return get_day_work_form_repository(resolve_farm_db_path(farm_id))
 
 
+def _to_uuid(label: str, value: str) -> UUID:
+    """共用 UUID 轉換 + 400（review nice-to-have：``employee_id``/``actor id`` 兩處共用一份，
+    避免各自維護錯誤訊息格式而不同步）。"""
+    try:
+        return UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{label} 非合法 UUID: {value}")
+
+
 def _employee_uuid(request: Request, body_employee_id: UUID | None) -> UUID:
     """雙模式解析當事員工身分（token 優先，否則沿用 body），同 ``work_order_router._actor_uuid``。
 
@@ -85,10 +94,7 @@ def _employee_uuid(request: Request, body_employee_id: UUID | None) -> UUID:
     resolved = resolve_actor_id(
         request, str(body_employee_id) if body_employee_id else None
     )
-    try:
-        return UUID(resolved)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"employee_id 非合法 UUID: {resolved}")
+    return _to_uuid("employee_id", resolved)
 
 
 # 讀取端點 ownership 限制（WMOM-20260926-01 item 3）：維持可查全員的角色——
@@ -98,10 +104,7 @@ _FULL_VISIBILITY_ROLES = frozenset({Role.LEADER, Role.SUPERVISOR, Role.ADMIN})
 
 def _viewer_uuid(actor_id: str) -> UUID:
     """把 :func:`resolve_actor_when_enforced` 回傳的 ``Actor.id`` 轉 UUID（400 同 ``_employee_uuid``）。"""
-    try:
-        return UUID(actor_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"actor id 非合法 UUID: {actor_id}")
+    return _to_uuid("actor id", actor_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────

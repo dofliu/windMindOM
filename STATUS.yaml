@@ -3,8 +3,35 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 第二個 autonomous session（WMOM-20260926-01
-  # 第 1 項完成）**：`day_work_form` 前端（工作日誌 tab，本人專用）——
+last_updated: "2026-09-26"  # **2026-09-26 第三個 autonomous session（WMOM-20260926-01
+  # 第 3 項完成）**：`day_work_form` 讀取端點 ownership 限制——`list`/`by-date`/`{form_id}`
+  # 3 個讀取端點先前只檢查「有沒有登入」，未限制查詢範圍（含 TREASURY 也能瀏覽任一員工
+  # 任一天完整日誌，issue 原文點名的問題案例）。新增 `modules/auth/dependencies.py::
+  # resolve_actor_when_enforced`（enforce=false 過渡期不限制、完全不解 token，比照
+  # `require_role`/`require_authenticated` 的 enforce-aware gate 風格，與既有
+  # `resolve_actor_id` 系列「無論 enforce 與否一律優先信任 token」的 identity-resolution
+  # 語意刻意區隔）；`_FULL_VISIBILITY_ROLES = {LEADER, SUPERVISOR, ADMIN}` 維持可查全員，
+  # EMPLOYEE 與 TREASURY 收窄成只能查自己（list 靜默覆寫 employee_id filter、by-date
+  # 必填參數非本人 403、detail 404-before-403 比照既有 `append_activity` 慣例）。
+  # **code-reviewer subagent review：Approve，0 must-fix，2 should-fix + 2 nice-to-have，
+  # 皆已處理**：①新測試原本只用 TREASURY 驗證「非本人」路徑，EMPLOYEE（本次修法主要
+  # 呼叫者）與別人交集的案例留白——補 3 個 EMPLOYEE 版本測試（list/by-date/detail）；
+  # ②work-log mutation 驗證/測試數字兩節原留 TODO——已回填；③`_viewer_uuid` 與既有
+  # `_employee_uuid` 重複的 try/UUID/400 pattern——已採納，抽出共用 `_to_uuid(label,
+  # value)` helper；④cutover 前建議確認前端無依賴 TREASURY 舊行為畫面——記錄供 M6
+  # 部署前 checklist（本次不動前端）。reviewer 獨立追蹤完整授權邏輯鏈路 + repository
+  # 層查詢語意，確認無 bypass（enforce=true 下無任何靜默失敗開放路徑、list 覆寫對
+  # 「帶入」與「不帶」employee_id 皆無差別覆寫、三端點的覆寫/403/404-403 行為差異是
+  # 刻意設計非安全缺口）。新增 13 個測試皆 mutation-verified（`git stash` 暫存實作檔
+  # 重跑確認核心測試如預期 fail，含針對 review 補測的第二輪用檔案覆寫方式驗證）。
+  # backend 1237→**1250 passed**（+13，零 regression）；frontend 未動 1402 passed
+  # 不變、tsc 0、build OK。`WMOM-20260926-01` 狀態改標 `in_progress`（第 1、3 項完成，
+  # 第 2 項 `work_order.finish()` hook 仍 open——已讀完 `state_machine.py` +
+  # `approval_router.py`，掛點答案已寫入 work-log：`WorkOrderRepository.transition()`
+  # 內部 `action == "approve_all"` 時觸發，是唯一能同時覆蓋 `approval_router` 自動
+  # 觸發與 `work_order_router` 直接 `/approve` endpoint 兩條路徑的地方）。**前一
+  # session（2026-09-26 第二個 autonomous session，WMOM-20260926-01 第 1 項完成）**：
+  # `day_work_form` 前端（工作日誌 tab，本人專用）——
   # `services/dayWorkFormService.ts`（API client，`readError` 比照 `knowledgeService.ts`
   # 解析陣列 422 detail）+ `hooks/useDayWorkForm.ts`（`workDate` driver 查當日日誌 +
   # 最近歷史僅本人；`appendActivity` 一律先 `getOrCreate`）+

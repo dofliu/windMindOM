@@ -446,6 +446,26 @@ def test_list_enforced_treasury_cannot_override_employee_id_filter(client, monke
     assert resp.json()["total"] == 0
 
 
+def test_list_enforced_employee_narrowed_to_self(client, monkeypatch):
+    """review should-fix：新增測試涵蓋 EMPLOYEE（而非只有 TREASURY）想帶入別人的
+    ``employee_id`` filter 查全員列表——這是本次修法要防的核心場景之一，先前遺漏。
+    """
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms",
+        params={"farm_id": "changhua", "employee_id": other_employee},
+        headers=_bearer("employee", str(uuid4())),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0  # 別人的日誌被收窄掉，自己沒有日誌
+
+
 def test_list_enforced_supervisor_sees_all(client, monkeypatch):
     """LEADER/SUPERVISOR/ADMIN 維持可查全員——不因 ownership 限制被誤收窄。"""
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
@@ -485,6 +505,29 @@ def test_by_date_enforced_treasury_other_employee_403(client, monkeypatch):
             "work_date": WORK_DATE,
         },
         headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 403
+
+
+def test_by_date_enforced_employee_other_employee_403(client, monkeypatch):
+    """review should-fix：EMPLOYEE（本次修法主要呼叫者）查別人的 by-date → 403——
+    先前只用 TREASURY 驗證過這條路徑，EMPLOYEE 交集留白，是核心場景卻沒直接測到。
+    """
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    other_employee = str(uuid4())
+    client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", other_employee),
+    )
+    resp = client.get(
+        "/api/workflow/day-work-forms/by-date",
+        params={
+            "farm_id": "changhua",
+            "employee_id": other_employee,
+            "work_date": WORK_DATE,
+        },
+        headers=_bearer("employee", str(uuid4())),
     )
     assert resp.status_code == 403
 
@@ -539,6 +582,22 @@ def test_detail_enforced_treasury_other_employee_403(client, monkeypatch):
         f"/api/workflow/day-work-forms/{created['id']}",
         params={"farm_id": "changhua"},
         headers=_bearer("treasury", str(uuid4())),
+    )
+    assert resp.status_code == 403
+
+
+def test_detail_enforced_employee_other_employee_403(client, monkeypatch):
+    """review should-fix：EMPLOYEE 查別人的 detail → 403（同上，補 EMPLOYEE 交集案例）。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    created = client.post(
+        "/api/workflow/day-work-forms",
+        json=_create_payload(),
+        headers=_bearer("employee", str(uuid4())),
+    ).json()
+    resp = client.get(
+        f"/api/workflow/day-work-forms/{created['id']}",
+        params={"farm_id": "changhua"},
+        headers=_bearer("employee", str(uuid4())),
     )
     assert resp.status_code == 403
 
