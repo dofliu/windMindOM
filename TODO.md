@@ -16,8 +16,22 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-01 三項全數完成，issue 標 done（第四個
-autonomous session）** — `work_order.finish()` → day_work_form 自動寫入 hook：工單
+最後更新：2026-09-26（**WMOM-20260926-02 完成 + 新開 WMOM-20260926-03（第五個
+autonomous session）** — PR C（情境掛載 app）子設計定案：`WMOM-20260926-01` 完成後
+唯一剩下的「可立即接手」項目 PR C 自 2026-07-20 立案以來被至少 8 個 session 因「需
+獨立子設計」原地擱置。本 session 用 Explore agent 讀過 `data_broker.py`/
+`routers/source.py`/`routers/scenarios.py`/decision log 全文，確認掛載情境若照
+原案動 `DataBroker` 單一 active source 狀態機會與 `WMOM-20260720-04`/`-08` 剛
+硬化好的並發關鍵區衝突，改採「與 broker 正交的唯讀端點 + 前端
+`ScenarioMountContext`」方案，寫入 `docs/product/decision_log.md`
+`DEC-20260926-01` 定案（含拒絕原案理由 + 若劉老師否決正交設計的備選方案）。範圍
+切成 Phase 1（FarmOverview+TurbineDetail 唯讀掛載，開新 `WMOM-20260926-03` open，
+deliverable 已寫清楚可直接接手）/ Phase 2（工單演練，deferred 不評估）。**純設計
+/文件 session，零程式碼變更**：backend 1255 passed / frontend 1402 passed /
+tsc 0 / build OK 皆與變更前一致。詳見
+`work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。**前一 session
+（WMOM-20260926-01 三項全數完成，issue 標 done，第四個 autonomous session）** —
+`work_order.finish()` → day_work_form 自動寫入 hook：工單
 完工（`approve_all`：`AWAITING_SIGNOFF → CLOSED`）時，自動幫該工單 `assignee_id`
 對應員工當天日誌 append 一筆 `completed_wo` activity。掛在
 `WorkOrderRepository.transition()` 內部 `action == "approve_all"`——唯一能同時覆蓋
@@ -412,7 +426,11 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**情境比較分析 · A2 Part 4（差異圖）**~~ — ✅ WMOM-20260923-06 完成，DEC-20260720-02 A2 epic
   完整範圍（摘要並排＋疊圖＋差異圖）至此全數完成。ScenarioCompareTimelineView review 留下的
   recharts 跨線 tooltip 精確比對 caveat 仍是已知限制（非阻塞，見該頁籤底部說明文字）。
-- [ ] **PR C** — 檢視情境掛載 app（DEC-20260720-02 A2 epic 最後剩餘項目），需先寫 broker 子設計
+- [x] ~~**PR C 子設計**~~ — ✅ 2026-09-26 完成（`WMOM-20260926-02`）：拒絕 DEC-20260720-01
+  原案（broker 新增情境檢視來源狀態），改採與 broker 正交的唯讀端點 + 前端
+  `ScenarioMountContext` 方案，見 `docs/product/decision_log.md` `DEC-20260926-01`。
+- [ ] **WMOM-20260926-03** — PR C Phase 1 實作（情境掛載唯讀端點 + FarmOverview/
+  TurbineDetail 接線）——deliverable 已在 ISSUES.md 寫清楚，無設計歧義，可直接接手
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
 - [x] ~~**WMOM-20260507-02 sub-task a/b/c/e/f** — 風場總覽「匯出」/風機細節「停機」/風機
