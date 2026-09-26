@@ -874,6 +874,20 @@ class Storage:
             result.append(d)
         return result
 
+    def scenario_turbine_ids(self, session_id: int) -> List[str]:
+        """情境（session）內出現過資料的機組 id 清單，依字母序排序（PR C Phase 1 情境掛載用）。
+
+        供 scenarios router 組裝「該情境每台機組最後一筆讀數」時，先知道要對哪些
+        turbine_id 各發一次 ``query_history(limit=1, session_id=...)``。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT turbine_id FROM turbine_data WHERE session_id = ? "
+            "ORDER BY turbine_id",
+            (session_id,),
+        ).fetchall()
+        return [row[0] for row in rows]
+
     def query_latest(self, turbine_id: str) -> Optional[dict]:
         """Return the most recent reading for a single turbine."""
         """Return the most recent reading for a turbine, or None."""

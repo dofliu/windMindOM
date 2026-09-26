@@ -55,6 +55,7 @@ vi.mock('../TrendChartPanel', () => ({
 
 import TurbineDetail, { noPowerReason } from '../TurbineDetail';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { ScenarioMountProvider } from '../../contexts/ScenarioMountContext';
 import { setAuthToken, clearAuthToken } from '../../services/authClient';
 
 type Lang = 'en' | 'zh';
@@ -129,6 +130,12 @@ function stubFetch(status: ControlStatus = {}): ReturnType<typeof vi.fn> {
     if (typeof url === 'string' && url.includes('/api/control/') && url.endsWith('/status')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(status) });
     }
+    // `ScenarioMountProvider` 內建的 `useScenarioMountData` 在「情境掛載中」測試 render 時
+    // 會自動打這支——預設回空陣列（合法 TurbineReading[] 形狀），避免與非陣列的 `{}` fallback
+    // 撞出 `data.map is not a function` 而讓每個掛載測試都意外帶著 error 狀態。
+    if (typeof url === 'string' && url.includes('/api/scenarios/') && url.includes('/turbines')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
   });
   // 以 vi.stubGlobal 注入，afterEach 的 vi.unstubAllGlobals() 才能正確還原
@@ -147,6 +154,13 @@ async function renderDetail(
     onBack?: () => void;
     onDispatch?: (t: TurbineData, fa: string) => void;
     onNavigateInspection?: (turbineId: string) => void;
+    /**
+     * PR C Phase 1（WMOM-20260926-03）：以 `ScenarioMountProvider` 的 `initialMounted`
+     * seed 讓初次 render 就是「已掛載」狀態，避免 post-mount `useEffect` 補呼叫
+     * `mount()` 造成的「先跑一次未掛載 render」競態（見 `ScenarioMountContext.tsx`
+     * `initialMounted` docstring，`FarmOverview.test.tsx` 同款先例）。
+     */
+    mountedScenario?: { id: number; name: string };
   } = {},
 ) {
   const onBack = opts.onBack ?? vi.fn();
@@ -156,14 +170,16 @@ async function renderDetail(
   await act(async () => {
     utils = render(
       <ThemeProvider>
-        <TurbineDetail
-          turbine={opts.turbine ?? makeTurbine()}
-          onBack={onBack}
-          onDispatch={onDispatch}
-          activeWorkOrder={opts.activeWorkOrder}
-          lang={opts.lang ?? 'zh'}
-          onNavigateInspection={onNavigateInspection}
-        />
+        <ScenarioMountProvider initialMounted={opts.mountedScenario ?? null}>
+          <TurbineDetail
+            turbine={opts.turbine ?? makeTurbine()}
+            onBack={onBack}
+            onDispatch={onDispatch}
+            activeWorkOrder={opts.activeWorkOrder}
+            lang={opts.lang ?? 'zh'}
+            onNavigateInspection={onNavigateInspection}
+          />
+        </ScenarioMountProvider>
       </ThemeProvider>,
     );
   });
@@ -222,12 +238,14 @@ describe('TurbineDetail — 殼層與 header', () => {
     await act(async () => {
       render(
         <ThemeProvider>
-          <TurbineDetail
-            turbine={makeTurbine()}
-            onBack={vi.fn()}
-            onDispatch={vi.fn()}
-            lang="zh"
-          />
+          <ScenarioMountProvider>
+            <TurbineDetail
+              turbine={makeTurbine()}
+              onBack={vi.fn()}
+              onDispatch={vi.fn()}
+              lang="zh"
+            />
+          </ScenarioMountProvider>
         </ThemeProvider>,
       );
     });
@@ -1030,5 +1048,83 @@ describe('TurbineDetail — 顯示重設計', () => {
   it('lang=en 主圖標題 = Power vs Wind · over time', async () => {
     await renderDetail({ lang: 'en' });
     expect(screen.getByText('Power vs Wind · over time')).toBeInTheDocument();
+  });
+});
+
+// ─── 情境掛載（PR C Phase 1，DEC-20260926-01 / WMOM-20260926-03）───────────────
+
+describe('TurbineDetail — 情境掛載中', () => {
+  it('顯示「情境檢視中」banner 含情境名稱', async () => {
+    await renderDetail({ mountedScenario: { id: 7, name: '颱風測試' } });
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent('情境檢視中');
+    expect(banner).toHaveTextContent('颱風測試');
+  });
+
+  it('未掛載時不顯示 banner', async () => {
+    await renderDetail({});
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('header 限載/停機/安排檢查三鈕皆 disabled 並帶說明 title', async () => {
+    await renderDetail({ mountedScenario: { id: 7, name: '颱風測試' } });
+    for (const label of ['限載', '停機', '安排檢查']) {
+      const btn = screen.getByRole('button', { name: label });
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute('title', expect.stringContaining('情境唯讀檢視'));
+    }
+  });
+
+  it('點停機鈕不觸發 /api/control 指令（disabled 阻擋，不是只是視覺灰階）', async () => {
+    const spy = stubFetch({});
+    await renderDetail({ turbine: makeTurbine({ id: 7 }), mountedScenario: { id: 7, name: 'x' } });
+    // 情境掛載本身會打 /api/scenarios/7/turbines（ScenarioMountProvider 內建的
+    // useScenarioMountData）——這是預期中的合法 fetch，此測試只驗證點擊被 disabled 的
+    // 停機鈕不會另外觸發 /api/control/* 寫入指令。
+    fireEvent.click(screen.getByRole('button', { name: '停機' }));
+    expect(
+      spy.mock.calls.some(([url]) => typeof url === 'string' && url.includes('/api/control/')),
+    ).toBe(false);
+  });
+
+  it('不渲染 TrendChartPanel，改顯示情境唯讀說明', async () => {
+    await renderDetail({ mountedScenario: { id: 7, name: '颱風測試' } });
+    expect(screen.queryByTestId('trend-chart-panel')).not.toBeInTheDocument();
+    expect(screen.getByText(/情境唯讀檢視不提供本圖/)).toBeInTheDocument();
+  });
+
+  it('操作控制卡改顯示停用說明，不發起 /api/control 輪詢', async () => {
+    const spy = stubFetch({});
+    await renderDetail({ mountedScenario: { id: 7, name: '颱風測試' } });
+    expect(screen.getByText(/情境唯讀檢視中停用/)).toBeInTheDocument();
+    expect(
+      spy.mock.calls.some(([url]) => typeof url === 'string' && url.includes('/api/control/')),
+    ).toBe(false);
+  });
+
+  it('FAULT 狀態下 AI 診斷卡仍會自動分析（唯讀分析非寫入），但派遣鈕 disabled', async () => {
+    mockAnalyze.mockResolvedValue('診斷結果');
+    await renderDetail({
+      turbine: makeTurbine({ status: TurbineStatus.FAULT }),
+      mountedScenario: { id: 7, name: '颱風測試' },
+    });
+    await waitFor(() => expect(mockAnalyze).toHaveBeenCalled());
+    await waitFor(() => {
+      const btn = screen.getByRole('button', { name: '派遣技術員' });
+      expect(btn).toBeDisabled();
+    });
+  });
+
+  // code review should-fix：情境掛載 fetch 失敗時 banner 原本從未顯示任何錯誤提示。
+  it('情境 fetch 失敗（404，如已被刪除）→ banner 顯示錯誤說明', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (typeof url === 'string' && url.includes('/api/scenarios/') && url.includes('/turbines')) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }));
+    await renderDetail({ mountedScenario: { id: 999, name: '已刪除情境' } });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/載入這個情境失敗/);
   });
 });

@@ -16,19 +16,38 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-02 完成 + 新開 WMOM-20260926-03（第五個
-autonomous session）** — PR C（情境掛載 app）子設計定案：`WMOM-20260926-01` 完成後
-唯一剩下的「可立即接手」項目 PR C 自 2026-07-20 立案以來被至少 8 個 session 因「需
-獨立子設計」原地擱置。本 session 用 Explore agent 讀過 `data_broker.py`/
-`routers/source.py`/`routers/scenarios.py`/decision log 全文，確認掛載情境若照
-原案動 `DataBroker` 單一 active source 狀態機會與 `WMOM-20260720-04`/`-08` 剛
-硬化好的並發關鍵區衝突，改採「與 broker 正交的唯讀端點 + 前端
-`ScenarioMountContext`」方案，寫入 `docs/product/decision_log.md`
-`DEC-20260926-01` 定案（含拒絕原案理由 + 若劉老師否決正交設計的備選方案）。範圍
-切成 Phase 1（FarmOverview+TurbineDetail 唯讀掛載，開新 `WMOM-20260926-03` open，
-deliverable 已寫清楚可直接接手）/ Phase 2（工單演練，deferred 不評估）。**純設計
-/文件 session，零程式碼變更**：backend 1255 passed / frontend 1402 passed /
-tsc 0 / build OK 皆與變更前一致。詳見
+最後更新：2026-09-26（**WMOM-20260926-03 完成（第六個 autonomous session）** —
+PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線。後端新增
+`Storage.scenario_turbine_ids()` + `GET /api/scenarios/{id}/turbines`/
+`farm-status` 兩個唯讀端點（格式對齊即時 `/api/turbines*`）；前端新增
+`ScenarioMountContext`（內建 `useScenarioMountData` 單次 fetch，`turbines`/
+`loading`/`error` 隨 context 分發）+ `ScenarioMountBanner` +
+`ScenarioDetail`/`ScenarioPage`/`App.tsx` 掛載入口串接 + `FarmOverview`/
+`TurbineDetail` 停用所有即時資料/寫入子面板（含 `OperatorControlCard` 整張替換、
+`TrendChartPanel`/farm-trend 停用——因情境機組 id 與即時機組 id 共用同一套
+`WT{n}` 命名，不停用會讀到/能操作到真正的即時風機）。**code-reviewer subagent
+review 抓到 1 must-fix + 3 should-fix + 2 nice-to-have，全數已修復並
+mutation-verified**：🔴 must-fix——情境掛載後永遠無法回報 FAULT 狀態（DB 的
+`operational_state` 結構上不會是 "FAULT"，即時路徑的 FAULT 覆寫靠記憶體內
+`FaultEngine`，批次生成完就消失），改依已持久化的故障注入事件（`history_events`
+payload）用與 `FaultEngine.step()` 相同公式離線重算 tripped 狀態，不需新
+schema；3 個 should-fix（`turState` 的 `or 6` 誤把真實 `0` 捏造成 `6`；
+`handleMountScenario` 「瀏覽總覽」分支未清 pending turbine id 導致競態；
+`useScenarioMountData` 的 `error` 從未浮現在畫面上，順便把 fetch 移進
+`ScenarioMountProvider` 內建）；2 個 nice-to-have（dispatch handler 補獨立
+mounted guard；異常 turbine_id 補 warning log）。backend 1255→**1274 passed**
+（+19）；frontend tsc 0、1402→**1443 passed**（65→68 files，+41）、build OK，
+皆零 regression。`DEC-20260720-01`/`DEC-20260720-02` 的 PR C 至此完整收尾
+（Phase 2 工單演練維持明確 deferred，未評估）。詳見
+`work-logs/2026-09/2026-09-26-scenario-mount-phase1.md`。**前一 session
+（WMOM-20260926-02 完成，PR C 子設計定案，第五個 autonomous session）** —
+`WMOM-20260926-01` 完成後唯一剩下的「可立即接手」項目 PR C 自 2026-07-20 立案
+以來被至少 8 個 session 因「需獨立子設計」原地擱置。用 Explore agent 讀過
+`data_broker.py`/`routers/source.py`/`routers/scenarios.py`/decision log 全文，
+確認掛載情境若照原案動 `DataBroker` 單一 active source 狀態機會與
+`WMOM-20260720-04`/`-08` 剛硬化好的並發關鍵區衝突，改採「與 broker 正交的唯讀
+端點 + 前端 `ScenarioMountContext`」方案，寫入 `docs/product/decision_log.md`
+`DEC-20260926-01` 定案。詳見
 `work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。**前一 session
 （WMOM-20260926-01 三項全數完成，issue 標 done，第四個 autonomous session）** —
 `work_order.finish()` → day_work_form 自動寫入 hook：工單
@@ -429,8 +448,9 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 - [x] ~~**PR C 子設計**~~ — ✅ 2026-09-26 完成（`WMOM-20260926-02`）：拒絕 DEC-20260720-01
   原案（broker 新增情境檢視來源狀態），改採與 broker 正交的唯讀端點 + 前端
   `ScenarioMountContext` 方案，見 `docs/product/decision_log.md` `DEC-20260926-01`。
-- [ ] **WMOM-20260926-03** — PR C Phase 1 實作（情境掛載唯讀端點 + FarmOverview/
-  TurbineDetail 接線）——deliverable 已在 ISSUES.md 寫清楚，無設計歧義，可直接接手
+- [x] ~~**WMOM-20260926-03** — PR C Phase 1 實作（情境掛載唯讀端點 + FarmOverview/
+  TurbineDetail 接線）~~ — ✅ 2026-09-26 完成，見上方「最後更新」。`DEC-20260720-01`/
+  `DEC-20260720-02` 的 PR C 至此完整收尾（Phase 2 deferred）。
 - [x] ~~**WMOM-20260716-06** — footprint CPU-torch pin~~ — ✅ 2026-09-23 完成，image
   3.37GB→550MB，見上方「最後更新」。
 - [x] ~~**WMOM-20260507-02 sub-task a/b/c/e/f** — 風場總覽「匯出」/風機細節「停機」/風機

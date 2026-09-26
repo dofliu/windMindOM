@@ -35,9 +35,11 @@ import {
   Field,
   Input,
   turbineStatusTone,
+  ScenarioMountBanner,
 } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import TrendChartPanel from './TrendChartPanel';
+import { useScenarioMount } from '../contexts/ScenarioMountContext';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -290,6 +292,35 @@ const OperatorControlCard: React.FC<{
             )}
           </div>
         </Field>
+      </div>
+    </Card>
+  );
+};
+
+/**
+ * 情境掛載中的「操作控制」佔位卡（PR C Phase 1，WMOM-20260926-03）。
+ *
+ * 不可直接渲染真正的 `OperatorControlCard`：其 `turbineApiId`（`WT{id 補零}`）與情境內
+ * 機組共用同一套命名（皆源自 simulator 的 `WT{i:03d}`），若情境掛載時仍照常打
+ * `/api/control/{turbineApiId}/status` 輪詢 + 提供 start/stop/curtail 按鈕，會讀到並可能
+ * 操作**剛好同 id 的真實即時風機**——使用者以為在唯讀檢視某個凍結情境，實際上看到/操作的是
+ * 別的機組即時狀態，是嚴重的資料錯置。掛載中直接不建立這張卡片（不發任何 `/api/control/*`
+ * 請求），改顯示停用說明。
+ */
+const DisabledOperatorControlCard: React.FC<{
+  tr: (en: string, zh: string) => string;
+}> = ({ tr }) => {
+  const { C } = useTheme();
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, color: C.text }}>
+        {tr('Operator control', '操作控制')}
+      </div>
+      <div style={{ fontSize: 12, color: C.sub }}>
+        {tr(
+          'Disabled in scenario view (read-only playback of a frozen snapshot).',
+          '情境唯讀檢視中停用（本頁為凍結快照回放，不提供操作指令）。',
+        )}
       </div>
     </Card>
   );
@@ -1004,6 +1035,8 @@ const AIDiagnosisCard: React.FC<{
   tr: (en: string, zh: string) => string;
 }> = ({ turbine, activeWorkOrder, onDispatch, tr }) => {
   const { C } = useTheme();
+  const scenarioMount = useScenarioMount();
+  const mounted = scenarioMount.mounted;
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1057,7 +1090,15 @@ const AIDiagnosisCard: React.FC<{
           <Btn
             variant="warn"
             onClick={() => onDispatch(turbine, result || 'Awaiting analysis...')}
-            disabled={analyzing || !result}
+            disabled={analyzing || !result || !!mounted}
+            title={
+              mounted
+                ? tr(
+                    'Disabled in scenario view (read-only playback)',
+                    '情境唯讀檢視中停用（唯讀回放）',
+                  )
+                : undefined
+            }
             fullWidth
           >
             {tr('Dispatch technician', '派遣技術員')}
@@ -1112,6 +1153,12 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
 }) => {
   const { C } = useTheme();
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+  const scenarioMount = useScenarioMount();
+  const mounted = scenarioMount.mounted;
+  const readonlyTitle = tr(
+    'Disabled in scenario view (read-only playback)',
+    '情境唯讀檢視中停用（唯讀回放）',
+  );
   const turbineApiId = `WT${String(turbine.id).padStart(3, '0')}`;
   const turStateLabel = TUR_STATE_LABELS[turbine.turState || 0];
   const turStateText = turStateLabel
@@ -1145,6 +1192,15 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
 
   return (
     <div>
+      {mounted && (
+        <ScenarioMountBanner
+          scenarioName={mounted.name}
+          onExit={scenarioMount.unmount}
+          lang={lang}
+          loading={scenarioMount.loading}
+          error={scenarioMount.error}
+        />
+      )}
       <PageHeader
         breadcrumb={
           <button
@@ -1190,13 +1246,20 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         }
         actions={
           <>
-            <Btn ariaLabel={tr('Curtail', '限載')} onClick={() => setCurtailModalOpen(true)}>
+            <Btn
+              ariaLabel={tr('Curtail', '限載')}
+              onClick={() => setCurtailModalOpen(true)}
+              disabled={!!mounted}
+              title={mounted ? readonlyTitle : undefined}
+            >
               {tr('Curtail', '限載')}
             </Btn>
             <Btn
               ariaLabel={tr('Stop', '停機')}
               onClick={handleHeaderStop}
               loading={headerStopPending}
+              disabled={!!mounted}
+              title={mounted ? readonlyTitle : undefined}
             >
               {tr('Stop', '停機')}
             </Btn>
@@ -1204,6 +1267,8 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
               variant="primary"
               ariaLabel={tr('Inspect', '安排檢查')}
               onClick={() => onNavigateInspection?.(turbine.name)}
+              disabled={!!mounted}
+              title={mounted ? readonlyTitle : undefined}
             >
               {tr('Inspect', '安排檢查')}
             </Btn>
@@ -1211,7 +1276,7 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         }
       />
 
-      {curtailModalOpen && (
+      {!mounted && curtailModalOpen && (
         <CurtailModal
           turbineApiId={turbineApiId}
           tr={tr}
@@ -1294,7 +1359,19 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
               </div>
             </div>
             <div style={{ padding: 12 }}>
-              <TrendChartPanel turbineId={turbineApiId} lang={lang} />
+              {mounted ? (
+                <div style={{ padding: '20px 4px', fontSize: 12, color: C.sub }}>
+                  {tr(
+                    'Not available in scenario view (this chart shows live data, ' +
+                      'unrelated to the mounted scenario). See the Trend tab on the ' +
+                      'scenario page for this scenario’s own history.',
+                    '情境唯讀檢視不提供本圖（本圖是即時資料，與所掛載情境無關）。' +
+                      '如需本情境的歷史趨勢，請至「情境模擬」頁該情境的「趨勢」頁籤查看。',
+                  )}
+                </div>
+              ) : (
+                <TrendChartPanel turbineId={turbineApiId} lang={lang} />
+              )}
             </div>
           </Card>
 
@@ -1322,7 +1399,11 @@ const TurbineDetail: React.FC<TurbineDetailProps> = ({
         </div>
 
         <div style={{ minWidth: 0 }}>
-          <OperatorControlCard turbineApiId={turbineApiId} tr={tr} />
+          {mounted ? (
+            <DisabledOperatorControlCard tr={tr} />
+          ) : (
+            <OperatorControlCard turbineApiId={turbineApiId} tr={tr} />
+          )}
           <RecentEventsCard t={turbine} tr={tr} />
           {turbine.status === TurbineStatus.FAULT && (
             <AIDiagnosisCard

@@ -5,7 +5,7 @@ import { authFetch } from '../services/authClient';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8100';
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8100/ws/realtime';
 
-interface ApiTurbineReading {
+export interface ApiTurbineReading {
   turbineId: string;
   name: string;
   timestamp: string;
@@ -122,7 +122,14 @@ function mapStatus(status: string): TurbineStatus {
   }
 }
 
-function apiToTurbineData(api: ApiTurbineReading, index: number): TurbineData {
+/**
+ * 把後端 TurbineReading 轉成前端 `TurbineData`（沿用 index+1 當 `id`，供其餘畫面/選取邏輯用）。
+ *
+ * 匯出供 `useScenarioMountData`（PR C Phase 1，WMOM-20260926-03）重用——情境掛載端點
+ * `GET /api/scenarios/{id}/turbines` 回傳格式對齊即時 `GET /api/turbines`（同一份
+ * `ApiTurbineReading` 形狀），避免重複維護這份龐大的欄位對應表。
+ */
+export function apiToTurbineData(api: ApiTurbineReading, index: number): TurbineData {
   return {
     id: index + 1,
     name: api.name,

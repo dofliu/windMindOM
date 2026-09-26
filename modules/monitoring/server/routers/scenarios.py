@@ -8,20 +8,28 @@
 - ``GET  /api/scenarios/compare``                             跨情境摘要並排比較（A2 Part 1）
 - ``GET  /api/scenarios/{id}``                                單一情境詮釋資料
 - ``GET  /api/scenarios/{id}/summary``                        情境物理摘要（每台機組 + 風場層）
+- ``GET  /api/scenarios/{id}/turbines``                       該情境每台機組最後一筆讀數（PR C Phase 1 掛載用）
+- ``GET  /api/scenarios/{id}/farm-status``                    該情境風場層 KPI（PR C Phase 1 掛載用）
 - ``GET  /api/scenarios/{id}/turbines/{turbine_id}/history``  某情境某機組的資料（隔離調閱）
 - ``DELETE /api/scenarios/{id}``                              刪除情境（含資料列）
 """
 
 import asyncio
-from typing import List, Optional
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server.data_broker import _map_state
+from server.models import FarmStatus, TurbineReading, TurbineStatus
+from simulator.physics.fault_engine import FAULT_SCENARIOS
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
+logger = logging.getLogger(__name__)
 
 # 容量因數的額定功率預設值。generate_bulk 現於建情境時就把 simulator 機型的 rated_power_kw 存進
 # session（見 config.py），故正常情況會採用 session 值；此預設只在舊情境（未回填）/取值失敗時兜底，
@@ -381,6 +389,248 @@ async def _load_scenario_summary(scenario_id: int) -> ScenarioSummary:
 async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
     """情境物理摘要（單一情境）。實作見 ``_load_scenario_summary``（與 ``compare_scenarios`` 共用）。"""
     return await _load_scenario_summary(scenario_id)
+
+
+# ── 情境掛載唯讀端點（PR C Phase 1，DEC-20260926-01）──────────────────────────
+# 與 data_broker 的單一 active source 狀態機完全正交：純附加查詢，不改 data_broker.py/source.py
+# 一行。格式對齊既有 /api/turbines、/api/turbines/farm-status（見 routers/turbines.py），讓前端
+# ScenarioMountContext 掛載時可重用同一套 TurbineReading/FarmStatus 型別與畫面元件。
+
+def _parse_scenario_timestamp(ts_raw: object) -> datetime:
+    """情境 DB row / 事件的 ISO timestamp 字串 → ``datetime``；缺值/格式錯誤回退 ``now()``
+    （比照既有 ``data_broker._sim_output_to_reading`` 的防禦寫法）。"""
+    if isinstance(ts_raw, str):
+        try:
+            return datetime.fromisoformat(ts_raw)
+        except ValueError:
+            return datetime.now()
+    return ts_raw if isinstance(ts_raw, datetime) else datetime.now()
+
+
+def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set[str]:
+    """依故障注入事件的 payload 重算「哪些機組在 ``as_of`` 時刻已 trip」（DEC-20260926-01
+    must-fix：情境掛載端點原本完全無法回報 FAULT 狀態）。
+
+    情境資料由 ``generate_bulk`` 一次性批次生成，DB 沒有為每筆 reading 存下即時 tripped
+    旗標——即時路徑的 FAULT 覆寫（``data_broker._sim_output_to_reading``）靠的是記憶體內
+    ``FaultEngine`` 當下狀態，情境是歷史批次，該記憶體狀態生成完就消失了。改用與
+    ``FaultEngine.step()``（``simulator/physics/fault_engine.py``）完全相同的公式
+    （``severity = min(1, initial_severity + severity_rate * elapsed_seconds)``、
+    ``tripped = severity >= FAULT_SCENARIOS[id].auto_trip_severity``）對已持久化的故障注入
+    事件（``history_events``，``event_type == "fault"``，見 ``routers/config.py::on_inject``）
+    離線重算，不需要新 schema/欄位。
+
+    簡化：``FaultEngine.inject()`` 對同一機組同一 scenario_id 的重複注入會先移除舊實例、只留
+    最新一次；這裡比照只取每個 ``(turbine_id, scenario_id)`` 組合時間最晚的注入事件。
+
+    ⚠️ 繼承既有限制（見 ``get_scenario_turbine_history`` docstring）：``history_events`` 無
+    ``session_id``，事件靠情境模擬時間窗（時間字串比較）撈取，短時間內連續產生的情境時間窗
+    可能重疊、混入其他情境的事件——與 ``eventsByTimeWindow`` 旗標標示的既有限制一致，非本次
+    新引入的風險。
+
+    Args:
+        fault_events: ``history_events`` 查詢結果（含已解析的 ``payload`` dict）。
+        as_of: 評估時刻（通常是該機組最後一筆 reading 的 timestamp）。
+
+    Returns:
+        已 trip 的 turbine_id 集合。
+    """
+    latest_injection: Dict[tuple, Dict[str, object]] = {}
+    for event in fault_events:
+        if event.get("event_type") != "fault":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        turbine_id = event.get("turbine_id") or payload.get("turbineId")
+        scenario_id = payload.get("scenarioId")
+        ts_raw = event.get("timestamp")
+        if not turbine_id or not scenario_id or not ts_raw:
+            continue
+        injected_at = _parse_scenario_timestamp(ts_raw)
+        key = (turbine_id, scenario_id)
+        prior = latest_injection.get(key)
+        if prior is None or injected_at > prior["injected_at"]:
+            latest_injection[key] = {"injected_at": injected_at, "payload": payload}
+
+    tripped: Set[str] = set()
+    for (turbine_id, scenario_id), info in latest_injection.items():
+        injected_at = info["injected_at"]
+        if injected_at > as_of:
+            continue  # 尚未注入（不應發生於末筆讀數之後，防禦性檢查）
+        scenario = FAULT_SCENARIOS.get(scenario_id)
+        if not scenario:
+            continue
+        payload = info["payload"]
+        rate = payload.get("severityRate")
+        rate = rate if isinstance(rate, (int, float)) and rate > 0 else 0.0002
+        initial = payload.get("initialSeverity")
+        initial = initial if isinstance(initial, (int, float)) else 0.0
+        elapsed_seconds = max((as_of - injected_at).total_seconds(), 0.0)
+        severity = min(1.0, initial + rate * elapsed_seconds)
+        if severity >= scenario.auto_trip_severity:
+            tripped.add(turbine_id)
+    return tripped
+
+
+def _scenario_row_to_reading(row: dict, force_fault: bool = False) -> TurbineReading:
+    """情境 session 內某機組最後一筆原始列（``storage.query_history`` 回傳的扁平 DB row）→
+    ``TurbineReading``。
+
+    row['status'] 存的是寫入當下的原始 ``operational_state`` 字串（RUNNING/STARTING/STOPPING/
+    IDLE，見 ``storage._insert_reading``；注意此欄位結構上永遠不會是 "FAULT"——
+    ``simulator.engine._tur_state_to_str`` 的映射表沒有 FAULT 分支，FAULT 狀態一律靠
+    ``force_fault`` 由呼叫端另外算出後覆蓋，比照 ``data_broker._sim_output_to_reading`` 的
+    「先映射運轉狀態、再視故障是否 tripped 覆寫」兩段式邏輯），需重新套用與即時路徑
+    （``data_broker._map_state``）相同的映射，否則會塞進只接受 4 種列舉值的
+    ``TurbineReading.status`` 而炸 pydantic ``ValidationError``。tid→name 慣例比照
+    ``data_broker._sim_output_to_reading``。
+
+    Args:
+        force_fault: 該機組依 ``_tripped_fault_turbine_ids`` 重算已 trip 時傳 ``True``，
+            覆蓋掉 operational_state 映射出的狀態（與即時路徑的覆寫順序一致）。
+    """
+    tid = str(row.get("turbine_id") or "WT001")
+    if tid.startswith("WT") and tid[2:].isdigit():
+        idx = int(tid.replace("WT", ""))
+    else:
+        # 不應發生（DB turbine_id 皆由 simulator 以 f"WT{i:03d}" 產生）——記警告而非默默
+        # fallback 成 idx=1（會與真正的 WT001 撞名 "WTG-01"），供異常資料排查。
+        logger.warning("Scenario row 的 turbine_id 格式異常（非 WT{n}）：%r，name fallback 為 WTG-01", tid)
+        idx = 1
+    name = f"WTG-{idx:02d}"
+
+    timestamp = _parse_scenario_timestamp(row.get("timestamp"))
+
+    scada = row.get("scada") if isinstance(row.get("scada"), dict) else None
+
+    status = _map_state(str(row.get("status") or "IDLE"))
+    if force_fault:
+        status = TurbineStatus.FAULT
+
+    return TurbineReading(
+        turbineId=tid,
+        name=name,
+        timestamp=timestamp,
+        status=status,
+        # `or 6` 會誤把真實存的 0（見 storage._insert_reading 的 int(scada.get("WTUR_TurSt", 0))）
+        # 當成缺值、silently 捏造成 6（正常發電），故明確判斷 None 才 fallback（code review
+        # should-fix）。
+        turState=int(row["tur_state"]) if row.get("tur_state") is not None else 6,
+        windSpeed=row.get("wind_speed") or 0.0,
+        powerOutput=row.get("power_output") or 0.0,
+        rotorSpeed=row.get("rotor_speed") or 0.0,
+        bladeAngle=row.get("blade_angle") or 0.0,
+        temperature=row.get("temperature") or 0.0,
+        vibration=row.get("vibration") or 0.0,
+        voltage=row.get("voltage") or 0.0,
+        current=row.get("current_amp") or 0.0,
+        yawAngle=row.get("yaw_angle") or 0.0,
+        gearboxTemp=row.get("gearbox_temp") or 0.0,
+        frequency=row.get("frequency"),
+        hydraulicPressure=row.get("hydraulic_pressure"),
+        scadaTags=scada,
+    )
+
+
+def _scenario_latest_readings(scenario: dict) -> List[TurbineReading]:
+    """該情境每台機組的最後一筆讀數（依 turbine_id 排序），FAULT 狀態依故障注入事件離線重算
+    （見 ``_tripped_fault_turbine_ids``，DEC-20260926-01 must-fix）。
+
+    先取該情境出現過的機組 id 清單（``scenario_turbine_ids``），逐一
+    ``get_history(limit=1, session_id=scenario_id)`` 取末筆——N 次查詢，若日後實測有感效能問題
+    可比照 ``scenario_turbine_aggregates`` 改用 ``ROW_NUMBER() OVER (PARTITION BY turbine_id ...)``
+    一次查完（非本次強制範圍，見 WMOM-20260926-03 issue nice-to-have）。
+
+    Args:
+        scenario: ``storage.get_scenario()`` 回傳的情境 dict（呼叫端已為 404 檢查取過，這裡
+            重用避免多查一次）。
+    """
+    b = get_broker()
+    scenario_id = scenario["id"]
+    turbine_ids = b.storage.scenario_turbine_ids(scenario_id)
+
+    rows_by_turbine: Dict[str, dict] = {}
+    for tid in turbine_ids:
+        rows = b.get_history(tid, limit=1, session_id=scenario_id)
+        if rows:
+            rows_by_turbine[tid] = rows[0]
+    if not rows_by_turbine:
+        return []
+
+    config = scenario.get("config") if isinstance(scenario.get("config"), dict) else {}
+    config = config or {}
+    start = config.get("sim_start") or scenario.get("started_at")
+    end = config.get("sim_end") or scenario.get("ended_at")
+    fault_events = (
+        b.get_history_events(start=start, end=end, limit=1000) if start and end else []
+    )
+
+    readings = []
+    for tid in turbine_ids:
+        row = rows_by_turbine.get(tid)
+        if not row:
+            continue
+        as_of = _parse_scenario_timestamp(row.get("timestamp"))
+        tripped_ids = _tripped_fault_turbine_ids(fault_events, as_of)
+        readings.append(_scenario_row_to_reading(row, force_fault=tid in tripped_ids))
+    return readings
+
+
+def _aggregate_scenario_farm_status(turbines: List[TurbineReading]) -> FarmStatus:
+    """風場層 KPI 彙整——與 ``data_broker.DataBroker.get_farm_status`` 相同的彙整邏輯（按 status
+    計數 + sum powerOutput + avg windSpeed），套用在情境的「每機組最後一筆讀數」清單之上。"""
+    now = datetime.now()
+    if not turbines:
+        return FarmStatus(
+            totalTurbines=0, operatingCount=0, idleCount=0,
+            faultCount=0, offlineCount=0, totalPowerMW=0,
+            avgWindSpeed=0, timestamp=now,
+        )
+    return FarmStatus(
+        totalTurbines=len(turbines),
+        operatingCount=sum(1 for t in turbines if t.status == TurbineStatus.OPERATING),
+        idleCount=sum(1 for t in turbines if t.status == TurbineStatus.IDLE),
+        faultCount=sum(1 for t in turbines if t.status == TurbineStatus.FAULT),
+        offlineCount=sum(1 for t in turbines if t.status == TurbineStatus.OFFLINE),
+        totalPowerMW=round(sum(t.powerOutput for t in turbines), 2),
+        avgWindSpeed=round(sum(t.windSpeed for t in turbines) / len(turbines), 2),
+        timestamp=now,
+    )
+
+
+@router.get(
+    "/{scenario_id}/turbines",
+    response_model=List[TurbineReading],
+    # 檢視＝任何登入者（比照 /api/turbines 與其餘情境檢視端點）
+    dependencies=[Depends(require_authenticated())],
+)
+async def get_scenario_turbines(scenario_id: int) -> List[TurbineReading]:
+    """該情境每台機組的最後一筆讀數（PR C Phase 1 情境掛載：FarmOverview/TurbineDetail 唯讀顯示用）。
+
+    格式對齊即時 ``GET /api/turbines``，讓前端掛載模式下可重用同一批畫面元件；資料本身是凍結快照
+    （情境不會變），故省略即時路徑才有的 ``history``（前 30 筆折線）欄位。
+    """
+    b = get_broker()
+    scenario = await asyncio.to_thread(b.storage.get_scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(404, f"Scenario {scenario_id} not found")
+    return await asyncio.to_thread(_scenario_latest_readings, scenario)
+
+
+@router.get(
+    "/{scenario_id}/farm-status",
+    response_model=FarmStatus,
+    # 檢視＝任何登入者（比照 /api/turbines/farm-status 與其餘情境檢視端點）
+    dependencies=[Depends(require_authenticated())],
+)
+async def get_scenario_farm_status(scenario_id: int) -> FarmStatus:
+    """該情境的風場層 KPI（PR C Phase 1 情境掛載：FarmOverview 唯讀顯示用）。格式對齊即時
+    ``GET /api/turbines/farm-status``。"""
+    b = get_broker()
+    scenario = await asyncio.to_thread(b.storage.get_scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(404, f"Scenario {scenario_id} not found")
+    readings = await asyncio.to_thread(_scenario_latest_readings, scenario)
+    return _aggregate_scenario_farm_status(readings)
 
 
 @router.get(

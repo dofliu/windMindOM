@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import React from 'react';
-import ScenarioDetail, { type SavedScenario } from '../ScenarioDetail';
+import ScenarioDetail, { type SavedScenario, type ScenarioMountRequest } from '../ScenarioDetail';
 import { ThemeProvider } from '../../theme/ThemeProvider';
 
 const SCENARIO: SavedScenario = {
@@ -95,11 +95,15 @@ function historyCalls() {
   return fetchMock.mock.calls.map(c => String(c[0])).filter(u => u.includes('/history'));
 }
 
-async function renderDetail(onBack = vi.fn(), lang: 'en' | 'zh' = 'zh') {
+async function renderDetail(
+  onBack = vi.fn(),
+  lang: 'en' | 'zh' = 'zh',
+  onMount?: (request: ScenarioMountRequest) => void,
+) {
   await act(async () => {
     render(
       <ThemeProvider>
-        <ScenarioDetail scenario={SCENARIO} lang={lang} onBack={onBack} />
+        <ScenarioDetail scenario={SCENARIO} lang={lang} onBack={onBack} onMount={onMount} />
       </ThemeProvider>,
     );
   });
@@ -201,5 +205,65 @@ describe('ScenarioDetail — 空資料', () => {
     installFetch({ ...HISTORY, readings: [], events: [] });
     await renderDetail();
     await waitFor(() => expect(screen.getByText(/沒有資料/)).toBeInTheDocument());
+  });
+});
+
+// ─── 情境掛載入口（PR C Phase 1，DEC-20260926-01 / WMOM-20260926-03）─────────
+
+describe('ScenarioDetail — 情境掛載入口', () => {
+  it('未傳入 onMount（舊呼叫端）→ 不渲染掛載按鈕', async () => {
+    await renderDetail();
+    expect(screen.queryByRole('button', { name: /以此情境瀏覽/ })).not.toBeInTheDocument();
+  });
+
+  it('點「以此情境瀏覽總覽」→ onMount 帶 scenarioId/scenarioName/target=overview', async () => {
+    const onMount = vi.fn();
+    await renderDetail(vi.fn(), 'zh', onMount);
+    fireEvent.click(screen.getByRole('button', { name: '以此情境瀏覽總覽' }));
+    expect(onMount).toHaveBeenCalledWith({
+      scenarioId: 7,
+      scenarioName: '暴風測試',
+      target: 'overview',
+    });
+  });
+
+  it('點「以此情境瀏覽機組細節」→ onMount 帶目前選取機組的 WT id（預設 WT001）', async () => {
+    const onMount = vi.fn();
+    await renderDetail(vi.fn(), 'zh', onMount);
+    fireEvent.click(screen.getByRole('button', { name: '以此情境瀏覽機組細節' }));
+    expect(onMount).toHaveBeenCalledWith({
+      scenarioId: 7,
+      scenarioName: '暴風測試',
+      target: 'turbine',
+      turbineWtId: 'WT001',
+    });
+  });
+
+  it('換選機組後點「以此情境瀏覽機組細節」→ turbineWtId 帶換選後的機組', async () => {
+    const onMount = vi.fn();
+    await renderDetail(vi.fn(), 'zh', onMount);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('風機'), { target: { value: 'WT003' } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: '以此情境瀏覽機組細節' }));
+    expect(onMount).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'turbine', turbineWtId: 'WT003' }),
+    );
+  });
+
+  it('未命名情境（無 cfg.name）→ scenarioName 退回「（未命名情境）」', async () => {
+    const onMount = vi.fn();
+    const unnamed: SavedScenario = { ...SCENARIO, config: { ...SCENARIO.config, name: undefined } };
+    await act(async () => {
+      render(
+        <ThemeProvider>
+          <ScenarioDetail scenario={unnamed} lang="zh" onBack={vi.fn()} onMount={onMount} />
+        </ThemeProvider>,
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: '以此情境瀏覽總覽' }));
+    expect(onMount).toHaveBeenCalledWith(
+      expect.objectContaining({ scenarioName: '（未命名情境）' }),
+    );
   });
 });

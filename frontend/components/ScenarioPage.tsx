@@ -18,7 +18,7 @@ import { Btn, Card, Field, Input, PageHeader, Select, Stat, StatusPill, type Pil
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import ScenarioCompareAcrossView from './ScenarioCompareAcrossView';
-import ScenarioDetail, { type SavedScenario } from './ScenarioDetail';
+import ScenarioDetail, { type SavedScenario, type ScenarioMountRequest } from './ScenarioDetail';
 import { WIND_PROFILES, windProfileLabel } from '../utils/windProfiles';
 import type { SourceMode } from '../hooks/useSourceGate';
 
@@ -108,9 +108,11 @@ interface Props {
   lang?: 'en' | 'zh';
   /** 生成後「查看歷史資料」的跳頁回呼（App 接到 history view）。 */
   onExplore?: () => void;
+  /** PR C Phase 1（WMOM-20260926-03）：轉呼 `ScenarioDetail` 的掛載請求給 App.tsx。 */
+  onMountScenario?: (request: ScenarioMountRequest) => void;
 }
 
-const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
+const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore, onMountScenario }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
@@ -417,7 +419,14 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore }) => {
 
   // 觀察模式：選了某過去情境 → 顯示該情境的隔離調閱視圖（ScenarioDetail）。
   if (observing) {
-    return <ScenarioDetail scenario={observing} lang={lang} onBack={() => setObserving(null)} />;
+    return (
+      <ScenarioDetail
+        scenario={observing}
+        lang={lang}
+        onBack={() => setObserving(null)}
+        onMount={onMountScenario}
+      />
+    );
   }
 
   // 跨情境比較模式（A2）：勾了 ≥2 個過去情境並按下比較 → 顯示 ScenarioCompareAcrossView。

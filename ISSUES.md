@@ -13,14 +13,26 @@
 
 | Status | Count |
 |--------|------|
-| open | 10 |
+| open | 9 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 132 |
+| done | 133 |
 | **total (active)** | **144** |
 
-最後更新：2026-09-26（**WMOM-20260926-02 完成 + 新開 WMOM-20260926-03（第五個
-autonomous session）— PR C（情境掛載 app）子設計定案**：`WMOM-20260926-01` 完成後
+最後更新：2026-09-26（**WMOM-20260926-03 完成（第六個 autonomous session）—
+PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線**：後端新增
+`GET /api/scenarios/{id}/turbines`/`farm-status` 兩個唯讀端點 + 前端
+`ScenarioMountContext`/`ScenarioMountBanner` + `ScenarioDetail`/`App.tsx` 掛載入口 +
+`FarmOverview`/`TurbineDetail` 停用所有即時資料/寫入子面板。code-reviewer subagent
+review 抓到 1 must-fix（情境掛載後永遠無法回報 FAULT 狀態，改依已持久化故障事件
+離線重算 tripped 狀態）+ 3 should-fix + 2 nice-to-have，全數已修復並
+mutation-verified，見 `WMOM-20260926-03` 條目 completion summary。backend
+1255→1274 passed（+19）；frontend 1402→1443 passed（+41）、tsc 0、build OK，
+皆零 regression。`DEC-20260720-01`/`DEC-20260720-02` 的 PR C 至此完整收尾
+（Phase 2 工單/維護 what-if 演練維持明確 deferred）。詳見
+`work-logs/2026-09/2026-09-26-scenario-mount-phase1.md`。**前一 session
+（WMOM-20260926-02 完成，第五個 autonomous session）— PR C（情境掛載 app）子設計
+定案**：`WMOM-20260926-01` 完成後
 唯一剩下的「可立即接手」項目 PR C 自 2026-07-20 立案以來被至少 8 個 session 因「需
 獨立子設計」原地擱置。本 session 用 Explore agent 徹底讀過 `data_broker.py`/
 `routers/source.py`/`routers/scenarios.py`/decision log 全文，確認掛載情境若照
@@ -2814,11 +2826,37 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260926-03 — PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線
 
-- **Status**: open
-- **Milestone**: M5（DEC-20260720-02 情境比較分析 epic 收尾）
+- **Status**: done（2026-09-26 第六個 autonomous session，見
+  `work-logs/2026-09/2026-09-26-scenario-mount-phase1.md`）
+- **Milestone**: M5（DEC-20260720-02 情境比較分析 epic 收尾，`PR C` 至此完整收尾——
+  Phase 2 工單/維護 what-if 演練維持明確 deferred，未評估）
 - **Priority**: medium
 - **Estimate**: 1 session（後端 2 端點 + 前端 Context + 兩頁接線 + 測試）
 - **Owner**: -
+- **Completion summary**：後端新增 `Storage.scenario_turbine_ids()` + 2 個唯讀端點
+  （`GET /api/scenarios/{id}/turbines`/`farm-status`，格式對齊即時
+  `/api/turbines*`）；前端新增 `ScenarioMountContext`（內建
+  `useScenarioMountData` 單次 fetch，`turbines`/`loading`/`error` 隨 context 分發）+
+  `ScenarioMountBanner` + `ScenarioDetail`/`ScenarioPage`/`App.tsx` 掛載入口串接 +
+  `FarmOverview`/`TurbineDetail` 停用所有即時資料/寫入子面板（含 `OperatorControlCard`
+  整張替換、`TrendChartPanel`/farm-trend 停用——因情境機組 id 與即時機組 id 共用同一套
+  `WT{n}` 命名，若不停用會讀到/能操作到真正的即時風機，見 work-log「設計判斷」段落）。
+  **code-reviewer subagent review 抓到 1 must-fix + 3 should-fix + 2 nice-to-have，
+  全數已修復並 mutation-verified**：①🔴 must-fix——情境掛載後永遠無法回報 FAULT 狀態
+  （`_tur_state_to_str` 結構上不產生 FAULT，即時路徑的 FAULT 覆寫靠記憶體內
+  `FaultEngine`，批次生成完就消失），改依已持久化的故障注入事件用與
+  `FaultEngine.step()` 相同公式離線重算 tripped 狀態，不需新 schema；②🟡
+  `turState` 的 `or 6` 誤把真實 `0` 捏造成 `6`；③🟡 `handleMountScenario` 「瀏覽總覽」
+  分支未清 `pendingMountTurbineDataId` 導致競態；④🟡 `useScenarioMountData` 的
+  `error` 從未浮現在畫面上，順便把 fetch 移進 Provider 內建、`turbines`/`loading`/
+  `error` 隨 context 分發；⑤🟢 `handleOpenDispatchModal` 補獨立 mounted guard；⑥🟢
+  異常 turbine_id 補 warning log。backend 1255→**1274 passed**（+19）；frontend
+  tsc 0、1402→**1443 passed**（65→68 files，+41）、build OK，皆零 regression。
+  **誠實揭露**：App.tsx 本身無 render 測試基礎設施（既有限制），`handleMountScenario`/
+  `handleNavSelect` 的 unmount 清空邏輯/`liveTurbine` 衍生僅靠程式碼閱讀驗證；前端
+  刻意不消費 `/farm-status` 端點（`FarmOverview` 本就從 `turbines` prop 自行加總，
+  該端點仍完整測試於後端供未來使用）；FAULT 重算繼承 `history_events` 既有的
+  「無 session_id、靠時間窗撈取」限制（`DEC-20260719-01`），非本次新引入風險。
 - **Description**: `WMOM-20260926-02`（`DEC-20260926-01`）已定案設計，本 issue 是
   Phase 1 實作本體，**無需再重新調查或評估範圍**，直接照設計做：
   1. **後端**（`modules/monitoring/server/routers/scenarios.py`）新增 2 個唯讀端點

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator, List, Optional
 
@@ -445,6 +446,243 @@ def test_compare_route_returns_400_over_real_http_for_invalid_ids(tmp_path, monk
 
     assert client.get("/api/scenarios/compare?ids=5").status_code == 400        # 不足 2 個
     assert client.get("/api/scenarios/compare?ids=1,abc").status_code == 400    # 非整數
+
+
+# ─── 情境掛載唯讀端點（PR C Phase 1，DEC-20260926-01 / WMOM-20260926-03）─────────
+
+def test_scenario_turbines_endpoint_returns_latest_reading_per_turbine(broker):
+    """整合：以 generate_bulk 建真情境 → get_scenario_turbines 回每台機組最後一筆讀數，
+    格式對齊 TurbineReading（status 是合法列舉值、非原始 operational_state 字串）。"""
+    from server.models import TurbineStatus
+
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "掛載情境A"}))
+    sid = res["scenario_id"]
+
+    readings = asyncio.run(scenarios_ep.get_scenario_turbines(sid))
+    assert [r.turbineId for r in readings] == ["WT001", "WT002", "WT003"]
+    for r in readings:
+        assert isinstance(r.status, TurbineStatus)
+        assert r.name.startswith("WTG-")
+
+
+def test_scenario_turbines_404_for_unknown_scenario(broker):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(scenarios_ep.get_scenario_turbines(999_999))
+    assert ei.value.status_code == 404
+
+
+def test_scenario_farm_status_endpoint_aggregates_latest_readings(broker):
+    """整合：farm-status 的彙整需與同一批 /turbines 端點回傳的末筆讀數自洽
+    （totalTurbines/計數分桶/totalPowerMW 皆由同一份資料算出）。"""
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "掛載情境B"}))
+    sid = res["scenario_id"]
+
+    readings = asyncio.run(scenarios_ep.get_scenario_turbines(sid))
+    status = asyncio.run(scenarios_ep.get_scenario_farm_status(sid))
+
+    assert status.totalTurbines == len(readings) == 3
+    assert (status.operatingCount + status.idleCount
+            + status.faultCount + status.offlineCount) == status.totalTurbines
+    assert status.totalPowerMW == pytest.approx(
+        round(sum(r.powerOutput for r in readings), 2))
+
+
+def test_scenario_farm_status_404_for_unknown_scenario(broker):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(scenarios_ep.get_scenario_farm_status(999_999))
+    assert ei.value.status_code == 404
+
+
+# ─── FAULT 狀態重算（DEC-20260926-01 must-fix，code review 抓到）──────────────
+# storage 的 `status` 欄位存的是 operational_state（RUNNING/IDLE/...），結構上永遠不是
+# "FAULT"（`simulator.engine._tur_state_to_str` 映射表沒有 FAULT 分支）——即時路徑的 FAULT
+# 覆寫靠記憶體內 FaultEngine 當下狀態，情境批次生成完那份記憶體狀態就消失了。若不修，情境掛載
+# 永遠無法回報 FAULT，示範一個刻意注入故障的情境會整面顯示「健康」。修法：對已持久化的故障注入
+# 事件（history_events）依 FaultEngine.step() 相同公式離線重算 tripped 狀態。
+
+def test_scenario_turbines_reports_fault_for_tripped_injected_fault(broker):
+    """整合：注入 initial_severity=0.95（遠高於 hydraulic_leak 預設 auto_trip_severity=0.85）
+    的故障 → 該機組末筆讀數的 status 必須是 FAULT，其餘機組不受影響（must-fix 修復前，
+    無論注入多嚴重的故障，這裡永遠會是 IDLE/OPERATING，此測試在修復前會失敗）。"""
+    from server.models import TurbineStatus
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "已跳機情境",
+        "fault_schedule": [{"scenario_id": "hydraulic_leak", "turbine_id": "WT002",
+                            "offset_seconds": 0, "initial_severity": 0.95}],
+    }))
+    sid = res["scenario_id"]
+
+    readings = asyncio.run(scenarios_ep.get_scenario_turbines(sid))
+    by_id = {r.turbineId: r for r in readings}
+    assert by_id["WT002"].status == TurbineStatus.FAULT
+    assert by_id["WT001"].status != TurbineStatus.FAULT
+    assert by_id["WT003"].status != TurbineStatus.FAULT
+
+    status = asyncio.run(scenarios_ep.get_scenario_farm_status(sid))
+    assert status.faultCount == 1
+
+
+def test_scenario_turbines_not_fault_when_severity_below_trip_threshold(broker):
+    """整合：低 initial_severity + 極短情境（成長量可忽略）→ 尚未 tripped，不應強制 FAULT。"""
+    from server.models import TurbineStatus
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "未跳機情境",
+        "fault_schedule": [{"scenario_id": "hydraulic_leak", "turbine_id": "WT002",
+                            "offset_seconds": 0, "initial_severity": 0.05}],
+    }))
+    sid = res["scenario_id"]
+
+    readings = asyncio.run(scenarios_ep.get_scenario_turbines(sid))
+    by_id = {r.turbineId: r for r in readings}
+    assert by_id["WT002"].status != TurbineStatus.FAULT
+
+
+def test_scenario_turbines_no_fault_schedule_never_forces_fault(broker):
+    """回歸：沒有故障排程的一般情境（既有 baseline 測試涵蓋的路徑）不應被本次修復意外
+    強制 FAULT——`_tripped_fault_turbine_ids` 收到空事件清單時回空集合。"""
+    from server.models import TurbineStatus
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.02, "time_step": 10.0, "name": "無故障情境"}))
+    sid = res["scenario_id"]
+
+    readings = asyncio.run(scenarios_ep.get_scenario_turbines(sid))
+    assert all(r.status != TurbineStatus.FAULT for r in readings)
+
+
+def _fault_event(turbine_id: str, scenario_id: str, timestamp: str,
+                  severity_rate: float = 0.0002, initial_severity: float = 0.0,
+                  event_type: str = "fault") -> dict:
+    """`history_events` 查詢結果格式的最小故障事件（含已解析 payload），供
+    `_tripped_fault_turbine_ids` 純函式測試用。"""
+    return {
+        "event_type": event_type,
+        "turbine_id": turbine_id,
+        "timestamp": timestamp,
+        "payload": {
+            "scenarioId": scenario_id,
+            "turbineId": turbine_id,
+            "severityRate": severity_rate,
+            "initialSeverity": initial_severity,
+        },
+    }
+
+
+def test_tripped_fault_turbine_ids_computes_severity_growth():
+    """純函式：severity = initial + rate*elapsed，達到 auto_trip_severity 才算 tripped。
+    hydraulic_leak 預設 auto_trip_severity=0.85（未在 FAULT_SCENARIOS 覆寫）。"""
+    events = [_fault_event("WT001", "hydraulic_leak",
+                           "2026-01-01T00:00:00", severity_rate=0.01, initial_severity=0.0)]
+    # elapsed=10s → severity=0.1，未達 0.85
+    early = scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:00:10"))
+    assert early == set()
+    # elapsed=100s → severity=1.0（clamp）≥ 0.85
+    later = scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:01:40"))
+    assert later == {"WT001"}
+
+
+def test_tripped_fault_turbine_ids_ignores_injection_after_as_of():
+    """尚未發生（注入時間晚於 as_of）的事件不應計入——防禦性檢查。"""
+    events = [_fault_event("WT001", "hydraulic_leak",
+                           "2026-01-01T01:00:00", initial_severity=0.99)]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:00:00")) == set()
+
+
+def test_tripped_fault_turbine_ids_ignores_non_fault_events_and_unknown_scenario():
+    events = [
+        {"event_type": "grid", "turbine_id": "WT001", "timestamp": "2026-01-01T00:00:00",
+         "payload": {"scenarioId": "hydraulic_leak", "severityRate": 1.0, "initialSeverity": 1.0}},
+        _fault_event("WT002", "not_a_real_scenario_id", "2026-01-01T00:00:00", initial_severity=1.0),
+    ]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:00:00")) == set()
+
+
+def test_tripped_fault_turbine_ids_dedupes_keeping_latest_injection():
+    """同一台機組同一 scenario_id 被注入兩次（比照 FaultEngine.inject() 的 dedup 語意：
+    後一次取代前一次）——只有『最後一次注入』的 initial_severity 生效。第一次 initial=0.99
+    若未被正確取代，會被誤判 tripped；第二次 initial=0.0 + 慢速成長，同一時刻不應 tripped。"""
+    events = [
+        _fault_event("WT001", "hydraulic_leak", "2026-01-01T00:00:00", initial_severity=0.99),
+        _fault_event("WT001", "hydraulic_leak", "2026-01-01T00:00:05",
+                     severity_rate=0.0002, initial_severity=0.0),
+    ]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:00:10")) == set()
+
+
+def test_tripped_fault_turbine_ids_defaults_missing_payload_fields():
+    """payload 缺 severityRate/initialSeverity → 比照 `_parse_fault_schedule` 的預設值
+    （0.0002/0.0），不應炸 KeyError/TypeError。"""
+    event = {
+        "event_type": "fault", "turbine_id": "WT001", "timestamp": "2026-01-01T00:00:00",
+        "payload": {"scenarioId": "hydraulic_leak"},
+    }
+    # elapsed 極大但 rate 用預設 0.0002 → 仍可能 trip，只驗證不拋錯 + 型別正確
+    result = scenarios_ep._tripped_fault_turbine_ids(
+        [event], datetime.fromisoformat("2026-01-02T00:00:00"))
+    assert isinstance(result, set)
+
+
+def test_scenario_row_to_reading_maps_operational_state_not_raw_string():
+    """Must-fix 對應防線：row['status'] 是原始 operational_state 字串，必須經 _map_state 轉換，
+    否則會塞進只接受 4 種列舉值的 TurbineReading.status 炸 ValidationError（mutation：拔掉
+    _map_state()、直接餵 row['status'] 給 TurbineReading，RUNNING/STARTING/STOPPING 這些不在
+    TurbineStatus 列舉裡的原始字串會讓 pydantic 驗證失敗，此測試會轉紅）。"""
+    from server.models import TurbineStatus
+
+    def row(status: str) -> dict:
+        return {"turbine_id": "WT002", "timestamp": "2026-03-01T00:00:00",
+                "status": status, "tur_state": 6}
+
+    assert scenarios_ep._scenario_row_to_reading(row("RUNNING")).status == TurbineStatus.OPERATING
+    assert scenarios_ep._scenario_row_to_reading(row("STARTING")).status == TurbineStatus.OPERATING
+    assert scenarios_ep._scenario_row_to_reading(row("STOPPING")).status == TurbineStatus.IDLE
+    assert scenarios_ep._scenario_row_to_reading(row("IDLE")).status == TurbineStatus.IDLE
+    assert scenarios_ep._scenario_row_to_reading(row("FAULT")).status == TurbineStatus.FAULT
+    assert scenarios_ep._scenario_row_to_reading(row("SOMETHING_UNKNOWN")).status == \
+        TurbineStatus.OFFLINE
+
+
+def test_scenario_row_to_reading_derives_name_from_turbine_id():
+    row = {"turbine_id": "WT007", "timestamp": "2026-03-01T00:00:00",
+           "status": "RUNNING", "tur_state": 6}
+    reading = scenarios_ep._scenario_row_to_reading(row)
+    assert reading.turbineId == "WT007"
+    assert reading.name == "WTG-07"
+
+
+def test_scenario_row_to_reading_preserves_genuine_zero_tur_state():
+    """code review should-fix：`tur_state=0` 是 storage._insert_reading 真實會存的值
+    （scada 缺 WTUR_TurSt tag 時的預設），`row.get(...) or 6` 會把它誤判成缺值、silently
+    捏造成 6（正常發電）。改用 `is not None` 判斷才能保留真實 0。"""
+    row = {"turbine_id": "WT001", "timestamp": "2026-03-01T00:00:00",
+           "status": "IDLE", "tur_state": 0}
+    reading = scenarios_ep._scenario_row_to_reading(row)
+    assert reading.turState == 0
+
+
+def test_scenario_row_to_reading_defaults_tur_state_when_missing():
+    row = {"turbine_id": "WT001", "timestamp": "2026-03-01T00:00:00", "status": "IDLE"}
+    reading = scenarios_ep._scenario_row_to_reading(row)
+    assert reading.turState == 6
+
+
+def test_aggregate_scenario_farm_status_empty_turbines_all_zero():
+    """無讀數（清單為空）→ 全 0，不炸（比照 _build_farm_summary_empty 既有慣例）。"""
+    status = scenarios_ep._aggregate_scenario_farm_status([])
+    assert status.totalTurbines == 0
+    assert status.operatingCount == 0
+    assert status.totalPowerMW == 0
+    assert status.avgWindSpeed == 0
 
 
 def test_scenario_rated_power_default_and_override():
