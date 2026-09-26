@@ -645,6 +645,54 @@ A2 時序疊圖（Part 3）以純前端功能實作，零後端變更：新增 `
 
 ---
 
+## DEC-20260926-01 — PR C 子設計定案：情境掛載 app 走「與 broker 正交的唯讀端點 + 前端 Context」，不動 DataBroker 核心來源模型；工單/維護演練歸 Phase 2 另評估
+
+**日期**：2026-09-26　**承接**：DEC-20260720-01 §3（PR C：broker＋端點＋前端，最大、需獨立子設計，`view` 語意 TBD）
+**觸發**：`WMOM-20260926-01` 完成後，`TODO.md`/`ISSUES.md` 唯一剩下的「可立即接手」項目就是 PR C——但這一項自 2026-07-20 立案後，至少 8 個 autonomous session（`WMOM-20260922-03/04`、2026-09-25 系列多次）在 work-log 寫「維持前次 session 的候選清單不變」原地擱置，從未真正開工。本 session 決定花力氣把子設計寫完，解掉這個反覆被跳過的阻塞。
+
+### Context
+
+DEC-20260720-01 原文把 PR C 定義為「broker 新增『情境檢視』來源狀態——`get_all_turbines`/`get_turbine` 服務該情境的最終快照、history 預設該 session；總覽/風機細節掛上情境資料」，並留了一個從未解決的語意問題：「`view`（調閱過去情境）是否該升級為『載入某情境到全 app』，或另立 kind？」
+
+本 session 用 Explore agent 徹底讀過現況（`modules/monitoring/server/data_broker.py` 全 1053 行、`routers/source.py` 全 94 行、`routers/turbines.py`、`app.py` WS broadcast loop、`routers/scenarios.py` 全 438 行、`ScenarioPage.tsx`/`App.tsx` 導覽），確認三個關鍵事實：
+
+1. `DataBroker` 是**單一 active source** 模型：`get_all_turbines()`/`get_turbine()`（`data_broker.py:654-685`）硬性要求 `mode == SIMULATION and self.simulator`；`select_view_only()`（364-385）刻意讓兩者回空——今日「調閱情境」與「即時監控」走的是兩條完全平行、互不相交的資料路徑（前者是 `routers/scenarios.py` 的 `session_id` 隔離 storage 查詢，後者是 broker 的 live in-memory 狀態）。
+2. `FarmOverview`/`TurbineDetail`/`MaintenanceHub` 這些主頁面全部直接吃 broker 的 live REST/WS 輸出，**沒有任何「資料來源可替換」的既有抽象層**可以插入。
+3. `DataBroker` 的 `_lifecycle_lock`/單一 active source 假設，正是 `WMOM-20260720-04`/`-08`（M6 現場部署唯一硬阻塞）才剛用一整個 session + 4×30 併發壓測硬化完成的並發關鍵區。DEC-20260720-01 原案要求在這塊核心狀態機上疊加新語意（新增來源狀態、動 `select_view_only`），會在已知脆弱、剛硬化好的區塊上再引入變動面。
+
+### Considered Options
+
+- **A（DEC-20260720-01 原案）**：broker 新增「情境檢視」來源狀態，`get_all_turbines`/`select_view_only` 改服務指定情境的快照。`view` mode 升級承載此語意。
+- **B（本次採用）**：完全不動 `DataBroker`/`source.py` 既有程式碼，新增與 broker 正交的唯讀、`scenario_id` 隔離端點；前端用獨立 Context 導覽到既有頁面但改吃新端點。
+- **C**：把情境掛載做成 `FarmOverview`/`TurbineDetail` 的獨立分身頁面（不重用既有元件）。
+
+### Decision
+
+選 **B**。且明確把範圍切成 Phase 1（本次批准）/ Phase 2（deferred，不評估）：
+
+1. **`view` mode 語意維持不變**——不升級、不擴充，仍是 `ScenarioPage` 系列既有「調閱過去情境」用法（DEC-20260720-01 §3 的語意問題到此定案：**不**把 `view` 升級成「掛載到全 app」）。
+2. **新增 2 個唯讀端點**（純附加，`data_broker.py`/`routers/source.py` 一行不動）：
+   - `GET /api/scenarios/{id}/turbines` — 每台機組最後一筆 reading，格式對齊既有 `server.models.TurbineReading`；重用 `get_history(limit=1, session_id=...)` 取末筆的既有模式（`routers/scenarios.py` 的 `get_scenario_turbine_history` 已示範同款查詢）。**注意**：`get_history()` 回傳的是 storage 扁平 DB row（`current_amp`/`scada_json` 混合形狀），不是 `_sim_output_to_reading()` 吃的即時 simulator 巢狀輸出——**需要新寫一個 row→`TurbineReading` 轉換 helper**（非重用 `_sim_output_to_reading`），且 DB `status` 欄位存的是原始 `operational_state` 字串（`RUNNING`/`STARTING`/`STOPPING`/`IDLE`/`FAULT`），必須重新套用等同 `_map_state()`（`data_broker.py:24-32`）的映射才能塞進 `TurbineReading.status`（`TurbineStatus` enum 只有 4 種值），否則會有 pydantic `ValidationError`（code-reviewer subagent review 指出此複雜度未被充分揭露，已補充）。
+   - `GET /api/scenarios/{id}/farm-status` — 風場層 KPI，格式對齊既有 `server.models.FarmStatus`。**不可重用** `scenario_turbine_aggregates`（該聚合是情境全程平均/累積值，無「機組最終 status 分類」「瞬時 windSpeed」等 `FarmStatus` 必需欄位）；正確做法是建立在 `/turbines` 端點已經算出的「每機組最後一筆讀數」清單之上，套用與 `data_broker.py::get_farm_status()`（1027-1046，按 status 計數 operatingCount/idleCount/faultCount/offlineCount + sum powerOutput + avg windSpeed）相同的彙整邏輯——兩個端點可共用同一份底層資料組裝（code-reviewer subagent review 抓到此架構錯誤，已修正）。
+3. **前端新增獨立 `ScenarioMountContext`**（不是新的 `/api/source/select` mode）：`ScenarioDetail` 提供「以此情境瀏覽總覽/機組細節」入口 → 設定 context、導覽到 `FarmOverview`/`TurbineDetail`；兩頁在 context 有值時改呼新端點、停用既有 WS 訂閱（情境資料是凍結快照、不會變）、頁面頂部常駐「情境檢視中：{name}（唯讀）」banner、**所有寫入操作一律 disabled**（curtail/dispatch/新工單...按鈕 + tooltip 說明）。與目前是否有 live/simulation 來源在跑**正交**——掛載情境不需要先切走 live，兩者可並存（使用者可能一邊看 live 總覽一邊另開分頁演練某情境）。
+4. **Phase 1（本次唯一批准範圍）**：`FarmOverview` + `TurbineDetail` 兩頁的唯讀掛載。**Phase 2（deferred，本次不評估不批准）**：DEC-20260720-01 原文「工單/維護在這份資料上演練」——讓使用者在情境資料上建立/操作工單做 what-if 演練。這需要 workflow 模組加 `scenario_id` 隔離（`work_order` 表目前完全無此概念）+ 全新語意決策（演練工單算不算真工單、能不能轉正/棄置），是獨立、量級更大的設計題，故意不併入 Phase 1。`MaintenanceHub`/`ReportsPage`/`CostPage` 併入掛載模式也不在 Phase 1（這些頁面已有自己的 farmId/dataset selector 機制，非本次要解決的痛點）。
+
+### Rationale
+
+- **不動 `_lifecycle_lock` 保護的狀態轉換 = 不引入新的並發風險**：Option A 需要重新論證「情境掛載」如何與剛硬化好的 `_lifecycle_lock`/單一 active source 假設共存（例如：掛載情境時 live 來源該暫停嗎？`switch_mode` 併發呼叫怎麼互動？）——這些問題本身就是「需要獨立子設計」的根源。Option B 完全不碰 `start`/`stop`/`switch_mode`/`select_view_only`（`_lifecycle_lock` 保護的方法，見 `data_broker.py:291,310,344,370`），繞開這塊風險；新端點仍會共享既有 `b.storage` 讀取路徑（與 `get_scenario`/`get_scenario_summary`/`get_scenario_turbine_history` 同款、鎖外直接讀，理論上與多場切換间有既有已接受的極小 TOCTOU 窗口，非本次新增風險）——用詞收斂為「不共享可變的生命週期狀態」，而非「零耦合」。
+- **正交設計更貼近實際使用情境**：情境調閱的本質是「回顧一份已凍結的資料」，沒有理由要求使用者先中斷正在監看的 live 畫面才能看歷史情境；Option A 的「單一 active source 服務情境快照」隱含兩者互斥，反而是不必要的限制。
+- **重用既有查詢模式，工程風險低**：`/turbines` 端點的實作模式（`get_history(limit=1, session_id=...)`）在 `routers/scenarios.py` 已有現成先例（`get_scenario_turbine_history`），不是從零設計；`farm-status` 端點則建立在 `/turbines` 之上、套用既有 `get_farm_status()` 彙整邏輯（見上「新增 2 個唯讀端點」§2 已修正版本），同樣有明確可依循的既有模式。
+- **Phase 1/2 切分避免範圍蔓延**：「工單演練」涉及的語意決策（演練工單是否算真工單）本質上是產品決策，混進本次會讓子設計又變成不可控的大題——這正是本 issue 被punt 8 次的根因（把「唯讀掛載」與「可操作的 what-if 演練」混在同一個「PR C」標籤下評估，導致每次評估都覺得太大而跳過）。拆開後 Phase 1 是純讀取端點 + 既有頁面條件式資料來源切換，量級與近期已完成的 `inspection_schedule`/`day_work_form` 單一功能 session 相當。
+
+### Consequences
+
+- `TODO.md`/`ISSUES.md` 的「PR C」條目改由 `WMOM-20260926-03`（Phase 1 實作，open，deliverable 已寫明）取代，未來 session 不必再重新調查/重新猶豫範圍。
+- **若劉老師認為情境掛載本來就該與 live 互斥**（例如怕使用者混淆「現在看的是即時還是回放」），需要回頭修正本決策——Option A（broker 內建互斥的來源狀態）在那個前提下才是對的方案，本次的 banner + disabled 寫入操作是本 session 對「避免混淆」的替代解法，若被否決需另評估。
+- Phase 2（工單演練）留待有明確產品需求時另立 issue + decision log 條目，不在 M6 前排期。
+- 詳細探勘依據、逐檔案行號見 `work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

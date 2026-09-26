@@ -13,13 +13,27 @@
 
 | Status | Count |
 |--------|------|
-| open | 9 |
+| open | 10 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 131 |
-| **total (active)** | **142** |
+| done | 132 |
+| **total (active)** | **144** |
 
-最後更新：2026-09-26（**WMOM-20260926-01 三項全數完成，issue 標 done（第四個
+最後更新：2026-09-26（**WMOM-20260926-02 完成 + 新開 WMOM-20260926-03（第五個
+autonomous session）— PR C（情境掛載 app）子設計定案**：`WMOM-20260926-01` 完成後
+唯一剩下的「可立即接手」項目 PR C 自 2026-07-20 立案以來被至少 8 個 session 因「需
+獨立子設計」原地擱置。本 session 用 Explore agent 徹底讀過 `data_broker.py`/
+`routers/source.py`/`routers/scenarios.py`/decision log 全文，確認掛載情境若照
+DEC-20260720-01 原案動 `DataBroker` 單一 active source 狀態機，會與剛硬化好的
+`WMOM-20260720-04`/`-08` 並發關鍵區衝突；改採「與 broker 正交的唯讀端點（新增
+`GET /api/scenarios/{id}/turbines`/`farm-status`）+ 前端 `ScenarioMountContext`」
+方案，寫入 `docs/product/decision_log.md` `DEC-20260926-01` 定案。範圍明確切成
+Phase 1（FarmOverview+TurbineDetail 唯讀掛載，開新 issue `WMOM-20260926-03`
+open，deliverable 已寫清楚可直接接手）/ Phase 2（工單演練，deferred 不評估）。
+純設計/文件 session，**零程式碼變更**：backend 1255 passed / frontend 1402
+passed / tsc 0 / build OK 皆與變更前一致（無需 mutation-verify）。詳見
+`work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。
+**前一 session（WMOM-20260926-01 三項全數完成，issue 標 done，第四個
 autonomous session）— `work_order.finish()` → day_work_form 自動寫入 hook**：工單完工
 （`approve_all`：`AWAITING_SIGNOFF → CLOSED`）時，自動幫該工單 `assignee_id` 對應員工
 當天日誌 append 一筆 `completed_wo` activity。掛在 `WorkOrderRepository.transition()`
@@ -2759,6 +2773,125 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     1250→**1255 passed**（+5，零 regression）；frontend 未動 1402 passed 不變、
     tsc 0、build OK。
   - `WMOM-20260926-01` **三項全數完成，本 issue 標 done**。
+
+---
+
+### WMOM-20260926-02 — PR C（情境掛載 app）子設計定案
+
+- **Status**: done（2026-09-26 完成）
+- **Milestone**: M5（DEC-20260720-02 情境比較分析 epic 收尾）
+- **Priority**: high（解掉反覆 8+ session 被跳過的阻塞）
+- **Estimate**: 1 session（純設計/文件，無程式碼變更）
+- **Owner**: -
+- **Description**: `WMOM-20260926-01` 完成後，`TODO.md`/`ISSUES.md` 唯一剩下的
+  「可立即接手」項目是 **PR C — 檢視情境掛載 app**（DEC-20260720-01 §3、
+  DEC-20260720-02 A2 epic 最後剩餘項目）。自 2026-07-20 立案後，至少 8 個
+  autonomous session 都因「動核心來源模型、需獨立子設計」原地擱置未動工。本
+  issue 就是把這個子設計寫完，解掉反覆被跳過的阻塞。
+- **Deliverable**:
+  - ✅ 用 Explore agent 徹底讀過現況（`data_broker.py` 全 1053 行、
+    `routers/source.py` 全 94 行、`routers/turbines.py`、`app.py` WS
+    broadcast、`routers/scenarios.py` 全 438 行、`decision_log.md`
+    DEC-20260720-01/-02 全文、`ScenarioPage.tsx`/`App.tsx` 導覽），確認
+    `DataBroker` 是單一 active source 模型、無既有可插抽象層、且掛載情境的
+    核心風險與 `WMOM-20260720-04`/`-08` 剛硬化好的並發關鍵區直接衝突。
+  - ✅ `docs/product/decision_log.md` 新增 `DEC-20260926-01`：拒絕 DEC-20260720-01
+    原案（broker 新增情境檢視來源狀態），改採「與 broker 正交的唯讀端點 +
+    前端 Context」；`view` mode 語意不變（不升級）；新增 2 個唯讀端點規格
+    （`/api/scenarios/{id}/turbines`、`/api/scenarios/{id}/farm-status`）；
+    範圍明確切成 Phase 1（FarmOverview + TurbineDetail 唯讀掛載，本次批准）
+    / Phase 2（工單/維護 what-if 演練，deferred 不評估）。
+  - ✅ 開新 follow-up `WMOM-20260926-03`（Phase 1 實作，open，deliverable
+    已完整寫明）。
+  - ✅ `work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。
+  - **未做**：任何程式碼變更（本 issue 純設計）。backend 1255 passed / frontend
+    1402 passed / tsc 0 / build OK 皆與變更前一致（零程式碼變更故不需要
+    mutation-verify）。
+- **Reference**: `docs/product/decision_log.md` `DEC-20260926-01`；
+  `docs/product/decision_log.md` `DEC-20260720-01`/`DEC-20260720-02`（原始 epic）。
+
+---
+
+### WMOM-20260926-03 — PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線
+
+- **Status**: open
+- **Milestone**: M5（DEC-20260720-02 情境比較分析 epic 收尾）
+- **Priority**: medium
+- **Estimate**: 1 session（後端 2 端點 + 前端 Context + 兩頁接線 + 測試）
+- **Owner**: -
+- **Description**: `WMOM-20260926-02`（`DEC-20260926-01`）已定案設計，本 issue 是
+  Phase 1 實作本體，**無需再重新調查或評估範圍**，直接照設計做：
+  1. **後端**（`modules/monitoring/server/routers/scenarios.py`）新增 2 個唯讀端點
+     （**code-reviewer subagent review 對本節架構有 1 must-fix + 1 should-fix，已修正
+     於下方文字**）：
+     - `GET /api/scenarios/{id}/turbines` — 該情境每台機組的最後一筆 reading，
+       格式對齊 `server.models.TurbineReading`。查詢面重用 `get_history(limit=1,
+       session_id=scenario_id)` 取末筆（`get_scenario_turbine_history` 已有
+       同款查詢先例，line 408）。**⚠ should-fix**：`get_history()` 回傳的是
+       storage 扁平 DB row（`current_amp`/`scada_json` 混合形狀），不是
+       `_sim_output_to_reading()` 吃的即時 simulator 巢狀輸出——**需新寫一個
+       row→`TurbineReading` 轉換 helper**（不是「重用」現成函式），且 DB
+       `status` 欄位存的是原始 `operational_state` 字串（`RUNNING`/`STARTING`/
+       `STOPPING`/`IDLE`/`FAULT`），必須重新套用等同 `_map_state()`
+       （`data_broker.py:24-32`）的映射才能塞進 `TurbineReading.status`
+       （`TurbineStatus` enum 僅 4 種值），否則會有 pydantic `ValidationError`。
+       情境不存在回 404（比照既有端點）。
+     - `GET /api/scenarios/{id}/farm-status` — 風場層 KPI，格式對齊
+       `server.models.FarmStatus`。**🔴 must-fix（已修正）**：原設計文字誤寫
+       「重用 `scenario_turbine_aggregates`」——**不可行**，該聚合是情境全程
+       平均/累積值（`avg_power_mw`/`production_steps`/`estop_steps`...），
+       完全沒有「機組最終 status 分類」「瞬時 windSpeed」這些 `FarmStatus`
+       必需欄位（`operatingCount`/`idleCount`/`faultCount`/`offlineCount`
+       在該聚合裡根本無對應資料可算）。**正確做法**：建立在上面 `/turbines`
+       端點已經算出的「每機組最後一筆讀數」清單之上，套用與
+       `data_broker.py::get_farm_status()`（1027-1046，按 status 計數 +
+       sum powerOutput + avg windSpeed）相同的彙整邏輯——兩端點可共用同一份
+       底層資料組裝。
+     - 兩者皆 `require_authenticated()`（比照本檔案其餘檢視端點）。
+     - **🟢 nice-to-have**：`/turbines` 若對每台機組各跑一次 `get_history` 是
+       N 次查詢；`scenario_turbine_aggregates` 內部已示範
+       `ROW_NUMBER() OVER (PARTITION BY turbine_id ORDER BY timestamp DESC)`
+       一次查完所有機組末筆的寫法，若實測有感效能問題可參考同款改寫，非強制。
+     - **🟢 nice-to-have**：情境掛載中被 `DELETE /api/scenarios/{id}` 刪除的
+       邊界情況（WS 已停用，使用者要等下次操作才會看到 404）目前無特別處理，
+       驗收時可一併確認前端如何呈現「情境已被移除」。
+  2. **前端**：新增 `ScenarioMountContext`（React Context，非 URL route/
+     `/api/source/select` mode）：
+     - `ScenarioDetail.tsx` 新增「以此情境瀏覽總覽/機組細節」入口 → 設定
+       `mountedScenarioId` + 導覽到 `FarmOverview`/`TurbineDetail`。
+     - `FarmOverview.tsx`/`TurbineDetail.tsx` 在 context 有值時：改呼新端點
+       （非既有 `/api/turbines*`）、**停用既有 WS 訂閱**（情境資料是凍結快照
+       不會變，不需要即時更新）、頁面頂部常駐「情境檢視中：{name}（唯讀）」
+       banner、**所有寫入操作一律 disabled**（curtail/dispatch/新工單...
+       按鈕 + tooltip 說明「情境為唯讀回放」）。
+     - 離開機制：導覽到其他非 FarmOverview/TurbineDetail 頁面時清空 context。
+       **🟡 should-fix**：`App.tsx::handleNavSelect` 的 `inspectionDeepLinkTurbineId`
+       單一 setState 寫法可參考（技術手法），但**不是**「用完即清的既有慣例」
+       ——`App.tsx:151-153` 原始註解明確寫「不需要在切走後清空」，該欄位多留著
+       也無妨。`ScenarioMountContext` 的清空是**正確性/資訊安全要求**（避免
+       使用者切頁後仍背景殘留掛載中的凍結情境資料、混淆即時/回放），性質嚴肅
+       得多，需要獨立測試覆蓋（含直接切換到非 mount 頁面、瀏覽器返回等路徑），
+       不能只當作「已驗證過的既有慣例、照抄即可」。
+     - 與目前是否有 live/simulation 來源在跑**正交**——掛載情境不需要先切走
+       live／不呼叫 `/api/source/select`。
+  3. **範圍邊界（明確不做，避免範圍蔓延）**：`MaintenanceHub`/`ReportsPage`/
+     `CostPage` 不併入掛載模式；工單/維護 what-if 演練（Phase 2）不評估、
+     不實作——寫入操作在掛載模式下就是單純 disabled，不是「演練後另存」。
+  4. 每個關鍵分支（banner 顯示、寫入按鈕 disabled、context 清空、404/資料
+     shape 換算）皆需 mutation-verified 測試（backend pytest + frontend
+     vitest），比照近期同量級 session（`inspection_schedule`/`day_work_form`
+     前端）慣例。
+- **Deliverable**:
+  - `modules/monitoring/server/routers/scenarios.py`
+  - `modules/monitoring/server/tests/`（新測試涵蓋新端點）
+  - `frontend/contexts/ScenarioMountContext.tsx`（或等效檔名）
+  - `frontend/components/ScenarioDetail.tsx`
+  - `frontend/components/FarmOverview.tsx`
+  - `frontend/components/TurbineDetail.tsx`
+  - `frontend/App.tsx`（context provider 掛載點 + `handleNavSelect` 清空邏輯）
+- **Depends on**: WMOM-20260926-02（done，設計已定案）
+- **Reference**: `docs/product/decision_log.md` `DEC-20260926-01`；
+  `work-logs/2026-09/2026-09-26-pr-c-scenario-mount-subdesign.md`。
 
 ---
 

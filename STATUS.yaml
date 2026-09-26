@@ -3,8 +3,38 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 第四個 autonomous session
-  # （WMOM-20260926-01 三項全數完成，issue 標 done）**：`work_order.finish()` →
+last_updated: "2026-09-26"  # **2026-09-26 第五個 autonomous session（WMOM-20260926-02
+  # 完成 + 新開 WMOM-20260926-03）** — PR C（情境掛載 app）子設計定案：`WMOM-20260926-01`
+  # 完成後唯一剩下的「可立即接手」項目 PR C（DEC-20260720-01 §3、DEC-20260720-02 A2
+  # epic 最後剩餘項目）自 2026-07-20 立案以來被至少 8 個 autonomous session 因「動核心
+  # 來源模型、需獨立子設計」原地擱置未動工。本 session 先用 Explore agent 徹底讀過
+  # `data_broker.py`（全 1053 行）、`routers/source.py`（全 94 行）、`routers/
+  # turbines.py`、`app.py` WS broadcast、`routers/scenarios.py`（全 438 行）、
+  # decision_log.md DEC-20260720-01/-02 全文、`ScenarioPage.tsx`/`App.tsx` 導覽，
+  # 確認三個關鍵事實：①`DataBroker` 是單一 active source 模型（`get_all_turbines`/
+  # `get_turbine` 硬性要求 `mode==SIMULATION and self.simulator`，`select_view_only`
+  # 刻意讓兩者回空）；②`FarmOverview`/`TurbineDetail`/`MaintenanceHub` 全部直接吃
+  # broker live REST/WS，無既有「資料來源可替換」抽象層；③DEC-20260720-01 原案（broker
+  # 新增情境檢視來源狀態）會在 `WMOM-20260720-04`/`-08` 剛用 4×30 併發壓測硬化好的
+  # `_lifecycle_lock`/單一 active source 並發關鍵區上疊加新變動面，風險與既有投資衝突。
+  # 拒絕原案，改採**與 broker 完全正交**的方案：`view` mode 語意不變（不升級）；新增 2
+  # 個唯讀端點 `GET /api/scenarios/{id}/turbines`/`farm-status`（重用 `routers/
+  # scenarios.py` 已有的 `get_history(limit=1,session_id=...)`/`scenario_turbine_
+  # aggregates` 查詢先例，純附加不動 `data_broker.py`/`source.py` 一行）；前端新增獨立
+  # `ScenarioMountContext`（非新 `/api/source/select` mode），與是否有 live/simulation
+  # 在跑正交（不互斥）。範圍明確切成 **Phase 1**（`FarmOverview`+`TurbineDetail` 唯讀掛載
+  # + banner + 寫入操作全 disabled，本次唯一批准範圍）/ **Phase 2**（deferred 不評估：
+  # decision log 原文「工單/維護在這份資料上演練」需要 workflow 模組加 `scenario_id`
+  # 隔離 + 全新語意決策，是獨立更大設計題）——這個切分正是本 issue 反覆被 punt 8 次的
+  # 根因修正：過去把「唯讀掛載」與「可操作 what-if 演練」混在同一個「PR C」標籤下評估，
+  # 導致每次都覺得太大而跳過。決策寫入 `docs/product/decision_log.md` `DEC-20260926-01`
+  # （含拒絕原案的具體理由、若劉老師認為掛載該與 live 互斥時的備選方案）。開新 follow-up
+  # **`WMOM-20260926-03`**（Phase 1 實作，open，deliverable 已完整寫明含 API 形狀/檔案
+  # 清單/範圍邊界，下個 session 無需再重新調查即可直接接手）。**本 session 純設計/文件，
+  # 零程式碼變更**：backend 1255 passed（7 skipped, 1 xfailed）/ frontend 1402 passed
+  # （65 files）/ tsc 0 / build OK 皆與變更前一致（無程式碼改動故不需 mutation-verify）。
+  # `WMOM-20260926-02` 標 done。**前一 session（2026-09-26 第四個 autonomous session
+  # ，WMOM-20260926-01 三項全數完成，issue 標 done）**：`work_order.finish()` →
   # day_work_form 自動寫入 hook——工單完工（`approve_all`：`AWAITING_SIGNOFF →
   # CLOSED`）時，自動幫該工單 `assignee_id` 對應員工當天日誌 append 一筆
   # `completed_wo` activity。掛在 `WorkOrderRepository.transition()` 內部
@@ -403,11 +433,11 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 8  # 不變
-  in_progress: 0  # 1→0（WMOM-20260926-01 三項全數完成，issue 標 done）
+  open: 9  # 8→9（新開 WMOM-20260926-03，Phase 1 實作，open）
+  in_progress: 0  # 不變
   blocked: 0
-  done: 134  # 133→134（WMOM-20260926-01 done）
-             # total 142（8+0+134=142）
+  done: 135  # 134→135（WMOM-20260926-02 完成）
+             # total 144（9+0+135=144）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於
