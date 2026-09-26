@@ -36,6 +36,7 @@ import { render, screen, fireEvent, cleanup, act, within, waitFor } from '@testi
 import React from 'react';
 import FarmOverview from '../FarmOverview';
 import { ThemeProvider } from '../../theme/ThemeProvider';
+import { ScenarioMountProvider } from '../../contexts/ScenarioMountContext';
 import { downloadBlob } from '../../services/reportingService';
 import { setAuthToken, clearAuthToken } from '../../services/authClient';
 import {
@@ -133,6 +134,10 @@ const flushAsync = (): Promise<void> => new Promise(resolve => setTimeout(resolv
 
 beforeEach(() => {
   // 預設：farm-trend 回空資料 → _trendCache['24H'] 維持空 → 「資料收集中…」穩定出現。
+  // /api/scenarios/*/turbines 回空陣列——`ScenarioMountProvider` 內建的
+  // `useScenarioMountData` 在任何「情境掛載中」測試 render 時都會自動打這支，預設給乾淨
+  // 回應，避免每個掛載測試都被無關的「Unexpected fetch」錯誤污染（個別測試如需驗證失敗態
+  // 可自行覆寫 fetchMock，見「情境掛載中 · 失敗」區塊）。
   fetchMock = vi.fn((url: string | URL) => {
     const u = String(url);
     if (u.includes('/api/turbines/farm-trend')) {
@@ -140,6 +145,9 @@ beforeEach(() => {
     }
     if (u.includes('/api/export/snapshot')) {
       return Promise.resolve(blobResponse({ count: 0, data: [] }));
+    }
+    if (u.includes('/api/scenarios/') && u.includes('/turbines')) {
+      return Promise.resolve(jsonResponse([]));
     }
     // 未預期的 URL 直接 reject，避免新增的 fetch 呼叫被靜默吞掉。
     return Promise.reject(new Error(`Unexpected fetch: ${u}`));
@@ -159,6 +167,13 @@ interface RenderOpts {
   turbines?: TurbineData[];
   settings?: AppSettings;
   lang?: 'en' | 'zh';
+  /**
+   * PR C Phase 1（WMOM-20260926-03）：以 `ScenarioMountProvider` 的 `initialMounted`
+   * seed 讓初次 render 就是「已掛載」狀態（避免用 `useEffect` 後補 `mount()` 造成的
+   * 先跑一次「未掛載」render 競態——見 `ScenarioMountContext.tsx` `initialMounted`
+   * docstring）。
+   */
+  mountedScenario?: { id: number; name: string };
 }
 
 /**
@@ -174,16 +189,19 @@ async function renderOverview(opts: RenderOpts = {}) {
   await act(async () => {
     utils = render(
       <ThemeProvider>
-        <FarmOverview
-          turbines={turbines}
-          onSelectTurbine={onSelect}
-          settings={settings}
-          lang={opts.lang}
-          onNavigateReports={onNavigateReports}
-        />
+        <ScenarioMountProvider initialMounted={opts.mountedScenario ?? null}>
+          <FarmOverview
+            turbines={turbines}
+            onSelectTurbine={onSelect}
+            settings={settings}
+            lang={opts.lang}
+            onNavigateReports={onNavigateReports}
+          />
+        </ScenarioMountProvider>
       </ThemeProvider>,
     );
-    // flush farm-trend fetch chain（fetch → json → setApiData）
+    // flush farm-trend fetch chain（fetch → json → setApiData）——情境掛載中本來就
+    // 不該發起這條 fetch（見下方測試），flush 只是給非掛載情境足夠時間跑完既有 chain。
     await flushAsync();
   });
   return { onSelect, onNavigateReports, ...utils };
@@ -550,5 +568,72 @@ describe('FarmOverview — 匯出風場快照', () => {
     expect(downloadBlobMock).not.toHaveBeenCalled();
     expect(btn).toBeEnabled();
     consoleErrorSpy.mockRestore();
+  });
+});
+
+// ─── 情境掛載（PR C Phase 1，DEC-20260926-01 / WMOM-20260926-03）───────────────
+
+describe('FarmOverview — 情境掛載中', () => {
+  it('顯示「情境檢視中」banner 含情境名稱', async () => {
+    await renderOverview({ mountedScenario: { id: 7, name: '颱風測試' } });
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent('情境檢視中');
+    expect(banner).toHaveTextContent('颱風測試');
+  });
+
+  it('未掛載時不顯示 banner', async () => {
+    await renderOverview();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('點 banner 的「結束情境檢視」→ banner 消失（context 清空）', async () => {
+    await renderOverview({ mountedScenario: { id: 7, name: '颱風測試' } });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '結束情境檢視，返回即時資料' }));
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('掛載中不發起 farm-trend fetch（否則會在唯讀畫面混進即時資料）', async () => {
+    // beforeEach 的 fetchMock 對非預期 URL 直接 reject——若 TrendCard 仍照常打
+    // farm-trend，這裡會因未被斷言的 rejected promise 讓測試環境噪音升高；更直接的
+    // 斷言是檢查 fetchMock 根本沒被叫到含 farm-trend 的 URL。
+    await renderOverview({ mountedScenario: { id: 7, name: '颱風測試' } });
+    const calledUrls = fetchMock.mock.calls.map(([url]: [string | URL]) => String(url));
+    expect(calledUrls.some(u => u.includes('/api/turbines/farm-trend'))).toBe(false);
+  });
+
+  it('掛載中改顯示趨勢圖停用說明，不渲染時段切換按鈕', async () => {
+    await renderOverview({ mountedScenario: { id: 7, name: '颱風測試' } });
+    expect(screen.queryByRole('button', { name: '時段 24H' })).not.toBeInTheDocument();
+    expect(screen.getByText(/情境唯讀檢視不提供本圖/)).toBeInTheDocument();
+  });
+
+  it('掛載中「匯出」鈕 disabled 並帶說明 title（匯出的是即時資料，非此情境）', async () => {
+    await renderOverview({ mountedScenario: { id: 7, name: '颱風測試' } });
+    const btn = screen.getByRole('button', { name: '匯出報告' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('title', expect.stringContaining('即時風場資料'));
+  });
+
+  it('Hero 數字仍照 turbines prop（情境快照）正確加總，不受掛載影響', async () => {
+    await renderOverview({ turbines: TWO_HEALTHY, mountedScenario: { id: 7, name: '颱風測試' } });
+    expect(screen.getByText('3.1')).toBeInTheDocument(); // Farm Power (MW)：2.1+1.0
+  });
+
+  // code review should-fix：情境掛載 fetch 失敗（如情境已被掛載後才刪除的 404）時，banner
+  // 原本從未顯示任何錯誤提示，使用者只會看到自信的「情境檢視中」卻不知資料是空的。
+  it('情境 fetch 失敗（404，如已被刪除）→ banner 顯示錯誤說明', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/scenarios/') && u.includes('/turbines')) {
+        return Promise.resolve({ ok: false, status: 404 } as unknown as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderOverview({ mountedScenario: { id: 999, name: '已刪除情境' } });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/載入這個情境失敗/);
   });
 });

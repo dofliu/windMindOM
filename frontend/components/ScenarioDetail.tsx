@@ -37,13 +37,28 @@ export interface SavedScenario {
   config?: ScenarioConfig;
 }
 
+/** PR C Phase 1 掛載請求（WMOM-20260926-03）：見 `ScenarioMountContext`。 */
+export interface ScenarioMountRequest {
+  scenarioId: number;
+  scenarioName: string;
+  target: 'overview' | 'turbine';
+  /** `target === 'turbine'` 時帶入目前頁籤選取的機組（後端 `turbineId` 格式，如 `WT002`）。 */
+  turbineWtId?: string;
+}
+
 interface Props {
   scenario: SavedScenario;
   lang?: 'en' | 'zh';
   onBack: () => void;
+  /**
+   * PR C Phase 1（WMOM-20260926-03）：把本情境掛載到 FarmOverview/TurbineDetail 做唯讀瀏覽。
+   * 未提供時（如尚未整合掛載功能的呼叫端）不渲染按鈕，比照 `onNavigateInspection` 的
+   * optional-prop fallback 慣例，避免舊呼叫端漏傳時整頁炸開。
+   */
+  onMount?: (request: ScenarioMountRequest) => void;
 }
 
-const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
+const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack, onMount }) => {
   const { C } = useTheme();
   const u = (en: string, zh: string) => (lang === 'zh' ? zh : en);
   const cfg = scenario.config ?? {};
@@ -92,6 +107,40 @@ const ScenarioDetail: React.FC<Props> = ({ scenario, lang = 'zh', onBack }) => {
           <Stat label={u('Readings', '資料筆數')} value={(cfg.total_readings ?? 0).toLocaleString()} highlight size={20} />
           <Stat label={u('Faults injected', '注入故障數')} value={cfg.faults_injected ?? 0} size={20} />
         </div>
+
+        {onMount && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+            <Btn
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                onMount({
+                  scenarioId: scenario.id,
+                  scenarioName: cfg.name || u('(unnamed scenario)', '（未命名情境）'),
+                  target: 'overview',
+                })
+              }
+              ariaLabel={u('View farm overview with this scenario', '以此情境瀏覽總覽')}
+            >
+              {u('View farm overview with this scenario', '以此情境瀏覽總覽')}
+            </Btn>
+            <Btn
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                onMount({
+                  scenarioId: scenario.id,
+                  scenarioName: cfg.name || u('(unnamed scenario)', '（未命名情境）'),
+                  target: 'turbine',
+                  turbineWtId: turbineId,
+                })
+              }
+              ariaLabel={u('View turbine detail with this scenario', '以此情境瀏覽機組細節')}
+            >
+              {u('View turbine detail with this scenario', '以此情境瀏覽機組細節')}
+            </Btn>
+          </div>
+        )}
       </Card>
 
       {/* ── 頁籤：趨勢（單機）｜機組比較（跨機組，A1）── */}

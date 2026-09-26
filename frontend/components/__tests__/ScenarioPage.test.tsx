@@ -213,12 +213,16 @@ function bodyOf(pred: (url: string, method: string) => boolean): Record<string, 
   return JSON.parse(String((call![1] as RequestInit).body));
 }
 
-async function renderPage(lang: Lang = 'zh', onExplore?: () => void) {
+async function renderPage(
+  lang: Lang = 'zh',
+  onExplore?: () => void,
+  onMountScenario?: (request: unknown) => void,
+) {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
     utils = render(
       <ThemeProvider>
-        <ScenarioPage lang={lang} onExplore={onExplore} />
+        <ScenarioPage lang={lang} onExplore={onExplore} onMountScenario={onMountScenario} />
       </ThemeProvider>,
     );
   });
@@ -539,6 +543,25 @@ describe('ScenarioPage — 過去情境清單', () => {
       ).toBeGreaterThanOrEqual(1),
     );
     expect(screen.getByRole('button', { name: '返回情境列表' })).toBeInTheDocument();
+  });
+
+  // PR C Phase 1（WMOM-20260926-03）：ScenarioDetail 的掛載入口按鈕透過本頁轉呼給
+  // App.tsx；本測試只驗證 prop 有正確轉呼（穿透），ScenarioDetail 自己的按鈕/payload
+  // 內容已在 ScenarioDetail.test.tsx 涵蓋，避免重複測同一件事兩次。
+  it('觀察情境後點「以此情境瀏覽總覽」→ 轉呼 onMountScenario prop', async () => {
+    const onMountScenario = vi.fn();
+    await renderPage('zh', undefined, onMountScenario);
+    await waitFor(() => expect(screen.getByRole('button', { name: /觀察情境/ })).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /觀察情境/ }));
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '以此情境瀏覽總覽' })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '以此情境瀏覽總覽' }));
+    expect(onMountScenario).toHaveBeenCalledWith(
+      expect.objectContaining({ scenarioId: 7, target: 'overview' }),
+    );
   });
 
   it('點「刪除」→ 確認後 DELETE 該情境並從清單移除', async () => {

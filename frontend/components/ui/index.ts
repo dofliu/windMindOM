@@ -18,3 +18,4 @@ export type { NavItem } from './Sidebar';
 export { BigChart, MiniSparkline, HealthBar } from './Charts';
 export type { BigChartEvent, BigChartSeries } from './Charts';
 export { Field, Input, Select, ReadOnlyBox } from './Field';
+export { ScenarioMountBanner } from './ScenarioMountBanner';

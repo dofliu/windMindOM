@@ -22,11 +22,13 @@ import {
   BigChart,
   MiniSparkline,
   turbineStatusTone,
+  ScenarioMountBanner,
   type BigChartSeries,
 } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import { downloadBlob } from '../services/reportingService';
+import { useScenarioMount } from '../contexts/ScenarioMountContext';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -150,7 +152,14 @@ const HeroStats: React.FC<{
 const TrendCard: React.FC<{
   turbines: TurbineData[];
   tr: (en: string, zh: string) => string;
-}> = ({ turbines, tr }) => {
+  /**
+   * 情境掛載中（PR C Phase 1，WMOM-20260926-03）：本卡片改走
+   * `/api/turbines/farm-trend`（即時風場趨勢），與目前檢視的凍結情境快照無關——繼續抓取
+   * 會把「唯讀回放」頁面混進真正即時的資料，比什麼都不顯示更誤導。掛載中一律停用抓取、
+   * 改顯示提示文字。
+   */
+  disabled?: boolean;
+}> = ({ turbines, tr, disabled }) => {
   const { C } = useTheme();
   const [range, setRange] = useState<TimeRange>('24H');
   const [apiData, setApiData] = useState<TrendPoint[]>(_trendCache[range]);
@@ -158,7 +167,7 @@ const TrendCard: React.FC<{
 
   // Live accumulator for 1H mode
   useEffect(() => {
-    if (range !== '1H' || !turbines.length) return;
+    if (disabled || range !== '1H' || !turbines.length) return;
     const now = Date.now();
     if (now - _lastLiveAt < 1800) return;
     _lastLiveAt = now;
@@ -166,11 +175,11 @@ const TrendCard: React.FC<{
     const next = [..._liveTrend, { time: now, totalPower: +totalPower.toFixed(2) }];
     _liveTrend = next.length > MAX_LIVE_POINTS ? next.slice(-MAX_LIVE_POINTS) : next;
     setLiveData(_liveTrend);
-  }, [turbines, range]);
+  }, [turbines, range, disabled]);
 
   // API fetch for longer ranges
   useEffect(() => {
-    if (range === '1H') return;
+    if (disabled || range === '1H') return;
     let cancelled = false;
     const fetchData = () => {
       authFetch(`${API_BASE}/api/turbines/farm-trend?range=${RANGE_TO_API[range]}&points=150`)
@@ -196,7 +205,7 @@ const TrendCard: React.FC<{
       cancelled = true;
       clearInterval(id);
     };
-  }, [range]);
+  }, [range, disabled]);
 
   const data = range === '1H' ? liveData : apiData;
   const series: BigChartSeries[] = useMemo(
@@ -209,6 +218,24 @@ const TrendCard: React.FC<{
     ],
     [data, C.accent],
   );
+
+  if (disabled) {
+    return (
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: C.text, marginBottom: 6 }}>
+          {tr('Farm power trend', '風場功率趨勢')}
+        </div>
+        <div style={{ fontSize: 12, color: C.sub }}>
+          {tr(
+            'Not available in scenario view (shows live data, not this scenario). ' +
+              'See the Trend tab on the scenario page for this scenario’s own history.',
+            '情境唯讀檢視不提供本圖（本圖是即時資料，與所檢視情境無關）。' +
+              '如需本情境的歷史趨勢，請至「情境模擬」頁該情境的「趨勢」頁籤查看。',
+          )}
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card style={{ marginBottom: 20 }}>
@@ -641,6 +668,8 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
   const [mode, setMode] = useState<ViewMode>('cards');
   const [exporting, setExporting] = useState(false);
   const tr = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+  const scenarioMount = useScenarioMount();
+  const mounted = scenarioMount.mounted;
 
   const dateLabel = lang === 'zh'
     ? new Date().toLocaleDateString('zh-TW')
@@ -672,6 +701,15 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
 
   return (
     <div>
+      {mounted && (
+        <ScenarioMountBanner
+          scenarioName={mounted.name}
+          onExit={scenarioMount.unmount}
+          lang={lang}
+          loading={scenarioMount.loading}
+          error={scenarioMount.error}
+        />
+      )}
       <PageHeader
         title={tr('Good morning, Operator.', '早安，營運團隊。')}
         sub={
@@ -695,6 +733,15 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
               ariaLabel={tr('Export report', '匯出報告')}
               onClick={handleExportSnapshot}
               loading={exporting}
+              disabled={!!mounted}
+              title={
+                mounted
+                  ? tr(
+                      'Exports live farm data, not this scenario — disabled in scenario view',
+                      '匯出的是即時風場資料、非此情境——情境檢視中停用',
+                    )
+                  : undefined
+              }
             >
               {tr('Export', '匯出')}
             </Btn>
@@ -713,7 +760,7 @@ const FarmOverview: React.FC<FarmOverviewProps> = ({
       <HeroStats turbines={turbines} tr={tr} />
 
       {/* Trend */}
-      <TrendCard turbines={turbines} tr={tr} />
+      <TrendCard turbines={turbines} tr={tr} disabled={!!mounted} />
 
       {/* Turbine list */}
       <div

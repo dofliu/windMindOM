@@ -96,6 +96,27 @@ def test_list_scenarios_empty_when_only_live_sessions(storage):
     assert storage.list_scenarios() == []
 
 
+# ─── scenario_turbine_ids（PR C Phase 1 情境掛載，WMOM-20260926-03）──────────
+
+def test_scenario_turbine_ids_returns_sorted_distinct_ids_isolated_from_live(storage):
+    live_sid = storage.create_session(data_source="SIMULATION", turbine_count=3)
+    storage.store_readings([_reading("WT001", "2026-03-01T00:00:00")], live_sid)
+
+    sc_sid = _scenario(storage, "多機組情境")
+    storage.store_readings([
+        _reading("WT002", "2026-03-01T01:00:00"),
+        _reading("WT001", "2026-03-01T01:00:00"),
+        _reading("WT001", "2026-03-01T01:00:10"),  # WT001 重複列不應重複出現在 id 清單
+    ], sc_sid)
+
+    assert storage.scenario_turbine_ids(sc_sid) == ["WT001", "WT002"]
+    assert storage.scenario_turbine_ids(live_sid) == ["WT001"]
+
+
+def test_scenario_turbine_ids_empty_for_unknown_session(storage):
+    assert storage.scenario_turbine_ids(999_999) == []
+
+
 # ─── update_session_config 回填 ────────────────────────────────────────────
 
 def test_update_session_config_merges_keeping_existing(storage):

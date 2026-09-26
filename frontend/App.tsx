@@ -50,6 +50,9 @@ import { dataSourceLabel, parseActiveFarm, type ActiveFarmLite } from './utils/f
 import { sourceCardToMode } from './utils/sourceMode';
 import { useSourceGate, type SourceMode, type SelectResult } from './hooks/useSourceGate';
 import { authFetch } from './services/authClient';
+import { ScenarioMountProvider, useScenarioMount } from './contexts/ScenarioMountContext';
+import { type ScenarioMountRequest } from './components/ScenarioDetail';
+import { wtIdToTurbineIndex } from './utils/turbineNaming';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -155,6 +158,45 @@ const AppShell: React.FC = () => {
     string | undefined
   >(undefined);
 
+  // ── 情境掛載（PR C Phase 1，DEC-20260926-01 / WMOM-20260926-03）──
+  // 有值時 FarmOverview/TurbineDetail 改吃該情境的凍結快照（不即時更新），與是否有
+  // live/simulation 在跑正交。
+  const scenarioMount = useScenarioMount();
+  const effectiveTurbines = scenarioMount.mounted ? scenarioMount.turbines : turbines;
+  // 「以此情境瀏覽機組細節」入口：情境資料是非同步 fetch，掛載當下還選不到目標機組，
+  // 記下想選的 turbine id（TurbineData.id，由 WT{n} 換算），資料到位後由下方 effect 補選。
+  const [pendingMountTurbineDataId, setPendingMountTurbineDataId] = useState<number | null>(null);
+  useEffect(() => {
+    if (pendingMountTurbineDataId === null || scenarioMount.loading) return;
+    const match = scenarioMount.turbines.find(t => t.id === pendingMountTurbineDataId);
+    if (match) {
+      setSelectedTurbine(match);
+      setView('turbine');
+    }
+    setPendingMountTurbineDataId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMountTurbineDataId, scenarioMount.turbines, scenarioMount.loading]);
+
+  const handleMountScenario = useCallback(
+    (request: ScenarioMountRequest) => {
+      scenarioMount.mount({ id: request.scenarioId, name: request.scenarioName });
+      if (request.target === 'turbine' && request.turbineWtId) {
+        const wtIndex = wtIdToTurbineIndex(request.turbineWtId);
+        setSelectedTurbine(null);
+        setPendingMountTurbineDataId(wtIndex);
+        setView('overview'); // 資料到位前先停在總覽，避免「尚未選擇風機」空畫面閃一下
+      } else {
+        // code review should-fix：先前這裡沒清 pendingMountTurbineDataId——若使用者先點了
+        // 「瀏覽機組細節」（設下 pending id）又在資料到位前改點「瀏覽總覽」，上方 effect
+        // 稍後仍會找到該 id 並強制導去 TurbineDetail，蓋掉使用者最後一次「總覽」的選擇。
+        setPendingMountTurbineDataId(null);
+        setSelectedTurbine(null);
+        setView('overview');
+      }
+    },
+    [scenarioMount],
+  );
+
   // ── Modals ──
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [turbineToDispatch, setTurbineToDispatch] = useState<TurbineData | null>(null);
@@ -225,11 +267,18 @@ const AppShell: React.FC = () => {
       const next = id as ViewId;
       setView(next);
       if (next === 'turbine') {
-        if (!selectedTurbine && turbines.length > 0) {
-          setSelectedTurbine(turbines[0]);
+        if (!selectedTurbine && effectiveTurbines.length > 0) {
+          setSelectedTurbine(effectiveTurbines[0]);
         }
       } else if (next === 'overview') {
         setSelectedTurbine(null);
+      }
+      // 情境掛載的離開機制（PR C Phase 1，WMOM-20260926-03）：導覽到 overview/turbine 以外
+      // 的任何頁面都清空 context——這是正確性/資訊安全要求（避免使用者切頁後仍背景殘留掛載
+      // 中的凍結情境資料、混淆即時/回放），不是可省略的既有慣例（比照下方深連結欄位不同，
+      // 見 ScenarioMountContext docstring）。overview↔turbine 之間互相導覽不清空。
+      if (next !== 'overview' && next !== 'turbine') {
+        scenarioMount.unmount();
       }
       // 深連結過濾只在明確帶 `opts.inspectionTurbineId` 時才設（`onNavigateInspection`
       // 呼叫點），其餘所有一般導覽（含 sidebar 直接點擊、`onNavigateReports` 等零參數
@@ -241,21 +290,31 @@ const AppShell: React.FC = () => {
       // 是 no-op）。
       setInspectionDeepLinkTurbineId(opts?.inspectionTurbineId);
     },
-    [selectedTurbine, turbines],
+    [selectedTurbine, effectiveTurbines, scenarioMount],
   );
 
-  // 把 selectedTurbine 同步到 turbines 的最新版本
+  // 把 selectedTurbine 同步到目前有效資料源的最新版本——情境掛載中須比對
+  // `mountedScenarioData.turbines`（凍結快照），不能落回即時 `turbines`，否則會在有 banner
+  // 標示「唯讀回放」的畫面上悄悄顯示真正即時的資料（見 id 與 WT{n} 命名共用的碰撞風險，
+  // `DisabledOperatorControlCard` docstring 有詳述同一個風險）。
   const liveTurbine = useMemo(() => {
     if (!selectedTurbine) return null;
-    return turbines.find(t => t.id === selectedTurbine.id) || selectedTurbine;
-  }, [selectedTurbine, turbines]);
+    return effectiveTurbines.find(t => t.id === selectedTurbine.id) || selectedTurbine;
+  }, [selectedTurbine, effectiveTurbines]);
 
   // ── Modal handlers (不動 API) ──
-  const handleOpenDispatchModal = useCallback((turbine: TurbineData, faultAnalysis: string) => {
-    setTurbineToDispatch(turbine);
-    setFaultAnalysisForDispatch(faultAnalysis);
-    setIsDispatchModalOpen(true);
-  }, []);
+  const handleOpenDispatchModal = useCallback(
+    (turbine: TurbineData, faultAnalysis: string) => {
+      // code review nice-to-have：派遣屬於「所有寫入操作一律 disabled」清單內，目前唯一入口
+      // （AIDiagnosisCard 的派遣鈕）已在 TurbineDetail.tsx disabled，這裡加一道獨立防線——
+      // 不依賴呼叫端自律，避免未來新增的派遣入口忘記檢查 mounted 就悄悄對即時風機派工。
+      if (scenarioMount.mounted) return;
+      setTurbineToDispatch(turbine);
+      setFaultAnalysisForDispatch(faultAnalysis);
+      setIsDispatchModalOpen(true);
+    },
+    [scenarioMount.mounted],
+  );
 
   const handleCloseDispatchModal = useCallback(() => {
     setIsDispatchModalOpen(false);
@@ -311,7 +370,7 @@ const AppShell: React.FC = () => {
       case 'overview':
         return (
           <FarmOverview
-            turbines={turbines}
+            turbines={effectiveTurbines}
             onSelectTurbine={handleSelectTurbine}
             settings={settings}
             lang={lang}
@@ -331,9 +390,17 @@ const AppShell: React.FC = () => {
             turbine={liveTurbine}
             onBack={handleBackToOverview}
             onDispatch={handleOpenDispatchModal}
-            activeWorkOrder={workOrders.find(
-              wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
-            )}
+            // 情境掛載中不對照即時工單——scenario turbine id 與 live turbine id 共用同一套
+            // 編號（皆 index+1），照常比對會把某張真實在途工單顯示在「唯讀回放」的畫面上，
+            // 是與 DisabledOperatorControlCard 同款的 id 碰撞風險（工單概念本身也不在
+            // Phase 1 範圍內，見 issue「範圍邊界」）。
+            activeWorkOrder={
+              scenarioMount.mounted
+                ? undefined
+                : workOrders.find(
+                    wo => wo.turbineId === liveTurbine.id && wo.status !== WorkOrderStatus.COMPLETED,
+                  )
+            }
             lang={lang}
             onNavigateInspection={turbineId =>
               handleNavSelect('workflow', { inspectionTurbineId: turbineId })
@@ -366,7 +433,13 @@ const AppShell: React.FC = () => {
       case 'field':
         return <FieldPage lang={lang} />;
       case 'scenario':
-        return <ScenarioPage lang={lang} onExplore={() => setView('history')} />;
+        return (
+          <ScenarioPage
+            lang={lang}
+            onExplore={() => setView('history')}
+            onMountScenario={handleMountScenario}
+          />
+        );
       case 'faults':
         return <FaultInjectionPanel lang={lang} />;
       case 'tour':
@@ -544,7 +617,9 @@ const App: React.FC = () => (
   <ThemeProvider>
     <UserProvider>
       <AuthProvider>
-        <AppShell />
+        <ScenarioMountProvider>
+          <AppShell />
+        </ScenarioMountProvider>
       </AuthProvider>
     </UserProvider>
   </ThemeProvider>

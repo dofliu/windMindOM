@@ -3,8 +3,63 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 第五個 autonomous session（WMOM-20260926-02
-  # 完成 + 新開 WMOM-20260926-03）** — PR C（情境掛載 app）子設計定案：`WMOM-20260926-01`
+last_updated: "2026-09-26"  # **2026-09-26 第六個 autonomous session（WMOM-20260926-03
+  # 完成）** — PR C Phase 1 實作：情境掛載唯讀端點 + FarmOverview/TurbineDetail 接線。
+  # 後端新增 `Storage.scenario_turbine_ids()` + `GET /api/scenarios/{id}/turbines`/
+  # `farm-status`（格式對齊即時 `/api/turbines*`，重用 `get_history(limit=1,...)` 查詢
+  # 先例）；前端新增 `ScenarioMountContext`（內建 `useScenarioMountData` 單次
+  # fetch——情境資料是凍結快照不 polling/WS，`turbines`/`loading`/`error` 隨 context
+  # 分發）+ `ScenarioMountBanner` + `ScenarioDetail`/`ScenarioPage`/`App.tsx` 掛載入口
+  # 串接（`utils/turbineNaming.ts::wtIdToTurbineIndex` 換算 WT-id → `TurbineData.id`）+
+  # `FarmOverview`/`TurbineDetail` 停用所有即時資料/寫入子面板——header
+  # 限載/停機/安排檢查三鈕、右欄 `OperatorControlCard`（整張替換成停用說明卡，非僅
+  # disable 按鈕）、主圖 `TrendChartPanel`、farm-trend 趨勢圖、匯出鈕、AI 診斷卡派遣鈕。
+  # **設計判斷**：情境內機組 id（WT001, WT002...）與即時 simulator 機組 id 共用同一套
+  # `WT{i:03d}` 命名，若不停用這些子面板，它們會用同編號打即時端點——使用者以為在唯讀
+  # 檢視凍結情境，實際上看到/能操作的是剛好同編號的真實即時風機，比「忘記 disable 寫入
+  # 按鈕」更隱蔽（GET 輪詢正常回應、畫面看起來一切正常）。**code-reviewer subagent
+  # review（獨立 async agent，46 次工具呼叫）抓到 1 must-fix + 3 should-fix + 2
+  # nice-to-have，全數已修復並 mutation-verified**：①🔴 must-fix——情境掛載後永遠無法
+  # 回報 FAULT 狀態：`simulator.engine._tur_state_to_str` 映射表結構上只有
+  # IDLE/STARTING/RUNNING/STOPPING 四種、無 FAULT 分支，即時路徑的 FAULT 覆寫靠的是
+  # `data_broker._sim_output_to_reading` 對記憶體內 `FaultEngine` 當下狀態的第二段覆寫，
+  # 情境是批次生成，那份記憶體狀態生成完就消失，DB 也沒有為每筆 reading 存 tripped
+  # 旗標——一個刻意注入故障的情境掛載後會整面顯示「健康」，直接牴觸同一情境自己「趨勢」
+  # 頁籤看到的故障標記，是核心用途的正確性回歸。本 session 獨立重讀
+  # `_tur_state_to_str`/`_sim_output_to_reading` 兩段式邏輯確認 reviewer 論述無誤，修法：
+  # 新增 `_tripped_fault_turbine_ids()` 純函式，依已持久化的故障注入事件
+  # （`history_events`，`event_type=="fault"`，含 payload 的
+  # `severityRate`/`initialSeverity`）用與 `FaultEngine.step()` **完全相同的公式**
+  # （`severity=min(1,initial+rate*elapsed)`，`tripped=severity>=
+  # FAULT_SCENARIOS[id].auto_trip_severity`）離線重算，不需新 schema、重用既有已記錄
+  # 資料；同一機組同一 scenario_id 的重複注入比照 `FaultEngine.inject()` 的 dedup
+  # 語意只取最後一次。新增 8 測（2 整合測試用真 `generate_bulk` 注入高/低嚴重度故障、
+  # 1 無排程回歸、5 純函式測試涵蓋 dedup/時序/未知情境/缺欄位），mutation-verified（拔掉
+  # 覆寫邏輯 → 整合測試如預期 fail；dedup 改成取第一次 → dedup 測試如預期 fail）。②🟡
+  # `turState=int(row.get("tur_state") or 6)` 用 `or` 會把 storage 真實會存的 `0`
+  # （scada 缺 tag 時的預設值）誤判成缺值、silently 捏造成 6（正常發電），改用
+  # `is not None` 判斷，補 2 regression test mutation-verified。③🟡
+  # `handleMountScenario` 的「瀏覽總覽」分支未清 `pendingMountTurbineDataId`——若使用者
+  # 先點「瀏覽機組細節」又在資料到位前改點「瀏覽總覽」，補選 effect 仍會強制導去
+  # TurbineDetail 蓋掉使用者最後選擇，已在該分支補清空（App.tsx 無 render 測試基礎設施，
+  # 僅程式碼閱讀驗證）。④🟡 `useScenarioMountData` 的 `error` 算出來後從未浮現在畫面
+  # 上——情境被刪除（404）或網路失敗時 banner 仍自信顯示「情境檢視中」卻是空資料，順便
+  # 把 fetch 從 App.tsx 移進 `ScenarioMountProvider` 內建（單一 fetch 來源），
+  # `turbines`/`loading`/`error` 隨 context 分發，`FarmOverview`/`TurbineDetail`
+  # 直接讀取在 banner 顯示錯誤說明，新增 9 個 context 測試 + 2 個 banner 錯誤顯示測試皆
+  # mutation-verified。⑤🟢 `handleOpenDispatchModal` 補獨立 `scenarioMount.mounted`
+  # guard（派遣目前唯一入口已 disabled，但不依賴呼叫端自律）。⑥🟢 異常 turbine_id 格式
+  # 補 `logger.warning`（原本靜默 fallback idx=1 會與真正 WT001 撞名）。**誠實揭露**：
+  # App.tsx 本身無 render 測試基礎設施（既有限制，需 mock ~15 個子元件）；前端刻意不
+  # 消費新的 `/farm-status` 端點（`FarmOverview` 本就從 `turbines` prop 自行加總，該
+  # 端點仍完整測試於後端供未來使用）；FAULT 重算繼承 `history_events` 既有的「無
+  # session_id、靠時間窗撈取」限制（`DEC-20260719-01`），非本次新引入風險。backend
+  # 1255→**1274 passed**（+19，7 skipped, 1 xfailed，零 regression）；frontend tsc
+  # 0、1402→**1443 passed**（65→68 files，+41，零 regression）、build OK。
+  # `WMOM-20260926-03` 標 done——`DEC-20260720-01`/`DEC-20260720-02` 的 PR C 至此
+  # 完整收尾（Phase 2 工單/維護 what-if 演練維持明確 deferred，未評估）。**前一 session
+  # （2026-09-26 第五個 autonomous session，WMOM-20260926-02 完成）** — PR C（情境掛載
+  # app）子設計定案：`WMOM-20260926-01`
   # 完成後唯一剩下的「可立即接手」項目 PR C（DEC-20260720-01 §3、DEC-20260720-02 A2
   # epic 最後剩餘項目）自 2026-07-20 立案以來被至少 8 個 autonomous session 因「動核心
   # 來源模型、需獨立子設計」原地擱置未動工。本 session 先用 Explore agent 徹底讀過
@@ -433,11 +488,11 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 9  # 8→9（新開 WMOM-20260926-03，Phase 1 實作，open）
+  open: 8  # 9→8（WMOM-20260926-03 完成，PR C Phase 1）
   in_progress: 0  # 不變
   blocked: 0
-  done: 135  # 134→135（WMOM-20260926-02 完成）
-             # total 144（9+0+135=144）
+  done: 136  # 135→136（WMOM-20260926-03 完成）
+             # total 144（8+0+136=144）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於
