@@ -19,6 +19,7 @@ import type {
   StockKind,
 } from '../../services/materialService';
 import type { Recurrence } from '../../services/inspectionScheduleService';
+import type { ActivityKind } from '../../services/dayWorkFormService';
 
 type Lang = 'en' | 'zh';
 
@@ -254,5 +255,30 @@ export function recurrenceLabel(r: Recurrence, lang: Lang): string {
   };
   const [en, zh] = map[r];
   return lang === 'zh' ? zh : en;
+}
+
+// ─── Day Work Form（WMOM-20260926-01） ───────────────────────────────────
+
+export function activityKindLabel(k: ActivityKind, lang: Lang): string {
+  const map: Record<ActivityKind, [string, string]> = {
+    completed_wo: ['Completed work order', '完成工單'],
+    inspection_item: ['Completed inspection item', '完成定檢項'],
+    patrol: ['Patrol', '巡視'],
+    training: ['Training', '訓練'],
+  };
+  const [en, zh] = map[k];
+  return lang === 'zh' ? zh : en;
+}
+
+/** 今天的曆日（Asia/Taipei，非 UTC——見 `day_work_form.py` domain docstring 建議）。 */
+export function todayAsiaTaipei(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const lookup = (t: string) => parts.find(p => p.type === t)?.value ?? '01';
+  return `${lookup('year')}-${lookup('month')}-${lookup('day')}`;
 }
 

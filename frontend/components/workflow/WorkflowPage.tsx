@@ -53,10 +53,13 @@ import type {
   CreateInspectionSchedulePayload,
   InspectionScheduleResponse,
 } from '../../services/inspectionScheduleService';
+import DayWorkFormPanel from './DayWorkFormPanel';
+import { useDayWorkForm } from '../../hooks/useDayWorkForm';
+import { todayAsiaTaipei } from './statusUtils';
 import { type TurbineData } from '../../types';
 
 type Lang = 'en' | 'zh';
-type Tab = 'orders' | 'material' | 'inventory' | 'inspection' | 'approval';
+type Tab = 'orders' | 'material' | 'inventory' | 'inspection' | 'daywork' | 'approval';
 
 interface Props {
   lang: Lang;
@@ -149,6 +152,23 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
     turbineId: inspTurbineId === 'all' ? undefined : inspTurbineId,
     activeOnly: inspActiveOnly,
   });
+
+  // ── Day work form（工作日誌）tab state ──
+  const [dayWorkDate, setDayWorkDate] = useState<string>(() => todayAsiaTaipei());
+
+  const dayWorkHook = useDayWorkForm({
+    farmId,
+    employeeId: currentUser.id,
+    workDate: dayWorkDate,
+  });
+
+  const myWorkOrderOptions = useMemo(
+    () =>
+      wo.items
+        .filter(w => w.assignee_id === currentUser.id)
+        .map(w => ({ id: w.id, label: `${w.business_key} — ${w.title}` })),
+    [wo.items, currentUser.id],
+  );
 
   // ── Approval tab state ──
   const [signoffLevel, setSignoffLevel] = useState<SignoffLevel>('leader');
@@ -388,6 +408,14 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
           {ui('Inspection schedules', '定檢計畫')}
         </Btn>
         <Btn
+          variant={tab === 'daywork' ? 'primary' : 'ghost'}
+          onClick={() => setTab('daywork')}
+          ariaLabel={ui('Day work log tab', '工作日誌頁籤')}
+          ariaPressed={tab === 'daywork'}
+        >
+          {ui('Day work log', '工作日誌')}
+        </Btn>
+        <Btn
           variant={tab === 'approval' ? 'primary' : 'ghost'}
           onClick={() => setTab('approval')}
           ariaLabel={ui('Approval tab', '簽核頁籤')}
@@ -466,6 +494,22 @@ const WorkflowPage: React.FC<Props> = ({ lang, turbines, initialInspectionTurbin
           onActiveOnlyChange={setInspActiveOnly}
           onSelect={setSelectedInspSchedule}
           onRefresh={inspHook.refresh}
+          lang={lang}
+        />
+      )}
+
+      {tab === 'daywork' && (
+        <DayWorkFormPanel
+          workDate={dayWorkDate}
+          onWorkDateChange={setDayWorkDate}
+          form={dayWorkHook.form}
+          loading={dayWorkHook.loading}
+          error={dayWorkHook.error}
+          history={dayWorkHook.history}
+          historyLoading={dayWorkHook.historyLoading}
+          historyError={dayWorkHook.historyError}
+          workOrderOptions={myWorkOrderOptions}
+          onAppendActivity={dayWorkHook.appendActivity}
           lang={lang}
         />
       )}

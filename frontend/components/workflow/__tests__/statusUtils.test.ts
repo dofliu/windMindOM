@@ -14,7 +14,7 @@
  *   Asia/Taipei（UTC+8、不隨 test runner timezone 漂移）+ null / invalid 邊界。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   WorkOrderStatusValues,
   WorkOrderTypeValues,
@@ -39,6 +39,10 @@ import {
   type StockKind,
   type ReturnReason,
 } from '../../../services/materialService';
+import {
+  ActivityKindValues,
+  type ActivityKind,
+} from '../../../services/dayWorkFormService';
 import type { PillTone } from '../../ui';
 import {
   statusLabel,
@@ -57,6 +61,8 @@ import {
   mrStatusTone,
   stockKindLabel,
   returnReasonLabel,
+  activityKindLabel,
+  todayAsiaTaipei,
 } from '../statusUtils';
 
 // ─── 期望值表（[en, zh]）。Record 型別保證 compile-time 窮舉。 ───────────────
@@ -170,6 +176,13 @@ const RETURN_REASON: Record<ReturnReason, [string, string]> = {
   other: ['Other', '其他'],
 };
 
+const ACTIVITY_KIND: Record<ActivityKind, [string, string]> = {
+  completed_wo: ['Completed work order', '完成工單'],
+  inspection_item: ['Completed inspection item', '完成定檢項'],
+  patrol: ['Patrol', '巡視'],
+  training: ['Training', '訓練'],
+};
+
 describe('statusUtils / label 函式（en + zh 雙語窮舉）', () => {
   it('statusLabel 涵蓋所有 WorkOrderStatus', () => {
     for (const s of WorkOrderStatusValues) {
@@ -241,6 +254,13 @@ describe('statusUtils / label 函式（en + zh 雙語窮舉）', () => {
     }
   });
 
+  it('activityKindLabel 涵蓋所有 ActivityKind', () => {
+    for (const k of ActivityKindValues) {
+      expect(activityKindLabel(k, 'en')).toBe(ACTIVITY_KIND[k][0]);
+      expect(activityKindLabel(k, 'zh')).toBe(ACTIVITY_KIND[k][1]);
+    }
+  });
+
   it('未知 lang 值退回 en（非 zh 即 en）', () => {
     // statusUtils 以 `lang === 'zh' ? zh : en` 判斷，任何非 'zh' 值都應拿到 en。
     expect(statusLabel('closed', 'en')).toBe('CLOSED');
@@ -303,5 +323,23 @@ describe('statusUtils / 日期格式化（明確 Asia/Taipei = UTC+8）', () => 
   it('fmtDate：null → 「—」，無法解析 → 原樣回傳', () => {
     expect(fmtDate(null)).toBe('—');
     expect(fmtDate('garbage')).toBe('garbage');
+  });
+});
+
+describe('statusUtils / todayAsiaTaipei（明確 Asia/Taipei 曆日，非 UTC 曆日）', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('UTC 16:00（Taipei +8 已跨到隔天 00:00）回傳 Taipei 曆日，不是 UTC 曆日', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T16:00:00Z'));
+    expect(todayAsiaTaipei()).toBe('2026-03-10');
+  });
+
+  it('UTC 15:59（Taipei 尚未跨天）回傳與 UTC 相同的曆日', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T15:59:00Z'));
+    expect(todayAsiaTaipei()).toBe('2026-03-09');
   });
 });

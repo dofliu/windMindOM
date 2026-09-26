@@ -56,6 +56,8 @@ import {
 } from '../../../hooks/useInspectionSchedules';
 import { usePendingApprovals, type UsePendingApprovalsResult } from '../../../hooks/usePendingApprovals';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useDayWorkForm, type UseDayWorkFormResult } from '../../../hooks/useDayWorkForm';
+import { type DayWorkFormResponse } from '../../../services/dayWorkFormService';
 import { type TurbineData, TurbineStatus } from '../../../types';
 
 // ─── hook mocks ────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ vi.mock('../../../hooks/useInventory');
 vi.mock('../../../hooks/useInspectionSchedules');
 vi.mock('../../../hooks/usePendingApprovals');
 vi.mock('../../../hooks/useCurrentUser');
+vi.mock('../../../hooks/useDayWorkForm');
 
 const mockedUseWorkOrders = useWorkOrders as unknown as Mock;
 const mockedUseMaterialRequests = useMaterialRequests as unknown as Mock;
@@ -73,6 +76,7 @@ const mockedUseInventory = useInventory as unknown as Mock;
 const mockedUseInspectionSchedules = useInspectionSchedules as unknown as Mock;
 const mockedUsePendingApprovals = usePendingApprovals as unknown as Mock;
 const mockedUseCurrentUser = useCurrentUser as unknown as Mock;
+const mockedUseDayWorkForm = useDayWorkForm as unknown as Mock;
 
 // useCurrentUser 的真實 return 型別（hook 被 mock 但 tsc 仍走真實 .d.ts），
 // 讓 makeCurrentUserResult 結構式對齊、欄位漂移即編譯失敗。
@@ -231,6 +235,31 @@ vi.mock('../InspectionScheduleDetailModal', () => ({
 
 vi.mock('../ApprovalActionDialog', () => ({
   default: () => <div data-testid="approval-dialog">簽核動作</div>,
+}));
+
+interface DayWorkFormPanelMockProps {
+  workDate: string;
+  onWorkDateChange: (d: string) => void;
+  form: DayWorkFormResponse | null;
+  loading: boolean;
+  error: string | null;
+  workOrderOptions: { id: string; label: string }[];
+  onAppendActivity: (req: unknown) => Promise<DayWorkFormResponse>;
+}
+
+vi.mock('../DayWorkFormPanel', () => ({
+  default: (p: DayWorkFormPanelMockProps) => (
+    <div
+      data-testid="daywork-panel"
+      data-date={p.workDate}
+      data-wo-options={p.workOrderOptions.map(o => o.id).join(',')}
+      data-loading={String(p.loading)}
+      data-error={p.error ?? ''}
+    >
+      工作日誌
+      <button onClick={() => p.onWorkDateChange('2026-09-27')}>換日期</button>
+    </div>
+  ),
 }));
 
 // ─── fixtures（型別嚴格，不用 as 強轉）──────────────────────────────────────
@@ -535,6 +564,21 @@ function makeCurrentUserResult(over: Partial<UserContextValue> = {}): UserContex
   };
 }
 
+function makeDayWorkForm(over: Partial<UseDayWorkFormResult> = {}): UseDayWorkFormResult {
+  return {
+    form: null,
+    loading: false,
+    error: null,
+    history: [],
+    historyLoading: false,
+    historyError: null,
+    refresh: vi.fn(),
+    refreshHistory: vi.fn(),
+    appendActivity: vi.fn(),
+    ...over,
+  };
+}
+
 // ─── fetch stub（active farm 載入）─────────────────────────────────────────
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -590,6 +634,7 @@ beforeEach(() => {
   mockedUseInspectionSchedules.mockReturnValue(makeInspectionSchedules());
   mockedUsePendingApprovals.mockReturnValue(makeApprovals());
   mockedUseCurrentUser.mockReturnValue(makeCurrentUserResult());
+  mockedUseDayWorkForm.mockReturnValue(makeDayWorkForm());
 });
 
 afterEach(() => {
@@ -696,6 +741,19 @@ describe('WorkflowPage — tab 切換', () => {
     expect(screen.getByTestId('approval-panel')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '建立工單' })).not.toBeInTheDocument();
   });
+
+  it('切到工作日誌 tab：渲染工作日誌面板 + 無 create 按鈕', async () => {
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));
+    expect(screen.getByTestId('daywork-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('insp-list-panel')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '工作日誌頁籤' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: '建立工單' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '建立定檢計畫' })).not.toBeInTheDocument();
+  });
 });
 
 describe('WorkflowPage — 簽核 pending 徽章', () => {
@@ -769,6 +827,42 @@ describe('WorkflowPage — 子面板 props wiring', () => {
     expect(panel).toHaveAttribute('data-total', '2');
     expect(panel).toHaveAttribute('data-loading', 'true');
     expect(panel).toHaveAttribute('data-error', '簽核載入失敗');
+  });
+
+  it('工作日誌面板收到 useDayWorkForm 的 loading / error', async () => {
+    mockedUseDayWorkForm.mockReturnValue(makeDayWorkForm({ loading: true, error: '日誌載入失敗' }));
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));
+    const panel = screen.getByTestId('daywork-panel');
+    expect(panel).toHaveAttribute('data-loading', 'true');
+    expect(panel).toHaveAttribute('data-error', '日誌載入失敗');
+  });
+
+  it('工作日誌面板的 workOrderOptions 只含 assignee_id 等於目前使用者的工單（非全部工單）', async () => {
+    mockedUseWorkOrders.mockReturnValue(
+      makeWO({
+        items: [
+          makeWorkOrder({ id: 'wo-mine', assignee_id: USER.id }),
+          makeWorkOrder({ id: 'wo-others', assignee_id: 'someone-else' }),
+          makeWorkOrder({ id: 'wo-unassigned', assignee_id: null }),
+        ],
+        total: 3,
+      }),
+    );
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));
+    const panel = screen.getByTestId('daywork-panel');
+    expect(panel).toHaveAttribute('data-wo-options', 'wo-mine');
+  });
+
+  it('切換工作日誌面板日期 → onWorkDateChange 呼叫時 WorkflowPage 更新 workDate state（重渲染面板 data-date）', async () => {
+    await renderWorkflow();
+    fireEvent.click(screen.getByRole('button', { name: '工作日誌頁籤' }));
+    const panel = screen.getByTestId('daywork-panel');
+    const initialDate = panel.getAttribute('data-date');
+    expect(initialDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    fireEvent.click(screen.getByRole('button', { name: '換日期' }));
+    expect(screen.getByTestId('daywork-panel')).toHaveAttribute('data-date', '2026-09-27');
   });
 });
 
