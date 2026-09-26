@@ -36,9 +36,17 @@ Endpoints:
 - PATCH /api/workflow/inspection-schedules/{id}
 - POST  /api/workflow/inspection-schedules/{id}/{activate|deactivate}
 - POST  /api/workflow/inspection-schedules/run-scheduler
+
+**day-work-form (WMOM-20260505-21)** — exported as ``day_work_form_router``:
+- POST  /api/workflow/day-work-forms                    (get-or-create，idempotent)
+- GET   /api/workflow/day-work-forms
+- GET   /api/workflow/day-work-forms/by-date             (「我今天做了什麼」)
+- GET   /api/workflow/day-work-forms/{id}
+- POST  /api/workflow/day-work-forms/{id}/activities
 """
 
 from .approval_router import router as approval_router
+from .day_work_form_router import router as day_work_form_router
 from .inspection_router import router as inspection_router
 from .inventory_router import router as inventory_router
 from .material_request_router import router as material_request_router
@@ -50,4 +58,5 @@ __all__ = [
     "material_request_router",
     "inventory_router",
     "inspection_router",
+    "day_work_form_router",
 ]

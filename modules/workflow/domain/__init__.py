@@ -61,6 +61,12 @@ from .inspection_schedule import (
     compute_next_due,
     recurrence_interval_days,
 )
+from .day_work_form import (
+    ActivityEntry,
+    ActivityKind,
+    DayWorkForm,
+    validate_activity_entry,
+)
 
 __all__ = [
     # Work order + signoff (M3)
@@ -109,4 +115,9 @@ __all__ = [
     "Recurrence",
     "compute_next_due",
     "recurrence_interval_days",
+    # Day work form (WMOM-20260505-21)
+    "ActivityEntry",
+    "ActivityKind",
+    "DayWorkForm",
+    "validate_activity_entry",
 ]
