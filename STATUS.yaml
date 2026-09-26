@@ -3,8 +3,26 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-26"  # **2026-09-26 第七個 autonomous session（WMOM-20260926-04
-  # 完成）** — `WorkOrderDetailModal.tsx`（legacy mock 版，掛在 `App.tsx` 'maintenance'
+last_updated: "2026-09-26"  # **2026-09-26 第八個 autonomous session（WMOM-20260926-05
+  # 完成）** — `ScenarioMountBanner.tsx` component render 測試：`components/ui/` 剩餘
+  # 7 支零測試 primitive 中優先評估的一支（PR C Phase 1 新增，有真正條件邏輯：`error`
+  # 決定 `Card` tone/是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換），
+  # 先確認 `FarmOverview.tsx`/`TurbineDetail.tsx` host page 既有測試從未餵過
+  # `loading`/`error` props、這兩條分支完全零覆蓋，非為了補而補。新增
+  # `frontend/components/ui/__tests__/ScenarioMountBanner.test.tsx`（16 tests，含
+  # code review 後補的 1 則），**未修改元件本體任何一行**。5 項關鍵邏輯
+  # mutation-verified（tone 三元/loading&&!error 短路/alert 區塊存在性/lang 三元/
+  # onClick 接線）。**code-reviewer subagent review：Approve，0 must-fix，0
+  # should-fix，2 nice-to-have，1 個已採納**（補 `error=''` falsy 邊界測試明確鎖住
+  # 既有行為；1 個未採納純風格建議）。backend 1274 passed 不變；frontend tsc 0、
+  # 1461→**1477 passed**（69→70 files，+16，零 regression）、build OK。
+  # `components/ui/` 剩餘 6 支（`Btn`/`Card`/`Field`/`Logo`/`PageHeader`/`Stat`）
+  # 維持既有評估結論（純展示、ROI 低，暫不主動補測試）。`WMOM-20260504-11`
+  # （event-driven cost ledger，M4 增強）本次評估後略過——2-3 工作天多日新功能且涉及
+  # 新 schema 設計，非單 session 可完工、無設計歧義的候選，留待劉老師決定是否排入。
+  # 詳見 `work-logs/2026-09/2026-09-26-scenariomountbanner-render-tests.md`。**前一
+  # session（第七個 autonomous session，WMOM-20260926-04 完成）** —
+  # `WorkOrderDetailModal.tsx`（legacy mock 版，掛在 `App.tsx` 'maintenance'
   # 導覽路徑，由 `MaintenanceHub.onSelectWorkOrder` 觸發，與 backend `WorkOrderResponse`
   # 版本的 `components/workflow/WorkOrderDetailModal.tsx` 是兩支不同元件）先前零
   # component render 測試，新增 `components/__tests__/WorkOrderDetailModal.test.tsx`
@@ -508,11 +526,11 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 8  # 9→8（WMOM-20260926-03 完成，PR C Phase 1）
+  open: 8  # 不變
   in_progress: 0  # 不變
   blocked: 0
-  done: 136  # 135→136（WMOM-20260926-03 完成）
-             # total 144（8+0+136=144）
+  done: 137  # 136→137（WMOM-20260926-05 完成，ScenarioMountBanner 測試，開＋關同一 session）
+             # total 145（8+0+137=145）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於

@@ -44,7 +44,8 @@ props 給 context），是真正的覆蓋缺口而非為了補而補。
 
 ## 本 session 做的事
 
-新增 `frontend/components/ui/__tests__/ScenarioMountBanner.test.tsx`（新檔，15 tests），
+新增 `frontend/components/ui/__tests__/ScenarioMountBanner.test.tsx`（新檔，15 tests，
+code review 後補 1 則變 16 tests），
 **未修改元件本體任何一行**（`git diff` 對 `ScenarioMountBanner.tsx` 為空）。延續
 `StatusPill.test.tsx`/`Charts.test.tsx` 既有 render 測試範式（`ThemeProvider` 包裹 +
 jest-dom matcher + `afterEach cleanup`）。
@@ -85,13 +86,30 @@ jest-dom matcher + `afterEach cleanup`）。
 
 ## code-reviewer subagent review
 
-（見下方 Review 章節填寫）
+**Approve，0 must-fix，0 should-fix，2 nice-to-have，1 個 nice-to-have 已採納**：
+
+1. 🟢（已採納）：`error?: string | null` 型別上允許空字串 `''`，元件的
+   `error ? 'warn' : 'accent'` 與 `{error && (...)}` 皆把空字串當 falsy 處理、等同
+   `null`，原 15 測只餵過 `null`/非空字串，沒鎖住這個冷門邊界（若上游未來把「有錯誤但
+   訊息未帶回」表示成 `error: ''` 而非 `null`，會靜默退回無錯誤 UI，恰是元件自己
+   docstring 點名的風險）。新增 1 則測試（`error=''` 時 tone 仍 accent、無 alert 區塊）
+   明確鎖住此為既有/接受行為，而非遺漏（15→16 tests）。
+2. 🟢（未採納）：「error=null 時 tone 為 accent + 無 alert 區塊」單一測試同時斷言兩件事，
+   純風格建議、因果關聯合理，不影響正確性，維持現狀。
+
+reviewer 獨立核對：`container.querySelector('[role="status"] > div')` 精準命中 `Card`
+的 div（`Card.tsx` 只 render 一層 div，是 `role="status"` 的唯一直接子元素，非內層
+flex-row div 或 alert div）；`hexToRgb` 手法對 `Card` 的 `background`/`border` shorthand
+屬性同樣適用（jsdom cssstyle 會正規化內嵌 hex）；`getByText('(唯讀)')`/`getByText('測試
+情境A')` 精準命中對應節點、無跨檔案 theme/localStorage 污染。並實際重跑本測試檔（獨立 +
+與其餘 `components/ui/__tests__` 一起跑）確認 15/15（review 當下版本）全過、無 console
+warning/act() error。
 
 ## 自我測試
 
 - backend：未動，`1274 passed, 7 skipped, 1 xfailed` 不變。
-- frontend：`npx tsc --noEmit`（0 error）+ `npx vitest run`（**1461 → 1476 passed**，
-  69→70 files，+15，零 regression）+ `npx vite build`（OK）。
+- frontend：`npx tsc --noEmit`（0 error）+ `npx vitest run`（**1461 → 1477 passed**，
+  69→70 files，+16，零 regression，含 code review 後補的 1 則）+ `npx vite build`（OK）。
 
 ## 誠實揭露
 

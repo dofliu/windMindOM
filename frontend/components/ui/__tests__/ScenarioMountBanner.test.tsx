@@ -103,6 +103,17 @@ describe('ScenarioMountBanner — error 分支', () => {
     expect(queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('error 為空字串（falsy 但非 null）時視同無 error：tone 仍為 accent、無 alert 區塊', () => {
+    // 已知/接受的行為：元件 `error ? 'warn' : 'accent'` 與 `{error && (...)}` 皆把空字串當
+    // falsy 處理，等同 null。若上游把「有錯誤但訊息未帶回」表示成 `error: ''` 而非 `null`，
+    // 會靜默退回無錯誤 UI——此測試明確鎖住這個既有行為，而非遺漏。
+    const { container, queryByRole } = renderBanner({ error: '' });
+    const cardDiv = container.querySelector('[role="status"] > div') as HTMLElement;
+    const style = cardDiv.getAttribute('style') ?? '';
+    expect(style).toContain(hexToRgb(C.accentSoft));
+    expect(queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('error 非 null 時 Card tone 變成 warn', () => {
     const { container } = renderBanner({ error: '網路錯誤' });
     const cardDiv = container.querySelector('[role="status"] > div') as HTMLElement;

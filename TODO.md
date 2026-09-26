@@ -16,7 +16,29 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-04 完成（第七個 autonomous session）** —
+最後更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）** —
+`ScenarioMountBanner.tsx` component render 測試：`components/ui/` 剩餘 7 支零測試
+primitive 中優先評估的一支（PR C Phase 1 新增，有真正條件邏輯：`error` 決定 `Card`
+tone/是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換），先確認
+`FarmOverview.tsx`/`TurbineDetail.tsx` host page 既有測試從未餵過 `loading`/`error`
+props、這兩條分支完全零覆蓋，非為了補而補。新增
+`frontend/components/ui/__tests__/ScenarioMountBanner.test.tsx`（16 tests，含 code
+review 後補的 1 則），**未修改元件本體任何一行**。5 項關鍵邏輯 mutation-verified。
+**code-reviewer subagent review：Approve，0 must-fix，0 should-fix，2
+nice-to-have，1 個已採納**（補 `error=''` falsy 邊界測試明確鎖住既有行為；1 個未採納
+純風格建議）。backend 1274 passed 不變；frontend tsc 0、1461→**1477 passed**（69→70
+files，+16，零 regression）、build OK。`components/ui/` 剩餘 6 支（`Btn`/`Card`/
+`Field`/`Logo`/`PageHeader`/`Stat`）維持既有評估結論（純展示、ROI 低，暫不主動補
+測試）。**評估但略過**：`WMOM-20260504-11`（event-driven cost ledger，M4 增強）
+仍 open，但 2-3 工作天多日新功能且涉及新 ledger schema 設計，非單 session 可完工、
+無設計歧義的候選，留待劉老師決定是否排入或需先寫 decision log。**下個 session**：
+`components/ui/` 測試覆蓋評估至此告一段落，可轉向 M6 critical path 剩餘項
+（PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）或
+物理模型強化（WMOM-20260505-23~28，學術深度非商業 must-have）；⚠
+`docs/routines/autonomous-daily-worker-prompt.md` 仍停留 v3，已連續多個 session
+提醒，建議劉老師找時間同步 cron trigger 設定內文（v4.1）回 repo。詳見
+`work-logs/2026-09/2026-09-26-scenariomountbanner-render-tests.md`。**前一
+session：2026-09-26（WMOM-20260926-04 完成，第七個 autonomous session）** —
 `WorkOrderDetailModal.tsx`（legacy mock 版，`App.tsx` 'maintenance' 導覽路徑，由
 `MaintenanceHub.onSelectWorkOrder` 觸發，與 backend `WorkOrderResponse` 版本的
 `components/workflow/WorkOrderDetailModal.tsx` 是兩支不同元件）先前零 component render
@@ -466,7 +488,7 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 ### 可立即接手（autonomous-friendly，無設計歧義）
 
-- [ ] **前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）—— `components/ui/*.tsx` 9 支 primitive 檔案測試評估至此**全數完成**（WMOM-20260923-04/-05）：`StatusPill`/`Charts`/`Sidebar` 已補測試，其餘 6 支（`Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo`）判定 ROI 低暫不動；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
+- [x] ~~**前端 component render 測試**（jsdom setupFiles / jest-dom / CostPage / FarmOverview / workflow Panel / MaintenanceHub / FaultInjectionPanel 皆已補齊，同批 untested 大元件已全數處理完畢）~~ —— `components/ui/*.tsx` 原 9 支 primitive（`StatusPill`/`Charts`/`Sidebar` 已補測試，其餘 6 支 `Btn`/`Card`/`Field`/`Stat`/`PageHeader`/`Logo` 判定 ROI 低暫不動）+ 之後新增的 `ScenarioMountBanner`（✅ WMOM-20260926-05 完成，見上方「最後更新」）測試評估至此**全數完成**；`FaultInjectionPanel.test.tsx` review 留下的 `.parentElement` DOM 遍歷 scoping 技術債（見 ISSUES.md WMOM-20260923-02）可留待日後統一改用 `data-testid`
 - [x] ~~**情境比較分析 · A2 Part 4（差異圖）**~~ — ✅ WMOM-20260923-06 完成，DEC-20260720-02 A2 epic
   完整範圍（摘要並排＋疊圖＋差異圖）至此全數完成。ScenarioCompareTimelineView review 留下的
   recharts 跨線 tooltip 精確比對 caveat 仍是已知限制（非阻塞，見該頁籤底部說明文字）。
