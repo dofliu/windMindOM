@@ -13,13 +13,27 @@
 
 | Status | Count |
 |--------|------|
-| open | 9 |
+| open | 8 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 135 |
+| done | 136 |
 | **total (active)** | **146** |
 
-最後更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-03 完成（第十一個 autonomous session）—
+legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑）未種子化 RNG 修正**：確認該路徑
+是完全未被 `run.py`/`api/`/Docker/任何測試引用的死碼後，選擇比照 WMOM-20260927-01
+的最小修法（種子化而非刪除整條 8 檔 legacy 檔案樹，避免範圍外風險）——
+`GearboxSystem`/`HydraulicSystem` 建構子新增 `seed` 參數 + `self._rng`，
+`WindTurbine.__init__` 往下傳（`main.py::add_turbine()` 不變，預設 `seed=None`
+保留既有行為）。**code-reviewer subagent review 抓到 1 should-fix 已採納**：
+原本 `WindTurbine` 把同一個 `seed` 同時餵給兩個獨立 `RandomState`，reviewer
+實測出兩條物理無關的噪聲會鎖死成固定比例 5.0（比未種子化更糟的合成資料假象）——
+改用 `seed+1`/`seed+2` 偏移（比照 `simulator/wind_field.py` 既有 seed+1000/+2000
+慣例）。新增 8 測（`test_legacy_subsystems_rng_seeding.py`）皆
+mutation-verified。backend 1285→**1293 passed**（+8，零 regression）；frontend
+未動 1477 passed（70 files）/tsc 0/build OK 不變。詳見
+`work-logs/2026-09/2026-09-27-legacy-subsystems-rng-seeding.md`。
+**前一次更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）—
 `ScenarioMountBanner.tsx` component render 測試**：`components/ui/` 剩餘 7 支零測試
 primitive 中優先評估的一支（PR C Phase 1 新增，有真正條件邏輯：`error` 決定 `Card`
 tone/是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換），先確認
@@ -4107,7 +4121,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-03 — `subsystems.py`（legacy `WindTurbine` 路徑）殘留未種子化 `np.random.normal`
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（該路徑是 `modules/monitoring/main.py` 用的 legacy `WindTurbine`/
   `subsystems.py`，非 `simulator/engine.py::WindFarmSimulator`/
@@ -4127,6 +4141,43 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Acceptance**:
   - 若修：同一 seed 兩次建構 legacy `WindTurbine` 應得到可重現的數值序列
   - 若判定死碼：確認移除後不影響任何既有測試/API 路徑
+- **Completion summary（2026-09-27，第十一個 autonomous session）**：先確認死碼範圍——
+  全庫 grep `main.py`/`turbine_model.py`/`subsystems.py` 這條 legacy `WindFarmSimulator`/
+  `WindTurbine` 鏈路，未被 `run.py`、`api/`、任何 Dockerfile/docker-compose、或既有測試
+  引用（`docker-compose.yml`/`Dockerfile` 的 `CMD` 是 `python run.py`，不是這條路徑）；
+  但因為刪除整條 legacy 檔案樹（`main.py`+`turbine_model.py`+`subsystems.py`+
+  `wind_model.py`+`opcua_interface.py`+`scada_system.py`+`dashboard.py`+
+  `main_architecture.py` 共 8 檔）遠超出本 issue「修 RNG 種子化」的範圍、風險與工作量
+  不成比例，選擇 acceptance 允許的另一條路：比照 -01 修法，只種子化。
+  `GearboxSystem`/`HydraulicSystem` 建構子新增 `seed: Optional[int] = None`
+  參數 + `self._rng = np.random.RandomState(seed)`，兩處 `np.random.normal` 改用
+  `self._rng.normal`；`WindTurbine.__init__` 新增同款 `seed` 參數往下傳，`main.py::
+  add_turbine()` 維持不動（不傳 seed，預設 `None` 保留呼叫端既有未種子化行為）。新增
+  `test_legacy_subsystems_rng_seeding.py`（初版 6 測），mutation-verified（暫時改回
+  `np.random.normal` → 3 個 determinism 測試如預期 fail → 已還原）。**code-reviewer
+  subagent review：Approve，0 must-fix，1 should-fix 已採納**（`WindTurbine.__init__`
+  原本把同一個 `seed` 值同時餵給 `GearboxSystem(seed=seed)` 與
+  `HydraulicSystem(seed=seed)`，reviewer 用兩個獨立 `RandomState(99)` 各自
+  `.normal(0,0.1)`/`.normal(0,0.5)` 實測出固定比例 5.0——本 session 獨立重跑同一段
+  程式碼確認無誤，這是比「完全不種子化」更糟的合成資料假象〔兩條物理上無關的噪聲會
+  彼此鎖死成固定比例〕，且並非本次修法新發明的問題，`simulator/wind_field.py`
+  早有 `seed+1000`/`seed+2000`/`seed+3000`/`seed+4000` 的既有偏移慣例可循，只是這條
+  legacy 路徑先前沒有任何 seed 概念、無從沿用——已改成 `gearbox_seed = seed if seed
+  is None else seed + 1`、`hydraulic_seed = seed if seed is None else seed + 2`
+  比照該慣例。新增 2 測（`test_wind_turbine_different_seeds_diverge_end_to_end` +
+  `test_gearbox_and_hydraulic_noise_are_not_correlated_when_sharing_one_wind_turbine_seed`，
+  後者鎖住此 should-fix，mutation-verified：暫時改回共用同一 seed →
+  比例斷言精準抓到 `5.0 != 5.0` fail → 已還原）+ 1 nice-to-have（`WindTurbine`
+  層級 different-seed-diverges 測試，已採納）。**誠實揭露**：reviewer 同時指出
+  `simulator/physics/turbine_physics.py`（**live** 路徑，非本 issue 範圍）現有
+  `VibrationModel(seed=_seed)`/`YawModel(seed=_seed)` 也共用同一 `_seed`，因
+  `VibrationModel.__init__` 建構時剛好先消耗 2 次 `self._rng.uniform(...)`
+  才使兩者的 RNG stream 錯開、非刻意設計，屬於脆弱的巧合而非真正解耦——本次未動
+  （超出本 issue 範圍，僅記錄提醒未來若有人重新檢視 `turbine_physics.py` 的 seed
+  分配時留意這個既有 latent 風險，未另開新 issue：屬於 nice-to-have 層級的觀察，
+  不影響任何既有測試或已知行為）。backend 1285→**1293 passed**（+8，零
+  regression）；frontend 未動，1477 passed（70 files）/tsc 0/build OK 不變。詳見
+  `work-logs/2026-09/2026-09-27-legacy-subsystems-rng-seeding.md`。
 
 ---
 

@@ -1,7 +1,7 @@
 # wind_turbine_simulator/subsystems.py
 
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 from common_types import TurbineParameters
 
 class RotorSystem:
@@ -82,12 +82,13 @@ class RotorSystem:
 class GearboxSystem:
     """齒輪箱系統模型"""
     
-    def __init__(self, gear_ratio: float = 100, efficiency: float = 0.97):
+    def __init__(self, gear_ratio: float = 100, efficiency: float = 0.97, seed: Optional[int] = None):
         self.gear_ratio = gear_ratio
         self.efficiency = efficiency
         self.temperature = 50  # °C
         self.vibration_level = 0  # mm/s
         self.oil_pressure = 2.5  # bar
+        self._rng = np.random.RandomState(seed)
         
     def calculate(self, input_speed: float, input_torque: float) -> Dict:
         """計算齒輪箱輸出"""
@@ -99,7 +100,7 @@ class GearboxSystem:
         self.temperature = 50 + power_loss / 100000  # 簡化的熱模型
         
         # 模擬振動
-        self.vibration_level = 0.5 + np.random.normal(0, 0.1) + output_speed / 10000
+        self.vibration_level = 0.5 + self._rng.normal(0, 0.1) + output_speed / 10000
         
         return {
             'output_speed': output_speed,
@@ -220,18 +221,19 @@ class YawSystem:
 
 class HydraulicSystem:
     """液壓系統"""
-    def __init__(self):
+    def __init__(self, seed: Optional[int] = None):
         self.pressure = 150.0 # 初始壓力 (bar)
-        
+        self._rng = np.random.RandomState(seed)
+
     def calculate(self) -> Dict:
         """
         計算液壓系統狀態
-        
+
         Returns:
             包含壓力的字典
         """
         # 模擬壓力波動 (簡化)
-        self.pressure += np.random.normal(0, 0.5)
+        self.pressure += self._rng.normal(0, 0.5)
         self.pressure = max(100, min(self.pressure, 200)) # 限制在合理範圍
         
         return {

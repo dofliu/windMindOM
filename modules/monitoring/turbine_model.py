@@ -11,17 +11,23 @@ from subsystems import RotorSystem, GearboxSystem, GeneratorSystem, PitchControl
 class WindTurbine:
     """風力發電機主模型"""
     
-    def __init__(self, turbine_id: str = "WT001", params: Optional[TurbineParameters] = None):
+    def __init__(self, turbine_id: str = "WT001", params: Optional[TurbineParameters] = None,
+                 seed: Optional[int] = None):
         self.turbine_id = turbine_id
         self.params = params or TurbineParameters()
-        
+
         # 子系統
+        # gearbox/hydraulic 各自偏移 seed（比照 simulator/physics/wind_field.py
+        # 既有 seed+1000/+2000/... 慣例），避免同一 seed 餵給兩個獨立 RandomState
+        # 造成兩條噪聲彼此成固定比例的退化相關性
+        gearbox_seed = seed if seed is None else seed + 1
+        hydraulic_seed = seed if seed is None else seed + 2
         self.rotor = RotorSystem(self.params)
-        self.gearbox = GearboxSystem()
+        self.gearbox = GearboxSystem(seed=gearbox_seed)
         self.generator = GeneratorSystem(self.params)
         self.pitch_system = PitchControlSystem()
         self.yaw_system = YawSystem()
-        self.hydraulic_system = HydraulicSystem()
+        self.hydraulic_system = HydraulicSystem(seed=hydraulic_seed)
         self.control_system = ControlSystem()
         
         # 狀態變數

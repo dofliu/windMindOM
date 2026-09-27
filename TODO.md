@@ -16,7 +16,28 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-01 完成（第十個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-03 完成（第十一個 autonomous session）** —
+legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑，`WMOM-20260927-01` code
+review 登記的 follow-up）未種子化 RNG 修正：先全庫 grep 確認這條路徑完全未被
+`run.py`/`api/`/Docker/任何既有測試引用（純歷史原型），但整條 legacy 檔案樹共 8
+檔，全刪除遠超出本 issue「修 RNG」的範圍——選擇比照 -01 只做種子化，不刪檔案、
+不動 `main.py`。`GearboxSystem`/`HydraulicSystem` 建構子新增 `seed` 參數，
+`WindTurbine.__init__` 往下傳。**code-reviewer subagent review：Approve，0
+must-fix，1 should-fix 已採納**（原本同一 `seed` 同時餵給 gearbox/hydraulic 兩個
+獨立 `RandomState`，reviewer 實測出兩條物理無關噪聲會鎖死成固定比例 5.0——比照
+`simulator/wind_field.py` 既有 seed+1000/+2000 偏移慣例改用 seed+1/+2）+ 1
+nice-to-have 已採納。新增 8 測皆 mutation-verified（其一精準抓到
+`5.0 != 5.0` fail，與 reviewer 預測完全吻合）。backend 1285→**1293
+passed**（+8，零 regression）；frontend 未動，1477 passed（70 files）/tsc
+0/build OK 不變。**誠實揭露**：reviewer 同時發現 **live** 路徑
+`turbine_physics.py` 的 `VibrationModel`/`YawModel` 也共用同一 `_seed`，目前
+只靠建構順序巧合才沒有同款相關性問題，是脆弱的 latent 風險——超出本 issue 範圍，
+未修、未另開新 issue（純觀察記錄）。**下個 session**：可續評估
+`WMOM-20260927-02`（`fetch_scada_data.py` stale tag，10 分鐘小修）、
+`WMOM-20260505-25~28`（物理強化，皆多日工作）、或 M6 critical path 剩餘項
+（PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）。
+詳見 `work-logs/2026-09/2026-09-27-legacy-subsystems-rng-seeding.md`。
+**前一 session：2026-09-27（WMOM-20260927-01 完成，第十個 autonomous session）** —
 全域未種子化 RNG 造成模擬結果非決定性修正：`grid_model.py`（grid frequency/
 voltage 噪聲）與 `physics/yaw_model.py`（brake_pressure 噪聲）先前直接呼叫全域
 `np.random.normal`，跟其餘 codebase 一律用 `np.random.RandomState(seed)` 建立各自

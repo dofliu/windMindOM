@@ -3,7 +3,35 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-27"  # **2026-09-27 第十個 autonomous session（WMOM-20260927-01
+last_updated: "2026-09-27"  # **2026-09-27 第十一個 autonomous session（WMOM-20260927-03
+  # 完成）** — legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑，非
+  # `simulator/engine.py` 主要模擬路徑）未種子化 RNG 修正，`WMOM-20260927-01`
+  # code review 登記的 follow-up。先全庫 grep 確認 `main.py`/`turbine_model.py`/
+  # `subsystems.py` 這條鏈路完全未被 `run.py`/`api/`/Docker/docker-compose/任何
+  # 既有測試引用（純歷史原型，被 `modules/monitoring/simulator/` 取代），但整條
+  # legacy 檔案樹共 8 檔，全刪除遠超出本 issue 範圍與估時（15-20 分鐘）——選擇
+  # acceptance 允許的另一條路：比照 -01 只做種子化，不刪檔案、不動 `main.py`。
+  # `GearboxSystem`/`HydraulicSystem` 建構子新增 `seed` 參數 + `self._rng`，
+  # `WindTurbine.__init__` 往下傳（`main.py::add_turbine()` 維持不動，`seed=None`
+  # 預設保留既有未種子化行為）。新增 `test_legacy_subsystems_rng_seeding.py`
+  # （初版 6 測），mutation-verified。**code-reviewer subagent review：Approve，
+  # 0 must-fix，1 should-fix 已採納**（`WindTurbine.__init__` 原本把同一個 `seed`
+  # 同時餵給兩個獨立 `RandomState`，reviewer 實測出兩條物理無關的噪聲〔齒輪箱
+  # 振動 vs 液壓壓力〕會鎖死成固定比例 5.0——本 session 獨立重跑確認無誤，這是
+  # 比「完全不種子化」更糟的合成資料假象；比照 `simulator/wind_field.py` 既有
+  # `seed+1000`/`seed+2000` 偏移慣例改用 `seed+1`/`seed+2`）+ 1 nice-to-have
+  # 已採納（補 `WindTurbine` 層級 different-seed-diverges 測試）。新增 2 測鎖住
+  # should-fix（其一精準 mutation-verified 抓到 `5.0 != 5.0` fail，與 reviewer
+  # 預測完全吻合）。**誠實揭露**：reviewer 同時發現 **live** 路徑
+  # `simulator/physics/turbine_physics.py` 現有 `VibrationModel(seed=_seed)`/
+  # `YawModel(seed=_seed)` 也共用同一 `_seed`，目前只靠 `VibrationModel.__init__`
+  # 建構時先消耗 2 次 RNG state 的巧合才錯開、非刻意解耦，是脆弱的 latent
+  # 風險——超出本 issue 範圍（本 issue 針對 legacy `subsystems.py`，非
+  # `turbine_physics.py`），本次未動、未另開新 issue（純觀察記錄，目前無任何
+  # 已知錯誤輸出或測試失敗）。backend 1285→**1293 passed**（+8，零
+  # regression）；frontend 未動，1477 passed（70 files）/tsc 0/build OK 不變。
+  # 詳見 `work-logs/2026-09/2026-09-27-legacy-subsystems-rng-seeding.md`。**前一
+  # session（2026-09-27 第十個 autonomous session（WMOM-20260927-01
   # 完成）** — 全域未種子化 RNG 造成模擬結果非決定性修正：`grid_model.py`
   # （grid frequency/voltage 噪聲）與 `physics/yaw_model.py`（brake_pressure 噪聲）
   # 先前直接呼叫全域 `np.random.normal`，跟其餘 codebase 一律用
@@ -588,12 +616,13 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 9  # 9→9（WMOM-20260927-01 完成標 done，但 code review 過程中新開
-            # WMOM-20260927-03 全域未種子化 RNG legacy subsystems.py 殘留，抵銷）
+  open: 8  # 9→8（WMOM-20260927-03 完成標 done）
   in_progress: 0  # 不變
   blocked: 0
-  done: 139  # 138→139（WMOM-20260927-01 完成：grid/yaw 噪聲改用種子化 RNG 確保模擬結果可重現）
-             # total 148（9+0+139=148）
+  done: 140  # 139→140（WMOM-20260927-03 完成：legacy subsystems.py gearbox/hydraulic
+             # 噪聲改用種子化 RNG，並修正 code review 抓到的 gearbox/hydraulic 共用
+             # 同一 seed 造成固定比例相關性的 should-fix）
+             # total 148（8+0+140=148）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於
