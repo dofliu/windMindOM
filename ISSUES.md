@@ -16,10 +16,24 @@
 | open | 8 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 113 |
-| **total** | **123** |
+| done | 114 |
+| **total** | **124** |
 
-最後更新：2026-09-27（**WMOM-20260927-04 完成（第十三個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-05 完成（第十四個 autonomous session）—
+`docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正**：核對
+`scada_registry.py` 發現現行 schema 實際登記 16 個 `WLOD_*` tag（非簡單 7 對 7
+改名），「Fatigue / Load」參考清單區塊整段換成「Structural Load & Fatigue」列出
+全部現行 tag；4 處內嵌範例程式碼 `WFAT_TwrBsMy`→`WLOD_TwrFaMom`。純文件修改，
+backend/frontend 皆未動、零 regression。**code-reviewer subagent review（背景
+非同步，收尾提交後才回報）：1 must-fix 已用 follow-up commit 修復**——文件第
+69 行 subsystem breakdown table 仍殘留一列不存在的 `WFAT` subsystem，緊接在
+剛修好的段落正下方會自相矛盾，已改為 `WLOD`；1 should-fix 已登記新 issue
+**WMOM-20260927-06**（`docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/
+subsystem breakdown 全面過時，實測 109 非文件寫的 74，且缺 `WCOL`/`WDRV` 兩個
+subsystem，遠超本次改名範圍，需另開 0.5-1 天 issue 重新盤點）；1 nice-to-have
+記錄於新 issue（`turbine_physics.py` 死碼分支）。詳見
+`work-logs/2026-09/2026-09-27-api-guide-wfat-tag-fix.md`。
+**前一 session：2026-09-27（WMOM-20260927-04 完成，第十三個 autonomous session）—
 `data_broker.py` 「WFAT (Legacy)」區塊 7 個永遠 `None` 欄位清理**：查證全庫確認
 這 7 個欄位（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/
 `dmgAccum`）完全未被前端/報表消費後，從 `models.py`/`data_broker.py`/
@@ -4232,7 +4246,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-05 — `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag
 
-- **Status**: open
+- **Status**: done（第十四個 autonomous session）
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（純文件修正，不影響任何程式行為；但範例程式碼會讓照著寫的人
   遇到 `KeyError`，優先序略高於單純的字面不一致）
@@ -4256,6 +4270,74 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Acceptance**:
   - `docs/API_GUIDE.md` 不再出現任何 `WFAT_*` tag 名稱
   - 範例程式碼裡的 tag 名稱與現行 `scada_registry.py` 實際註冊的 tag 一致
+- **Completion summary**（2026-09-27，第十四個 autonomous session）：核對
+  `scada_registry.py` 348-398 行發現現行 schema 實際登記 **16 個** `WLOD_*`
+  tag（非原描述隱含的簡單 7 對 7 改名——`WFAT_DELTwr`/`WFAT_DELBld`/
+  `WFAT_DmgAccum` 這 3 個舊 tag 在現行 schema 已各自拆成 Fore-Aft/Side-Side
+  與 Flapwise/Edgewise 獨立 tag）。改法：「Fatigue / Load」參考清單區塊整段
+  換成「Structural Load & Fatigue」，列出全部 16 個現行真實 tag（單位/中英文
+  說明逐一核對 registry 原始定義）；4 處內嵌範例程式碼的 `WFAT_TwrBsMy` 改成
+  `WLOD_TwrFaMom`（對應 `WMOM-20260927-02`/`-04` 已確認映射），順手把第 278 行
+  f-string 標籤 `TwrMy=`→`TwrFa=`（與 `-04` 對 `fetch_scada_data.py` 的標籤
+  一致性修正對齊）。`grep -n "WFAT_" docs/API_GUIDE.md` 確認全檔零殘留。**誠實
+  揭露**：純 Markdown 文件修改，無自動化測試保護，僅讀原始碼層級核對
+  `scada_registry.py` 定義驗證正確性。**code-reviewer subagent review：1
+  must-fix 已修復，1 should-fix 已登記新 issue，1 nice-to-have 已記錄**——①🔴
+  must-fix：`git diff` 只涵蓋 5 個既定位置，reviewer 用「裸 subsystem 代碼」
+  正規表達式（非僅 tag-id 底線格式）額外掃出第 69 行 subsystem breakdown table
+  仍有一列 `WFAT | 7 | Fatigue loads...`，緊接在剛修好的「Structural Load &
+  Fatigue」段落正下方，會讓讀者看到自相矛盾的資訊——已修正為
+  `WLOD | 7 | Structural load & fatigue...`（僅改 subsystem 代碼與敘述，維持
+  count 數字不動，理由見下方 should-fix）；②🟡 should-fix（流程面）：reviewer
+  獨立實測 `grep -c 'ScadaTag(' scada_registry.py` 目前是 **109**，且逐一比對
+  per-subsystem 統計後發現本節整張 breakdown table（含「74 SCADA tags」表頭）
+  多處與現行 registry 不符（`WVIB` 寫 20 實際 30、`WROT` 寫 9 實際 10、`WMET`
+  寫 3 實際 14，且完全沒列 `WCOL`/`WDRV` 兩個 subsystem）——這是遠超本 issue
+  「WFAT→WLOD 改名」範圍的全面重新盤點，reviewer 建議不要只在 work-log 私下
+  記一筆，需正式登記可認領的 issue，已登記 **WMOM-20260927-06**（open，未修）；
+  ③🟢 nice-to-have：`turbine_physics.py:1381-1383` 有一段對 `WFAT_TwrBs`/
+  `WFAT_BldRt` 字首的死碼分支（`_get_sensor_config()` 內，因 registry 從不
+  產生此字首而永遠打不到），記錄於 `WMOM-20260927-06` 供未來一併清理，非本次
+  範圍。**誠實揭露**：code-reviewer subagent review 為非同步背景任務，本次
+  session 收尾提交後才回報，must-fix 是以獨立 follow-up commit 補上同一 PR
+  （非跳過 review，是驅動 PR 到綠燈的正常流程）。backend 未動 1293 passed（7
+  skipped, 1 xfailed）不變；frontend 未動 1477 passed（70 files）/tsc 0/build
+  OK 不變。詳見 `work-logs/2026-09/2026-09-27-api-guide-wfat-tag-fix.md`。
+
+---
+
+### WMOM-20260927-06 — `docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面過時
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（純文件正確性，不影響任何程式行為）
+- **Estimate**: 0.5-1 工作天（需逐一重新盤點全部 14 個 subsystem，非簡單改名）
+- **Source**: WMOM-20260927-05 code review（code-reviewer subagent should-fix）
+- **Description**:
+  `docs/API_GUIDE.md` 第 56 行「The simulator outputs **74 SCADA tags** per
+  turbine」+ 第 58-70 行 subsystem breakdown table，與現行
+  `scada_registry.py` 實測結果差距很大：
+  - `grep -c 'ScadaTag(' scada_registry.py` 實際 **109**（非 74）。
+  - Per-subsystem 實測：WTUR 2, WGEN 7, WROT **10**（文件寫 9）, WCNV 16,
+    WGDC 1, WMET **14**（文件寫 3）, WNAC 4, WYAW 3, WVIB **30**（文件寫
+    20）, WLOD 16（文件已於 `WMOM-20260927-05` 修正代碼名稱但 count 沿用
+    舊值 7）, WCOL 2, WDRV 2, WSRV 1, MBUS 1（合計 109）。
+  - 文件完全沒有列出 **WCOL**、**WDRV** 這兩個現行 registry 已存在的
+    subsystem。
+- **Deliverable**:
+  重新逐一核對 `scada_registry.py` 全部 14 個 subsystem 的實際 tag 數量與
+  說明，更新第 56 行總數與第 58-70 行整張 breakdown table，含補上缺漏的
+  `WCOL`/`WDRV` 兩列。
+- **Nice-to-have（同批可一併處理，非必要）**：
+  `modules/monitoring/simulator/physics/turbine_physics.py:1381-1383`
+  `_get_sensor_config()` 內 `if tag.startswith("WFAT_TwrBs") or
+  tag.startswith("WFAT_BldRt")` 是永遠打不到的死碼分支（registry 從不產生
+  `WFAT_*` 字首的 tag），可順手清掉，但不影響本 issue 的文件正確性
+  deliverable。
+- **Acceptance**:
+  - 文件開頭總數與 breakdown table 每一列數字皆與
+    `grep -c 'ScadaTag(' scada_registry.py` + per-subsystem 逐一核對結果一致
+  - 現行 registry 存在的全部 subsystem 皆列在 table 內，無遺漏
 
 ---
 

@@ -66,7 +66,7 @@ The simulator outputs **74 SCADA tags** per turbine, organized by subsystem:
 | WNAC | 4 | Nacelle (temps, vibration X/Y) |
 | WYAW | 3 | Yaw (alignment error, brake pressure, cable windup) |
 | WVIB | 20 | Vibration spectral (5 bands x 2 directions + crest/kurtosis + 8 alarm thresholds) |
-| WFAT | 7 | Fatigue loads (tower/blade moments, DEL, cumulative damage) |
+| WLOD | 7 | Structural load & fatigue (tower/blade moments, DEL, cumulative damage) |
 | WSRV/MBUS | 2 | Service mode, local/remote control |
 
 ### Get Tag Registry
@@ -104,14 +104,23 @@ WVIB_Alarm1p / Alarm3p / AlarmGear / AlarmHf / AlarmBb / AlarmOverall
 WVIB_Thresh1pWarn   # Current 1P warning threshold (mm/s)
 WVIB_Thresh1pAlrm   # Current 1P alarm threshold (mm/s)
 
-# Fatigue / Load
-WFAT_TwrBsMy        # Tower base fore-aft moment (kNm)
-WFAT_TwrBsMx        # Tower base side-to-side moment (kNm)
-WFAT_BldRtMy        # Blade root flapwise moment (kNm)
-WFAT_BldRtMx        # Blade root edgewise moment (kNm)
-WFAT_DELTwr         # Tower DEL indicator (0-100)
-WFAT_DELBld         # Blade DEL indicator (0-100)
-WFAT_DmgAccum       # Cumulative damage fraction (0-1)
+# Structural Load & Fatigue
+WLOD_TwrFaMom       # Tower fore-aft moment (kNm)
+WLOD_TwrSsMom       # Tower side-side moment (kNm)
+WLOD_BldFlapMom     # Blade flapwise moment (kNm)
+WLOD_BldEdgeMom     # Blade edgewise moment (kNm)
+WLOD_DelTwrFa       # DEL tower fore-aft (kNm)
+WLOD_DelTwrSs       # DEL tower side-side (kNm)
+WLOD_DelBldFlap     # DEL blade flapwise (kNm)
+WLOD_DelBldEdge     # DEL blade edgewise (kNm)
+WLOD_DmgTwrFa       # Cumulative damage, tower fore-aft (0-1)
+WLOD_DmgTwrSs       # Cumulative damage, tower side-side (0-1)
+WLOD_DmgBldFlap     # Cumulative damage, blade flapwise (0-1)
+WLOD_DmgBldEdge     # Cumulative damage, blade edgewise (0-1)
+WLOD_ProdHours      # Production hours (h)
+WLOD_AlmTwr         # Tower fatigue alarm level (0-4)
+WLOD_AlmBld         # Blade fatigue alarm level (0-4)
+WLOD_RulHours       # Remaining useful life (h)
 
 # Electrical Response
 WCNV_ReactPwr       # Reactive power (kvar)
@@ -146,7 +155,7 @@ Single turbine (e.g., `WT001` to `WT014`).
 r = requests.get("http://localhost:8100/api/turbines/WT001")
 t = r.json()
 scada = t['scadaTags']  # dict of 74 tag_id -> float
-print(f"Tower load = {scada['WFAT_TwrBsMy']:.1f} kNm")
+print(f"Tower load = {scada['WLOD_TwrFaMom']:.1f} kNm")
 ```
 
 #### GET `/api/turbines/farm-status`
@@ -199,7 +208,7 @@ In-memory trend buffer (up to 1 hour @ 1Hz, no persistence required).
 
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001/trend", params={
-    "tags": "WTUR_TotPwrAt,WMET_WSpeedNac,WFAT_TwrBsMy",
+    "tags": "WTUR_TotPwrAt,WMET_WSpeedNac,WLOD_TwrFaMom",
     "limit": 300,
 })
 trend = r.json()
@@ -275,7 +284,7 @@ while True:
     for t in turbines:
         scada = t.get("scadaTags", {})
         print(f"{t['turbineId']}  Power={t['powerOutput']:.3f}MW  "
-              f"TwrMy={scada.get('WFAT_TwrBsMy', 0):.0f}kNm  "
+              f"TwrFa={scada.get('WLOD_TwrFaMom', 0):.0f}kNm  "
               f"AlarmLv={scada.get('WVIB_AlarmOverall', 0)}")
 ```
 
@@ -394,7 +403,7 @@ df.set_index('timestamp', inplace=True)
 
 # 4. Analyze
 print(f"\nCollected {len(df)} samples")
-print(df[['WTUR_TotPwrAt', 'WMET_WSpeedNac', 'WFAT_TwrBsMy', 'WVIB_BandHfX']].describe())
+print(df[['WTUR_TotPwrAt', 'WMET_WSpeedNac', 'WLOD_TwrFaMom', 'WVIB_BandHfX']].describe())
 
 # 5. Save to CSV
 df.to_csv("WT001_strong_wind.csv", encoding="utf-8-sig")

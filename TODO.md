@@ -16,7 +16,29 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-04 完成（第十三個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-05 完成（第十四個 autonomous session）** —
+`docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正：核對
+`scada_registry.py` 發現現行 schema 實際登記 16 個 `WLOD_*` tag（非簡單 7 對 7
+改名——3 個舊 tag 現行已各自拆成 Fore-Aft/Side-Side 與 Flapwise/Edgewise），
+「Fatigue / Load」參考清單區塊整段換成「Structural Load & Fatigue」列出全部現行
+tag；4 處內嵌範例程式碼 `WFAT_TwrBsMy`→`WLOD_TwrFaMom`。純文件修改，backend/
+frontend 皆未動、零 regression（1293 passed / 1477 passed 70 files / tsc 0 /
+build OK 不變）。**code-reviewer subagent review（背景非同步，收尾提交後才
+回報）：1 must-fix 已用 follow-up commit 修復**——文件第 69 行 subsystem
+breakdown table 仍殘留一列不存在的 `WFAT` subsystem，緊接在剛修好段落正下方會
+自相矛盾，已改為 `WLOD`；**1 should-fix 已登記新 issue WMOM-20260927-06**
+（該表整張 tag 總數/subsystem breakdown 與現行 registry 實測 109〔非文件寫的
+74〕差距很大，且缺 `WCOL`/`WDRV` 兩個 subsystem，遠超本次改名範圍，需另開
+0.5-1 天 issue 重新盤點）；1 nice-to-have（`turbine_physics.py` 死碼分支）記錄
+於新 issue。**誠實揭露**：純 Markdown 文件修改無自動化測試保護，僅讀原始碼
+層級核對 `scada_registry.py` 定義驗證正確性。**下個 session**：可續評估
+`WMOM-20260927-06`（`docs/API_GUIDE.md` tag 總數全面重新盤點，0.5-1 天）、
+`WMOM-20260505-25~28`（物理強化，皆多日工作），或 M6 critical path 剩餘項
+（`WMOM-20260509-F6` PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署
+目標，皆需劉老師決策）；其餘 open issue（`WMOM-20260504-11`/`WMOM-20260513-01`）
+皆標 🟡 需劉老師決策/素材，不宜自行開工。詳見
+`work-logs/2026-09/2026-09-27-api-guide-wfat-tag-fix.md`。
+前一 session：2026-09-27（**WMOM-20260927-04 完成（第十三個 autonomous session）** —
 `data_broker.py`/`models.py` 「WFAT (Legacy)」區塊 7 個永遠 `None` 欄位
 （`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/`dmgAccum`）清理：
 全庫查證確認完全未被前端/報表消費後，從 `models.py`/`data_broker.py`/
