@@ -3,7 +3,31 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-27"  # **2026-09-27 第九個 autonomous session（WMOM-20260505-24
+last_updated: "2026-09-27"  # **2026-09-27 第十個 autonomous session（WMOM-20260927-01
+  # 完成）** — 全域未種子化 RNG 造成模擬結果非決定性修正：`grid_model.py`
+  # （grid frequency/voltage 噪聲）與 `physics/yaw_model.py`（brake_pressure 噪聲）
+  # 先前直接呼叫全域 `np.random.normal`，跟其餘 codebase 一律用
+  # `np.random.RandomState(seed)` 建立各自種子化 `self._rng` 的慣例不一致（前一
+  # session WMOM-20260505-24 修復過程中發現：同一測試計畫重跑，個體差異 spread 數字
+  # 每次略有浮動）。修法：兩者建構子新增 `seed` 參數；`turbine_physics.py` 把既有
+  # per-turbine `_seed` 一併傳給 `YawModel(seed=_seed)`（沿用 `VibrationModel`
+  # 同款慣例）；`engine.py` farm-level 共用的 `GridEnvironmentModel` 改帶固定 seed。
+  # 新增 `test_rng_seeding_determinism.py`（5 測，含 farm-level 整合測試：兩個獨立
+  # `WindFarmSimulator` 對同一序列 `_run_one_step()` 逐欄逐列比對），皆
+  # mutation-verified。**誠實揭露**：`GridEnvironmentModel` 的 `recovery` grid
+  # profile 分支用 `datetime.now()`（真實牆鐘時間）算 elapsed，是與 RNG 種子化
+  # 完全獨立的另一種非決定性來源，測試刻意排除該分支，未修（判斷可能是刻意設計，
+  # 非本 issue 範圍）。**code-reviewer subagent review：Approve，0 must-fix，
+  # 1 should-fix 已採納**（原選的 farm-level 共用 seed=7 落在逐風機 seed 範圍
+  # 1..14 內、與某風機撞號，雖不影響功能但違反設計意圖——改用具名常數
+  # `_GRID_MODEL_SEED = 1042` 並加註解說明必須落在風機 seed 範圍外的不變量）+
+  # 2 nice-to-have（issue acceptance 誤引用不存在的 `generate_data(...)` 方法已
+  # 更正為 `_run_one_step()`；`subsystems.py` legacy `WindTurbine` 路徑同款未種子化
+  # RNG 確認是獨立 code path、非本 issue 範圍，登記 **WMOM-20260927-03** 追蹤未修）。
+  # backend 1280→**1285 passed**（+5，零 regression）；frontend 未動，1477 passed
+  # （70 files）/tsc 0/build OK 不變。詳見
+  # `work-logs/2026-09/2026-09-27-rng-seeding-determinism.md`。**前一 session
+  # （2026-09-27 第九個 autonomous session（WMOM-20260505-24
   # 完成）** — Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV）：重跑官方
   # 2 小時版 `examples/data_quality_analysis.py` 發現原文兩個 CV 太低項目已不重現
   # （後續 physics 強化間接解決，未改動任何 power curve/individuality 參數），但個體
@@ -564,12 +588,12 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 9  # 8→7（WMOM-20260505-24 完成標 done）→9（code review 過程中新開 2 個小 follow-up：
-            # WMOM-20260927-01 全域未種子化 RNG、WMOM-20260927-02 fetch_scada_data.py 殘留 stale tag）
+  open: 9  # 9→9（WMOM-20260927-01 完成標 done，但 code review 過程中新開
+            # WMOM-20260927-03 全域未種子化 RNG legacy subsystems.py 殘留，抵銷）
   in_progress: 0  # 不變
   blocked: 0
-  done: 138  # 137→138（WMOM-20260505-24 完成，data quality 個體差異 spread 分析方法修正）
-             # total 147（9+0+138=147）
+  done: 139  # 138→139（WMOM-20260927-01 完成：grid/yaw 噪聲改用種子化 RNG 確保模擬結果可重現）
+             # total 148（9+0+139=148）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於

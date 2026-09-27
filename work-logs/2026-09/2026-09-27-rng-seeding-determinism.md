@@ -92,9 +92,75 @@ scratchpad 備份的檔案內容（非 `git checkout`，因為當時未 commit�
 
 ## Review
 
-`code-reviewer` subagent review 進行中（async，結果將於下方補上或另行處理，若
-review 抓到 must-fix/should-fix 會在本節更新後再收尾）。
+`code-reviewer` subagent review：**Approve，0 must-fix，1 should-fix 已採納，
+2 nice-to-have（1 個採納、1 個登記新 follow-up）**：
+
+1. 🟡 **should-fix**：原本選的 farm-level 共用 `GridEnvironmentModel(seed=7)`
+   落在 `add_turbine()` 逐風機 seed 範圍（`1..turbine_count`，預設上限 14）內，
+   跟 `WT007` 的 seed 撞號——雖然實際不影響功能（不同類別各自獨立 `RandomState`
+   不會因為 seed 數值相同就產生相關輸出，reviewer 有明確驗證這點），但違反我在
+   commit 訊息裡自己寫的「比照 seed=42/99 慣例、刻意避開風機 index 範圍」設計
+   意圖，是個 latent foot-gun（之後如果有人依 seed 數值 grep/filter debug，或
+   farm-level seed 機制被擴充，可能誤踩）。已改成具名常數
+   `WindFarmSimulator._GRID_MODEL_SEED = 1042` 並加註解明講「必須落在風機 seed
+   範圍外」的不變量，避免之後 `turbine_count` 長大時再次矇著頭撞號。
+2. 🟢 **nice-to-have（已採納）**：`ISSUES.md` acceptance 原文寫「同一組 seed
+   連續兩次 `generate_data(...)` 產生的 DataFrame 逐欄逐列數值相同」，但
+   `WindFarmSimulator` 根本沒有 `generate_data` 方法（那是
+   `examples/data_quality_analysis.py` 頂層函式，不是 simulator 的方法）——已在
+   ISSUES.md 該行加註更正為實際使用的 `_run_one_step()`，避免以後讀者對著不存在
+   的方法名摸不著頭緒。
+3. 🟢 **nice-to-have（登記新 follow-up，未修）**：`modules/monitoring/
+   subsystems.py` 219/234 行（legacy `WindTurbine`/`main.py` 路徑，非本 issue
+   針對的 `simulator/engine.py`/`TurbinePhysicsModel`）仍有同款未種子化
+   `np.random.normal`。Reviewer 已確認這是完全獨立的 code path（`main.py` 用
+   `WindTurbine`，不被 `WindFarmSimulator` 引用），不在本次驗收範圍——登記
+   **WMOM-20260927-03** 追蹤。
+
+Reviewer 額外針對我在 prompt 裡提出的具體問題給出獨立驗證（非我自己聲稱）：
+- 確認 `test_farm_level_readings_are_byte_reproducible_across_instances`
+  是有意義的測試、修復前必定會 fail（追蹤 `_run_one_step()` 內
+  `grid_model.get_frequency`/`get_voltage` 與 `YawModel._output()` 每步都會
+  被呼叫到，即使 `not is_producing` 的 early-return 分支也會呼叫 `_output()`），
+  不是「反正早就種子化過、這次測試巧合會過」。
+- 確認排除 `recovery` profile 分支是合理的範圍判斷、非隱瞞問題。
+- 全域 grep `modules/monitoring/simulator/` 內所有隨機函式呼叫，確認種子化鏈條
+  在 `_run_one_step()` 觸及的範圍內完整無遺漏。
+- 本次改動不涉及任何 SCADA tag/ECN/Z72 setpoint 語意，純屬可重現性技術債，無
+  windMindOM 領域特定疑慮。
+
+## Verify（should-fix 修復後複驗）
+
+- `test_rng_seeding_determinism.py` 5 測仍全數 pass（`_GRID_MODEL_SEED` 改名
+  不影響任何斷言邏輯，純命名變更）。
+- backend 全套重跑：`pytest modules/workflow/tests/ modules/cost/tests/
+  modules/reporting/tests/ modules/knowledge/tests/ modules/monitoring/tests/
+  modules/auth/tests/ tests/` → **1285 passed**（7 skipped, 1 xfailed，與
+  should-fix 修復前一致，零 regression）。
+- frontend：未改動任何前端檔案，維持 1477 passed（70 files）/ tsc 0 / build OK。
 
 ## Wrap-up
 
-（review 完成後補充：must-fix/should-fix 處理結果、最終測試數字）
+- 本次改動範圍：只動 RNG 來源（`grid_model.py`/`yaw_model.py`/
+  `turbine_physics.py`/`engine.py`），**沒有改動任何物理模型參數或噪聲幅度**
+  （0.01/0.02/0.03 Hz、`nom*0.001` V、0.5 bar brake pressure 數值本身皆不變，
+  只是改變它們的隨機數來源），不影響既有 20/20 物理一致性 check。
+- **未修範圍（誠實揭露）**：
+  1. `GridEnvironmentModel` 的 `recovery` profile 分支依賴 `datetime.now()`
+     真實牆鐘時間，是與本 issue 完全獨立的非決定性來源，未修（可能是刻意設計）。
+  2. `WMOM-20260927-02`（`fetch_scada_data.py` 殘留 stale tag）仍是 open，
+     本次未處理（優先選 -01 而非 -02，見上方 Claim 章節）。
+  3. **新登記 WMOM-20260927-03**（`subsystems.py` legacy 路徑同款未種子化
+     RNG），open，未修。
+- ISSUES.md：`WMOM-20260927-01` → done（含完整 completion summary）；新增
+  `WMOM-20260927-03`（open）；統計表 open 9→9（-01 done、+03 open 互相抵銷）、
+  done 138→139。
+- STATUS.yaml：`last_updated`/`issue_stats`/`test_baseline` 已同步（發現
+  `STATUS.yaml` 本身其實不是合法 YAML——`python -c "import yaml;
+  yaml.safe_load(...)"` 在編輯前就已經 fail，非本次改動造成的 regression，
+  本次未展開處理，純粹記錄供劉老師參考：這個檔案目前是「人類可讀的 Markdown-in-
+  YAML 混合格式」，不能真的被程式化 parse）。
+- TODO.md：已同步本次完成摘要 + 下個 session 建議。
+- 下個 session 可從 `WMOM-20260927-02`/`WMOM-20260927-03`（皆 <30 分鐘小修）、
+  `WMOM-20260505-25~28`（逐一看 priority）、或 M6 critical path 剩餘項（皆需
+  劉老師決策）中挑選。
