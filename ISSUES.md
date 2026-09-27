@@ -4026,7 +4026,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-01 — 全域未種子化 RNG 造成模擬結果非決定性（`grid_model.py`/`yaw_model.py`）
 
-- **Status**: open
+- **Status**: in_progress
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（不影響正確性，只影響「同一組種子重跑應得到 byte-identical 結果」這個
   可重現性保證；目前所有數值仍在合理物理範圍內，只是每次重跑的精確數字會微幅浮動）

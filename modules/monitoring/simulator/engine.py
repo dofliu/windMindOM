@@ -54,7 +54,7 @@ class WindFarmSimulator:
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
                  turbulence_intensity: float = 0.1):
         self.wind_model = WindEnvironmentModel()
-        self.grid_model = GridEnvironmentModel()
+        self.grid_model = GridEnvironmentModel(seed=7)
         self.wind_model.turbulence_intensity = turbulence_intensity
         self.turbines: Dict[str, TurbinePhysicsModel] = {}
         self.latest_data: Dict[str, Dict] = {}

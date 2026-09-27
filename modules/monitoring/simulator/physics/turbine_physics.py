@@ -209,7 +209,7 @@ class TurbinePhysicsModel:
         )
         self.thermal = ThermalSystem()
         self.vibration = VibrationModel(seed=_seed)
-        self.yaw = YawModel()
+        self.yaw = YawModel(seed=_seed)
 
         # Drivetrain model (#28)
         if self.spec.gear_ratio > 1.0:

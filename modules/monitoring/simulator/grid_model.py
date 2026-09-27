@@ -7,9 +7,11 @@ import numpy as np
 class GridEnvironmentModel:
     """Simple grid-side environment model for frequency and voltage events."""
 
-    def __init__(self, frequency_hz: float = 60.0, voltage_v: float = 3500.0):
+    def __init__(self, frequency_hz: float = 60.0, voltage_v: float = 3500.0,
+                 seed: Optional[int] = None):
         self.base_frequency_hz = frequency_hz
         self.base_voltage_v = voltage_v
+        self._rng = np.random.RandomState(seed)
         self._override_frequency: Optional[float] = None
         self._override_voltage: Optional[float] = None
         self._active_profile: Optional[str] = None
@@ -72,10 +74,10 @@ class GridEnvironmentModel:
         if self._active_profile == "recovery" and self._profile_start_time:
             elapsed = (timestamp - self._profile_start_time).total_seconds()
             base = (self.base_frequency_hz - 1.0) + min(1.0, elapsed / 120.0)
-            return base + np.random.normal(0, 0.03)
+            return base + self._rng.normal(0, 0.03)
         if self._override_frequency is not None:
-            return self._override_frequency + np.random.normal(0, 0.02)
-        return self.base_frequency_hz + 0.05 * np.sin(timestamp.timestamp() / 180.0) + np.random.normal(0, 0.01)
+            return self._override_frequency + self._rng.normal(0, 0.02)
+        return self.base_frequency_hz + 0.05 * np.sin(timestamp.timestamp() / 180.0) + self._rng.normal(0, 0.01)
 
     def get_voltage(self, timestamp: datetime) -> float:
         """Compute current grid voltage (V) with profile and noise effects."""
@@ -83,7 +85,7 @@ class GridEnvironmentModel:
         if self._active_profile == "recovery" and self._profile_start_time:
             elapsed = (timestamp - self._profile_start_time).total_seconds()
             base = nom * 0.90 + min(nom * 0.10, elapsed / 120.0 * nom * 0.10)
-            return base + np.random.normal(0, nom * 0.001)
+            return base + self._rng.normal(0, nom * 0.001)
         if self._override_voltage is not None:
-            return self._override_voltage + np.random.normal(0, nom * 0.001)
-        return nom + nom * 0.007 * np.sin(timestamp.timestamp() / 240.0 + 0.5) + np.random.normal(0, nom * 0.001)
+            return self._override_voltage + self._rng.normal(0, nom * 0.001)
+        return nom + nom * 0.007 * np.sin(timestamp.timestamp() / 240.0 + 0.5) + self._rng.normal(0, nom * 0.001)
