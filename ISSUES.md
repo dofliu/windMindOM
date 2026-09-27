@@ -13,13 +13,26 @@
 
 | Status | Count |
 |--------|------|
-| open | 8 |
+| open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 115 |
+| done | 116 |
 | **total** | **125** |
 
-最後更新：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-07 完成（第十六個 autonomous session）—
+`scada_registry.py` 內 `WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植修正**：410/413
+行 `"WCNV"`→`"WCOL"`，dataclass docstring subsystem 列舉補上 `WCOL`/`WDRV`；
+新增 regression test（2 tests，mutation-verify 確認還原後皆 fail）。backend
+1295 passed（baseline 1293 + 新增 2）零 regression、frontend 未動（preflight
+baseline 確認 tsc 0/vitest 1477 passed/build OK）。**code-reviewer subagent
+review：Approve，0 must-fix，1 should-fix 已修復**（20-24 行 subsystem 列舉
+註解一併補上早已缺漏的 `WVIB`/`WLOD`）。**reviewer 額外糾正 issue 原描述的
+誤判**：`modules/monitoring/server/routers/i18n.py` 的
+`GET /api/i18n/tags/registry` 端點會直接回傳 `.subsystem` 欄位給前端，本次
+修正前該 API 對這兩個 tag 實際回傳錯誤的 `"WCNV"`，並非「全庫無呼叫端依賴、
+零行為影響」——本次一併糾正此 API 層級既有錯誤。詳見
+`work-logs/2026-09/2026-09-27-scada-registry-wcol-subsystem-fix.md`。
+**前一 session：2026-09-27（WMOM-20260927-06 完成（第十五個 autonomous session）—
 `docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面
 重新盤點**：獨立重新核對 `scada_registry.py` 全部 14 個 subsystem 的實際 tag
 數量，文件總數 74→109，breakdown table 全數重寫（新增 `WCOL`/`WDRV` 兩個先前
@@ -4387,7 +4400,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-07 — `scada_registry.py` 內 `WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植為 `WCNV`
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（目前全庫無任何呼叫端依賴 `subsystem` 欄位分組，不影響任何
   現有行為）
@@ -4410,6 +4423,29 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Acceptance**:
   - `ScadaRegistry.by_subsystem("WCOL")` 回傳該兩個 tag
   - 現有 `modules/monitoring/tests/` 全數維持 pass（純資料修正，預期零 regression）
+- **Completion（2026-09-27，第十六個 autonomous session）**：
+  `scada_registry.py` 410/413 行 `subsystem` 欄位 `"WCNV"`→`"WCOL"`；dataclass
+  docstring subsystem 列舉補上 `WCOL`、`WDRV`。新增 regression test
+  `modules/monitoring/tests/test_scada_registry_subsystem.py`（2 tests：
+  `SCADA_REGISTRY["WCOL_CoolantLvl"/"WCOL_CoolantAlm"].subsystem == "WCOL"`
+  + `by_subsystem("WCOL")` 正確回傳兩個 tag 且不誤入 `WCNV` 分組）。
+  **mutation-verify**：還原修正後兩個新測試皆 fail（`AssertionError:
+  'WCNV' == 'WCOL'` / `by_subsystem` 回傳空 set），確認測試真的鎖住這個 bug；
+  還原修正後測試皆綠。backend 全套 1295 passed（baseline 1293 + 新增 2），
+  7 skipped、1 xfailed，零 regression；frontend 未動任何檔案，preflight
+  baseline 已確認（tsc 0 error、vitest 1477 passed 70 files、build OK）。
+  **code-reviewer subagent review：Approve，0 must-fix，1 should-fix 已修復**
+  （reviewer 指出 20-24 行 subsystem 列舉註解雖然補了 `WCOL`/`WDRV`，卻仍漏掉
+  同樣早已存在的 `WVIB`/`WLOD`——雖是本次 diff 前就存在的缺漏，但既然這行
+  註解本身就是本次編輯目標，應一次補齊，已修正加入）。
+  **修正 issue 描述的既有誤判**：reviewer 全庫 grep `.subsystem`/`by_subsystem()`
+  用法後發現 `modules/monitoring/server/routers/i18n.py` 的
+  `GET /api/i18n/tags/registry` 端點會逐 tag 讀取 `.subsystem` 欄位直接回傳給
+  前端——這代表修正前該 API 對 `WCOL_CoolantLvl`/`WCOL_CoolantAlm` 兩個 tag
+  會回傳錯誤的 `"WCNV"`，並非本 issue 原描述「全庫無任何呼叫端依賴」那樣完全
+  無影響；本次修正一併糾正了這個 API 回應層級的既有錯誤。
+  **已知限制**：`i18n.py` 端點回傳的 `subsystem` 欄位正確性目前無端對端測試
+  覆蓋（只驗證 `ScadaRegistry` 本身），屬於讀原始碼交叉核對層級的把關。
 
 ---
 

@@ -16,7 +16,25 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-07 完成（第十六個 autonomous session）** —
+`scada_registry.py` 內 `WCOL_CoolantLvl`/`WCOL_CoolantAlm` 兩個 tag 的
+`subsystem` 欄位誤植修正：410/413 行 `"WCNV"`→`"WCOL"`（複製貼上疏漏），
+dataclass docstring subsystem 列舉補上 `WCOL`/`WDRV`。新增 regression test
+`test_scada_registry_subsystem.py`（2 tests），mutation-verify 確認還原修正後
+兩測皆 fail。backend 1295 passed（baseline 1293 + 新增 2）零 regression；
+frontend 未動（preflight baseline 確認 tsc 0/vitest 1477 passed 70 files/
+build OK）。**code-reviewer subagent review：Approve，0 must-fix，1 should-fix
+已修復**（subsystem 列舉註解一併補上早已缺漏的 `WVIB`/`WLOD`）。**reviewer
+額外糾正本 issue 原描述的誤判**：`modules/monitoring/server/routers/i18n.py`
+的 `GET /api/i18n/tags/registry` 端點直接回傳 `.subsystem` 欄位給前端，修正前
+該 API 對這兩個 tag 實際回傳錯誤的 `"WCNV"`，並非「全庫零呼叫端依賴」，本次
+一併糾正此 API 層級既有錯誤。**下個 session**：可從 `WMOM-20260505-25~28`
+（物理強化，皆多日工作）或 M6 critical path 剩餘項（`WMOM-20260509-F6`
+PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）
+中挑選；其餘 open issue（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉
+老師決策/素材，不宜自行開工。詳見
+`work-logs/2026-09/2026-09-27-scada-registry-wcol-subsystem-fix.md`。
+前一 session：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）** —
 `docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面
 重新盤點：獨立重新核對 `scada_registry.py` 全部 14 個 subsystem 的實際 tag
 數量，文件總數 74→109，breakdown table 全數重寫（新增 `WCOL`/`WDRV` 兩個先前
