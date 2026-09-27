@@ -53,21 +53,24 @@ Open in browser: `http://localhost:8100/docs` (Swagger UI)
 
 ## SCADA Tag System
 
-The simulator outputs **74 SCADA tags** per turbine, organized by subsystem:
+The simulator outputs **109 SCADA tags** per turbine, organized by subsystem:
 
 | Subsystem | Tag Count | Description |
 |-----------|-----------|-------------|
 | WTUR | 2 | Turbine state & total power |
 | WGEN | 7 | Generator (power, speed, voltage, current, temps) |
-| WROT | 9 | Rotor / pitch (RPM, blade angles, temps, brake) |
-| WCNV | 16 | Converter (DC voltage, frequency, reactive power, ride-through) |
+| WROT | 10 | Rotor / pitch (RPM, blade angles, temps, brake, imbalance force) |
+| WCNV | 16 | Converter (DC voltage, frequency, reactive power, ride-through, IGCT cooling) |
 | WGDC | 1 | Transformer temperature |
-| WMET | 3 | Meteorological (wind speed, direction, ambient temp) |
+| WMET | 14 | Meteorological (wind speed/direction, humidity, wake effects, turbulence, shear, air density, pressure) |
 | WNAC | 4 | Nacelle (temps, vibration X/Y) |
 | WYAW | 3 | Yaw (alignment error, brake pressure, cable windup) |
-| WVIB | 20 | Vibration spectral (5 bands x 2 directions + crest/kurtosis + 8 alarm thresholds) |
-| WLOD | 7 | Structural load & fatigue (tower/blade moments, DEL, cumulative damage) |
-| WSRV/MBUS | 2 | Service mode, local/remote control |
+| WVIB | 30 | Vibration spectral (5 bands x 2 directions + crest/kurtosis + alarm flags/thresholds + bearing/gear fault frequencies + sidebands) |
+| WLOD | 16 | Structural load & fatigue (tower/blade fore-aft & side-side moments, DEL, cumulative damage, production hours, RUL, alarms) |
+| WCOL | 2 | Coolant level & alarm |
+| WDRV | 2 | Drivetrain (gearbox oil temp, tooth wear index) |
+| WSRV | 1 | Service mode |
+| MBUS | 1 | Local/remote control |
 
 ### Get Tag Registry
 
@@ -154,7 +157,7 @@ Single turbine (e.g., `WT001` to `WT014`).
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001")
 t = r.json()
-scada = t['scadaTags']  # dict of 74 tag_id -> float
+scada = t['scadaTags']  # dict of 109 tag_id -> float
 print(f"Tower load = {scada['WLOD_TwrFaMom']:.1f} kNm")
 ```
 

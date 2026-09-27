@@ -13,13 +13,22 @@
 
 | Status | Count |
 |--------|------|
-| open | 8 |
+| open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 114 |
+| done | 115 |
 | **total** | **124** |
 
-最後更新：2026-09-27（**WMOM-20260927-05 完成（第十四個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）—
+`docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面
+重新盤點**：獨立重新核對 `scada_registry.py` 全部 14 個 subsystem 的實際 tag
+數量，文件總數 74→109，breakdown table 全數重寫（新增 `WCOL`/`WDRV` 兩個先前
+完全遺漏的 subsystem，`WROT`/`WMET`/`WVIB`/`WLOD` 的數字與描述文字皆核實
+更新），另一處第 160 行相同過時數字一併修正。順手清理 `turbine_physics.py`
+內確認永遠打不到的 `WFAT_TwrBs`/`WFAT_BldRt` 死碼分支。純文件修改（+1 處
+死碼移除），backend 1293 passed 零 regression、frontend 未動。詳見
+`work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
+**前一 session：2026-09-27（WMOM-20260927-05 完成（第十四個 autonomous session）—
 `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正**：核對
 `scada_registry.py` 發現現行 schema 實際登記 16 個 `WLOD_*` tag（非簡單 7 對 7
 改名），「Fatigue / Load」參考清單區塊整段換成「Structural Load & Fatigue」列出
@@ -4308,7 +4317,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-06 — `docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面過時
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（純文件正確性，不影響任何程式行為）
 - **Estimate**: 0.5-1 工作天（需逐一重新盤點全部 14 個 subsystem，非簡單改名）
@@ -4338,6 +4347,24 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 文件開頭總數與 breakdown table 每一列數字皆與
     `grep -c 'ScadaTag(' scada_registry.py` + per-subsystem 逐一核對結果一致
   - 現行 registry 存在的全部 subsystem 皆列在 table 內，無遺漏
+- **Completion summary**（2026-09-27，第十五個 autonomous session）：獨立重新
+  執行 `grep -oP 'ScadaTag\("\K[A-Za-z0-9]+(?=_)' scada_registry.py | sort |
+  uniq -c`，確認每項數字與 issue 描述完全吻合（總計 109）。第 56 行總數
+  74→109；第 58-70 行 breakdown table 全數重寫為 14 列（原 11 列，`WSRV`/
+  `MBUS` 從合併一列拆成各自獨立列），補上缺漏的 `WCOL`（coolant level & alarm）/
+  `WDRV`（gearbox oil temp/tooth wear）；`WROT`/`WMET`/`WVIB`/`WLOD` 的描述文字
+  一併核對 `scada_registry.py` 原始定義補齊（非只改數字，例如 `WMET` 原文字只提
+  wind speed/direction/ambient temp，實際還有 humidity/wake effects/
+  turbulence/shear/air density/pressure 等 11 項）。同檔案第 160 行另一處相同
+  過時數字（`# dict of 74 tag_id -> float`）一併修正為 109。**Nice-to-have 一併
+  處理**：`turbine_physics.py:1381-1383` 確認的死碼分支（`WFAT_TwrBs`/
+  `WFAT_BldRt`，registry 從不產生此字首）已移除，全庫 grep 確認無其他引用、
+  `modules/monitoring/tests/` 196 passed 零 regression。**誠實揭露**：純文件
+  修改無自動化測試保護（Markdown 不被 pytest/vitest 解析），死碼移除因原本就
+  無測試覆蓋，同樣無法 mutation-verify，改用全庫 grep 確認不可達的靜態驗證。
+  backend 全套 1293 passed（7 skipped, 1 xfailed，零 regression）；frontend
+  未動任何檔案（preflight baseline 1477 passed/70 files/tsc 0/build OK）。詳見
+  `work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
 
 ---
 

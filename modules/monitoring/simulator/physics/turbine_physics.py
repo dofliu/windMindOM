@@ -1378,9 +1378,6 @@ class TurbinePhysicsModel:
         # Structural load moment tags — small noise, clamped to 0
         if tag.startswith("WLOD_Twr") or tag.startswith("WLOD_Bld"):
             return {"noise": 5.0, "drift": 0.05, "bias_limit": 15.0, "resolution": 0.1, "stuck_prob": 0.00005, "min": 0.0, "max": 50000.0}
-        # Fatigue load tags (legacy WFAT support if needed)
-        if tag.startswith("WFAT_TwrBs") or tag.startswith("WFAT_BldRt"):
-            return {"noise": 2.0, "drift": 0.05, "bias_limit": 8.0, "resolution": 0.1, "stuck_prob": 0.0001, "min": 0.0, "max": 10000.0}
         # Vibration spectral bands — similar to main vibration
         if tag.startswith("WVIB_Band") or tag.startswith("WVIB_Crest") or tag.startswith("WVIB_Kurt"):
             return {"noise": 0.005, "drift": 0.0003, "bias_limit": 0.05, "resolution": 0.001, "stuck_prob": 0.0001, "min": 0.0, "max": 30.0}
