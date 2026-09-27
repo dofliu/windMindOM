@@ -95,8 +95,85 @@ ledger）是 M4 增強，範圍未定義（無明確 deliverable/acceptance）�
 
 ## Review
 
-（待 code-reviewer subagent review 後補上結論）
+`code-reviewer` subagent review：**Approve，0 must-fix**，1 should-fix（登記
+follow-up）、2 nice-to-have（1 個採納、1 個記錄不處理）。
+
+1. 🟡 **should-fix（未修，登記 WMOM-20260927-05）**：`docs/API_GUIDE.md`
+   第 108-114、149、202、278、397 行仍教學使用者查詢不存在的 `WFAT_TwrBsMy`
+   等 7 個 SCADA tag——這是 `scadaTags`（原始 SCADA dict）這個資料面的引用，
+   跟本 issue 修的 `TurbineReading` 扁平化欄位是不同資料面，不在本 issue 範圍
+   內。第 149 行範例程式碼對 `scadaTags` dict 做**直接 key 存取**（非
+   `.get()`），照著文件寫程式的人跑起來會 `KeyError`，比本次修的「靜默回傳
+   `None`」更糟。Reviewer 建議另開 issue 而非塞進本次 diff（會擴大本次已在
+   work-log 界定清楚的驗收範圍）——已採納，登記 `WMOM-20260927-05`。
+2. 🟢 **nice-to-have（已採納）**：`fetch_scada_data.py` 同檔案內範例 1（本次改的
+   第 56/62 行）改成語意正確的 `TwrFa(kNm)` 標籤，但範例 5（`stream_realtime()`
+   第 219 行）沿用舊標籤 `TwrMy=`，兩者底層都是同一個 `WLOD_TwrFaMom` tag 卻標籤
+   不一致——已一併改成 `TwrFa=` 統一用語。
+3. 🟢 **nice-to-have（記錄不處理）**：移除 public API response 欄位理論上有
+   相容性風險（外部客戶端若寫死解析這些 key，即使值恆為 `None`，多的 key 消失
+   仍是行為改變）。目前產品仍在 M5/M6（PoC 前、無正式客戶合約），且已查證所有
+   已知消費端（前端/reporting/cost/workflow/knowledge modules）零依賴，risk
+   可接受，未特別處理（`docs/product/decision_log.md`/`API_GUIDE.md` 皆無
+   changelog 段落可掛，暫以本 work-log + `ISSUES.md` completion summary 作為
+   紀錄）。
+
+Reviewer 額外針對我在 prompt 裡提出的具體問題給出獨立驗證（非我自己聲稱）：
+- 重跑字面 grep（含 word-boundary、大小寫不敏感版本），排除掉 `storage.py`/
+  `export.py`/`TrendChartPanel.tsx`/`test_scenario_persistence.py`/
+  `test_non_finite_guard.py` 等因為含有 `WLOD_DelTwrFa`/`WLOD_DmgBldFlap`
+  等**完全不同**欄位而在寬鬆比對下產生的假陽性命中，確認全庫（含 tests、前端
+  元件、reporting/cost/workflow/knowledge modules）零消費判斷成立。
+- 確認 `scada_registry.py` 零 `WFAT_*` 命中，且進一步追蹤到
+  `turbine_physics.py:878` 確認 `WLOD_TwrFaMom` 真的由
+  `fatigue_out["tower_fa_moment_knm"]` 物理計算賦值（非空殼欄位），
+  `towerFaMoment` 因此是真實會非 `None` 的欄位；並確認已在
+  `frontend/components/TrendChartPanel.tsx:44` 生產環境使用，非孤兒欄位。
+- 沒有發現查證方法遺漏：沒有動態 `obj[fieldName]`、序列化 snapshot 測試、
+  OpenAPI schema 快照測試、E2E 測試依賴這 7 個欄位存在；前端也沒有
+  `Object.keys()`/`Object.entries()` 泛型欄位迭代邏輯會因欄位數量變化受影響。
+- 4 個檔案的 diff 乾淨移除，區塊邊界精準對齊「WFAT 區塊」header comment 到下一
+  section 之間，無語法錯誤、無多餘逗號、無孤兒註解，前後 WVIB/WGDC 區塊完全
+  未受影響。
 
 ## Wrap-up
 
-（待 review 後收尾）
+- 本次改動範圍：`modules/monitoring/server/models.py`（`TurbineReading` 移除 7
+  欄位）、`modules/monitoring/server/data_broker.py`（對應 7 個賦值移除）、
+  `frontend/hooks/useRealtimeData.ts`（interface + passthrough 移除）、
+  `frontend/types.ts`（interface 移除）、`modules/monitoring/examples/
+  fetch_scada_data.py`（範例 1 欄位改用 `towerFaMoment` + 兩處標籤統一為
+  `TwrFa`）。**沒有改動任何物理模型參數或 SCADA tag registry**，純屬 API
+  response 死欄位清理。
+- **未修範圍（誠實揭露）**：
+  1. **新登記 WMOM-20260927-05**（`docs/API_GUIDE.md` 仍教學查詢不存在的
+     `WFAT_*` tag），open，未修——留給下個 session（10-15 分鐘小修，無設計
+     歧義）。
+  2. `simulator/physics/turbine_physics.py:1381-1383` 的 `WFAT_TwrBs`/
+     `WFAT_BldRt` sensor noise config 死分支未動（超出本 issue 範圍，屬物理
+     模型檔案，且已確認永遠不會被觸發，無功能影響）。
+  3. API 相容性 changelog 記錄未做（見 Review 章節第 3 點，判斷 risk 可接受）。
+- **測試覆蓋誠實說明**：本次是「刪除死碼」，沒有新增自動化測試——acceptance
+  「回應不再含有永遠 `None` 的欄位」由 Pydantic model/TS interface 少了這些
+  欄位直接保證，非由測試斷言鎖住。若之後有人不小心把這 7 個欄位加回來，不會有
+  任何測試 fail 去阻擋（這是「刪除死碼」類 issue 的固有限制，非本次疏漏）。
+  `fetch_scada_data.py` 的欄位替換一如既往沒有自動化測試保護（獨立範例，走
+  live server REST，未被任何 pytest 匯入），僅讀原始碼層級驗證（tsc/pytest
+  全綠 + reviewer 追蹤到 `towerFaMoment` 確實有物理賦值），未做執行期驗證。
+- ISSUES.md：`WMOM-20260927-04` → done（含完整 completion summary）；新增
+  `WMOM-20260927-05`（open）；統計表**額外發現並更正**：`grep -c "^### WMOM-"`
+  實際 123 筆，先前寫 147/149（長期 drift，2026-09-26 session 已留下提醒但未
+  展開全面稽核），本次逐項核實更正為 open 8 / in_progress 2 / done 113 /
+  total 123，非本次 issue 造成。
+- STATUS.yaml：`last_updated`/`issue_stats`/`test_baseline` 已同步（`test_baseline`
+  數字本身不變，backend 1293 passed 已是既有 baseline，無需更新該數字）。
+- TODO.md：已同步本次完成摘要 + 下個 session 建議。
+- 下個 session 可從 `WMOM-20260927-05`（10-15 分鐘小修）、`WMOM-20260505-25~28`
+  （逐一看 priority）、或 M6 critical path 剩餘項（皆需劉老師決策）中挑選。
+- **提醒劉老師（沿用 2026-09-23 已留下的同款提醒，至今仍未同步）**：canonical
+  routine 文件 `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停在
+  v3（baseline backend 638 / frontend 59，無「自我測試」/mutation 驗證/降級
+  模式框架），本次 session 開工時實測本次 cron trigger 實際送入的 prompt 已是
+  更新版本（baseline backend 1076/970，含 8-phase 執行流程 + GitHub MCP 降級
+  模式），落差比 2026-09-23 當時記錄的更大——建議找時間把 cron trigger 目前
+  設定同步回這份文件，避免下次有人只看 repo 內文件誤以為還在用舊版 routine。

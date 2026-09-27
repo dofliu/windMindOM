@@ -216,7 +216,7 @@ def stream_realtime(duration_sec=30, turbine_filter="WT001"):
                 print(f"  [{count}] {t['turbineId']} "
                       f"Power={t['powerOutput']:.3f}MW "
                       f"Wind={t['windSpeed']:.1f}m/s "
-                      f"TwrMy={scada.get('WLOD_TwrFaMom', 0):.0f}kNm "
+                      f"TwrFa={scada.get('WLOD_TwrFaMom', 0):.0f}kNm "
                       f"Alarm={scada.get('WVIB_AlarmOverall', 0)}")
     except KeyboardInterrupt:
         print("\n  使用者中斷")
