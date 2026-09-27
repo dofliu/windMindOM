@@ -16,7 +16,38 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260505-24 完成（第九個 autonomous session）** —
+Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV）：重跑官方 2 小時版
+`examples/data_quality_analysis.py` 發現原文兩個 CV 太低項目已不重現（後續 physics
+強化間接解決，未改動任何 power curve/individuality 參數），個體差異 spread 反而重跑
+得到 118%（比原文 36.8% 更嚴重）——深挖後根本原因跟 individuality 參數無關：
+`basic_validation` 測試計畫對 WT001/WT003 注入的故障一旦 severity 超過
+`auto_trip_severity` 便永久 `tripped=True`，`simulator/engine.py` 之後每步都對其
+呼叫 `cmd_emergency_stop()`，導致這兩台機組 2 小時內大部分時間卡在
+emergency/recovery 迴圈（WT001 僅 399/7200 步在發電），「平均功率」被故障期間的
+低產出嚴重污染，是分析腳本的測試方法論問題，不是 individuality 太誇張。修法：新增
+純函式 `compute_healthy_individuality_spread()`，排除本次測試計畫中「曾經」（整台，
+不只當下）被標記故障的機組，只在真正健康機組間比較——spread 落到 13.6%，完全沒有
+改動任何物理模型參數即通過。**附帶修正**：重新產生報告過程中發現 §4（載荷/
+Fatigue）整節悄悄變空——引用的 `WFAT_TwrBsMy` 等 4 個 tag 在目前 schema 已改名為
+`WLOD_TwrFaMom` 等（`if tag in df.columns` guard 靜默跳過，無警訊），一併改名復原
+§4/§5/§6/§8 對應檢查。新增 4 測（純函式，不需跑完整 simulator）皆
+mutation-verified（停用排除邏輯 → 2 測如預期 fail → 已還原確認）。重新產生並
+commit `data_quality_report.txt`：**20/20 全數 pass，0 項待改善**（原 18 pass/3
+fail）。刻意不 commit 同批 `simulated_scada_2h.csv`（`timestamp` 欄位含
+`datetime.now()`，每次重跑整份 36000 列 diff 全不同，純噪音，acceptance 未要求
+同步 CSV）。backend 1274→**1278 passed**（+4，零 regression）；frontend 未動
+1477 passed（70 files）不變、tsc 0、build OK。**誠實揭露/未修範圍**：
+`fault.tripped` 恆真後每步觸發 `cmd_emergency_stop()` 造成機組在 emergency/recovery
+間反覆循環、產電時間暴跌，這本身是否為預期行為（重大故障後應完全停止 restart
+嘗試 vs 持續嘗試）是行為設計決策，非本 issue 範圍，未展開處理，留待劉老師評估是否
+需要另開 issue。**上層摘要表提醒**：`WMOM-20260505-23~28` 群組被籠統標成「學術深度
+非商業 must-have」，但 -24 本文明寫 P0/demo 信任——之後評估這批 issue 建議逐一看
+本文 Priority 欄位，不要只看群組標籤。**下個 session**：可續評估 -25~28 剩餘物理
+強化項目（逐一看本文 priority，不要照群組標籤全部跳過）、或 M6 critical path 剩餘
+項（PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）。
+詳見 `work-logs/2026-09/2026-09-27-individuality-spread-metric-fix.md`。
+前一 session：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）** —
 `ScenarioMountBanner.tsx` component render 測試：`components/ui/` 剩餘 7 支零測試
 primitive 中優先評估的一支（PR C Phase 1 新增，有真正條件邏輯：`error` 決定 `Card`
 tone/是否顯示錯誤說明、`loading && !error` 短路、lang en/zh 切換），先確認

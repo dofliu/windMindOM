@@ -7,99 +7,94 @@ Time span: 2.0 hours
 ## 1. 功率曲線 (Power vs Wind)
   Wind (m/s)      Mean kW      Std kW       Count    CV%     
   -------------------------------------------------------
-  3-5            71.9         31.4         4288     43.7    
-  5-7            272.4        85.5         3236     31.4    
-  7-9            582.7        140.1        9023     24.0    
-  9-11           1003.7       189.0        2044     18.8    
-  11-13           1769.4       173.4        1448     9.8     
-  13-15           1938.7       45.6         3189     2.4     
-  15-20           1957.0       17.0         2384     0.9     
-  20-25           1953.6       14.7         63       0.8     
+  3-5            81.9         30.8         5955     37.6    
+  5-7            219.1        61.5         12056    28.1    
+  7-9            418.3        144.9        661      34.6    
+  9-11           1346.8       262.2        194      19.5    
+  11-13           1742.3       153.7        1206     8.8     
+  13-15           1790.5       116.7        2899     6.5     
+  15-20           1840.1       111.1        2818     6.0     
+  20-25           2008.5       37.6         93       1.9     
 
-  Region 2 slope: 215.8 kW/(m/s)
-  Region 3 slope: 7.2 kW/(m/s)
-  ⚠ Wind 15-20: CV=0.9% 太低，信號可能過於平滑
-  ⚠ Wind 20-25: CV=0.8% 太低，信號可能過於平滑
+  Region 2 slope: 187.1 kW/(m/s)
+  Region 3 slope: 31.7 kW/(m/s)
+  ✓ 功率曲線 shape 合理
 
 ## 2. 溫度響應
-  WGEN_GnStaTmp1            range=22.7~62.7°C  mean=40.7  std=12.3
-  WGEN_GnBrgTmp1            range=22.0~42.4°C  mean=33.3  std=5.8
-  WNAC_NacTmp               range=22.5~29.0°C  mean=26.0  std=1.6
-  WCNV_CnvCabinTmp          range=22.2~43.9°C  mean=31.5  std=6.1
+  WGEN_GnStaTmp1            range=22.0~61.6°C  mean=36.2  std=12.5
+  WGEN_GnBrgTmp1            range=21.4~40.3°C  mean=30.7  std=5.3
+  WNAC_NacTmp               range=21.7~27.1°C  mean=24.5  std=1.3
+  WCNV_CnvCabinTmp          range=21.6~42.7°C  mean=28.6  std=6.0
 
-  Stator temp ~ Power correlation: 0.584
+  Stator temp ~ Power correlation: 0.571
   ✓ 溫度-功率相關性合理（有熱慣性效應）
 
-  WT001 Stator temp change rate: max=1.100°C/step  mean=0.2071°C/step
+  WT001 Stator temp change rate: max=0.900°C/step  mean=0.1995°C/step
   ✓ 溫度變化平滑，熱慣性模型正常
 
 ## 3. 振動頻譜
-  WVIB_Band1pX         range=0.0000~0.4300  mean=0.2308  std=0.0850
-  WVIB_Band3pX         range=0.0000~0.3290  mean=0.2022  std=0.0637
-  WVIB_BandGearX       range=0.0000~0.0400  mean=0.0053  std=0.0079
-  WVIB_BandHfX         range=0.0100~0.4720  mean=0.0922  std=0.0381
-  WVIB_BandBbX         range=0.0000~0.2140  mean=0.1308  std=0.0345
+  WVIB_Band1pX         range=0.0250~1.9930  mean=0.6504  std=0.5375
+  WVIB_Band3pX         range=0.0000~0.3450  mean=0.1700  std=0.0690
+  WVIB_BandGearX       range=0.0000~0.0320  mean=0.0011  std=0.0033
+  WVIB_BandHfX         range=0.0070~0.3450  mean=0.0847  std=0.0363
+  WVIB_BandBbX         range=0.0340~0.2050  mean=0.1170  std=0.0341
 
-  1P band ~ RPM correlation: 0.857
+  1P band ~ RPM correlation: 0.944
   ✓ 1P 頻帶隨轉速變化，物理合理
-  Stopped-state 1P mean: 0.00386 mm/s
+  Stopped-state 1P mean: 0.00918 mm/s
   ✓ 停機時振動很低，合理
 
 ## 4. 載荷 (Fatigue / DEL)
-  WFAT_TwrBsMy         range=51.2~10000.0  mean=5716.9  std=3081.0
-  WFAT_TwrBsMx         range=0.0~252.5  mean=69.1  std=42.9
-  WFAT_BldRtMy         range=0.0~2610.1  mean=1122.1  std=654.1
-  WFAT_BldRtMx         range=26.0~604.9  mean=177.7  std=77.6
+  WLOD_TwrFaMom        range=0.0~18806.1  mean=4528.3  std=3657.8
+  WLOD_TwrSsMom        range=0.0~3704.7  mean=179.6  std=237.3
+  WLOD_BldFlapMom      range=0.0~1820.7  mean=544.5  std=436.7
+  WLOD_BldEdgeMom      range=0.0~578.0  mean=322.6  std=153.0
 
-  Tower My ~ Wind^2 correlation: 0.881
+  Tower My ~ Wind^2 correlation: 0.883
   ✓ 塔基彎矩與風速平方高度相關（推力驅動），物理合理
-  Tower My ~ Power correlation: 0.970
-  Stopped-state Tower My mean: 65.2 kNm
+  Tower My ~ Power correlation: 0.961
+  Stopped-state Tower My mean: 111.7 kNm
   ✓ 停機載荷合理（重力+微風）
 
 ## 5. 故障前後信號變化
 
   [converter_cooling_fault] on WT003 (3600 fault samples)
-    WTUR_TotPwrAt          normal=   1151.49  fault=     25.24  change=  -97.8% ▼
-    WGEN_GnStaTmp1         normal=     46.16  fault=     34.57  change=  -25.1% ▼
-    WVIB_BandHfX           normal=      0.10  fault=      0.00  change=  -95.7% ▼
-    WVIB_Band1pX           normal=      0.26  fault=      0.02  change=  -92.5% ▼
-    WFAT_TwrBsMy           normal=   6982.85  fault=    264.05  change=  -96.2% ▼
-    WFAT_BldRtMy           normal=   1422.92  fault=     51.16  change=  -96.4% ▼
+    WTUR_TotPwrAt          normal=    986.29  fault=     26.70  change=  -97.3% ▼
+    WGEN_GnStaTmp1         normal=     40.26  fault=     33.63  change=  -16.5% ▼
+    WVIB_BandHfX           normal=      0.09  fault=      0.01  change=  -92.0% ▼
+    WVIB_Band1pX           normal=      0.80  fault=      0.03  change=  -96.6% ▼
+    WLOD_TwrFaMom          normal=   6418.73  fault=    272.13  change=  -95.8% ▼
+    WLOD_BldFlapMom        normal=    796.79  fault=     24.92  change=  -96.9% ▼
 
 ## 6. Tag 間物理相關性
 
   應高度相關的 tag 組合：
-    風速 ↔ 功率                   r=+0.965  ✓
-    風速 ↔ 轉速                   r=+0.947  ✓
-    功率 ↔ 轉速                   r=+0.956  ✓
-    1P振動 ↔ 轉速                 r=+0.857  ✓
-    塔基載荷 ↔ 風速                 r=+0.947  ✓
+    風速 ↔ 功率                   r=+0.972  ✓
+    風速 ↔ 轉速                   r=+0.967  ✓
+    功率 ↔ 轉速                   r=+0.979  ✓
+    1P振動 ↔ 轉速                 r=+0.944  ✓
+    塔基載荷 ↔ 風速                 r=+0.925  ✓
 
   不應高度相關的 tag 組合：
-    HF振動 ↔ 風速（除非故障）                     r=+0.591  ✓ 合理
+    HF振動 ↔ 風速（除非故障）                     r=+0.727  ✓ 合理
 
 ## 7. 風機個體差異
-  各風機平均功率: min=736.3  max=1049.3  std=124.2 kW
-  Spread: 36.8%
-  ⚠ 風機間差異太大 (>30%)，可能有異常值
+  各風機平均功率（全部，含本次測試計畫注入故障機組）: min=222.1  max=900.5  std=242.2 kW
+  健康機組（本次未被注入故障，n=3）平均功率: min=537.1  max=616.5  std=43.8 kW
+  Spread（健康機組間）: 13.5%
+  ✓ 風機間存在合理差異
 
 ## 8. 數值品質
   ✓ 無 NaN 值
   ✓ WTUR_TotPwrAt: 全部在合理範圍內
   ✓ WROT_RotSpd: 全部在合理範圍內
   ✓ WGEN_GnStaTmp1: 全部在合理範圍內
-  ✓ WFAT_TwrBsMy: 全部在合理範圍內
+  ✓ WLOD_TwrFaMom: 全部在合理範圍內
   ✓ WVIB_Band1pX: 全部在合理範圍內
 
 ======================================================================
 問題彙整與優先順序
 ======================================================================
 
-通過項目：18 項
-待改善項目：3 項
-
-待改善列表：
-  1. ⚠ Wind 15-20: CV=0.9% 太低，信號可能過於平滑
-  2. ⚠ Wind 20-25: CV=0.8% 太低，信號可能過於平滑
-  3. ⚠ 風機間差異太大 (>30%)，可能有異常值
+通過項目：20 項
+待改善項目：0 項
