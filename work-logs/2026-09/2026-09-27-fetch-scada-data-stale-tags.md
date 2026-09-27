@@ -85,30 +85,46 @@ Backend/frontend 全套自我測試（本次唯一改動的檔案不在任何測
 
 ## Review
 
-本次改動範圍極小（2 行字串替換，純範例腳本、非 production 程式碼路徑，無邏輯
-變更），且已用讀原始碼層級交叉核對過新舊 tag 對應關係的正確性（見 Implement
-章節），評估不需要額外跑 `code-reviewer` subagent review——這類「10 分鐘、
-零邏輯分支、有明確 acceptance」的小修，subagent review 預期不會有新發現，跑一輪
-主要是消耗時間而非提升信心。若劉老師認為仍應照 routine 每次都跑 review，之後
-session 可以補跑。
+`code-reviewer` subagent review（照 routine Phase 6 規定，即使改動極小仍照跑）：
+**Approve，0 must-fix，0 should-fix，1 nice-to-have 已採納**。
+
+Reviewer 獨立重新驗證（非照單全收我提供的背景資訊）：
+1. Tag 對應語意正確性——交叉比對 `scada_registry.py`/`turbine_physics.py`
+   確認 `WLOD_TwrFaMom`/`WLOD_BldFlapMom` 是唯一被 registry 登記且被物理模型
+   實際寫入的對應量；並額外交叉確認
+   `modules/monitoring/examples/simulated_scada_post_migration.csv`/
+   `data_quality_report.txt`（migration 後版本）都已是 `WLOD_*` 欄位，而
+   `_pre_migration_baseline` 版本才含舊版 `WFAT_*`，佐證這是已完成的 schema
+   migration，方向正確。
+2. Diff 語法/邏輯正確性——確認兩處純字串替換無誤、全檔 `WFAT_` 零殘留。
+3. **1 nice-to-have 已採納**：`data_broker.py:189-195` 標註
+   `# ── WFAT — Fatigue / Load Monitoring (Legacy) ──` 的區塊，7 個欄位
+   （`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/`dmgAccum`）皆
+   對應 `WFAT_*` key，因模擬器從未產生這些 key 而永遠回傳 `None`——跟本次修的
+   是同一根因，但影響面更大（API response model，非單純範例腳本），建議登記
+   獨立 follow-up。已登記 **WMOM-20260927-04** 追蹤（未修，因為需要先查證前端/
+   報表是否消費這 7 個欄位才能決定是刪除還是改對應，超出本次 10 分鐘小修範圍）。
 
 ## Wrap-up
 
 - 完成 `WMOM-20260927-02`：`fetch_scada_data.py` 219/305 行 `WFAT_TwrBsMy`/
   `WFAT_BldRtMy` → `WLOD_TwrFaMom`/`WLOD_BldFlapMom`。
-- **範圍外但誠實揭露的發現**：`data_broker.py`/`models.py` 仍保留
-  `scada.get("WFAT_TwrBsMy")`/`scada.get("WFAT_BldRtMy")` 兩行永遠拿 `None`
-  的死碼映射（`twrBsMy`/`bldRtMy` 欄位）——跟這次修的是同一根因（tag 改名沒有
-  全庫同步），但不在本 issue 的 deliverable 範圍內，本次未動、未另開新 issue
-  （影響範圍是回傳給前端的兩個永遠是 `null` 的欄位，非 P0，若前端目前完全沒用到
-  這兩個欄位則影響更小；建議下次有人動 `data_broker.py` 時一併核實是否還要開票）。
+- **範圍外但誠實揭露的發現，已登記追蹤**：`data_broker.py:189-195`「WFAT
+  (Legacy)」區塊 7 個欄位（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/
+  `delBld`/`dmgAccum`）永遠拿 `None` 的死碼映射——跟這次修的是同一根因（tag 改名
+  沒有全庫同步），但影響面更大（API response model，非單純範例腳本）。code
+  review 確認後已登記 **WMOM-20260927-04**（open，未修，需先查證前端/報表是否
+  消費這 7 個欄位才能決定刪除或改對應）。
 - **本次修改沒有自動化測試保護**（見上方 Verify 章節詳細說明）：純讀原始碼層級
-  驗證 + 語法檢查，未做「真的起 server 觀察腳本輸出」的執行期驗證。
-- ISSUES.md：`WMOM-20260927-02` → done（含完整 completion summary）；統計表
-  open 8→7、done 140→141。
+  驗證 + 語法檢查，未做「真的起 server 觀察腳本輸出」的執行期驗證；code-reviewer
+  subagent 已獨立交叉驗證 tag 對應語意正確性（見上方 Review 章節），部分彌補
+  缺乏執行期測試的信心落差。
+- ISSUES.md：`WMOM-20260927-02` → done（含完整 completion summary + review
+  結果）；新增 `WMOM-20260927-04`（open）；統計表 open 8→7→8（-02 done 再
+  +04 open，淨值不變但實質上是新一輪）、done 136→137、total 146→147。
 - STATUS.yaml：`last_updated`/`issue_stats` 已同步。
 - TODO.md：已同步本次完成摘要 + 下個 session 建議。
-- 下個 session 可從 `WMOM-20260505-25~28`（物理強化，逐一看 priority，皆多日
-  工作）、或 M6 critical path 剩餘項（PostgreSQL row-lock 需 docker、HTTPS
-  部署配置需先定部署目標，皆需劉老師決策）中挑選；目前 `ISSUES.md` 已無其他
-  「單 session 可完工、無設計歧義」的 open issue。
+- 下個 session 可從 `WMOM-20260927-04`（`data_broker.py` legacy 欄位查證清理，
+  20-30 分鐘）、`WMOM-20260505-25~28`（物理強化，逐一看 priority，皆多日工作）、
+  或 M6 critical path 剩餘項（PostgreSQL row-lock 需 docker、HTTPS 部署配置需
+  先定部署目標，皆需劉老師決策）中挑選。

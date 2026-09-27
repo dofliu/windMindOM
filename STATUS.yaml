@@ -15,9 +15,13 @@ last_updated: "2026-09-27"  # **2026-09-27 第十二個 autonomous session（WMO
   # pytest 匯入（`grep -rl fetch_scada_data --include=*.py` 除自身外零命中），
   # issue acceptance 要求「對 live server 實際回傳資料執行」需要真的起 server，
   # 超出本次 10 分鐘小修範圍，僅以讀原始碼層級驗證（`ast.parse` 語法檢查 + 對照
-  # 現行 schema 確認 tag 名稱），未做執行期驗證。backend/frontend 皆零改動、零
-  # regression：1293 passed（7 skipped, 1 xfailed）/ 1477 passed（70 files）/
-  # tsc 0 / build OK 全部不變。詳見
+  # 現行 schema 確認 tag 名稱），未做執行期驗證。**code-reviewer subagent
+  # review：Approve，0 must-fix，0 should-fix**（獨立交叉驗證 tag 對應語意正確性
+  # + 全檔零殘留舊 tag），1 nice-to-have 已採納：`data_broker.py:189-195`
+  # 「WFAT (Legacy)」區塊同款 7 個永遠 `None` 的欄位，影響面比範例腳本更大（API
+  # response model），登記 **WMOM-20260927-04** 追蹤，未修。backend/frontend 皆
+  # 零改動、零 regression：1293 passed（7 skipped, 1 xfailed）/ 1477 passed
+  # （70 files）/ tsc 0 / build OK 全部不變。詳見
   # `work-logs/2026-09/2026-09-27-fetch-scada-data-stale-tags.md`。**前一 session
   # （2026-09-27 第十一個 autonomous session（WMOM-20260927-03
   # 完成）** — legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑，非
@@ -632,12 +636,14 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  open: 7  # 8→7（WMOM-20260927-02 完成標 done）
+  open: 8  # 8→7→8（WMOM-20260927-02 完成標 done，code review 後新增
+           # WMOM-20260927-04 追蹤 data_broker.py 同款 legacy 死碼）
   in_progress: 0  # 不變
   blocked: 0
   done: 141  # 140→141（WMOM-20260927-02 完成：fetch_scada_data.py 殘留已死 WFAT_* tag
-             # 引用改成現行 WLOD_* tag，無自動化測試保護的純字串修正）
-             # total 148（7+0+141=148）
+             # 引用改成現行 WLOD_* tag，無自動化測試保護的純字串修正，
+             # code-reviewer subagent review：Approve，0 must-fix，0 should-fix）
+             # total 149（8+0+141=149）
              # ⚠ 附帶發現（2026-09-26）：raw grep `### WMOM-*` + `**Status**` 欄位在
              # ISSUES.md 主文實測只有 114 筆（9 open+3 in_progress+102 done），與這裡/
              # ISSUES.md 頂部統計表的 141/142 對不上——推測歷史上有 issue 只存在於

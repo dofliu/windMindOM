@@ -13,11 +13,11 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
+| open | 8 |
 | in_progress | 2 |
 | blocked | 0 |
 | done | 137 |
-| **total (active)** | **146** |
+| **total (active)** | **147** |
 
 最後更新：2026-09-27（**WMOM-20260927-02 完成（第十二個 autonomous session）—
 `fetch_scada_data.py` 殘留已死 `WFAT_*` tag 引用改成現行 `WLOD_*` tag**：確認
@@ -28,7 +28,10 @@
 該腳本是獨立範例，走 live server REST/WebSocket，未被任何 pytest 匯入，僅以讀
 原始碼層級驗證（語法檢查 + 對照現行 schema），未做執行期驗證（需真的起 server）。
 backend 1293 passed（7 skipped, 1 xfailed）不變；frontend 1477 passed（70 files）/
-tsc 0/build OK 不變，皆零 regression（本次不影響任何 import 路徑）。詳見
+tsc 0/build OK 不變，皆零 regression（本次不影響任何 import 路徑）。
+**code-reviewer subagent review：Approve，0 must-fix，0 should-fix**，1
+nice-to-have 已採納（登記 **WMOM-20260927-04** 追蹤 `data_broker.py` 同款
+「WFAT (Legacy)」區塊 7 個永遠 `None` 的欄位，未修）。詳見
 `work-logs/2026-09/2026-09-27-fetch-scada-data-stale-tags.md`。
 **前一 session：2026-09-27（WMOM-20260927-03 完成，第十一個 autonomous session）—
 legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑）未種子化 RNG 修正**：確認該路徑
@@ -4142,7 +4145,44 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   連線，超出本次 10 分鐘小修的範圍，僅以讀原始碼層級（`ast.parse` 語法檢查 +
   對照 `scada_registry.py`/`data_broker.py` 確認新 tag 名稱正確）驗證，未做執行期
   驗證，人工用 live server 跑一次可以進一步確認。backend/frontend 全套測試零改動、
-  零 regression（本次不影響任何 import 路徑）。
+  零 regression（本次不影響任何 import 路徑）。**code-reviewer subagent
+  review：Approve，0 must-fix，0 should-fix**——獨立重新驗證 tag 對應語意正確性
+  （交叉比對 `simulated_scada_post_migration.csv`/`data_quality_report.txt` 皆已
+  改用 `WLOD_*`，`_pre_migration_baseline` 版本才含舊版 `WFAT_*`，確認這是已完成
+  的 schema migration）+ 確認全檔已無殘留 `WFAT_*` 引用。**1 nice-to-have 已採納**：
+  建議把 `data_broker.py:189-195`（標註「WFAT — Fatigue / Load Monitoring
+  (Legacy)」的區塊）登記為獨立 follow-up——已登記 **WMOM-20260927-04** 追蹤。
+
+---
+
+### WMOM-20260927-04 — `data_broker.py` 「WFAT (Legacy)」區塊 7 個欄位永遠回傳 `None`
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（API response model 多帶 7 個永遠 `None` 的欄位，若前端/報表
+  未消費則無實際影響；若有消費則是隱性資料缺失，需先查證）
+- **Estimate**: 20-30 分鐘（含查證前端/報表是否消費這 7 個欄位）
+- **Source**: WMOM-20260927-02 code review（code-reviewer subagent nice-to-have）
+- **Description**:
+  `modules/monitoring/server/data_broker.py:188-195` 有一段明確標註
+  `# ── WFAT — Fatigue / Load Monitoring (Legacy) ──` 的區塊，把 `twrBsMy`/
+  `twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/`dmgAccum` 共 7 個 response 欄位
+  對應到 `scada.get("WFAT_TwrBsMy")` 等 `WFAT_*` key——但現行 `scada_registry.py`/
+  `turbine_physics.py` 的模擬器從未產生任何 `WFAT_*` tag（只產生 `WLOD_*`，緊接在
+  下方的「WLOD — Structural Load & Fatigue (New Standard)」區塊已正確對應），所以
+  這 7 個 `.get()` 呼叫永遠回傳 `None`。跟 `WMOM-20260927-02`（`fetch_scada_data.py`
+  同款死碼）是同一根因，但這裡影響面更大——是 API response model（`models.py`
+  對應欄位），下游若有 UI/報表實際消費這 7 個欄位會收到隱性資料缺失；如果從一開始
+  就沒人消費，則單純是可清理的遺留欄位。
+- **Deliverable**（二選一，需先查證）：
+  - 若確認前端/報表完全未消費這 7 個欄位：從 `models.py`/`data_broker.py` 移除整段
+    legacy 區塊
+  - 若有消費：改連到正確的 `WLOD_*` 對應（可能需要前端跟著改欄位名稱，需評估
+    break API contract 的影響範圍）
+- **Acceptance**:
+  - 移除或修正後，該 API response 不再含有永遠 `None` 的 legacy 欄位（除非查證後
+    判定為刻意保留的 API 相容欄位，此時應在 `models.py` 加註解明講原因並改回
+    `open` 狀態說明決策）
 
 ---
 
