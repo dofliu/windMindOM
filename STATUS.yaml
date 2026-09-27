@@ -3,7 +3,23 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-27"  # **2026-09-27 第十三個 autonomous session（WMOM-20260927-04
+last_updated: "2026-09-27"  # **2026-09-27 第十四個 autonomous session（WMOM-20260927-05
+  # 完成）** — `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正。核對
+  # `scada_registry.py` 348-398 行發現現行 schema 實際登記 16 個 `WLOD_*` tag（非
+  # 簡單 7 對 7 改名——3 個舊 tag 在現行 schema 已各自拆成 Fore-Aft/Side-Side 與
+  # Flapwise/Edgewise 獨立 tag）；「Fatigue / Load」參考清單區塊整段換成
+  # 「Structural Load & Fatigue」列出全部 16 個現行真實 tag；4 處內嵌範例程式碼
+  # `WFAT_TwrBsMy`→`WLOD_TwrFaMom`（對應 `WMOM-20260927-02`/`-04` 已確認映射）。
+  # backend/frontend 皆未動、零 regression（純文件修改）。**code-reviewer subagent
+  # review（背景非同步，本次 session 收尾提交後才回報）：1 must-fix 已用
+  # follow-up commit 修復**——文件第 69 行 subsystem breakdown table 仍殘留一列
+  # 不存在的 `WFAT` subsystem（緊接在剛修好的段落正下方，會自相矛盾），已改為
+  # `WLOD`；**1 should-fix 已登記新 issue WMOM-20260927-06**（`docs/API_GUIDE.md`
+  # 整張 tag 總數/subsystem breakdown 表與現行 registry 實測 109（非文件寫的 74）
+  # 差距很大，且缺 `WCOL`/`WDRV` 兩個 subsystem，遠超本次改名範圍，需另開 0.5-1
+  # 天 issue 重新盤點）；1 nice-to-have（`turbine_physics.py` 死碼分支）記錄於新
+  # issue。詳見 `work-logs/2026-09/2026-09-27-api-guide-wfat-tag-fix.md`。**前一
+  # session（2026-09-27 第十三個 autonomous session，WMOM-20260927-04
   # 完成）** — `data_broker.py`/`models.py` 「WFAT (Legacy)」區塊 7 個永遠 `None`
   # 欄位（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/`dmgAccum`）
   # 清理。全庫查證確認這 7 個欄位完全未被前端/報表消費（只在 `models.py`/
@@ -656,20 +672,18 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # ⚠ 2026-09-27（第十三個 autonomous session）已依 2026-09-26 session 留下的提醒
-  # 重新稽核：`grep -c "^### WMOM-"` ISSUES.md 主文實測 123 筆，`grep -oP` 逐一比對
-  # **Status** 欄位得 open 8 / in_progress 2 / blocked 0 / done 113，總和 123，與
-  # issue header 數量完全吻合（非上次的「114 對不上 141」推測，這次是逐項算過）。
-  # 下方數字改成這次核實的準確值，取代先前沿用多個 session 的 delta-only 累計
-  # （該累計法在 -04 完成本身之外，還額外把 -05 新登記算進 open，兩者互相抵銷，
-  # 但底數本身已與實際脫節多時）。
-  open: 8  # 含新登記 WMOM-20260927-05（docs/API_GUIDE.md 同款 WFAT_* 引用）
+  # 2026-09-27（第十四個 autonomous session）WMOM-20260927-05 完成 +
+  # code-reviewer subagent review（背景，收尾後回報）must-fix 已修復、
+  # should-fix 登記新 issue WMOM-20260927-06，delta-only 更新自上次核實過的
+  # 準確底數（open 8/in_progress 2/done 113/total 123）。
+  open: 8  # -1（WMOM-20260927-05 done）+1（新登記 WMOM-20260927-06：
+           # docs/API_GUIDE.md tag 總數/subsystem breakdown 全面過時）
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 113  # 113（WMOM-20260927-04 完成：data_broker.py/models.py WFAT legacy
-             # 欄位清理，code-reviewer subagent review：Approve，0 must-fix）
-             # total 123（8+2+113=123，已核實與 ISSUES.md `### WMOM-` header 數一致）
+  done: 114  # +1（WMOM-20260927-05：docs/API_GUIDE.md WFAT_* tag 修正，
+             # code-reviewer subagent review：1 must-fix 已修復）
+             # total 124（8+2+114=124，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine
