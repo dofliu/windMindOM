@@ -62,11 +62,11 @@ The simulator outputs **109 SCADA tags** per turbine, organized by subsystem:
 | WROT | 10 | Rotor / pitch (RPM, blade angles, temps, brake, imbalance force) |
 | WCNV | 16 | Converter (DC voltage, frequency, reactive power, ride-through, IGCT cooling) |
 | WGDC | 1 | Transformer temperature |
-| WMET | 14 | Meteorological (wind speed/direction, humidity, wake effects, turbulence, shear, air density, pressure) |
+| WMET | 14 | Meteorological (wind speed/direction, ambient temp, humidity, wake effects, turbulence, shear, atmospheric stability, air density, pressure, raw anemometer reading) |
 | WNAC | 4 | Nacelle (temps, vibration X/Y) |
 | WYAW | 3 | Yaw (alignment error, brake pressure, cable windup) |
 | WVIB | 30 | Vibration spectral (5 bands x 2 directions + crest/kurtosis + alarm flags/thresholds + bearing/gear fault frequencies + sidebands) |
-| WLOD | 16 | Structural load & fatigue (tower/blade fore-aft & side-side moments, DEL, cumulative damage, production hours, RUL, alarms) |
+| WLOD | 16 | Structural load & fatigue (tower fore-aft/side-side & blade flapwise/edgewise moments, DEL, cumulative damage, production hours, RUL, alarms) |
 | WCOL | 2 | Coolant level & alarm |
 | WDRV | 2 | Drivetrain (gearbox oil temp, tooth wear index) |
 | WSRV | 1 | Service mode |

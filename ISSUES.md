@@ -13,11 +13,11 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
+| open | 8 |
 | in_progress | 2 |
 | blocked | 0 |
 | done | 115 |
-| **total** | **124** |
+| **total** | **125** |
 
 最後更新：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）—
 `docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面
@@ -26,7 +26,12 @@
 完全遺漏的 subsystem，`WROT`/`WMET`/`WVIB`/`WLOD` 的數字與描述文字皆核實
 更新），另一處第 160 行相同過時數字一併修正。順手清理 `turbine_physics.py`
 內確認永遠打不到的 `WFAT_TwrBs`/`WFAT_BldRt` 死碼分支。純文件修改（+1 處
-死碼移除），backend 1293 passed 零 regression、frontend 未動。詳見
+死碼移除），backend 1293 passed 零 regression、frontend 未動。
+**code-reviewer subagent review：Approve，0 must-fix，1 should-fix 已修復
+（`WMET` 描述文字漏了仍存在的 ambient temp/atmospheric stability/raw
+anemometer reading）、2 nice-to-have（1 已採納：`WLOD` tower/blade 力矩用語
+拆開；1 已登記新 issue **WMOM-20260927-07**：`scada_registry.py` 內
+`WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植為 `WCNV`）**。詳見
 `work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
 **前一 session：2026-09-27（WMOM-20260927-05 完成（第十四個 autonomous session）—
 `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正**：核對
@@ -4363,8 +4368,48 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   修改無自動化測試保護（Markdown 不被 pytest/vitest 解析），死碼移除因原本就
   無測試覆蓋，同樣無法 mutation-verify，改用全庫 grep 確認不可達的靜態驗證。
   backend 全套 1293 passed（7 skipped, 1 xfailed，零 regression）；frontend
-  未動任何檔案（preflight baseline 1477 passed/70 files/tsc 0/build OK）。詳見
-  `work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
+  未動任何檔案（preflight baseline 1477 passed/70 files/tsc 0/build OK）。
+  **code-reviewer subagent review：Approve，0 must-fix，1 should-fix 已修復，
+  2 nice-to-have（1 已採納、1 已登記新 issue）**：①🟡 should-fix：reviewer
+  獨立核對 registry 後發現 `WMET` 描述文字漏了仍存在的 `WMET_TmpOutside`
+  （ambient temp）、`WMET_AtmStab`、`WMET_WSpeedRaw`，且與 work-log 自述「已
+  補齊」不符——已修正描述文字補回這三項；②🟢 nice-to-have（已採納）：`WLOD`
+  描述文字把 tower 的 fore-aft/side-side 與 blade 的 flapwise/edgewise 混用
+  同一組形容詞，風電領域用語不精確——已拆開為「tower fore-aft/side-side &
+  blade flapwise/edgewise moments」；③🟢 nice-to-have（已登記新 issue）：
+  reviewer 額外發現 `scada_registry.py` 410-414 行 `WCOL_*` 兩個 tag 的
+  `subsystem` 欄位誤植為 `WCNV`（應為 `WCOL`），超出本次純文件 diff 範圍，
+  已登記 **WMOM-20260927-07**（open，未修）。應用 should-fix/nice-to-have
+  修正後未變動任何測試涵蓋的邏輯（純文件文字），無需重跑 backend/frontend。
+  詳見 `work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
+
+---
+
+### WMOM-20260927-07 — `scada_registry.py` 內 `WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植為 `WCNV`
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（目前全庫無任何呼叫端依賴 `subsystem` 欄位分組，不影響任何
+  現有行為）
+- **Estimate**: 10-15 分鐘
+- **Source**: WMOM-20260927-06 code review（code-reviewer subagent
+  nice-to-have，審查文件時額外發現的 registry 既有 bug，非本次 diff 範圍）
+- **Description**:
+  `modules/monitoring/simulator/physics/scada_registry.py` 410-414 行
+  `WCOL_CoolantLvl`/`WCOL_CoolantAlm` 兩個 `ScadaTag(...)` 定義的第三個
+  positional 參數（`subsystem` 欄位）誤寫成 `"WCNV"`，而非 `"WCOL"`——對照
+  429-433 行 `WDRV_*` 兩個 tag 正確寫成 `"WDRV"` 可看出這是複製貼上時的疏漏。
+  `ScadaTag` dataclass docstring（20-24 行）的 subsystem 列舉註解也還沒補上
+  `WCOL`/`WDRV` 兩個現行存在的 subsystem。
+  影響：`ScadaRegistry.by_subsystem("WCOL")` 目前會回傳空 list（因為底層是以
+  `subsystem` 欄位分組，不是以 tag id 字首分組），但全庫目前沒有任何程式呼叫
+  `by_subsystem()`，故不影響任何現有行為。
+- **Deliverable**:
+  - `scada_registry.py` 410/413 行 `subsystem` 欄位改為 `"WCOL"`
+  - dataclass docstring（20-24 行附近）subsystem 列舉補上 `WCOL`、`WDRV`
+- **Acceptance**:
+  - `ScadaRegistry.by_subsystem("WCOL")` 回傳該兩個 tag
+  - 現有 `modules/monitoring/tests/` 全數維持 pass（純資料修正，預期零 regression）
 
 ---
 

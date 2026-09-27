@@ -13,7 +13,11 @@ last_updated: "2026-09-27"  # **2026-09-27 第十五個 autonomous session（WMO
   # 順手清理 `turbine_physics.py` 內確認永遠打不到的 `WFAT_TwrBs`/
   # `WFAT_BldRt` 死碼分支（全庫 grep 確認無其他引用，`modules/monitoring/
   # tests/` 196 passed 零 regression）。純文件修改 + 1 處死碼移除，backend
-  # 1293 passed（7 skipped, 1 xfailed）零 regression、frontend 未動。詳見
+  # 1293 passed（7 skipped, 1 xfailed）零 regression、frontend 未動。
+  # **code-reviewer subagent review：Approve，0 must-fix，1 should-fix 已修復
+  # （WMET 描述漏了 ambient temp 等既有 tag）、2 nice-to-have（1 已採納：WLOD
+  # tower/blade 力矩用語拆開；1 已登記新 issue WMOM-20260927-07：
+  # scada_registry.py WCOL_* subsystem 欄位誤植為 WCNV）**。詳見
   # `work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。**前一
   # session（2026-09-27 第十四個 autonomous session，WMOM-20260927-05
   # 完成）** — `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正。核對
@@ -684,16 +688,18 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-27（第十五個 autonomous session）WMOM-20260927-06 完成，
-  # delta-only 更新自上次核實過的準確底數（open 8/in_progress 2/done 114/
-  # total 124）。
-  open: 7  # -1（WMOM-20260927-06 done，本次未新登記 issue）
+  # 2026-09-27（第十五個 autonomous session）WMOM-20260927-06 完成 +
+  # code-reviewer subagent review 登記新 issue WMOM-20260927-07，delta-only
+  # 更新自上次核實過的準確底數（open 8/in_progress 2/done 114/total 124）。
+  open: 8  # -1（WMOM-20260927-06 done）+1（新登記 WMOM-20260927-07：
+           # scada_registry.py WCOL_* subsystem 欄位誤植為 WCNV）
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
   done: 115  # +1（WMOM-20260927-06：docs/API_GUIDE.md SCADA tag 總數/
-             # subsystem breakdown 全面重新盤點 + turbine_physics.py 死碼清理）
-             # total 124（7+2+115=124，與 ISSUES.md `### WMOM-` header 數一致）
+             # subsystem breakdown 全面重新盤點 + turbine_physics.py 死碼清理，
+             # code-reviewer subagent review：1 should-fix 已修復）
+             # total 125（8+2+115=125，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine

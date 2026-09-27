@@ -88,7 +88,50 @@ tag.startswith("WFAT_BldRt")` 分支：`grep -rn "WFAT_TwrBs\|WFAT_BldRt"` 全�
 
 ## Review
 
-`code-reviewer` subagent review 進行中（背景執行）。
+`code-reviewer` subagent review：**Approve，0 must-fix，1 should-fix 已修復，
+2 nice-to-have（1 已採納、1 已登記新 issue）**：
+
+1. 🟡 **should-fix（已修復）**：reviewer 獨立核對 `scada_registry.py` 後發現
+   我第一輪寫的 `WMET` 描述文字「Meteorological (wind speed/direction,
+   humidity, wake effects, turbulence, shear, air density, pressure)」完全
+   沒提到 `WMET_TmpOutside`（ambient temp）——這個 tag 明明還在 registry 裡，
+   舊版文件（3 tags 時代）也明確寫過「ambient temp」，我這次改寫反而把它漏掉；
+   同時也漏了 `WMET_AtmStab`（atmospheric stability）與 `WMET_WSpeedRaw`
+   （raw anemometer reading）。更嚴重的是這與我在本 work-log「Implement」章節
+   寫的「描述文字一併補齊...humidity/wake effects/turbulence/shear/air
+   density/pressure 等 11 項」自相矛盾——我自己數的 11 項描述文字裡根本沒有
+   ambient temp，等於自己的交接紀錄跟最終文件內容對不上。已修正為
+   「Meteorological (wind speed/direction, ambient temp, humidity, wake
+   effects, turbulence, shear, atmospheric stability, air density, pressure,
+   raw anemometer reading)」，涵蓋全部 14 個 WMET tag 的語意分類。
+2. 🟢 **nice-to-have（已採納）**：`WLOD` 描述文字「tower/blade fore-aft &
+   side-side moments」把 tower 與 blade 的力矩慣用語混在同一組形容詞下，但
+   blade 沒有 side-side，只有 flapwise/edgewise（對應 `WLOD_BldFlapMom`/
+   `WLOD_BldEdgeMom`）——已拆開為「tower fore-aft/side-side & blade
+   flapwise/edgewise moments」，用語更精確。
+3. 🟢 **nice-to-have（已登記新 issue，未修）**：reviewer 額外發現（超出本次
+   純文件 diff 範圍）`scada_registry.py` 410-414 行 `WCOL_CoolantLvl`/
+   `WCOL_CoolantAlm` 兩個 tag 的 `subsystem` 欄位（dataclass 第三個 positional
+   參數）誤寫成 `"WCNV"` 而非 `"WCOL"`（對照 429-433 行 `WDRV_*` 正確寫法可見
+   複製貼上疏漏）；`ScadaTag` docstring 的 subsystem 列舉註解也未列出
+   `WCOL`/`WDRV`。目前全庫沒有任何呼叫端使用 `by_subsystem()` 分組，不影響
+   任何現有行為，但屬於 registry 資料本身的不一致——已登記
+   **WMOM-20260927-07**（open，10-15 分鐘，未修，與本次文件 diff 無關不展開）。
+
+Reviewer 也獨立重新驗證了我的核心聲稱（非照單全收）：
+- 獨立重跑 `grep -oP 'ScadaTag\("\K[A-Za-z0-9]+(?=_)' | sort | uniq -c`，
+  確認新 table 每一項數字（含 WCOL/WDRV 新增列、WSRV/MBUS 拆分）與 109 總數
+  完全吻合，14 個 subsystem 無遺漏無多餘。
+- 全庫重新 `grep -rn "WFAT_"` 確認唯二殘留只在歷史範例/報告檔案（非程式碼
+  路徑），佐證死碼移除前的「無其他引用」判斷正確。
+- 完整讀過 `_apply_sensor_model`/`_get_sensor_config` 呼叫鏈，確認
+  `_get_sensor_config` 只會被呼叫到 registry 實際產生的 tag，`WFAT_*` 分支
+  確實不可達；獨立重跑 `modules/monitoring/tests/` 196 passed 交叉確認。
+- 逐一核對 `WGDC`/`WNAC`/`WYAW`/`WCNV` 的計數與描述文字（含 `WCNV_RtBand`
+  對應 "ride-through" 用語）皆正確。
+
+Should-fix/nice-to-have 修正後**未重跑 backend/frontend**：純文件文字調整，
+未涉及任何被測試涵蓋的邏輯（`docs/API_GUIDE.md` 不在任何 import 路徑內）。
 
 ## Wrap-up
 
@@ -97,17 +140,26 @@ tag.startswith("WFAT_BldRt")` 分支：`grep -rn "WFAT_TwrBs\|WFAT_BldRt"` 全�
   兩個先前完全遺漏的 subsystem；同檔案第 160 行行內註解過時數字一併修正。
   順手清理 `turbine_physics.py` 內確認永遠打不到的 `WFAT_TwrBs`/`WFAT_BldRt`
   死碼分支（issue 描述的 nice-to-have，非必要但同批處理成本低）。
+  code review 應用 should-fix 修正後，`WMET` 描述文字補回 ambient temp/
+  atmospheric stability/raw anemometer reading，`WLOD` 描述文字拆開 tower/
+  blade 力矩用語。
 - **已知限制**：純文件修改無自動化測試保護；死碼移除因原本就無測試覆蓋，
   同樣無法 mutation-verify，改用「全庫 grep 確認不可達」的靜態驗證取代。
-- ISSUES.md：`WMOM-20260927-06` → done（待補 completion summary，見下方 code
-  review 結果後更新）；統計表同步。
-- STATUS.yaml：`last_updated`/`issue_stats` 待同步。
-- TODO.md：待同步本次完成摘要。
-- 下個 session 可從 `WMOM-20260505-25~28`（物理強化，逐一看 priority，皆多日
-  工作）或 M6 critical path 剩餘項（`WMOM-20260509-F6` PostgreSQL row-lock 需
-  docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）中挑選；其餘 open
-  issue（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師決策/素材，
-  不宜自行開工。
+- **本 session 額外發現並登記新 issue**：`scada_registry.py` 內 `WCOL_*`
+  兩個 tag 的 `subsystem` 欄位誤植為 `WCNV`（code-reviewer subagent 審查文件
+  時額外發現，非本次 diff 範圍），開 **WMOM-20260927-07**（open，10-15
+  分鐘，未修）。
+- ISSUES.md：`WMOM-20260927-06` → done（含完整 completion summary，含 review
+  結果）；新增 `WMOM-20260927-07`（open）；統計表 open 7→8（+07 open）、
+  done 114→115、total 124→125。
+- STATUS.yaml：`last_updated`/`issue_stats` 已同步。
+- TODO.md：已同步本次完成摘要 + 下個 session 建議。
+- 下個 session 可從 `WMOM-20260927-07`（`scada_registry.py` subsystem 欄位
+  修正，10-15 分鐘）、`WMOM-20260505-25~28`（物理強化，逐一看 priority，皆
+  多日工作）或 M6 critical path 剩餘項（`WMOM-20260509-F6` PostgreSQL
+  row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）中挑選；
+  其餘 open issue（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師
+  決策/素材，不宜自行開工。
   ⚠ `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停留 v3（已連續
   多個 session 提醒），建議劉老師找時間同步 cron trigger 設定內文（v4.1，即
   本次實際收到的 prompt）回 repo。
