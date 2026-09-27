@@ -4157,7 +4157,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-04 — `data_broker.py` 「WFAT (Legacy)」區塊 7 個欄位永遠回傳 `None`
 
-- **Status**: open
+- **Status**: in_progress
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（API response model 多帶 7 個永遠 `None` 的欄位，若前端/報表
   未消費則無實際影響；若有消費則是隱性資料缺失，需先查證）

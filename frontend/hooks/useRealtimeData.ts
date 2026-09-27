@@ -86,14 +86,6 @@ export interface ApiTurbineReading {
   vibAlarmOverall?: number;
   vibThresh1pWarn?: number;
   vibThresh1pAlrm?: number;
-  // Fatigue / load monitoring (Legacy Standard)
-  twrBsMy?: number;
-  twrBsMx?: number;
-  bldRtMy?: number;
-  bldRtMx?: number;
-  delTwr?: number;
-  delBld?: number;
-  dmgAccum?: number;
   // Structural load & fatigue (New Cloud Standard)
   towerFaMoment?: number;
   towerSsMoment?: number;
@@ -206,14 +198,6 @@ export function apiToTurbineData(api: ApiTurbineReading, index: number): Turbine
     vibAlarmOverall: api.vibAlarmOverall,
     vibThresh1pWarn: api.vibThresh1pWarn,
     vibThresh1pAlrm: api.vibThresh1pAlrm,
-    // Fatigue / load monitoring (Legacy)
-    twrBsMy: api.twrBsMy,
-    twrBsMx: api.twrBsMx,
-    bldRtMy: api.bldRtMy,
-    bldRtMx: api.bldRtMx,
-    delTwr: api.delTwr,
-    delBld: api.delBld,
-    dmgAccum: api.dmgAccum,
     // Structural load & fatigue (New Standard)
     towerFaMoment: api.towerFaMoment,
     towerSsMoment: api.towerSsMoment,

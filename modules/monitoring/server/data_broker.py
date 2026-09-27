@@ -185,15 +185,6 @@ def _sim_output_to_reading(output: Dict, history_points: Optional[List[Dict]] = 
         vibThresh1pWarn=scada.get("WVIB_Thresh1pWarn"),
         vibThresh1pAlrm=scada.get("WVIB_Thresh1pAlrm"),
 
-        # ── WFAT — Fatigue / Load Monitoring (Legacy) ──
-        twrBsMy=scada.get("WFAT_TwrBsMy"),
-        twrBsMx=scada.get("WFAT_TwrBsMx"),
-        bldRtMy=scada.get("WFAT_BldRtMy"),
-        bldRtMx=scada.get("WFAT_BldRtMx"),
-        delTwr=scada.get("WFAT_DELTwr"),
-        delBld=scada.get("WFAT_DELBld"),
-        dmgAccum=scada.get("WFAT_DmgAccum"),
-
         # ── WLOD — Structural Load & Fatigue (New Standard) ──
         towerFaMoment=scada.get("WLOD_TwrFaMom"),
         towerSsMoment=scada.get("WLOD_TwrSsMom"),
