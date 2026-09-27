@@ -16,7 +16,27 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-02 完成（第十二個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-04 完成（第十三個 autonomous session）** —
+`data_broker.py`/`models.py` 「WFAT (Legacy)」區塊 7 個永遠 `None` 欄位
+（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/`dmgAccum`）清理：
+全庫查證確認完全未被前端/報表消費後，從 `models.py`/`data_broker.py`/
+`frontend/hooks/useRealtimeData.ts`/`frontend/types.ts` 四處整組移除；順手修正
+`fetch_scada_data.py` 範例 1 改讀實際有值的 `towerFaMoment`。backend 1293
+passed（零 regression）；frontend tsc 0/vitest 1477 passed（70 files）/build
+OK（零 regression）。**code-reviewer subagent review：Approve，0 must-fix**，
+1 should-fix 登記 **WMOM-20260927-05** 追蹤（`docs/API_GUIDE.md` 仍教學查詢
+不存在的 `WFAT_*` tag，範圍外未修），2 nice-to-have（標籤一致性已採納；API
+相容性記錄）。**本 session 額外發現並更正**：`ISSUES.md`/`STATUS.yaml` 的
+issue 統計數字長期與實際脫節（`grep -c "^### WMOM-"` 實際 123 筆，先前寫
+147/149），已核實更正為準確數字（open 8 / in_progress 2 / done 113 /
+total 123）。**下個 session**：可續評估 `WMOM-20260927-05`
+（`docs/API_GUIDE.md` stale tag，10-15 分鐘小修）、`WMOM-20260505-25~28`
+（物理強化，皆多日工作）、或 M6 critical path 剩餘項（PostgreSQL row-lock 需
+docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）；其餘 open issue
+（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師決策/素材，不宜自行
+開工。詳見
+`work-logs/2026-09/2026-09-27-data-broker-wfat-legacy-cleanup.md`。
+**前一 session：2026-09-27（WMOM-20260927-02 完成，第十二個 autonomous session）** —
 `fetch_scada_data.py` 殘留已死 `WFAT_TwrBsMy`/`WFAT_BldRtMy` tag 引用改成現行
 `WLOD_TwrFaMom`/`WLOD_BldFlapMom`（第 219、305 行）：確認 `scada_registry.py`/
 `turbine_physics.py` 現行 schema 只實際產生 `WLOD_*` tag（`WFAT_*` 只是 sensor

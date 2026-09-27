@@ -53,13 +53,13 @@ def fetch_realtime_snapshot():
     turbines = r.json()
 
     print(f"共 {len(turbines)} 台風機\n")
-    print(f"{'ID':<8} {'Status':<12} {'Power(MW)':<12} {'Wind(m/s)':<12} {'RPM':<8} {'TwrMy(kNm)':<12} {'AlarmLv':<8}")
+    print(f"{'ID':<8} {'Status':<12} {'Power(MW)':<12} {'Wind(m/s)':<12} {'RPM':<8} {'TwrFa(kNm)':<12} {'AlarmLv':<8}")
     print("-" * 72)
 
     for t in turbines:
         print(f"{t['turbineId']:<8} {t['status']:<12} {t['powerOutput']:<12.3f} "
               f"{t['windSpeed']:<12.2f} {t['rotorSpeed']:<8.1f} "
-              f"{t.get('twrBsMy', 0):<12.1f} {t.get('vibAlarmOverall', 0):<8}")
+              f"{t.get('towerFaMoment', 0):<12.1f} {t.get('vibAlarmOverall', 0):<8}")
 
     return turbines
 
@@ -216,7 +216,7 @@ def stream_realtime(duration_sec=30, turbine_filter="WT001"):
                 print(f"  [{count}] {t['turbineId']} "
                       f"Power={t['powerOutput']:.3f}MW "
                       f"Wind={t['windSpeed']:.1f}m/s "
-                      f"TwrMy={scada.get('WLOD_TwrFaMom', 0):.0f}kNm "
+                      f"TwrFa={scada.get('WLOD_TwrFaMom', 0):.0f}kNm "
                       f"Alarm={scada.get('WVIB_AlarmOverall', 0)}")
     except KeyboardInterrupt:
         print("\n  使用者中斷")

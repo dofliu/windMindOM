@@ -16,10 +16,25 @@
 | open | 8 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 137 |
-| **total (active)** | **147** |
+| done | 113 |
+| **total** | **123** |
 
-最後更新：2026-09-27（**WMOM-20260927-02 完成（第十二個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-04 完成（第十三個 autonomous session）—
+`data_broker.py` 「WFAT (Legacy)」區塊 7 個永遠 `None` 欄位清理**：查證全庫確認
+這 7 個欄位（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/`delBld`/
+`dmgAccum`）完全未被前端/報表消費後，從 `models.py`/`data_broker.py`/
+`frontend/hooks/useRealtimeData.ts`/`frontend/types.ts` 四處整組移除；順手修正
+`fetch_scada_data.py` 範例 1 改讀實際有值的 `towerFaMoment`。backend 1293
+passed（零 regression，純刪除死碼未新增測試）；frontend tsc 0/vitest 1477
+passed（70 files）/build OK（零 regression）。**code-reviewer subagent
+review：Approve，0 must-fix**，1 should-fix 登記 **WMOM-20260927-05** 追蹤
+（`docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` tag，範圍外未修），2
+nice-to-have（同檔案標籤一致性已採納；API 相容性記錄）。**本 session 額外發現**：
+本檔頂部統計表長期與實際 issue 數量脫節（`grep -c "^### WMOM-"` 實際 123 筆，
+表格先前寫 147/149），已一併更正為準確數字（open 8 / in_progress 2 / done 113 /
+total 123），非本次 issue 造成，純粹順手修正發現的既有 drift。詳見
+`work-logs/2026-09/2026-09-27-data-broker-wfat-legacy-cleanup.md`。
+**前一 session：2026-09-27（WMOM-20260927-02 完成，第十二個 autonomous session）—
 `fetch_scada_data.py` 殘留已死 `WFAT_*` tag 引用改成現行 `WLOD_*` tag**：確認
 `scada_registry.py`/`turbine_physics.py` 現行 schema 只實際產生 `WLOD_TwrFaMom`/
 `WLOD_BldFlapMom`（`WFAT_TwrBsMy`/`WFAT_BldRtMy` 只是 sensor noise config 裡的
@@ -4157,7 +4172,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-04 — `data_broker.py` 「WFAT (Legacy)」區塊 7 個欄位永遠回傳 `None`
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（API response model 多帶 7 個永遠 `None` 的欄位，若前端/報表
   未消費則無實際影響；若有消費則是隱性資料缺失，需先查證）
@@ -4183,6 +4198,64 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 移除或修正後，該 API response 不再含有永遠 `None` 的 legacy 欄位（除非查證後
     判定為刻意保留的 API 相容欄位，此時應在 `models.py` 加註解明講原因並改回
     `open` 狀態說明決策）
+- **Completion summary（2026-09-27，第十三個 autonomous session）**：查證全庫
+  `grep -rn` 這 7 個欄位名（`twrBsMy`/`twrBsMx`/`bldRtMy`/`bldRtMx`/`delTwr`/
+  `delBld`/`dmgAccum`，排除 tests/node_modules）只出現在 5 個檔案（`models.py`/
+  `data_broker.py`/`frontend/hooks/useRealtimeData.ts`/`frontend/types.ts`/
+  `modules/monitoring/examples/fetch_scada_data.py`），且前端 UI 元件（排除
+  `useRealtimeData.ts`/`types.ts` 本身的 interface 定義與 passthrough）零讀取，
+  reporting/cost/workflow/knowledge modules 與所有測試零命中——確認完全未被消費，
+  走「移除整段 legacy 區塊」路徑：`models.py`（`TurbineReading`）、
+  `data_broker.py`、`frontend/hooks/useRealtimeData.ts`（interface +
+  `apiToTurbineData()` passthrough）、`frontend/types.ts`（`TurbineData`）四處
+  整組移除這 7 個欄位。順手修正 `fetch_scada_data.py` 範例 1（第 56/62 行）改讀
+  實際會產生非零值的 `towerFaMoment`（`WLOD_TwrFaMom`）取代永遠是 0 的
+  `twrBsMy`，欄位標題同步改 `TwrFa(kNm)`。**刻意不動**
+  `simulator/physics/turbine_physics.py:1381-1383` 的 `WFAT_TwrBs`/`WFAT_BldRt`
+  sensor noise config 死分支（屬物理模型檔案，超出本 issue「API response 欄位」
+  範圍）。backend 1293 passed（零 regression，本次純刪除死碼未新增測試——
+  acceptance「回應不再含有永遠 None 欄位」由型別/model 少了欄位直接保證）；
+  frontend tsc 0 / vitest 1477 passed（70 files）/ build OK（零 regression）。
+  **code-reviewer subagent review：Approve，0 must-fix**，獨立驗證確認查證方法
+  無遺漏（`towerFaMoment`←`WLOD_TwrFaMom` 追蹤到 `turbine_physics.py:878`
+  `fatigue_out["tower_fa_moment_knm"]` 真有物理賦值、非空殼；且已在
+  `frontend/components/TrendChartPanel.tsx:44` 生產環境使用，非孤兒欄位）；
+  1 should-fix（`docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_TwrBsMy` 等 7 個
+  tag，且第 149 行範例對 `scadaTags` dict 做直接 key 存取會 `KeyError`——判定
+  範圍外〔本 issue 界定為「API response 扁平化欄位」，`scadaTags` 原始 dict 是
+  不同資料面〕，登記 **WMOM-20260927-05** 追蹤，未修）；2 nice-to-have（同檔案
+  `TwrMy`→`TwrFa` 標籤一致性已順手採納；API 相容性 changelog 記錄——產品仍在
+  M5/M6 PoC 前無正式客戶合約，risk 可接受，未特別處理）。詳見
+  `work-logs/2026-09/2026-09-27-data-broker-wfat-legacy-cleanup.md`。
+
+---
+
+### WMOM-20260927-05 — `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（純文件修正，不影響任何程式行為；但範例程式碼會讓照著寫的人
+  遇到 `KeyError`，優先序略高於單純的字面不一致）
+- **Estimate**: 10-15 分鐘
+- **Source**: WMOM-20260927-04 code review（code-reviewer subagent should-fix）
+- **Description**:
+  `docs/API_GUIDE.md` 第 108-114、149、202、278、397 行仍列出/使用
+  `WFAT_TwrBsMy`/`WFAT_TwrBsMx`/`WFAT_BldRtMy`/`WFAT_BldRtMx`/`WFAT_DELTwr`/
+  `WFAT_DELBld`/`WFAT_DmgAccum` 這 7 個 SCADA tag 名稱——但
+  `scada_registry.py`/`turbine_physics.py` 的模擬器從未產生任何 `WFAT_*` tag
+  （只產生 `WLOD_*`，見 `WMOM-20260927-02`/`WMOM-20260927-04` 已確認的同一根因）。
+  這裡影響的是 `scadaTags`（原始 SCADA dict）這個資料面，跟 `WMOM-20260927-04`
+  修的 `TurbineReading` 扁平化欄位（`twrBsMy` 等）是不同資料面，不在該 issue
+  範圍內。第 149 行範例程式碼 `scada['WFAT_TwrBsMy']` 是**直接 key 存取**（非
+  `.get()`），照著文件寫程式的人跑起來會直接 `KeyError`（比「靜默回傳 None」更糟）。
+- **Deliverable**:
+  把 `docs/API_GUIDE.md` 內這 5 處的 7 個 `WFAT_*` tag 名稱改成對應的 `WLOD_*`
+  （`WFAT_TwrBsMy`→`WLOD_TwrFaMom`、`WFAT_BldRtMy`→`WLOD_BldFlapMom` 等，
+  對應關係比照 `WMOM-20260927-02`/`-04` 已確認的欄位對應），含第 149 行範例的
+  `scada['WFAT_TwrBsMy']`→`scada['WLOD_TwrFaMom']`。
+- **Acceptance**:
+  - `docs/API_GUIDE.md` 不再出現任何 `WFAT_*` tag 名稱
+  - 範例程式碼裡的 tag 名稱與現行 `scada_registry.py` 實際註冊的 tag 一致
 
 ---
 

@@ -102,15 +102,6 @@ class TurbineReading(BaseModel):
     vibThresh1pWarn: Optional[float] = None  # mm/s (WVIB_Thresh1pWarn)
     vibThresh1pAlrm: Optional[float] = None  # mm/s (WVIB_Thresh1pAlrm)
 
-    # ── WFAT — Fatigue / Load Monitoring ──
-    twrBsMy: Optional[float] = None          # kNm  (WFAT_TwrBsMy)
-    twrBsMx: Optional[float] = None          # kNm  (WFAT_TwrBsMx)
-    bldRtMy: Optional[float] = None          # kNm  (WFAT_BldRtMy)
-    bldRtMx: Optional[float] = None          # kNm  (WFAT_BldRtMx)
-    delTwr: Optional[float] = None           #      (WFAT_DELTwr) 0-100
-    delBld: Optional[float] = None           #      (WFAT_DELBld) 0-100
-    dmgAccum: Optional[float] = None         #      (WFAT_DmgAccum) 0-1
-
     # ── WGDC — Transformer ──
     transformerTemp: Optional[float] = None  # °C  (WGDC_TrfCoreTmp)
 
