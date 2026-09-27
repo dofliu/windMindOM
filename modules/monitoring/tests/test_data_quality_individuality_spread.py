@@ -10,7 +10,8 @@ emergency/recovery 迴圈、產電時間暴跌，讓「平均產電功率」被�
 `basic_validation` 跑法下 spread 曾錯誤地衝到 118%，錯誤地指向
 「individuality 模型太誇張」。修法：`compute_healthy_individuality_spread`
 先排除本次測試計畫中曾被注入故障（`has_fault` 曾為 True）的機組，只在
-健康機組間比較。
+健康機組間比較；同一污染邏輯也適用於「機組平均功率算出 NaN」（例如感測器
+全程掉線）的情況，故也一併 `dropna()` 排除。
 """
 
 from __future__ import annotations
@@ -60,11 +61,12 @@ def test_excludes_turbines_ever_faulted_during_run():
     result = compute_healthy_individuality_spread(producing)
 
     assert result is not None
-    assert result["turbine_ids"] == ["WT002", "WT004", "WT005"]
+    assert result.turbine_ids == ["WT002", "WT004", "WT005"]
+    assert result.excluded_turbine_ids == ["WT001", "WT003"]
     # spread = (110-90)/100*100 = 20%，只在 3 台健康機組間比較
-    assert result["spread_pct"] == pytest.approx(20.0)
-    assert result["min_kw"] == pytest.approx(90.0)
-    assert result["max_kw"] == pytest.approx(110.0)
+    assert result.spread_pct == pytest.approx(20.0)
+    assert result.min_kw == pytest.approx(90.0)
+    assert result.max_kw == pytest.approx(110.0)
 
 
 def test_returns_none_when_fewer_than_two_healthy_turbines():
@@ -86,6 +88,38 @@ def test_returns_none_when_required_columns_missing():
     assert compute_healthy_individuality_spread(df) is None
 
 
+def test_returns_none_when_producing_df_is_empty():
+    """完全沒有發電中列（例如全場停機）時安全回傳 None，不拋例外。"""
+    producing = _producing_df([])
+    assert compute_healthy_individuality_spread(producing) is None
+
+
+def test_excludes_healthy_turbine_with_all_nan_power():
+    """健康機組若平均功率算出 NaN（例如感測器全程掉線），視同無有效樣本一併排除。
+
+    這跟本次修復排除「故障機組」是同一種污染：只是污染源從「故障」換成
+    「NaN」——不能讓它悄悄混進健康機組清單，尤其是剩下只有它一台時，
+    不该讓 spread 被算成假的 0%。
+    """
+    rows = []
+    # 2 台真正健康、有效產電：100 / 120 kW
+    for tid, power in [("WT002", 100.0), ("WT004", 120.0)]:
+        for _ in range(5):
+            rows.append({"turbine_id": tid, "WTUR_TotPwrAt": power, "has_fault": False})
+    # WT005：本次測試計畫沒有對它注入故障（has_fault 全 False），但感測器
+    # 全程掉線，WTUR_TotPwrAt 全為 NaN
+    for _ in range(5):
+        rows.append({"turbine_id": "WT005", "WTUR_TotPwrAt": float("nan"), "has_fault": False})
+
+    producing = _producing_df(rows)
+    result = compute_healthy_individuality_spread(producing)
+
+    assert result is not None
+    assert result.turbine_ids == ["WT002", "WT004"]
+    assert "WT005" not in result.turbine_ids
+    assert result.spread_pct == pytest.approx((120.0 - 100.0) / 110.0 * 100.0)
+
+
 def test_all_healthy_matches_naive_spread_formula():
     """全部機組皆無故障時，結果應與未過濾版本的 naive spread 公式一致（無回歸）。"""
     rows = []
@@ -97,6 +131,7 @@ def test_all_healthy_matches_naive_spread_formula():
     result = compute_healthy_individuality_spread(producing)
 
     assert result is not None
-    assert set(result["turbine_ids"]) == {"WT001", "WT002", "WT003"}
+    assert set(result.turbine_ids) == {"WT001", "WT002", "WT003"}
+    assert result.excluded_turbine_ids == []
     # naive: (240-200)/mean(200,240,220)*100 = 40/220*100
-    assert result["spread_pct"] == pytest.approx(40.0 / 220.0 * 100.0)
+    assert result.spread_pct == pytest.approx(40.0 / 220.0 * 100.0)

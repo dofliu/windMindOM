@@ -13,7 +13,8 @@ SCADA 資料品質分析腳本
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from typing import Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -104,7 +105,21 @@ def generate_data(duration_hours=2.0, time_step=1.0, turbine_count=5):
 # ═══════════════════════════════════════════════════════════
 # Phase 2: 資料品質分析
 # ═══════════════════════════════════════════════════════════
-def compute_healthy_individuality_spread(producing: pd.DataFrame) -> Optional[dict]:
+@dataclass
+class HealthyIndividualitySpread:
+    """`compute_healthy_individuality_spread` 的結構化回傳值（見該函式 docstring）。"""
+
+    min_kw: float
+    max_kw: float
+    std_kw: float
+    spread_pct: float
+    turbine_ids: List[str]
+    excluded_turbine_ids: List[str]
+
+
+def compute_healthy_individuality_spread(
+    producing: pd.DataFrame,
+) -> Optional[HealthyIndividualitySpread]:
     """計算「健康機組」間的個體差異 spread（排除本次測試計畫中曾被注入故障的機組）。
 
     §5（故障前後信號變化）已經專門驗證故障對訊號的影響；本節（§7）的用意是
@@ -122,9 +137,9 @@ def compute_healthy_individuality_spread(producing: pd.DataFrame) -> Optional[di
             `turbine_id`、`WTUR_TotPwrAt`、`has_fault` 欄位。
 
     Returns:
-        含 `min_kw`/`max_kw`/`std_kw`/`spread_pct`/`turbine_ids`（健康機組
-        清單）的 dict；健康機組不足 2 台（無法比較）或找不到必要欄位時回傳
-        None。
+        `HealthyIndividualitySpread`；健康機組不足 2 台（無法比較，含機組
+        平均功率全為 NaN——例如感測器全程掉線——被 `dropna()` 濾除後不足
+        2 台的情況）或找不到必要欄位時回傳 None。
     """
     required_cols = {"turbine_id", "WTUR_TotPwrAt", "has_fault"}
     if not required_cols.issubset(producing.columns):
@@ -132,17 +147,21 @@ def compute_healthy_individuality_spread(producing: pd.DataFrame) -> Optional[di
 
     ever_faulted = set(producing.loc[producing["has_fault"], "turbine_id"].unique())
     healthy = producing[~producing["turbine_id"].isin(ever_faulted)]
-    per_turb = healthy.groupby("turbine_id")["WTUR_TotPwrAt"].mean()
+    # dropna：機組平均功率算出 NaN（例如感測器全程掉線）等同「沒有有效樣本」，
+    # 跟被故障污染的機組一樣不該混進比較，否則可能誤把它算進 spread 分母/
+    # 分子，或在只剩它一台「有效」時把差異算成假的 0%。
+    per_turb = healthy.groupby("turbine_id")["WTUR_TotPwrAt"].mean().dropna()
     if len(per_turb) < 2 or per_turb.mean() <= 0:
         return None
 
-    return {
-        "min_kw": float(per_turb.min()),
-        "max_kw": float(per_turb.max()),
-        "std_kw": float(per_turb.std()),
-        "spread_pct": float((per_turb.max() - per_turb.min()) / per_turb.mean() * 100),
-        "turbine_ids": sorted(per_turb.index.tolist()),
-    }
+    return HealthyIndividualitySpread(
+        min_kw=float(per_turb.min()),
+        max_kw=float(per_turb.max()),
+        std_kw=float(per_turb.std()),
+        spread_pct=float((per_turb.max() - per_turb.min()) / per_turb.mean() * 100),
+        turbine_ids=sorted(per_turb.index.tolist()),
+        excluded_turbine_ids=sorted(ever_faulted),
+    )
 
 
 def analyze_data(df: pd.DataFrame):
@@ -379,11 +398,19 @@ def analyze_data(df: pd.DataFrame):
             report.append("  （健康機組不足 2 台，略過個體差異 spread 判定）")
         else:
             report.append(
-                f"  健康機組（本次未被注入故障，n={len(healthy['turbine_ids'])}）平均功率: "
-                f"min={healthy['min_kw']:.1f}  max={healthy['max_kw']:.1f}  "
-                f"std={healthy['std_kw']:.1f} kW"
+                f"  健康機組（本次未被注入故障，n={len(healthy.turbine_ids)}）: "
+                f"{', '.join(healthy.turbine_ids)}"
             )
-            spread = healthy["spread_pct"]
+            if healthy.excluded_turbine_ids:
+                report.append(
+                    f"  已排除機組（本次測試計畫曾注入故障）: "
+                    f"{', '.join(healthy.excluded_turbine_ids)}"
+                )
+            report.append(
+                f"  健康機組平均功率: min={healthy.min_kw:.1f}  max={healthy.max_kw:.1f}  "
+                f"std={healthy.std_kw:.1f} kW"
+            )
+            spread = healthy.spread_pct
             report.append(f"  Spread（健康機組間）: {spread:.1f}%")
             if spread < 1.0:
                 report.append("  ⚠ 風機間差異太小 (<1%)，individuality model 可能不足")
