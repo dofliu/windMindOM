@@ -16,7 +16,34 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260505-24 完成（第九個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-01 完成（第十個 autonomous session）** —
+全域未種子化 RNG 造成模擬結果非決定性修正：`grid_model.py`（grid frequency/
+voltage 噪聲）與 `physics/yaw_model.py`（brake_pressure 噪聲）先前直接呼叫全域
+`np.random.normal`，跟其餘 codebase 一律用 `np.random.RandomState(seed)` 建立各自
+種子化 `self._rng` 的慣例不一致（前一 session WMOM-20260505-24 修復過程中發現：
+同一測試計畫重跑，個體差異 spread 數字每次略有浮動）。修法：兩者建構子新增 `seed`
+參數；`turbine_physics.py` 把既有 per-turbine `_seed` 一併傳給
+`YawModel(seed=_seed)`（沿用 `VibrationModel` 同款慣例）；`engine.py` farm-level
+共用的 `GridEnvironmentModel` 改帶固定 seed。新增 `test_rng_seeding_determinism.py`
+（5 測，含 farm-level 整合測試：兩個獨立 `WindFarmSimulator` 對同一序列
+`_run_one_step()` 逐欄逐列比對），皆 mutation-verified。**誠實揭露**：
+`GridEnvironmentModel` 的 `recovery` grid profile 分支用 `datetime.now()`（真實
+牆鐘時間）算 elapsed，是與 RNG 種子化完全獨立的另一種非決定性來源，測試刻意排除
+該分支，未修（判斷可能是刻意設計，非本 issue 範圍）。**code-reviewer subagent
+review：Approve，0 must-fix，1 should-fix 已採納**（原選的 farm-level 共用
+seed=7 落在逐風機 seed 範圍 1..14 內、與某風機撞號，雖不影響功能但違反設計意圖——
+改用具名常數 `_GRID_MODEL_SEED = 1042` 並加註解說明必須落在風機 seed 範圍外的
+不變量）+ 2 nice-to-have（issue acceptance 誤引用不存在的 `generate_data(...)`
+方法已更正為 `_run_one_step()`；`subsystems.py` legacy `WindTurbine` 路徑同款
+未種子化 RNG 確認是獨立 code path、非本 issue 範圍，登記 **WMOM-20260927-03**
+追蹤未修）。backend 1280→**1285 passed**（+5，零 regression）；frontend 未動，
+1477 passed（70 files）/tsc 0/build OK 不變。**下個 session**：可續評估
+`WMOM-20260927-02`（`fetch_scada_data.py` 殘留 stale tag，10 分鐘小修）、
+`WMOM-20260927-03`（legacy `subsystems.py` 同款 RNG 種子化）、`WMOM-20260505-25~28`
+剩餘物理強化項目（逐一看本文 priority）、或 M6 critical path 剩餘項
+（PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）。
+詳見 `work-logs/2026-09/2026-09-27-rng-seeding-determinism.md`。
+**前一 session：2026-09-27（WMOM-20260505-24 完成，第九個 autonomous session）** —
 Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV）：重跑官方 2 小時版
 `examples/data_quality_analysis.py` 發現原文兩個 CV 太低項目已不重現（後續 physics
 強化間接解決，未改動任何 power curve/individuality 參數），個體差異 spread 反而重跑

@@ -16,8 +16,8 @@
 | open | 9 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 134 |
-| **total (active)** | **145** |
+| done | 135 |
+| **total (active)** | **146** |
 
 最後更新：2026-09-26（**WMOM-20260926-05 完成（第八個 autonomous session）—
 `ScenarioMountBanner.tsx` component render 測試**：`components/ui/` 剩餘 7 支零測試
@@ -4026,7 +4026,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-01 — 全域未種子化 RNG 造成模擬結果非決定性（`grid_model.py`/`yaw_model.py`）
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（不影響正確性，只影響「同一組種子重跑應得到 byte-identical 結果」這個
   可重現性保證；目前所有數值仍在合理物理範圍內，只是每次重跑的精確數字會微幅浮動）
@@ -4046,9 +4046,39 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     np.random.RandomState(seed)`，比照 `turbine_physics.py`/`VibrationModel` 既有慣例
   - 確認 `WindFarmSimulator`/`TurbinePhysicsModel` 建構時有把對應 seed 傳遞過去
 - **Acceptance**:
-  - 同一組 seed 連續兩次 `generate_data(...)` 產生的 DataFrame 逐欄逐列數值相同
-    （byte-identical 或至少浮點誤差在 1e-9 內）
+  - 同一組 seed 的兩個獨立 `WindFarmSimulator` 實例，對同一序列 `_run_one_step()`
+    產生的 readings 逐欄逐列數值相同（byte-identical 或至少浮點誤差在 1e-9 內）
+    ~~原文寫「`generate_data(...)`」，該方法在 `WindFarmSimulator` 不存在（code
+    review nice-to-have 發現，已修正為實際存在的 `_run_one_step()`）~~
   - 既有 18/21（現 20/20）物理一致性 check 不受影響
+- **Completion summary（2026-09-27，第十個 autonomous session）**：根因確認只有
+  `grid_model.py`（`get_frequency`/`get_voltage` 共 6 處）與 `physics/yaw_model.py`
+  （`_output()` 1 處）直接呼叫全域 `np.random.normal`，跟其餘全部種子化的模型不一致，
+  與 issue 描述完全吻合。修法：兩者建構子新增 `seed` 參數 + `self._rng =
+  np.random.RandomState(seed)`；`turbine_physics.py` 把既有 per-turbine `_seed`
+  一併傳給 `YawModel(seed=_seed)`（沿用 `VibrationModel(seed=_seed)` 同款慣例）；
+  `engine.py` 把 farm-level 共用的 `GridEnvironmentModel` 建構改為帶固定 seed。新增
+  `test_rng_seeding_determinism.py`（5 測，含 farm-level 整合測試：兩個獨立
+  `WindFarmSimulator` 對同一序列 `_run_one_step()` 逐欄逐列比對），皆
+  mutation-verified（暫時改回 `np.random.normal` → 3 個 determinism 測試如預期
+  fail、2 個 different-seed-diverges 測試維持 pass → 已還原）。**誠實揭露/範圍外
+  發現**：寫測試時發現 `GridEnvironmentModel` 的 `recovery` grid profile 分支用
+  `datetime.now()`（真實牆鐘時間）算 `elapsed`，是與 RNG 種子化完全獨立的另一種
+  非決定性來源——測試刻意排除該分支，未修（可能是刻意設計，模擬「距真實 grid
+  event 已過多少時間」，非本 issue 範圍）。**code-reviewer subagent
+  review：Approve，0 must-fix，1 should-fix 已採納**（原本選的 farm-level 共用
+  seed=7 落在逐風機 seed 範圍 1..14 內、與某風機撞號，雖不影響功能〔不同類別各自
+  獨立 `RandomState` 不會真的產生相關輸出〕但違反「刻意避開風機 index 範圍」的
+  設計意圖——改用具名常數 `WindFarmSimulator._GRID_MODEL_SEED = 1042` 並加註解
+  說明必須落在風機 seed 範圍外的不變量）+ 2 nice-to-have（① issue 原文 acceptance
+  誤引用不存在的 `generate_data(...)` 方法，已更正為實際使用的 `_run_one_step()`；
+  ② `modules/monitoring/subsystems.py` 219/234 行〔legacy `WindTurbine`/
+  `main.py` 路徑，非本 issue 針對的 `simulator/engine.py`/`TurbinePhysicsModel`〕
+  仍有同類未種子化 `np.random.normal`，確認是完全獨立的 code path、非本 issue
+  範圍，登記 **WMOM-20260927-03** 追蹤，未修）。backend
+  1280→**1285 passed**（+5，零 regression）；frontend 未動，1477 passed
+  （70 files）/tsc 0/build OK 不變。詳見
+  `work-logs/2026-09/2026-09-27-rng-seeding-determinism.md`。
 
 ---
 
@@ -4072,6 +4102,31 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Acceptance**:
   - 該腳本對 live server 實際回傳的 SCADA JSON 執行時，兩個 tag 能正確取到值
     （不再是 `if tag in df.columns` 靜默跳過）
+
+---
+
+### WMOM-20260927-03 — `subsystems.py`（legacy `WindTurbine` 路徑）殘留未種子化 `np.random.normal`
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（該路徑是 `modules/monitoring/main.py` 用的 legacy `WindTurbine`/
+  `subsystems.py`，非 `simulator/engine.py::WindFarmSimulator`/
+  `TurbinePhysicsModel` 目前的主要模擬路徑，不影響任何 demo/測試流程）
+- **Estimate**: 15-20 分鐘
+- **Source**: WMOM-20260927-01 code review（code-reviewer subagent nice-to-have）
+- **Description**:
+  `modules/monitoring/subsystems.py` 第 102、234 行（`vibration_level = 0.5 +
+  np.random.normal(0, 0.1) + ...`、`self.pressure += np.random.normal(0, 0.5)`）
+  跟 WMOM-20260927-01 是同一類問題（全域未種子化 RNG），但這是完全獨立的 code
+  path——只被 `main.py` 的 legacy `WindTurbine` 用到，不被 `simulator/engine.py`
+  的 `WindFarmSimulator`/`TurbinePhysicsModel` 引用，故不在 -01 的驗收範圍內。
+- **Deliverable**:
+  - 確認該 legacy 路徑目前是否仍在任何 demo/deploy 流程中被實際呼叫到（若已完全
+    死碼可考慮直接移除而非修種子化）
+  - 若仍在用：比照 -01 的修法，建構子加 `seed` 參數 + `self._rng`
+- **Acceptance**:
+  - 若修：同一 seed 兩次建構 legacy `WindTurbine` 應得到可重現的數值序列
+  - 若判定死碼：確認移除後不影響任何既有測試/API 路徑
 
 ---
 

@@ -51,10 +51,15 @@ class WindFarmSimulator:
     Optionally exposes data via Modbus TCP server.
     """
 
+    # Farm-level 共用模型的固定 seed（比照下方 _turbulence_gen=42/_per_turbine_wind=99）。
+    # 必須落在 add_turbine() 的逐風機 seed 範圍（1..turbine_count，預設上限 14）之外，
+    # 否則某個風機的 seed 會跟這個共用模型撞號（WMOM-20260927-01 code review 發現）。
+    _GRID_MODEL_SEED = 1042
+
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
                  turbulence_intensity: float = 0.1):
         self.wind_model = WindEnvironmentModel()
-        self.grid_model = GridEnvironmentModel()
+        self.grid_model = GridEnvironmentModel(seed=self._GRID_MODEL_SEED)
         self.wind_model.turbulence_intensity = turbulence_intensity
         self.turbines: Dict[str, TurbinePhysicsModel] = {}
         self.latest_data: Dict[str, Dict] = {}

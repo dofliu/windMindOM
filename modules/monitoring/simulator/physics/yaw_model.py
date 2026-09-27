@@ -3,7 +3,7 @@ Yaw system model with realistic control logic.
 """
 
 import math
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -11,9 +11,10 @@ import numpy as np
 class YawModel:
     """Physics-based yaw system with dead band, delay, rate shaping, and cable management."""
 
-    def __init__(self):
+    def __init__(self, seed: Optional[int] = None):
         self.yaw_angle = 270.0
         self.cable_windup = 0.0
+        self._rng = np.random.RandomState(seed)
 
         # Z72 OEM values
         self.dead_band = 15.0             # Z72: auto yaw start outside [-15°, +15°]
@@ -82,7 +83,7 @@ class YawModel:
         return {
             "yaw_angle": self.yaw_angle,
             "yaw_error": error,
-            "brake_pressure": self._brake_pressure + np.random.normal(0, 0.5),
+            "brake_pressure": self._brake_pressure + self._rng.normal(0, 0.5),
             "cable_windup": self.cable_windup,
             "is_yawing": 1.0 if yawing else 0.0,
         }
