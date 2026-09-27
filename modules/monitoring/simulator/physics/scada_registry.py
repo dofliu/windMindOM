@@ -21,7 +21,7 @@ class ScadaTag:
     """Definition of a single SCADA data point."""
     id: str                    # Internal key, e.g. "WGEN_GnPwrMs"
     opc_tag: str               # Bachmann OPC tag suffix
-    subsystem: str             # WCNV, WGDC, WGEN, WMET, WNAC, WROT, WTUR, WYAW, WSRV, MBUS
+    subsystem: str             # WCNV, WGDC, WGEN, WMET, WNAC, WROT, WTUR, WYAW, WSRV, MBUS, WCOL, WDRV, WVIB, WLOD
     data_type: str             # REAL32, SINT16, UINT16, BOOL
     unit: str                  # kW, RPM, °C, m/s, deg, bar, mm/s, V, A, Hz, ...
     label_en: str              # English label
@@ -408,10 +408,10 @@ _TAGS: List[ScadaTag] = [
     # WCOL — Coolant Level (#75)
     # ══════════════════════════════════════════════════════════════════════
     ScadaTag("WCOL_CoolantLvl", "WCOL.Z72PLC__UI_Loc_WCOL_Analogue_CoolantLvl",
-             "WCNV", "REAL32", "%", "Coolant Level", "冷卻液液位",
+             "WCOL", "REAL32", "%", "Coolant Level", "冷卻液液位",
              0, 100),
     ScadaTag("WCOL_CoolantAlm", "WCOL.Z72PLC__UI_Loc_WCOL_State_CoolantAlm",
-             "WCNV", "SINT16", "", "Coolant Level Alarm", "冷卻液液位警報",
+             "WCOL", "SINT16", "", "Coolant Level Alarm", "冷卻液液位警報",
              0, 3),
 
     # ══════════════════════════════════════════════════════════════════════
