@@ -216,7 +216,7 @@ def stream_realtime(duration_sec=30, turbine_filter="WT001"):
                 print(f"  [{count}] {t['turbineId']} "
                       f"Power={t['powerOutput']:.3f}MW "
                       f"Wind={t['windSpeed']:.1f}m/s "
-                      f"TwrMy={scada.get('WFAT_TwrBsMy', 0):.0f}kNm "
+                      f"TwrMy={scada.get('WLOD_TwrFaMom', 0):.0f}kNm "
                       f"Alarm={scada.get('WVIB_AlarmOverall', 0)}")
     except KeyboardInterrupt:
         print("\n  使用者中斷")
@@ -302,7 +302,7 @@ def analyze_with_pandas():
 
     # 基本統計
     numeric_cols = ["WTUR_TotPwrAt", "WMET_WSpeedNac", "WROT_RotSpd",
-                    "WFAT_TwrBsMy", "WFAT_BldRtMy", "WVIB_BandHfX"]
+                    "WLOD_TwrFaMom", "WLOD_BldFlapMom", "WVIB_BandHfX"]
     avail_cols = [c for c in numeric_cols if c in df.columns]
     if avail_cols:
         print(df[avail_cols].describe().round(2).to_string())

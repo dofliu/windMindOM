@@ -13,13 +13,24 @@
 
 | Status | Count |
 |--------|------|
-| open | 8 |
+| open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 136 |
+| done | 137 |
 | **total (active)** | **146** |
 
-最後更新：2026-09-27（**WMOM-20260927-03 完成（第十一個 autonomous session）—
+最後更新：2026-09-27（**WMOM-20260927-02 完成（第十二個 autonomous session）—
+`fetch_scada_data.py` 殘留已死 `WFAT_*` tag 引用改成現行 `WLOD_*` tag**：確認
+`scada_registry.py`/`turbine_physics.py` 現行 schema 只實際產生 `WLOD_TwrFaMom`/
+`WLOD_BldFlapMom`（`WFAT_TwrBsMy`/`WFAT_BldRtMy` 只是 sensor noise config 裡的
+「legacy 相容」分支，非實際產生的 tag），沿用 WMOM-20260505-24 已確認的同款對應，
+把範例腳本 219/305 行改成正確 tag 名稱。**誠實揭露**：本次修改無自動化測試保護——
+該腳本是獨立範例，走 live server REST/WebSocket，未被任何 pytest 匯入，僅以讀
+原始碼層級驗證（語法檢查 + 對照現行 schema），未做執行期驗證（需真的起 server）。
+backend 1293 passed（7 skipped, 1 xfailed）不變；frontend 1477 passed（70 files）/
+tsc 0/build OK 不變，皆零 regression（本次不影響任何 import 路徑）。詳見
+`work-logs/2026-09/2026-09-27-fetch-scada-data-stale-tags.md`。
+**前一 session：2026-09-27（WMOM-20260927-03 完成，第十一個 autonomous session）—
 legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑）未種子化 RNG 修正**：確認該路徑
 是完全未被 `run.py`/`api/`/Docker/任何測試引用的死碼後，選擇比照 WMOM-20260927-01
 的最小修法（種子化而非刪除整條 8 檔 legacy 檔案樹，避免範圍外風險）——
@@ -4098,7 +4109,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260927-02 — `fetch_scada_data.py` 殘留已死的 `WFAT_*` tag 引用
 
-- **Status**: open
+- **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
 - **Priority**: low（該腳本走 live server API，非 `generate_data()` 路徑，不影響任何
   demo/測試流程，純粹是死碼）
@@ -4116,6 +4127,22 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Acceptance**:
   - 該腳本對 live server 實際回傳的 SCADA JSON 執行時，兩個 tag 能正確取到值
     （不再是 `if tag in df.columns` 靜默跳過）
+- **Completion summary（2026-09-27，第十二個 autonomous session）**：先確認新舊 tag
+  對應關係——`scada_registry.py`/`turbine_physics.py` 目前只實際產生 `WLOD_TwrFaMom`/
+  `WLOD_BldFlapMom`（`turbine_physics.py:1382` 註解明講 `WFAT_TwrBs`/`WFAT_BldRt`
+  是「legacy WFAT support if needed」，非現行 schema 產生的 tag），且
+  `data_broker.py`/`models.py` 把兩者當成不同語意欄位（`WFAT_*` → `twrBsMy`/
+  `bldRtMy`；`WLOD_*` → `towerFaMoment`/`bladeFlapMoment`）——但 WMOM-20260505-24
+  的 completion summary 已確認同一份 `data_quality_analysis.py` §4 修正就是這組對應，
+  沿用同一結論。219 行 f-string 印出的 `TwrMy=` 欄位、305 行 `numeric_cols` 清單皆已
+  改成 `WLOD_TwrFaMom`/`WLOD_BldFlapMom`。**誠實揭露：本次修改無自動化測試保護**——
+  `fetch_scada_data.py` 是獨立範例腳本（連 live/scenario server 走 REST/WebSocket），
+  未被任何 pytest 匯入（`grep -rl fetch_scada_data --include=*.py` 除自身外零命中），
+  acceptance 本文要求的「對 live server 實際回傳資料執行」需要真的起 server + WS
+  連線，超出本次 10 分鐘小修的範圍，僅以讀原始碼層級（`ast.parse` 語法檢查 +
+  對照 `scada_registry.py`/`data_broker.py` 確認新 tag 名稱正確）驗證，未做執行期
+  驗證，人工用 live server 跑一次可以進一步確認。backend/frontend 全套測試零改動、
+  零 regression（本次不影響任何 import 路徑）。
 
 ---
 

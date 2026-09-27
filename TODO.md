@@ -16,7 +16,23 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-03 完成（第十一個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-02 完成（第十二個 autonomous session）** —
+`fetch_scada_data.py` 殘留已死 `WFAT_TwrBsMy`/`WFAT_BldRtMy` tag 引用改成現行
+`WLOD_TwrFaMom`/`WLOD_BldFlapMom`（第 219、305 行）：確認 `scada_registry.py`/
+`turbine_physics.py` 現行 schema 只實際產生 `WLOD_*` tag（`WFAT_*` 只是 sensor
+noise config 裡「legacy support if needed」的相容分支），沿用
+`WMOM-20260505-24` 已確認的同款對應。**誠實揭露**：本次修改**無自動化測試保護**
+——該腳本走 live server REST/WebSocket、未被任何 pytest 匯入，issue acceptance
+要求的「對 live server 實際資料執行」需要真的起 server，超出本次 10 分鐘小修
+範圍，僅讀原始碼層級驗證（語法檢查 + 對照現行 schema）。backend/frontend 皆零
+改動、零 regression：1293 passed（7 skipped, 1 xfailed）/ 1477 passed（70
+files）/tsc 0/build OK 全部不變。**下個 session**：可續評估
+`WMOM-20260505-25~28`（物理強化，皆多日工作）、或 M6 critical path 剩餘項
+（PostgreSQL row-lock 需 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）；
+其餘 open issue（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師決策/
+素材，不宜自行開工。詳見
+`work-logs/2026-09/2026-09-27-fetch-scada-data-stale-tags.md`。
+**前一 session：2026-09-27（WMOM-20260927-03 完成，第十一個 autonomous session）** —
 legacy `subsystems.py`（`WindTurbine`/`main.py` 路徑，`WMOM-20260927-01` code
 review 登記的 follow-up）未種子化 RNG 修正：先全庫 grep 確認這條路徑完全未被
 `run.py`/`api/`/Docker/任何既有測試引用（純歷史原型），但整條 legacy 檔案樹共 8
