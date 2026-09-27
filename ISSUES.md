@@ -3964,28 +3964,114 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260505-24 — Data quality 3 項 fail 修正（個體差異 spread + Region 3 CV）
 
-- **Status**: open
+- **Status**: done（2026-09-27 完成，第九個 autonomous session）
 - **Milestone**: M3 並行（demo 必修）
 - **Priority**: high（P0 — demo 被客戶質疑會傷信任）
-- **Estimate**: 0.5-1 工作天
+- **Owner**: Claude (autonomous worker, session 2026-09-27)
+- **Completion summary**:
+  重跑官方 `examples/data_quality_analysis.py`（2 小時版，非 issue 建議的 0.17h 短版——
+  短版連 20-25 m/s 都湊不到樣本無法驗證）後發現：**原文兩個 CV 太低項目這次完全沒有
+  重現**（15-20/20-25 m/s CV 分別是 6.1%/2.3%，早已不低於 1% 門檻，判斷是後續多輪
+  physics 強化間接解決，未修改任何 power curve/individuality 參數）；**個體差異 spread
+  項目重跑得到 118%**（比原文 36.8% 更嚴重），但深挖後**根本原因跟 individuality 參數
+  無關**——`data_quality_analysis.py` §7 直接對「發電中」列取平均功率算 spread，而
+  `basic_validation` 測試計畫對 WT001/WT003 注入的故障一旦 severity 超過
+  `auto_trip_severity` 便永久 `tripped=True`，`simulator/engine.py` 之後每步都對其呼叫
+  `cmd_emergency_stop()`，導致這兩台機組 2 小時內大部分時間卡在 emergency/recovery
+  迴圈（WT001 僅 399/7200 步在發電）——「平均功率」被故障期間的低產出嚴重污染，是
+  測試方法論問題，不是 individuality 太誇張。修法：新增純函式
+  `compute_healthy_individuality_spread()`，排除本次測試計畫中「曾經」（整台，不只
+  當下）被標記故障的機組，只在真正健康機組間比較——spread 落到 **~13-15% 區間**
+  （每次重跑數字略有浮動，見下方非決定性發現；最終 commit 的報告是 14.8%），遠低於
+  30% 門檻，完全沒有改動任何物理模型參數即通過。**附帶修正**：重新產生報告過程中
+  發現 §4（載荷/Fatigue）整節悄悄變空——引用的 `WFAT_TwrBsMy` 等 4 個 tag 在目前
+  schema 已改名為 `WLOD_TwrFaMom` 等（`if tag in df.columns` guard 靜默跳過，無
+  警訊），一併改名復原 §4/§5/§6/§8 對應檢查。`code-reviewer` subagent review：
+  0 must-fix，5 should-fix 全數採納（NaN 平均功率的健康機組需一併 `dropna()` 排除，
+  否則跟故障機組一樣是污染樣本；報告文字補印健康/已排除機組 ID 清單以利追溯；回傳型別
+  由裸 `dict` 改 `@dataclass HealthyIndividualitySpread`；work-log 數字與最終報告
+  不一致已更正；STATUS.yaml/TODO.md 已於 review 前同步完成）+ 3 nice-to-have（排除
+  整台而非僅故障列的設計判斷獲確認合理；新增 empty-df 邊界測試；`fetch_scada_data.py`
+  同款 stale tag 殘留記錄為新 follow-up，見下方）。should-fix 修復後新增至 6 測，NaN
+  排除邏輯額外 mutation-verified（停用 `dropna()` → 新測如預期 fail → 已還原確認）。
+  重新產生並 commit `data_quality_report.txt`：**20/20 全數 pass，0 項待改善**（原
+  18 pass/3 fail）。刻意不 commit 同批 `simulated_scada_2h.csv`（`timestamp` 欄位含
+  `datetime.now()`，每次重跑整份 36000 列 diff 全不同，純噪音，acceptance 未要求
+  同步 CSV）。backend 1274→**1280 passed**（+6，零 regression）；frontend 未動
+  1477 passed（70 files）不變、tsc 0、build OK。**誠實揭露/未修範圍**：①
+  `fault.tripped` 恆真後每步觸發 `cmd_emergency_stop()` 造成機組在
+  emergency/recovery 間反覆循環、產電時間暴跌，這本身是否為預期行為（重大故障後應
+  完全停止 restart 嘗試 vs 持續嘗試）是行為設計決策，非本 issue 範圍，未展開處理，
+  留待劉老師評估是否需要另開 issue。②**新發現（非決定性根因）**：spread 每次重跑
+  數字略有浮動（12.5%/13.5%/13.6%/14.8% 皆出現過），追查發現 `simulator/grid_
+  model.py`、`simulator/physics/yaw_model.py` 直接呼叫全域未種子化的
+  `np.random.normal(...)`（其餘整個 codebase 一律用每台機組各自種子化的
+  `self._rng`），導致 grid frequency/voltage/brake_pressure 噪聲每次進程啟動結果不同
+  ——結論不變（皆穩定 <30%）但報告數字technically 不是 byte-for-byte 可重現，已登記
+  **WMOM-20260927-01** 追蹤（非本 issue 範圍，未修）。③`fetch_scada_data.py`
+  219/305 行仍引用已死的 `WFAT_TwrBsMy`/`WFAT_BldRtMy`（該腳本走 live server API，
+  非 `generate_data()` 路徑，不影響本次修復，但同一根因〔tag 改名沒有全庫同步〕的
+  另一處殘留），已登記 **WMOM-20260927-02** 追蹤（非本 issue 範圍，未修）。**上層
+  摘要表提醒**：`WMOM-20260505-23~28` 群組被籠統標成「學術深度非商業 must-have」，
+  但 -24 本文明寫 P0/demo 信任——之後評估這批 issue 建議逐一看本文 Priority 欄位，
+  不要只看群組標籤。詳見
+  `work-logs/2026-09/2026-09-27-individuality-spread-metric-fix.md`。
 - **Source**: `examples/data_quality_report.txt` 「待改善列表」3 項
-- **Description**:
-  最新 data quality run 仍有 3 項警告：
-  1. **Wind 15-20 m/s region CV=0.9% 太低** — rated region 訊號過度平滑，pitch dead-band / lag 還是不夠
-  2. **Wind 20-25 m/s region CV=0.8% 太低** — 同上
-  3. **風機間平均功率差 36.8% (>30%)** — individuality 參數調太大，看起來像異常值不像真實 fleet
-- **Deliverable**:
-  - `simulator/physics/power_curve.py`：rated region 加更多 controller jitter（pitch micro-correction noise + power setpoint dither，幅度依 #61 Cp 模型回推合理範圍）
-  - `simulator/turbine_individuality.py` 或對應位置：`per_turbine_power_offset` / `cp_offset` 從 ±15% 收斂到 ±10-12%（保留個體差但合理）
-  - 重跑 `examples/data_quality_analysis.py` 短版 0.17h × 5 turbines，確認 3 項全 pass，且不破壞既有 18 項 pass
-  - 同步更新 `data_quality_report.txt`（commit 進 repo）
-- **Acceptance**:
-  - 21/21 quality check pass（或至少 20/21，spread 落在 25-30% 區間）
-  - 既有 #117/#119/#125/#127 物理鏈不被破壞
 - **Reference**:
   - `modules/monitoring/examples/data_quality_report.txt`
   - `modules/monitoring/examples/_post_migration_quick_validate.py`
   - issue #61（Cp 模型升級 commit 應該已部分緩解，但 Region 3 仍偏平）
+
+---
+
+### WMOM-20260927-01 — 全域未種子化 RNG 造成模擬結果非決定性（`grid_model.py`/`yaw_model.py`）
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（不影響正確性，只影響「同一組種子重跑應得到 byte-identical 結果」這個
+  可重現性保證；目前所有數值仍在合理物理範圍內，只是每次重跑的精確數字會微幅浮動）
+- **Estimate**: 15-30 分鐘
+- **Source**: WMOM-20260505-24 修復過程中發現（`data_quality_analysis.py` §7 spread 每次
+  重跑得到略有不同的數字：12.5%/13.5%/13.6%/14.8% 皆出現過，結論不變但數字不穩定）
+- **Description**:
+  `simulator/grid_model.py`（grid frequency/voltage 噪聲）與
+  `simulator/physics/yaw_model.py`（`brake_pressure` 噪聲）直接呼叫全域未種子化的
+  `np.random.normal(...)`，跟其餘整個 codebase（`turbine_physics.py` 等）一律用
+  `np.random.RandomState(seed)` 建立每台機組各自種子化的 `self._rng` 不一致——這兩處會
+  受 Python 進程啟動時的全域 numpy RNG 狀態影響，導致同樣的 `WindFarmSimulator(seed=i)`
+  重跑兩次得到不同的精確數值（不同的 wind/fault 排程仍是同一套，只有 grid 噪聲/煞車壓力
+  噪聲不同）。
+- **Deliverable**:
+  - `grid_model.py`/`yaw_model.py` 改用建構子傳入的 `seed` 建立 `self._rng =
+    np.random.RandomState(seed)`，比照 `turbine_physics.py`/`VibrationModel` 既有慣例
+  - 確認 `WindFarmSimulator`/`TurbinePhysicsModel` 建構時有把對應 seed 傳遞過去
+- **Acceptance**:
+  - 同一組 seed 連續兩次 `generate_data(...)` 產生的 DataFrame 逐欄逐列數值相同
+    （byte-identical 或至少浮點誤差在 1e-9 內）
+  - 既有 18/21（現 20/20）物理一致性 check 不受影響
+
+---
+
+### WMOM-20260927-02 — `fetch_scada_data.py` 殘留已死的 `WFAT_*` tag 引用
+
+- **Status**: open
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: low（該腳本走 live server API，非 `generate_data()` 路徑，不影響任何
+  demo/測試流程，純粹是死碼）
+- **Estimate**: 10 分鐘
+- **Source**: WMOM-20260505-24 code review（code-reviewer subagent nice-to-have）
+- **Description**:
+  `modules/monitoring/examples/fetch_scada_data.py` 第 219、305 行仍引用
+  `WFAT_TwrBsMy`/`WFAT_BldRtMy`——這兩個 tag 在目前 schema 已改名為
+  `WLOD_TwrFaMom`/`WLOD_BldFlapMom`（見 WMOM-20260505-24 對 `data_quality_analysis.py`
+  的同款修正）。跟 -24 是同一根因（tag 改名沒有全庫同步），只是這個檔案不在 -24
+  的驗收範圍內（-24 只驗 `data_quality_analysis.py`/`generate_data()` 路徑）。
+- **Deliverable**:
+  - 把 `fetch_scada_data.py` 219/305 行的 `WFAT_TwrBsMy`/`WFAT_BldRtMy` 改成對應的
+    `WLOD_TwrFaMom`/`WLOD_BldFlapMom`
+- **Acceptance**:
+  - 該腳本對 live server 實際回傳的 SCADA JSON 執行時，兩個 tag 能正確取到值
+    （不再是 `if tag in df.columns` 靜默跳過）
 
 ---
 

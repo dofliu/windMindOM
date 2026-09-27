@@ -13,6 +13,9 @@ SCADA 資料品質分析腳本
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from dataclasses import dataclass
+from typing import List, Optional
+
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -102,6 +105,65 @@ def generate_data(duration_hours=2.0, time_step=1.0, turbine_count=5):
 # ═══════════════════════════════════════════════════════════
 # Phase 2: 資料品質分析
 # ═══════════════════════════════════════════════════════════
+@dataclass
+class HealthyIndividualitySpread:
+    """`compute_healthy_individuality_spread` 的結構化回傳值（見該函式 docstring）。"""
+
+    min_kw: float
+    max_kw: float
+    std_kw: float
+    spread_pct: float
+    turbine_ids: List[str]
+    excluded_turbine_ids: List[str]
+
+
+def compute_healthy_individuality_spread(
+    producing: pd.DataFrame,
+) -> Optional[HealthyIndividualitySpread]:
+    """計算「健康機組」間的個體差異 spread（排除本次測試計畫中曾被注入故障的機組）。
+
+    §5（故障前後信號變化）已經專門驗證故障對訊號的影響；本節（§7）的用意是
+    驗證「同型機組間應有的細微個體差異」（製造公差、感測器偏移等），
+    兩者是不同的驗證目的。測試計畫（如 basic_validation）會對特定機組注入
+    永久性故障（severity 超過 auto_trip_severity 後 `fault.tripped` 恆為
+    True，`DataBroker`/`WindFarmSimulator` 每步都對其呼叫
+    `cmd_emergency_stop`），該機組會有極大比例時間停在 emergency/recovery
+    迴圈、產電時間暴跌。若不排除，這些機組「平均產電功率」會被故障期間的
+    停機/低產出嚴重污染，讓 spread 指標膨脹到與 individuality 參數無關的
+    數字，錯誤地指向「individuality 模型太誇張」。
+
+    Args:
+        producing: 僅含 `WTUR_TurSt == 6.0`（發電中）列的 DataFrame，需有
+            `turbine_id`、`WTUR_TotPwrAt`、`has_fault` 欄位。
+
+    Returns:
+        `HealthyIndividualitySpread`；健康機組不足 2 台（無法比較，含機組
+        平均功率全為 NaN——例如感測器全程掉線——被 `dropna()` 濾除後不足
+        2 台的情況）或找不到必要欄位時回傳 None。
+    """
+    required_cols = {"turbine_id", "WTUR_TotPwrAt", "has_fault"}
+    if not required_cols.issubset(producing.columns):
+        return None
+
+    ever_faulted = set(producing.loc[producing["has_fault"], "turbine_id"].unique())
+    healthy = producing[~producing["turbine_id"].isin(ever_faulted)]
+    # dropna：機組平均功率算出 NaN（例如感測器全程掉線）等同「沒有有效樣本」，
+    # 跟被故障污染的機組一樣不該混進比較，否則可能誤把它算進 spread 分母/
+    # 分子，或在只剩它一台「有效」時把差異算成假的 0%。
+    per_turb = healthy.groupby("turbine_id")["WTUR_TotPwrAt"].mean().dropna()
+    if len(per_turb) < 2 or per_turb.mean() <= 0:
+        return None
+
+    return HealthyIndividualitySpread(
+        min_kw=float(per_turb.min()),
+        max_kw=float(per_turb.max()),
+        std_kw=float(per_turb.std()),
+        spread_pct=float((per_turb.max() - per_turb.min()) / per_turb.mean() * 100),
+        turbine_ids=sorted(per_turb.index.tolist()),
+        excluded_turbine_ids=sorted(ever_faulted),
+    )
+
+
 def analyze_data(df: pd.DataFrame):
     """全面性資料品質分析"""
     report = []
@@ -218,17 +280,17 @@ def analyze_data(df: pd.DataFrame):
 
     # ── 4. 載荷分析 ──────────────────────────────────────
     report.append("\n## 4. 載荷 (Fatigue / DEL)")
-    load_tags = ["WFAT_TwrBsMy", "WFAT_TwrBsMx", "WFAT_BldRtMy", "WFAT_BldRtMx"]
+    load_tags = ["WLOD_TwrFaMom", "WLOD_TwrSsMom", "WLOD_BldFlapMom", "WLOD_BldEdgeMom"]
     for tag in load_tags:
         if tag in producing.columns:
             vals = producing[tag].dropna()
             report.append(f"  {tag:<20} range={vals.min():.1f}~{vals.max():.1f}  mean={vals.mean():.1f}  std={vals.std():.1f}")
 
     # 載荷-推力（風速^2）相關性
-    if "WFAT_TwrBsMy" in producing.columns:
+    if "WLOD_TwrFaMom" in producing.columns:
         producing_copy = producing.copy()
         producing_copy["wind_sq"] = producing_copy["WMET_WSpeedNac"] ** 2
-        corr_lw = producing_copy[["WFAT_TwrBsMy", "wind_sq"]].corr().iloc[0, 1]
+        corr_lw = producing_copy[["WLOD_TwrFaMom", "wind_sq"]].corr().iloc[0, 1]
         report.append(f"\n  Tower My ~ Wind^2 correlation: {corr_lw:.3f}")
         if corr_lw < 0.6:
             report.append("  ⚠ 塔基彎矩與風速平方相關性偏低，推力→載荷模型可能不夠")
@@ -236,13 +298,13 @@ def analyze_data(df: pd.DataFrame):
             report.append("  ✓ 塔基彎矩與風速平方高度相關（推力驅動），物理合理")
 
     # 載荷-功率相關性
-    if "WFAT_TwrBsMy" in producing.columns:
-        corr_lp = producing[["WFAT_TwrBsMy", "WTUR_TotPwrAt"]].corr().iloc[0, 1]
+    if "WLOD_TwrFaMom" in producing.columns:
+        corr_lp = producing[["WLOD_TwrFaMom", "WTUR_TotPwrAt"]].corr().iloc[0, 1]
         report.append(f"  Tower My ~ Power correlation: {corr_lp:.3f}")
 
     # 停機載荷
-    if len(stopped) > 0 and "WFAT_TwrBsMy" in stopped.columns:
-        load_stopped = stopped["WFAT_TwrBsMy"].mean()
+    if len(stopped) > 0 and "WLOD_TwrFaMom" in stopped.columns:
+        load_stopped = stopped["WLOD_TwrFaMom"].mean()
         report.append(f"  Stopped-state Tower My mean: {load_stopped:.1f} kNm")
         if load_stopped > 500:
             report.append("  ⚠ 停機時塔基載荷偏高 (>500 kNm)，應僅含重力項")
@@ -270,7 +332,7 @@ def analyze_data(df: pd.DataFrame):
 
             # 比較 key tags
             check_tags = ["WTUR_TotPwrAt", "WGEN_GnStaTmp1", "WVIB_BandHfX",
-                          "WVIB_Band1pX", "WFAT_TwrBsMy", "WFAT_BldRtMy"]
+                          "WVIB_Band1pX", "WLOD_TwrFaMom", "WLOD_BldFlapMom"]
             for tag in check_tags:
                 if tag in n_sub.columns and tag in f_sub.columns:
                     n_mean = n_sub[tag].mean()
@@ -289,7 +351,7 @@ def analyze_data(df: pd.DataFrame):
     corr_tags = [
         "WMET_WSpeedNac", "WTUR_TotPwrAt", "WROT_RotSpd", "WGEN_GnStaTmp1",
         "WNAC_VibMsNacXDir", "WVIB_Band1pX", "WVIB_BandHfX",
-        "WFAT_TwrBsMy", "WFAT_BldRtMy",
+        "WLOD_TwrFaMom", "WLOD_BldFlapMom",
     ]
     avail = [t for t in corr_tags if t in producing.columns]
     if len(avail) >= 4:
@@ -301,7 +363,7 @@ def analyze_data(df: pd.DataFrame):
             ("WMET_WSpeedNac", "WROT_RotSpd", "風速 ↔ 轉速"),
             ("WTUR_TotPwrAt", "WROT_RotSpd", "功率 ↔ 轉速"),
             ("WVIB_Band1pX", "WROT_RotSpd", "1P振動 ↔ 轉速"),
-            ("WFAT_TwrBsMy", "WMET_WSpeedNac", "塔基載荷 ↔ 風速"),
+            ("WLOD_TwrFaMom", "WMET_WSpeedNac", "塔基載荷 ↔ 風速"),
         ]
         report.append("\n  應高度相關的 tag 組合：")
         for t1, t2, desc in expected_high:
@@ -324,16 +386,38 @@ def analyze_data(df: pd.DataFrame):
     # ── 7. 個體差異分析 ──────────────────────────────────
     report.append("\n## 7. 風機個體差異")
     if "WTUR_TotPwrAt" in producing.columns:
-        per_turb = producing.groupby("turbine_id")["WTUR_TotPwrAt"].mean()
-        report.append(f"  各風機平均功率: min={per_turb.min():.1f}  max={per_turb.max():.1f}  std={per_turb.std():.1f} kW")
-        spread = (per_turb.max() - per_turb.min()) / per_turb.mean() * 100
-        report.append(f"  Spread: {spread:.1f}%")
-        if spread < 1.0:
-            report.append("  ⚠ 風機間差異太小 (<1%)，individuality model 可能不足")
-        elif spread > 30:
-            report.append("  ⚠ 風機間差異太大 (>30%)，可能有異常值")
+        per_turb_all = producing.groupby("turbine_id")["WTUR_TotPwrAt"].mean()
+        report.append(
+            f"  各風機平均功率（全部，含本次測試計畫注入故障機組）: "
+            f"min={per_turb_all.min():.1f}  max={per_turb_all.max():.1f}  "
+            f"std={per_turb_all.std():.1f} kW"
+        )
+
+        healthy = compute_healthy_individuality_spread(producing)
+        if healthy is None:
+            report.append("  （健康機組不足 2 台，略過個體差異 spread 判定）")
         else:
-            report.append("  ✓ 風機間存在合理差異")
+            report.append(
+                f"  健康機組（本次未被注入故障，n={len(healthy.turbine_ids)}）: "
+                f"{', '.join(healthy.turbine_ids)}"
+            )
+            if healthy.excluded_turbine_ids:
+                report.append(
+                    f"  已排除機組（本次測試計畫曾注入故障）: "
+                    f"{', '.join(healthy.excluded_turbine_ids)}"
+                )
+            report.append(
+                f"  健康機組平均功率: min={healthy.min_kw:.1f}  max={healthy.max_kw:.1f}  "
+                f"std={healthy.std_kw:.1f} kW"
+            )
+            spread = healthy.spread_pct
+            report.append(f"  Spread（健康機組間）: {spread:.1f}%")
+            if spread < 1.0:
+                report.append("  ⚠ 風機間差異太小 (<1%)，individuality model 可能不足")
+            elif spread > 30:
+                report.append("  ⚠ 風機間差異太大 (>30%)，可能有異常值")
+            else:
+                report.append("  ✓ 風機間存在合理差異")
 
     # ── 8. 數值品質檢查 ──────────────────────────────────
     report.append("\n## 8. 數值品質")
@@ -351,7 +435,7 @@ def analyze_data(df: pd.DataFrame):
         ("WTUR_TotPwrAt", -100, 5500),
         ("WROT_RotSpd", -1, 30),
         ("WGEN_GnStaTmp1", -10, 200),
-        ("WFAT_TwrBsMy", -100, 20000),
+        ("WLOD_TwrFaMom", -100, 20000),
         ("WVIB_Band1pX", -0.01, 20),
     ]
     for tag, lo, hi in range_checks:
