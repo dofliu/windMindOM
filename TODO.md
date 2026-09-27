@@ -16,7 +16,34 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-05 完成（第十四個 autonomous session）** —
+最後更新：2026-09-27（**WMOM-20260927-06 完成（第十五個 autonomous session）** —
+`docs/API_GUIDE.md` SCADA Tag System 章節 tag 總數/subsystem breakdown 全面
+重新盤點：獨立重新核對 `scada_registry.py` 全部 14 個 subsystem 的實際 tag
+數量，文件總數 74→109，breakdown table 全數重寫（新增 `WCOL`/`WDRV` 兩個先前
+完全遺漏的 subsystem，`WROT`/`WMET`/`WVIB`/`WLOD` 的數字與描述文字皆核實
+更新），同檔案第 160 行另一處相同過時數字一併修正。順手清理
+`turbine_physics.py` 內確認永遠打不到的 `WFAT_TwrBs`/`WFAT_BldRt` 死碼分支
+（全庫 grep 確認無其他引用，`modules/monitoring/tests/` 196 passed 零
+regression）。純文件修改 + 1 處死碼移除，backend 1293 passed（7 skipped, 1
+xfailed）零 regression、frontend 未動（preflight baseline 1477 passed/70
+files/tsc 0/build OK）。**誠實揭露**：純文件修改無自動化測試保護；死碼移除
+因原本無測試覆蓋，同樣無法 mutation-verify，改用全庫 grep 確認不可達的靜態
+驗證。**code-reviewer subagent review：Approve，0 must-fix，1 should-fix 已
+修復**（`WMET` 描述文字漏了仍存在的 ambient temp/atmospheric stability/raw
+anemometer reading，且與 work-log 自述不符）**，2 nice-to-have**（1 已採納：
+`WLOD` tower fore-aft/side-side 與 blade flapwise/edgewise 力矩用語拆開；
+1 已登記新 issue **WMOM-20260927-07**：`scada_registry.py` 內 `WCOL_*` 兩個
+tag 的 `subsystem` 欄位誤植為 `WCNV`，目前無呼叫端依賴不影響行為，未修）。
+**下個 session**：可從 `WMOM-20260927-07`（10-15 分鐘小修）、
+`WMOM-20260505-25~28`（物理強化，逐一看 priority，皆多日工作）或 M6 critical
+path 剩餘項（`WMOM-20260509-F6` PostgreSQL row-lock 需 docker、HTTPS 部署
+配置需先定部署目標，皆需劉老師決策）中挑選；其餘 open issue
+（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師決策/素材，不宜自行
+開工。⚠ `docs/routines/
+autonomous-daily-worker-prompt.md` 內文仍停留 v3，已連續多個 session 提醒，
+建議劉老師找時間同步 cron trigger 設定內文（v4.1）回 repo。詳見
+`work-logs/2026-09/2026-09-27-api-guide-tag-count-audit.md`。
+前一 session：2026-09-27（**WMOM-20260927-05 完成（第十四個 autonomous session）** —
 `docs/API_GUIDE.md` 仍教學查詢不存在的 `WFAT_*` SCADA tag 修正：核對
 `scada_registry.py` 發現現行 schema 實際登記 16 個 `WLOD_*` tag（非簡單 7 對 7
 改名——3 個舊 tag 現行已各自拆成 Fore-Aft/Side-Side 與 Flapwise/Edgewise），
