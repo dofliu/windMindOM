@@ -16,10 +16,22 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 116 |
-| **total** | **125** |
+| done | 117 |
+| **total** | **126** |
 
-最後更新：2026-09-27（**WMOM-20260927-07 完成（第十六個 autonomous session）—
+最後更新：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）—
+同步 `docs/routines/autonomous-daily-worker-prompt.md` 為實際 v4.1 內文**：
+canonical routine 文件版本標記長期停在 v3（2026-06-03），已被連續多個
+session work-log 提醒卻從未真正同步；本次把實際收到的 v4.1 cron prompt 全文
+整理進檔案，取代舊內容，並在「## 3. 現況」章節與「維護備註」加註解說明快照
+會過時、決策樹改依 `ISSUES.md`/`STATUS.yaml` 實際內容判斷，避免同款 drift
+循環重演。純文件修改，backend 1295 passed / frontend tsc 0/vitest 1477
+passed（70 files）/build OK（preflight baseline，未改動任何測試涵蓋的程式碼
+故未重跑）。**code-reviewer subagent review：Needs revision，0 must-fix，3
+should-fix 皆已修復**（work-log/ISSUES.md 收尾敘述本身的統計落差與跨檔案
+數字矛盾，非 canonical 文件本體問題）。詳見
+`work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
+**前一 session：2026-09-27（WMOM-20260927-07 完成（第十六個 autonomous session）—
 `scada_registry.py` 內 `WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植修正**：410/413
 行 `"WCNV"`→`"WCOL"`，dataclass docstring subsystem 列舉補上 `WCOL`/`WDRV`；
 新增 regression test（2 tests，mutation-verify 確認還原後皆 fail）。backend
@@ -4446,6 +4458,84 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   無影響；本次修正一併糾正了這個 API 回應層級的既有錯誤。
   **已知限制**：`i18n.py` 端點回傳的 `subsystem` 欄位正確性目前無端對端測試
   覆蓋（只驗證 `ScadaRegistry` 本身），屬於讀原始碼交叉核對層級的把關。
+
+---
+
+### WMOM-20260928-01 — 同步 `docs/routines/autonomous-daily-worker-prompt.md` 為實際 cron 送出的 v4.1 內文
+
+- **Status**: done
+- **Milestone**: 工程基礎設施 / 技術債
+- **Priority**: medium（至少 3 個具名 autonomous session work-log〔`-05`/
+  `-06`/`-07`〕都提醒這個 drift，未逐一往前查證是否更早就有，卡著沒人修）
+- **Estimate**: 20-30 分鐘
+- **Source**: 本 session preflight 檢查（`docs/routines/autonomous-daily-worker-prompt.md`
+  自述「本檔是 canonical 版本」，但實測其版本標記仍是 v3（2026-06-03），而
+  cron trigger 實際每次注入的 prompt 內容（本 session 收到的任務描述）明確自稱
+  v4.1，兩者差距很大：v3 只有 5-phase 開工 routine + 無「自我測試 baseline」章節
+  + 無 mutation-verify 要求 + backend baseline 數字停留在 638（實際已到
+  1295）+ 無 M6 critical path 決策樹細節 + 無降級模式（GitHub MCP 缺席時的
+  git ls-remote 備援）說明。
+- **Description**:
+  `docs/routines/autonomous-daily-worker-prompt.md` 是 repo 內宣稱的「canonical
+  版本」，理論上 cron trigger 設定內文應該與它同步，但實際運作方向是反過來
+  的——trigger 送出的 v4.1 內容比 repo 內這份 v3 文件新且完整得多。這造成兩個
+  問題：①任何人打開這份文件想了解 routine 實際在做什麼，看到的是過時資訊
+  （backend baseline 638 vs 實際 1295、無 phase 6 code-reviewer subagent
+  review 步驟、無「一日一項重要工作」哲學宣示等）；②每個 session 都要重複在
+  work-log 留提醒「請劉老師同步」，但從未真的動手同步過（至少連續 5 個
+  session：`-05`/`-06`/`-07` 三個 work-log 都提到，往前推更多），純提醒沒有
+  行動不會自己解決。
+- **Deliverable**:
+  把本 session 實際收到的 v4.1 cron prompt 全文（開工 routine、環境限制、
+  stack-aware 檢查、GitHub MCP 降級模式、8-phase 執行流程、mutation-verify
+  要求、收尾策略等）整理進 `docs/routines/autonomous-daily-worker-prompt.md`
+  的 fenced code block，取代舊 v3 內容；檔案頂部版本標記與「維護備註」章節
+  同步更新為 v4.1，並列出本次 v3→v4.1 的重點差異（供未來比對）。**不改動**
+  cron trigger 本身的設定（那是劉老師的操作，repo 側只能同步文件內容，不能
+  代為觸發外部設定變更）。
+- **Acceptance**:
+  - 檔案版本標記從 v3 更新為 v4.1
+  - fenced code block 內文與本 session 實際收到的 cron prompt 語意一致（開工
+    routine 含自我測試 baseline、8-phase 含 mutation-verify、降級模式說明皆
+    涵蓋）
+  - 「維護備註」章節列出 v3→v4.1 差異摘要
+  - 純文件修改，backend/frontend 全套測試維持零 regression（不需新增測試，
+    Markdown 文件無法被 pytest/vitest 解析）
+- **Completion summary（2026-09-28，第十七個 autonomous session）**：把本
+  session 實際收到的 v4.1 cron prompt 全文（0. 兩個目的 / 1. 環境 + 1.1
+  GitHub MCP 降級模式 / 2. 開工 routine 自我測試 / 3. 現況 / 4. 決策樹 / 5.
+  8-phase / 6. 重要守則 / 7. 收尾策略 / 8. 已知環境限制）整理進檔案 fenced
+  code block，取代舊 v3 內容；版本標記 v3→v4.1，「維護備註」章節新增
+  v3→v4.1 差異摘要表。**設計選擇**：v4.1 prompt 內「## 3. 現況」章節列的
+  M6 critical path 清單（`WMOM-20260720-04`/`-08`/`WMOM-20260716-06`）本次
+  核對 `ISSUES.md` 發現皆已 done——代表 cron 設定本身的內容也會隨時間過時，
+  不是每次都精準反映當下狀態。故**刻意不逐字照搬這份會過時的快照**，改為
+  §3 加註解「本節是快照會過時，請以 ISSUES.md/STATUS.yaml 實際內容為準」，
+  決策樹 §4 也改寫成「依 ISSUES.md/STATUS.yaml 實際 open 項目判斷」而非在
+  canonical 文件內硬編 issue 清單，目的是避免未來又出現「canonical 文件裡的
+  快照本身就是 drift 來源」的同款問題循環（這正是 v3 檔案本身這次會落後
+  cron 實際內容超過 3 個月、至少被 3 個具名 session work-log〔`-05`/`-06`/
+  `-07`〕重複提醒卻無人動手的根因：上次同步時寫進去的細節後來又過時了）。
+  backend 全套 1295 passed（7 skipped, 1 xfailed，preflight baseline，本次
+  未改動任何被測試涵蓋的程式碼，未重跑）；frontend tsc 0/vitest 1477
+  passed（70 files）/build OK（preflight baseline，同理未重跑）。
+  **code-reviewer subagent review：Needs revision，0 must-fix，3 should-fix
+  皆已修復**——皆為 work-log/ISSUES.md 收尾敘述本身的落差（非 canonical 文件
+  本體問題）：①work-log Wrap-up 統計描述與實際 diff 不符（`in_progress`
+  誤寫成有變動、`total` 誤寫成不變）已更正；②`## Review` 段落原是佔位字
+  「待補」卻已把本 issue 標 `done`，即本次「同步 8-phase 流程文件」的
+  session 沒有走完剛同步進去的 Phase 6→7 順序，已回填實際 review 結果；
+  ③`ISSUES.md`/`STATUS.yaml`/`TODO.md` 對「被幾個 session 提醒過」給出
+  互相矛盾的數字（5+ vs 3+），已統一為有證據支撐的「至少 3 個具名
+  work-log」。reviewer 獨立確認 canonical 文件本體（fenced code block +
+  維護備註 + 版本標記）內部自洽、無矛盾版本號殘留。**誠實揭露**：純
+  Markdown 文件修改無自動化測試保護，只能靠人工逐段比對本 session 實際收到
+  的 v4.1 prompt 內容與寫入檔案的內容是否語意一致把關，無法
+  mutation-verify。**已知限制**：本檔仍會隨開發推進持續過時（baseline 數字、
+  §3 現況快照）——這不是
+  一次性解決的問題，下個 session 若又發現版本標記落後於實際收到的 prompt，
+  應直接動手同步，而非只在 work-log 留言提醒。詳見
+  `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
 
 ---
 
