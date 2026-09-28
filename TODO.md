@@ -16,7 +16,23 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-27（**WMOM-20260927-07 完成（第十六個 autonomous session）** —
+最後更新：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）** —
+`docs/routines/autonomous-daily-worker-prompt.md`（canonical routine 文件）版本
+長期停在 v3（2026-06-03），已被連續 3+ 個 session work-log 提醒卻從未真正同步，
+本次把實際收到的 v4.1 cron prompt 全文整理進檔案取代舊內容：版本標記 v3→v4.1；
+baseline 638/59→1295/1477 全面更新；補上 v4.1 既有但 v3 缺漏的自我測試/
+mutation-verify/GitHub MCP 降級模式/誠實回報等章節；「## 3. 現況」章節與
+「維護備註」加註解說明該節是快照會過時、決策樹改依 `ISSUES.md`/`STATUS.yaml`
+實際內容判斷，避免同款 drift 循環重演。純文件修改，backend 1295 passed（7
+skipped, 1 xfailed）/frontend tsc 0/vitest 1477 passed（70 files）/build OK
+皆為 preflight baseline（未改動任何測試涵蓋的程式碼，未重跑）。**下個
+session**：可從 `WMOM-20260505-25~28`（物理強化，逐一看 estimate，皆多日
+工作）或 M6 critical path 剩餘項（`WMOM-20260509-F6` PostgreSQL row-lock 需
+docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）中挑選；其餘 open
+issue（`WMOM-20260504-11`/`WMOM-20260513-01`）皆標 🟡 需劉老師決策/素材，
+不宜自行開工。詳見
+`work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
+前一 session：2026-09-27（**WMOM-20260927-07 完成（第十六個 autonomous session）** —
 `scada_registry.py` 內 `WCOL_CoolantLvl`/`WCOL_CoolantAlm` 兩個 tag 的
 `subsystem` 欄位誤植修正：410/413 行 `"WCNV"`→`"WCOL"`（複製貼上疏漏），
 dataclass docstring subsystem 列舉補上 `WCOL`/`WDRV`。新增 regression test

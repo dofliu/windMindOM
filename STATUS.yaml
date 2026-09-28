@@ -3,7 +3,21 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-27"  # **2026-09-27 第十六個 autonomous session（WMOM-20260927-07
+last_updated: "2026-09-28"  # **2026-09-28 第十七個 autonomous session（WMOM-20260928-01
+  # 完成）** — `docs/routines/autonomous-daily-worker-prompt.md`（canonical
+  # routine 文件）版本長期停在 v3（2026-06-03），已被連續 3+ 個 session
+  # work-log 提醒卻從未真正同步，本次把實際收到的 v4.1 cron prompt 全文整理
+  # 進檔案取代舊內容：版本標記 v3→v4.1；baseline 638/59→1295/1477 全面更新；
+  # 新增自我測試/mutation-verify/GitHub MCP 降級模式/誠實回報等 v4.1 既有但
+  # v3 缺漏的章節；「## 3. 現況」章節與「維護備註」加註解說明該節是快照會
+  # 過時、決策樹 §4 改依 `ISSUES.md`/`STATUS.yaml` 實際內容判斷（不在 canonical
+  # 文件內硬編 issue 清單），避免「canonical 文件裡的快照本身就是 drift 來源」
+  # 的同款問題循環重演。純文件修改，backend 1295 passed（7 skipped, 1
+  # xfailed）/frontend tsc 0/vitest 1477 passed（70 files）/build OK 皆為
+  # preflight baseline（未改動任何測試涵蓋的程式碼，未重跑）。**誠實揭露**：
+  # 純 Markdown 修改無自動化測試保護，只能人工逐段核對語意一致性。詳見
+  # `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
+  # **前一 session（2026-09-27 第十六個 autonomous session，WMOM-20260927-07
   # 完成）** — `scada_registry.py` 內 `WCOL_CoolantLvl`/`WCOL_CoolantAlm` 兩個
   # tag 的 `subsystem` 欄位誤植修正：410/413 行 `"WCNV"`→`"WCOL"`（複製貼上疏漏，
   # 對照 `WDRV_*` 正確寫法可見），dataclass docstring subsystem 列舉補上
@@ -705,16 +719,14 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-27（第十六個 autonomous session）WMOM-20260927-07 完成，delta-only
-  # 更新自上次核實過的準確底數（open 8/in_progress 2/done 115/total 125）。
-  open: 7  # -1（WMOM-20260927-07 done）
+  # 2026-09-28（第十七個 autonomous session）WMOM-20260928-01 完成，delta-only
+  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 116/total 125）。
+  open: 7  # 不變
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 116  # +1（WMOM-20260927-07：scada_registry.py WCOL_* subsystem 欄位
-             # 誤植為 WCNV 修正，code-reviewer subagent review：1 should-fix
-             # 已修復）
-             # total 125（7+2+116=125，與 ISSUES.md `### WMOM-` header 數一致）
+  done: 117  # +1（WMOM-20260928-01：canonical routine 文件 v3→v4.1 同步）
+  # total 126（7+2+117=126，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine
