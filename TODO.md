@@ -16,7 +16,20 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260928-04 完成（第二十個 autonomous session）：
+最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
+session）：`TurbineDetail.tsx` fatigue tab 新增 RUL 倒數 + 塔架/葉片疲勞警報
+badge + 4 個累積損傷比例，零後端改動** — 重新盤點母 issue `WMOM-20260505-25`
+發現其「需要新 tab + 3 新元件」描述已過時，RUL/警報資料早已透過既有
+`scadaTags` 全程到前端，只是 `fatigue` tab 從未畫出來；拆出零風險 Part A
+單 session 完工，母 issue 保持 open（剩 SpectralAlarmPanel/BearingDiagPanel/
+RUL 觸發時間軸）。**code-reviewer subagent 抓到 1 must-fix（非整數警報等級
+會 crash 整個 tab）+ 3 should-fix，皆已修復**。最終新增 9 測
+mutation-verified。frontend 1477→**1486 passed**（70 files 不變，零
+regression）/ tsc 0 / build OK；backend 未動 1295 passed（7 skipped, 1
+xfailed）不變。**誠實揭露**：僅驗證顯示層邏輯，
+未做故障注入長時間模擬的端到端驗證。詳見
+`work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`。
+**前一 session：WMOM-20260928-04 完成（第二十個 autonomous session）：
 preflight 全綠，重新確認本 sandbox docker daemon 可用（需手動啟動 dockerd），
 仍無可行 autonomous 工作，乾淨收尾** — backend 1295 passed（7 skipped, 1
 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，與
@@ -829,9 +842,14 @@ accelerated 模式 stop() 響應性收尾（PR #158 merged）；session #1：WMO
 
 > 既有 18/21 quality check 已通過，非 must-have；商業 demo 不依賴這些。
 
-- [ ] **WMOM-20260505-23** — Physics 自我驗證框架（7 層 validator + health check CLI）
-- [ ] **WMOM-20260505-24** — Data quality 3 項 fail 修正
-- [ ] **WMOM-20260505-25** — Frontend RUL + 多 band alarm 視覺化
+- [x] ~~**WMOM-20260505-23** — Physics 自我驗證框架（7 層 validator + health check CLI）~~ —
+  ✅ 2026-05-06 完成（本清單過時未勾）
+- [x] ~~**WMOM-20260505-24** — Data quality 3 項 fail 修正~~ — ✅ 2026-09-27 完成
+  （本清單過時未勾）
+- [ ] **WMOM-20260505-25** — Frontend RUL + 多 band alarm 視覺化 —
+  **Part A（RUL 倒數 + 疲勞警報 badge + 累積損傷比例）已於 2026-09-28 完成
+  （`WMOM-20260505-25-a`）**；剩 SpectralAlarmPanel（5-band 頻譜）/
+  BearingDiagPanel（BPFO/BPFI）/ RUL 觸發時間軸
 - [ ] WMOM-20260505-26/27/28 — SCADA tag 擴充 / 保護電驛協調 / 單齒 defect signature
 
 ---

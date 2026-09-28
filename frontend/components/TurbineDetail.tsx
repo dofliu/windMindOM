@@ -29,6 +29,7 @@ import {
   Btn,
   PageHeader,
   StatusPill,
+  type PillTone,
   Stat,
   HealthBar,
   MiniSparkline,
@@ -57,6 +58,41 @@ const TUR_STATE_LABELS: Record<number, { en: string; zh: string }> = {
 
 const fmt = (v: number | undefined | null, digits = 1): string =>
   v != null && Number.isFinite(v) ? v.toFixed(digits) : '—';
+
+/** 疲勞 0-4 級警報對應 StatusPill tone + 中英標籤（WMOM-20260505-25-a，對齊
+ * `fatigue_model.py::_damage_to_alarm` / `data_broker.py` 的 alarm_names）。 */
+const FATIGUE_ALARM_LEVELS: { en: string; zh: string; tone: Extract<PillTone, 'ok' | 'info' | 'warn' | 'amber' | 'danger'> }[] = [
+  { en: 'Normal', zh: '正常', tone: 'ok' },
+  { en: 'Notice', zh: '注意', tone: 'info' },
+  { en: 'Warning', zh: '警告', tone: 'warn' },
+  { en: 'Danger', zh: '危險', tone: 'amber' },
+  { en: 'Shutdown', zh: '停機', tone: 'danger' },
+];
+
+/** `scadaTags` 是 `Record<string, number>`，無法在型別層保證整數/範圍——非整數
+ * 或超出 0-4 的值需 clamp + round 後才能安全當陣列索引，否則會取到 `undefined`
+ * 而讓整個 fatigue tab render 拋錯（code review must-fix，WMOM-20260505-25-a）。 */
+const fatigueAlarmInfo = (level: number | undefined) => {
+  const lvl = level != null && Number.isFinite(level)
+    ? Math.min(4, Math.max(0, Math.round(level)))
+    : 0;
+  return FATIGUE_ALARM_LEVELS[lvl];
+};
+
+/** RUL（剩餘壽命，小時）換算為「年/月/日」可讀字串。-1 或無值代表尚無足夠
+ * 發電時數估算損傷速率（`fatigue_model.py` 的 sentinel）。已知顯示粒度限制：
+ * 未滿 24 小時會顯示「0天」而非小時數（見 code review 討論，此欄位本就是
+ * 「還有多久需要處置」的粗粒度倒數，非精確剩餘小時的即時儀表）。 */
+const formatRul = (hours: number | undefined, tr: (en: string, zh: string) => string): string => {
+  if (hours == null || !Number.isFinite(hours) || hours < 0) return '—';
+  const totalDays = Math.floor(hours / 24);
+  const years = Math.floor(totalDays / 365);
+  const months = Math.floor((totalDays % 365) / 30);
+  const days = (totalDays % 365) % 30;
+  if (years > 0) return `${years}${tr('y', '年')} ${months}${tr('mo', '月')}`;
+  if (months > 0) return `${months}${tr('mo', '月')} ${days}${tr('d', '天')}`;
+  return `${days}${tr('d', '天')}`;
+};
 
 /**
  * 判斷「為何不發電」的原因（WMOM-20260718-04，#3 狀態可見性）。
@@ -885,28 +921,78 @@ const SubsystemDetailCard: React.FC<{
             <DataRow label={tr('Outside °C', '室外溫度')} value={`${fmt(t.outsideTemp)}°C`} />
           </SubsystemSection>
         );
-      case 'fatigue':
+      case 'fatigue': {
+        const almTwr = fatigueAlarmInfo(t.scadaTags?.WLOD_AlmTwr);
+        const almBld = fatigueAlarmInfo(t.scadaTags?.WLOD_AlmBld);
+        const rulHours = t.scadaTags?.WLOD_RulHours;
         return (
-          <SubsystemSection title="WLOD Load & Fatigue">
-            <DataRow label={tr('Tower FA', '塔架 FA')} value={`${fmt(t.towerFaMoment, 1)} kNm`} />
-            <DataRow label={tr('Tower SS', '塔架 SS')} value={`${fmt(t.towerSsMoment, 1)} kNm`} />
-            <DataRow label={tr('Blade flap', '葉片揮舞')} value={`${fmt(t.bladeFlapMoment, 1)} kNm`} />
-            <DataRow label={tr('Blade edge', '葉片擺振')} value={`${fmt(t.bladeEdgeMoment, 1)} kNm`} />
-            <DataRow
-              label={tr('DEL tower FA', 'DEL 塔架 FA')}
-              value={fmt(t.delTowerFa, 1)}
-              warn={(t.delTowerFa || 0) > 4000}
-              alert={(t.delTowerFa || 0) > 6000}
-            />
-            <DataRow
-              label={tr('DEL blade flap', 'DEL 葉片揮舞')}
-              value={fmt(t.delBladeFlap, 1)}
-              warn={(t.delBladeFlap || 0) > 2000}
-              alert={(t.delBladeFlap || 0) > 3000}
-            />
-            <DataRow label={tr('Production hours', '發電時數')} value={`${fmt(t.productionHours, 1)} h`} />
-          </SubsystemSection>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <SubsystemSection title="WLOD Load & Fatigue">
+              <DataRow label={tr('Tower FA', '塔架 FA')} value={`${fmt(t.towerFaMoment, 1)} kNm`} />
+              <DataRow label={tr('Tower SS', '塔架 SS')} value={`${fmt(t.towerSsMoment, 1)} kNm`} />
+              <DataRow label={tr('Blade flap', '葉片揮舞')} value={`${fmt(t.bladeFlapMoment, 1)} kNm`} />
+              <DataRow label={tr('Blade edge', '葉片擺振')} value={`${fmt(t.bladeEdgeMoment, 1)} kNm`} />
+              <DataRow
+                label={tr('DEL tower FA', 'DEL 塔架 FA')}
+                value={fmt(t.delTowerFa, 1)}
+                warn={(t.delTowerFa || 0) > 4000}
+                alert={(t.delTowerFa || 0) > 6000}
+              />
+              <DataRow
+                label={tr('DEL blade flap', 'DEL 葉片揮舞')}
+                value={fmt(t.delBladeFlap, 1)}
+                warn={(t.delBladeFlap || 0) > 2000}
+                alert={(t.delBladeFlap || 0) > 3000}
+              />
+              <DataRow label={tr('Production hours', '發電時數')} value={`${fmt(t.productionHours, 1)} h`} />
+            </SubsystemSection>
+            <SubsystemSection title={tr('Cumulative Damage & RUL', '累積損傷與剩餘壽命')}>
+              {/* warn/alert 對齊 fatigue_model.py::FatigueSpec 的真實 alarm 門檻
+                  （alarm_notice=0.30 / alarm_warning=0.60 / alarm_danger=0.80 /
+                  alarm_shutdown=0.95），而非 DEL 欄位沿用的任意經驗值，讓百分比
+                  數字與右側警報 badge 的顏色判斷一致。 */}
+              <DataRow
+                label={tr('Damage — tower FA', '累積損傷 — 塔架 FA')}
+                value={`${fmt((t.damageTowerFa || 0) * 100, 2)}%`}
+                warn={(t.damageTowerFa || 0) >= 0.3}
+                alert={(t.damageTowerFa || 0) >= 0.8}
+              />
+              <DataRow
+                label={tr('Damage — tower SS', '累積損傷 — 塔架 SS')}
+                value={`${fmt((t.damageTowerSs || 0) * 100, 2)}%`}
+                warn={(t.damageTowerSs || 0) >= 0.3}
+                alert={(t.damageTowerSs || 0) >= 0.8}
+              />
+              <DataRow
+                label={tr('Damage — blade flap', '累積損傷 — 葉片揮舞')}
+                value={`${fmt((t.damageBladeFlap || 0) * 100, 2)}%`}
+                warn={(t.damageBladeFlap || 0) >= 0.3}
+                alert={(t.damageBladeFlap || 0) >= 0.8}
+              />
+              <DataRow
+                label={tr('Damage — blade edge', '累積損傷 — 葉片擺振')}
+                value={`${fmt((t.damageBladeEdge || 0) * 100, 2)}%`}
+                warn={(t.damageBladeEdge || 0) >= 0.3}
+                alert={(t.damageBladeEdge || 0) >= 0.8}
+              />
+              <DataRow
+                label={tr('Tower alarm', '塔架警報')}
+                value={<StatusPill tone={almTwr.tone}>{tr(almTwr.en, almTwr.zh)}</StatusPill>}
+              />
+              <DataRow
+                label={tr('Blade alarm', '葉片警報')}
+                value={<StatusPill tone={almBld.tone}>{tr(almBld.en, almBld.zh)}</StatusPill>}
+              />
+              <DataRow
+                label={tr('Estimated RUL', '預估剩餘壽命')}
+                value={formatRul(rulHours, tr)}
+                warn={rulHours != null && rulHours >= 0 && rulHours < 8760}
+                alert={rulHours != null && rulHours >= 0 && rulHours < 720}
+              />
+            </SubsystemSection>
+          </div>
         );
+      }
     }
   };
 
