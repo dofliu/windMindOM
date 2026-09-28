@@ -4893,6 +4893,73 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
+### WMOM-20260928-05 — `HistoryPage.tsx` 事件類型登記表遺漏 `fatigue`/`fault_lifecycle`（真實後端事件整組隱形）
+
+- **Status**: done（2026-09-28 完成，第二十二個 autonomous session）
+- **Milestone**: M5 並行（RAG demo 事件可追溯性）/ 技術債
+- **Priority**: medium（真實資料在 UI 隱形，非單純顯示瑕疵）
+- **Owner**: Claude (autonomous worker, session 2026-09-28)
+- **背景**：接續前一 session（`WMOM-20260505-25-a`）盤點 fatigue 資料流時，順藤摸瓜檢查
+  `modules/monitoring/server/data_broker.py`：確認後端會記錄 `event_type="fatigue"`
+  （疲勞警報升降級，`_record_fatigue_alarm_events` 內邏輯）與 `event_type="fault_lifecycle"`
+  （故障開始/階段轉換/結束）兩種真實 history event，且 `GET /api/turbines/{id}/history`
+  端點本就把 `events` 陣列完整回傳給前端（API 無需改動）。但 `frontend/components/
+  HistoryPage.tsx` 的事件類型登記表 `EVENT_TYPES` 只認得 `grid/fault/operator/wind/state`
+  五種；`visibleEvents` 的 filter 邏輯 `enabledEventTypes[e.event_type] ?? false` 對這兩型
+  因從未登記進 `Record<EventType, boolean>` 而恆為 `undefined ?? false`——無論使用者怎麼調
+  篩選 toggle，這兩種真實後端事件永遠從事件紀錄清單、圖表 `ReferenceLine` 標記、事件詳情
+  面板整組消失，等同資料存在但 UI 永遠看不到，且無任何錯誤訊息提示（靜默失效）。
+  全庫 `grep -rn 'event_type="'` 核對確認後端僅記錄 `fatigue/fault/fault_lifecycle/grid/
+  operator/state/wind` 七種，登記表補齊後即涵蓋全部。
+- **Deliverable**：`frontend/components/HistoryPage.tsx` 五處既有查表結構（`EVENT_TYPES`
+  常數陣列、`eventTone()`、`EVENT_HEX`、`eventTypeLabel()` zh 分支、`enabledEventTypes`
+  初始 state）各自補上 `fatigue`（tone=`danger`）/`fault_lifecycle`（tone=`muted`，
+  review 後由初版 `warn` 修正，見下方 Review）兩個 entry，純粹補既有 pattern 的查表項，
+  不新增邏輯分支、不動後端。
+- **Acceptance**：
+  - 兩型事件出現在事件紀錄清單，可點擊查看詳情（title/detail/payload）
+  - 各自篩選 toggle 可獨立開關，不影響其餘既有 5 型
+  - 既有 5 型行為/測試零 regression
+- **測試**：`frontend/components/__tests__/HistoryPage.test.tsx` 新增 4 測（事件清單渲染
+  兩型 title、詳情面板顯示中文 label 與 detail、`fatigue`/`fault_lifecycle` 各自 toggle
+  獨立關閉互不影響），皆 mutation-verified（`git stash` 暫存 `HistoryPage.tsx` 本體、
+  保留測試檔案，重跑確認 4 測如預期全部 fail、既有 23 測仍過，`stash pop` 還原後 27 測
+  全過）。frontend 1486→**1490 passed**（70 files 不變，零 regression）；tsc 0；build OK。
+  backend 未動，1295 passed（7 skipped, 1 xfailed）不變。
+- **Review**：code-reviewer subagent（獨立 async review）：Approve，0 must-fix，
+  3 should-fix + 3 nice-to-have，獨立重跑測試與 mutation-verify 完全重現、獨立
+  re-grep 確認無第 6 個查表遺漏點。①work-log 對 `fault_lifecycle` `end_timestamp`
+  的聲稱不準確已更正（其「start」事件故障清除時會被 `storage.py::close_open_events()`
+  回填 `end_timestamp`，跟 `fatigue` 不同）；②`fault_lifecycle` 與 `fault` 共用
+  `warn` tone 在徽章上撞色，已改 `muted` 修復；③`fatigue` tone 對所有嚴重度一律
+  `danger`、未依 `payload.toLevel` 分級（跟 `TurbineDetail.tsx::FATIGUE_ALARM_LEVELS`
+  的分級邏輯不完全一致，初版「保持跨頁一致」措辭過度宣稱已更正），reviewer 認同
+  這需要改 `eventTone()` 簽名才能拿到 payload，超出本次刻意收斂範圍不強制修，列
+  follow-up（見下方）。修復 should-fix #2 後重新跑 `npx vitest run
+  components/__tests__/HistoryPage.test.tsx` 27 passed、`npx tsc --noEmit` 0 error。
+- **Follow-up（未在本 issue 處理，供後續 session 接手）**：
+  1. `frontend/components/HistoryPage.tsx::eventTone()` 的 `fatigue` 分支依
+     `payload.toLevel` 分級（比照 `TurbineDetail.tsx::FATIGUE_ALARM_LEVELS`
+     `ok/info/warn/amber/danger` 五級），需先把簽名從 `(et: string)` 改成能拿到
+     完整事件物件。
+  2. `frontend/components/EventComparisonView.tsx::eventTone()`（第 32-39 行，情境
+     比較路徑，獨立一份查表、非本次 diff 觸碰）已有 `fault_lifecycle` 但漏了
+     `fatigue`（fallback `muted`），且該檔 `Select` 篩選選項清單（約第 176-186 行）
+     缺 `fatigue` 選項，無法單獨篩選。
+  3. 圖表 `ReferenceArea` 色帶目前只認 `grid`/`wind`；`fault_lifecycle` 的
+     `end_timestamp`（見上方 Review）具備真實區間語意，可考慮加入色帶渲染。
+  4. `eventTypeLabel()` 英文分支技術債（全部 7 型皆是，非本次引入）：
+     `EventComparisonView.tsx` 已有 `u('Fault lifecycle', '故障生命週期')` 可抄，
+     一次補齊成本低。
+- **Reference**：
+  - `modules/monitoring/server/data_broker.py:895-925`（`fatigue` event 記錄邏輯）、
+    `data_broker.py:839-891`（`fault_lifecycle` event 記錄邏輯）
+  - `modules/monitoring/server/routers/turbines.py:163`（`get_turbine_history` 回傳
+    `events` 陣列，API 本身無需改動）
+  - 詳見 `work-logs/2026-09/2026-09-28-history-page-event-types.md`
+
+---
+
 ### WMOM-20260505-26 — SCADA tag 深度擴充（protection / cooling loop / converter internal / service-state）
 
 - **Status**: open

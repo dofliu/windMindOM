@@ -56,7 +56,7 @@ const TAG_PRESETS: Record<string, string[]> = {
   pitch: ['WROT_PtAngValBl1', 'WROT_PtAngValBl2', 'WROT_PtAngValBl3', 'WTUR_TotPwrAt'],
 };
 
-const EVENT_TYPES = ['grid', 'fault', 'operator', 'wind', 'state'] as const;
+const EVENT_TYPES = ['grid', 'fault', 'operator', 'wind', 'state', 'fatigue', 'fault_lifecycle'] as const;
 type EventType = typeof EVENT_TYPES[number];
 
 interface HistoryPageProps {
@@ -95,6 +95,12 @@ const eventTone = (et: string): PillTone => {
   if (et === 'wind') return 'info';
   if (et === 'operator') return 'ok';
   if (et === 'state') return 'accent';
+  if (et === 'fatigue') return 'danger';
+  // muted（非 warn）：warn 已被 'fault' 佔用，若共用會讓 StatusPill 徽章在事件清單/
+  // 詳情面板跟直接注入的 fault 撞色、只能靠文字辨識（code review should-fix，
+  // WMOM-20260928-05）；fault_lifecycle 是背景生命週期追蹤，語意上也適合較不搶眼的
+  // muted，圖表 ReferenceLine 仍走各自獨立的 EVENT_HEX 顏色不受影響。
+  if (et === 'fault_lifecycle') return 'muted';
   return 'muted';
 };
 
@@ -105,6 +111,8 @@ const EVENT_HEX: Record<string, { light: string; dark: string }> = {
   wind: { light: '#5A7A98', dark: '#7AB8E8' },
   operator: { light: '#5C8A5F', dark: '#3DDC97' },
   state: { light: '#8B7AB8', dark: '#B49DE8' },
+  fatigue: { light: '#B8546A', dark: '#FF6B8B' },
+  fault_lifecycle: { light: '#C9975A', dark: '#FFB380' },
 };
 
 const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
@@ -132,6 +140,8 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
     operator: true,
     wind: true,
     state: true,
+    fatigue: true,
+    fault_lifecycle: true,
   });
   const [tagLabels, setTagLabels] = useState<Record<string, string>>({});
   const [customTags, setCustomTags] = useState('');
@@ -273,6 +283,8 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
       if (et === 'operator') return '操作';
       if (et === 'wind') return '風況';
       if (et === 'state') return '狀態';
+      if (et === 'fatigue') return '疲勞';
+      if (et === 'fault_lifecycle') return '故障週期';
     }
     return et;
   };

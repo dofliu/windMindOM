@@ -16,7 +16,29 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
+最後更新：2026-09-28（**WMOM-20260928-05 完成（第二十二個 autonomous
+session）：`HistoryPage.tsx` 事件類型登記表補上 `fatigue`/`fault_lifecycle`，
+修復真實後端事件整組隱形的 bug** — 接續前一 session 盤點 fatigue 資料流，
+全庫 grep `event_type="` 發現後端實際記錄 7 種事件（`fatigue/fault/
+fault_lifecycle/grid/operator/state/wind`），但 `HistoryPage.tsx` 的
+`EVENT_TYPES` 登記表只認 5 種；`visibleEvents` 的
+`enabledEventTypes[e.event_type] ?? false` 對未登記的兩型恆為 `false`——
+無論篩選 toggle 狀態為何，這兩種真實資料永遠從事件清單/圖表標記/詳情面板
+整組消失，且無任何錯誤提示（靜默失效）。純前端修復（五處既有查表結構各補
+一 entry），零後端改動，貼合既有 pattern 不新增邏輯分支。**code-reviewer
+subagent review：Approve，0 must-fix，3 should-fix 已處理**（work-log 對
+`fault_lifecycle` `end_timestamp` 的技術陳述不準確已更正；`fault_lifecycle`
+與既有 `fault` 共用 `warn` tone 在徽章上撞色，已改 `muted` 修復；`fatigue`
+tone 對所有嚴重度一律 `danger`、未依 level 分級，初版「跨頁一致」措辭過度
+宣稱已更正，改 code 超出本次刻意收斂範圍列 follow-up），3 個 nice-to-have
+（`EventComparisonView.tsx` 情境比較路徑同款查表漏 `fatigue`；en 標籤技術
+債；hex 色相相近，皆記錄 follow-up 未修）。新增 4 測，mutation-verified
+（`git stash` 還原元件本體確認 4 測如預期全部 fail、23 舊測仍過，reviewer
+獨立重現一致）。frontend 1486→**1490 passed**（70 files 不變，零
+regression）/ tsc 0 / build OK；backend 未動 1295 passed（7 skipped, 1
+xfailed）不變。詳見
+`work-logs/2026-09/2026-09-28-history-page-event-types.md`。
+**前一 session：WMOM-20260505-25-a 完成（第二十一個 autonomous
 session）：`TurbineDetail.tsx` fatigue tab 新增 RUL 倒數 + 塔架/葉片疲勞警報
 badge + 4 個累積損傷比例，零後端改動** — 重新盤點母 issue `WMOM-20260505-25`
 發現其「需要新 tab + 3 新元件」描述已過時，RUL/警報資料早已透過既有

@@ -382,6 +382,100 @@ describe('HistoryPage — 事件篩選', () => {
   });
 });
 
+// WMOM-20260928-05：`data_broker.py` 實際會記錄 `fatigue`（疲勞警報升降級，見
+// `_record_fatigue_alarm_events` 內 `alarm_names` 逻辑）與 `fault_lifecycle`
+// （故障開始/階段轉換/結束，見 `_record_state_transition_event` 旁的
+// lifecycle 追蹤）兩種 event_type，但先前 `EVENT_TYPES`/`enabledEventTypes`
+// 未登記 → `visibleEvents` 的 `enabledEventTypes[e.event_type] ?? false` 對
+// 這兩型恆為 `false`，無論篩選 toggle 狀態為何都會被整組濾掉，等同真實後端
+// 事件在事件紀錄清單/圖表 ReferenceLine 上完全隱形。本組鎖住修復後兩型皆可見
+// + 各自 toggle 可獨立關閉。
+describe('HistoryPage — fatigue / fault_lifecycle 事件類型（WMOM-20260928-05）', () => {
+  function payloadWithFatigueAndLifecycle() {
+    return makeHistoryPayload({
+      events: [
+        {
+          id: 3,
+          timestamp: '2026-06-05T10:01:00Z',
+          event_type: 'fatigue',
+          source: 'simulator',
+          title: '疲勞警報升級：塔架 Lv2 (警告)',
+          detail: 'WT001 塔架疲勞警報從 Lv1 升級至 Lv2，RUL=800h',
+          payload: { component: '塔架', fromLevel: 1, toLevel: 2 },
+        },
+        {
+          id: 4,
+          timestamp: '2026-06-05T10:02:00Z',
+          event_type: 'fault_lifecycle',
+          source: 'simulator',
+          title: 'Fault phase change: gearbox_overheat',
+          detail: 'gearbox_overheat transitioned from onset to developed',
+          payload: { scenarioId: 'gearbox_overheat', lifecycle: 'phase_change' },
+        },
+      ],
+    });
+  }
+
+  it('先前完全被濾掉的 fatigue/fault_lifecycle 事件，修復後出現在事件清單', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/i18n/tags')) return Promise.resolve(jsonResponse(tagLabels));
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(payloadWithFatigueAndLifecycle()));
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderHistory();
+    expect(screen.getByRole('button', { name: /疲勞警報升級：塔架/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fault phase change: gearbox_overheat/ })).toBeInTheDocument();
+  });
+
+  it('點 fatigue 事件 → 事件詳情顯示中文 type label「疲勞」與 detail', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/i18n/tags')) return Promise.resolve(jsonResponse(tagLabels));
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(payloadWithFatigueAndLifecycle()));
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderHistory();
+    await actFlush(() => fireEvent.click(screen.getByRole('button', { name: /疲勞警報升級：塔架/ })));
+    expect(screen.getByText('WT001 塔架疲勞警報從 Lv1 升級至 Lv2，RUL=800h')).toBeInTheDocument();
+    expect(screen.getAllByText('疲勞').length).toBeGreaterThan(0);
+  });
+
+  it('關掉「疲勞」類型 toggle → 只有 fatigue 事件消失，fault_lifecycle 仍在', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/i18n/tags')) return Promise.resolve(jsonResponse(tagLabels));
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(payloadWithFatigueAndLifecycle()));
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderHistory();
+    const fatigueToggle = screen
+      .getAllByText('疲勞')
+      .find(el => el.getAttribute('aria-pressed') === 'true');
+    expect(fatigueToggle).toBeTruthy();
+    await actFlush(() => fireEvent.click(fatigueToggle!));
+    expect(screen.queryByRole('button', { name: /疲勞警報升級：塔架/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fault phase change: gearbox_overheat/ })).toBeInTheDocument();
+  });
+
+  it('關掉「故障週期」類型 toggle → 只有 fault_lifecycle 事件消失，fatigue 仍在', async () => {
+    fetchMock.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/api/i18n/tags')) return Promise.resolve(jsonResponse(tagLabels));
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(payloadWithFatigueAndLifecycle()));
+      return Promise.reject(new Error(`Unexpected fetch: ${u}`));
+    });
+    await renderHistory();
+    const lifecycleToggle = screen
+      .getAllByText('故障週期')
+      .find(el => el.getAttribute('aria-pressed') === 'true');
+    expect(lifecycleToggle).toBeTruthy();
+    await actFlush(() => fireEvent.click(lifecycleToggle!));
+    expect(screen.queryByRole('button', { name: /Fault phase change: gearbox_overheat/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /疲勞警報升級：塔架/ })).toBeInTheDocument();
+  });
+});
+
 describe('HistoryPage — 標籤切換', () => {
   it('點標籤預設「thermal」→ 重新 fetch + 表頭換成 thermal 標籤', async () => {
     await renderHistory();
