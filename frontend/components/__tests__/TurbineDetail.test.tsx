@@ -592,6 +592,68 @@ describe('TurbineDetail — 子系統健康與明細', () => {
   });
 });
 
+// ─── 載荷/疲勞 tab：累積損傷 / RUL / 疲勞警報（WMOM-20260505-25-a）───────────
+
+describe('TurbineDetail — Load/Fatigue tab 累積損傷 / RUL / 疲勞警報', () => {
+  it('無 scadaTags → 兩個警報 badge 皆顯示「正常」，RUL 顯示「—」', async () => {
+    await renderDetail({ turbine: makeTurbine({}) });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    expect(screen.getAllByText('正常')).toHaveLength(2);
+    // 「—」在其他既有 DataRow（DEL tower FA/DEL blade flap 缺值 fallback）也會出現，
+    // 需 scope 在 RUL 那一列才不誤判其他列。
+    const rulRow = screen.getByText('預估剩餘壽命').closest('div');
+    expect(within(rulRow!).getByText('—')).toBeInTheDocument();
+  });
+
+  it('scadaTags 帶塔架/葉片警報等級 → 顯示對應中文標籤與正確 RUL 換算', async () => {
+    await renderDetail({
+      turbine: makeTurbine({
+        scadaTags: { WLOD_AlmTwr: 3, WLOD_AlmBld: 1, WLOD_RulHours: 4000 },
+      }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    expect(screen.getByText('危險')).toBeInTheDocument();
+    expect(screen.getByText('注意')).toBeInTheDocument();
+    // 4000h ÷ 24 = 166 天 → 5 月 16 天
+    expect(screen.getByText('5月 16天')).toBeInTheDocument();
+  });
+
+  it('rulHours 跨年 → 換算成年+月（不顯示日）', async () => {
+    await renderDetail({ turbine: makeTurbine({ scadaTags: { WLOD_RulHours: 40000 } }) });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    // 40000h ÷ 24 = 1666 天 → 4 年 6 月
+    expect(screen.getByText('4年 6月')).toBeInTheDocument();
+  });
+
+  it('rulHours = -1（尚無足夠發電時數估算損傷速率）→ 顯示「—」而非負數', async () => {
+    await renderDetail({ turbine: makeTurbine({ scadaTags: { WLOD_RulHours: -1 } }) });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    const rulRow = screen.getByText('預估剩餘壽命').closest('div');
+    expect(within(rulRow!).getByText('—')).toBeInTheDocument();
+  });
+
+  it('累積損傷比例（damageTowerFa/damageBladeFlap）正確換算成百分比', async () => {
+    await renderDetail({
+      turbine: makeTurbine({ damageTowerFa: 0.1234, damageBladeFlap: 0.9 }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    expect(screen.getByText('12.34%')).toBeInTheDocument();
+    expect(screen.getByText('90.00%')).toBeInTheDocument();
+  });
+
+  it('lang=en → 警報 badge 與 RUL 標籤走英文', async () => {
+    await renderDetail({
+      lang: 'en',
+      turbine: makeTurbine({ scadaTags: { WLOD_AlmTwr: 4, WLOD_RulHours: 4000 } }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load/Fatigue' }));
+    expect(screen.getByText('Shutdown')).toBeInTheDocument();
+    expect(screen.getByText('Estimated RUL')).toBeInTheDocument();
+    // 4000h → 166 天 → 5mo 16d
+    expect(screen.getByText('5mo 16d')).toBeInTheDocument();
+  });
+});
+
 // ─── TrendChartPanel 接線 ───────────────────────────────────────────────────
 
 describe('TurbineDetail — 詳細趨勢面板接線', () => {

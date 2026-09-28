@@ -16,10 +16,29 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 120 |
-| **total** | **129** |
+| done | 121 |
+| **total** | **130** |
 
-最後更新：2026-09-28（**WMOM-20260928-04 完成（第二十個 autonomous session）——
+最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
+session）——`TurbineDetail.tsx` `fatigue` tab 新增 RUL 倒數 + 塔架/葉片疲勞警報
+badge + 累積損傷比例顯示**：連續 4 個 session 判定全部 open/in_progress issue
+皆需劉老師決策或跨日大工，本次重新盤點 `WMOM-20260505-25`（母 issue，RUL/多
+band alarm 視覺化，先前估 1.5-2 天）時發現其「需要 3 個新元件+新 tab」的假設
+已過時——實地查證 `data_broker.py::_sim_output_to_reading` 確認 `TurbineReading.
+scadaTags` 早已完整透傳 `WLOD_AlmTwr`/`WLOD_AlmBld`/`WLOD_RulHours`，
+`frontend/types.ts` 亦已型別化，RUL/警報顯示**零後端改動**即可做、且無設計
+歧義，可拆出零風險的「Part A」單 session 完工（母 issue 標「done Part A」，
+`SpectralAlarmPanel`/`BearingDiagPanel`/RUL 觸發時間軸留待未來 Part B/C）。
+新增 `Cumulative Damage & RUL` section（就地擴充既有 `fatigue` tab，非新增
+tab/新檔案，貼合實際程式碼結構）。新增 6 測（`TurbineDetail.test.tsx`），
+mutation-verified（`git stash` 還原元件本體確認 6 測皆 fail，再還原）。
+frontend 1477→**1483 passed**（70 files 不變，零 regression）、tsc 0、build
+OK；backend 未動 1295 passed（7 skipped, 1 xfailed）不變。**誠實揭露**：僅
+驗證「給定警報等級/RUL 值 → 顯示正確」，未做「故障注入後長時間模擬、等級
+隨時間真實升級」的端到端驗證（`fatigue_model.py` 損傷累積在 1x 時間尺度需
+數小時模擬時間，非本次驗證範圍）。詳見
+`work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`。
+**前一 session：WMOM-20260928-04 完成（第二十個 autonomous session）——
 preflight 全綠，重新確認本 sandbox docker daemon 可用（需手動啟動 `dockerd`），
 仍無可行 autonomous 工作**：backend 1295 passed（7 skipped, 1 xfailed）/
 frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，皆與 baseline 一致
@@ -4752,7 +4771,8 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260505-25 — Frontend：RUL 顯示 + 多 band alarm 視覺化（#57/#58 收尾）
 
-- **Status**: open
+- **Status**: open（🟢 Part A 已完成，見下方 `WMOM-20260505-25-a`；`SpectralAlarmPanel`/
+  `BearingDiagPanel`/獨立 RUL 觸發時間軸仍待做）
 - **Milestone**: M3 並行 / M5 demo 增值
 - **Priority**: medium（P1 — M5 RAG demo 視覺化 PMF 關鍵）
 - **Estimate**: 1.5-2 工作天
@@ -4776,7 +4796,78 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - M5 demo 時可直接 screenshot 進 pitch deck
 - **Reference**:
   - 後端 API：`server/routers/turbines.py`（已 expose 對應 SCADA tag）
-  - 既有 `frontend/components/turbine/LoadFatiguePanel.tsx`（pattern 參考）
+  - ~~既有 `frontend/components/turbine/LoadFatiguePanel.tsx`（pattern 參考）~~ ——
+    **本文過時**：`frontend/components/turbine/` 目錄與該檔皆不存在；實際「載荷/疲勞」
+    畫面是 `TurbineDetail.tsx` `DETAIL_TABS` 既有的 `fatigue` tab（inline `case
+    'fatigue':` 分支，非獨立元件檔），`WMOM-20260505-25-a`（2026-09-28）已據實際
+    程式碼位置修正並就地擴充。
+
+---
+
+### WMOM-20260505-25-a — Part A：RUL 倒數 + 累積損傷 + 塔架/葉片疲勞警報 badge（`-25` 降低版子項）
+
+- **Status**: done（2026-09-28 完成，第二十一個 autonomous session）
+- **Milestone**: 同母 issue（M3 並行 / M5 demo 增值）
+- **Priority**: medium（P1，同母 issue）
+- **Owner**: Claude (autonomous worker, session 2026-09-28)
+- **背景**：連續 4+ 個 session 判定 `ISSUES.md` 全部 7 open + 2 in_progress issue
+  皆需劉老師決策或跨日大工，無單 session 可行候選。本 session 重新盤點時發現
+  `WMOM-20260505-25` 母 issue 描述本身已過時且被低估複雜度——它假設「需要 3 個
+  新元件 + 新 tab + 全套視覺化」，但實地查證 `data_broker.py::_sim_output_to_reading`
+  發現 `TurbineReading.scadaTags`（"Raw SCADA dict, for advanced views"）**已經**
+  逐筆帶著完整 `scada` dict 直達前端（`turbine_physics.py:891-893` 寫入
+  `WLOD_AlmTwr`/`WLOD_AlmBld`/`WLOD_RulHours`），且 `frontend/types.ts` 的
+  `TurbineData.scadaTags: Record<string, number>` 早已型別化可直接讀取——RUL/
+  疲勞警報等級**不需要任何後端改動**就能顯示，純粹是既有 `fatigue` tab 一直沒有把
+  這 3 個既有欄位（加上同樣已型別化但從未渲染的 `damageTowerFa`/`damageTowerSs`/
+  `damageBladeFlap`/`damageBladeEdge`）畫出來。這使得「Part A」是零設計歧義、
+  零後端風險、單 session 可完工的純前端顯示任務，不需要拆出降低版 acceptance 或
+  等待劉老師核准（與 `WMOM-20260505-26-a` 需要劉老師拍板不同，此處無語意/範圍
+  疑義）。
+- **範圍取捨**：`-25` 完整範圍（3 個獨立 panel + 新 tab + 觸發時間軸 + 5-band 頻譜/
+  BPFO 軸承診斷）估 1.5-2 工作天，一次做完風險高；本次只取「RUL + 疲勞警報 + 累積
+  損傷比例」這塊——資料已 100% 到位、零後端變更、可直接就地擴充既有 `fatigue`
+  tab（不新增 tab，不新增獨立元件檔，貼合實際程式碼結構而非過時的 issue 假設）。
+  `SpectralAlarmPanel`（5-band 頻譜）、`BearingDiagPanel`（BPFO/BPFI）、獨立的
+  RUL 觸發時間軸（需消費既有 `event_type="fatigue"` history events，屬於另一塊
+  獨立資料流）留在母 issue 範圍內，未來另開 Part B/C。
+- **Deliverable**：
+  - `frontend/components/TurbineDetail.tsx`：`fatigue` tab 改為兩欄 grid，原
+    `WLOD Load & Fatigue` section 不動，新增 `Cumulative Damage & RUL` section——
+    4 個累積損傷比例（`damageTowerFa/Ss/BladeFlap/Edge` × 100%，>50%/>80% 走
+    warn/alert 顏色，比照既有 DEL 欄位慣例）、塔架/葉片 2 個 `StatusPill` 疲勞警報
+    badge（0-4 級對應 `ok/info/warn/amber/danger` tone，中英文標籤對齊
+    `data_broker.py::alarm_names`）、RUL 倒數（`formatRul()` 把小時數換算成
+    「年+月」/「月+日」/「日」，-1 或缺值顯示 `—`，<1 年 warn、<30 天 alert）。
+  - 新增純函式 `fatigueAlarmInfo()`/`formatRul()`（同檔案內，非跨檔匯出，因僅此
+    一處消費）。
+  - i18n（zh/en，沿用既有 `tr()` pattern）。
+- **Acceptance**：
+  - simulator 模式下 RUL/警報/累積損傷比例即時隨 `scadaTags` 更新（資料流已由既有
+    WS/REST 管線保證，未額外驗證故障注入的長時間累積測試——見下方誠實揭露）。
+  - 4/5 級警報 badge tone/標籤與 `fatigue_model.py::_damage_to_alarm` 語意一致。
+  - 既有 8 個明細 tab、既有 `fatigue` tab 內容（載荷力矩/DEL/發電時數）零 regression。
+- **測試**：`frontend/components/__tests__/TurbineDetail.test.tsx` 新增 6 測（無
+  scadaTags 預設正常/RUL `—`；警報等級中英標籤；跨年 RUL 換算；`rulHours=-1` 顯示
+  `—` 而非負數；累積損傷百分比換算；lang=en 全英文），皆 mutation-verified（暫時
+  `git stash` 還原元件本體，確認 6 測如預期全部 fail，再 `stash pop` 還原）。
+  frontend 1477→**1483 passed**（+6，70 files 不變，零 regression）；tsc 0；
+  build OK。backend 未動，1295 passed（7 skipped, 1 xfailed）不變。
+- **誠實揭露 / 未驗證範圍**：①未實測「故障注入後 alarm badge 從 0 級隨時間累積升級
+  到 4 級」的完整長時間 e2e 流程——`fatigue_model.py` 的損傷累積速率在 simulator
+  1x 時間尺度下需要數小時模擬時間才會明顯變化，本次僅以 mock `scadaTags` 值驗證
+  「給定等級 → 對應顯示正確」，未驗證「模擬過程中等級如何隨時間演變」這條路徑
+  （母 issue acceptance 原文「故障注入時 alarm badge 會升級」嚴格來說未完整驗證，
+  只驗證了顯示層邏輯，不是端到端物理模擬）。②RUL 觸發時間軸（母 issue 提到的
+  「觸發時間軸」）未實作，只有當下瞬時值。
+- **Reference**：
+  - `modules/monitoring/simulator/physics/fatigue_model.py:311-330`（damage/alarm/RUL
+    計算邏輯）
+  - `modules/monitoring/simulator/physics/turbine_physics.py:891-893`（寫入 scada dict）
+  - `modules/monitoring/server/data_broker.py:88-208`（`_sim_output_to_reading`，
+    `scadaTags=scada` 完整透傳）、`data_broker.py:899-930`（既有 fatigue alarm
+    history event 邏輯，供未來 Part B 觸發時間軸參考）
+  - 詳見 `work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`
 
 ---
 

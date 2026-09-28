@@ -3,8 +3,24 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-28"  # **2026-09-28 第二十個 autonomous session
-  # （WMOM-20260928-04）** — preflight 全綠（backend 1295 passed/7 skipped/1
+last_updated: "2026-09-28"  # **2026-09-28 第二十一個 autonomous session
+  # （WMOM-20260505-25-a）** — `TurbineDetail.tsx` fatigue tab 新增 RUL 倒數 +
+  # 塔架/葉片疲勞警報 badge + 4 個累積損傷比例，就地擴充既有 tab（非新 tab/新
+  # 檔案）。連續 4 個 session 判定全部 open/in_progress issue 皆需劉老師決策，
+  # 本次重新盤點母 issue `WMOM-20260505-25`（RUL/alarm 視覺化）發現其「需要 3
+  # 新元件 + 新 tab」的描述已過時——RUL/警報等級早已透過既有 `TurbineReading.
+  # scadaTags` 全程透傳到前端（`data_broker.py::_sim_output_to_reading`），零
+  # 後端改動即可顯示，拆出零風險「Part A」單 session 完工，`-25` 母 issue 標
+  # 「Part A 已完成」保持 open（剩 SpectralAlarmPanel/BearingDiagPanel/RUL 觸發
+  # 時間軸）。新增 6 測，mutation-verified（`git stash` 還原元件本體確認皆
+  # fail，再還原）。frontend 1477→**1483 passed**（70 files 不變，零
+  # regression）、tsc 0、build OK；backend 未動 1295 passed（7 skipped, 1
+  # xfailed）不變。**誠實揭露**：僅驗證「給定等級/RUL 值 → 顯示正確」，未做
+  # 「故障注入 → 長時間模擬 → 等級隨時間真實升級」端到端驗證（`fatigue_model.py`
+  # 損傷累積在 1x 時間尺度需數小時模擬時間，非本次範圍）。詳見
+  # `work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`。
+  # **前一 session（2026-09-28 第二十個 autonomous session，WMOM-20260928-04）**
+  # — preflight 全綠（backend 1295 passed/7 skipped/1
   # xfailed、frontend tsc 0/vitest 1477 passed 70 files/build OK，皆與 baseline
   # 一致零 regression），無開放 PR、CI 飛輪正常。**重新確認本 sandbox docker
   # daemon 可用性**：前兩個 session（`-01`/`-02`）判定「本 sandbox 無 docker」，
@@ -768,16 +784,15 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-28（第二十個 autonomous session）WMOM-20260928-04 完成，delta-only
-  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 119/total 128）。
-  open: 7  # 不變
+  # 2026-09-28（第二十一個 autonomous session）WMOM-20260505-25-a 完成，delta-only
+  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 120/total 129）。
+  open: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 120  # +1（WMOM-20260928-04：preflight 全綠 + 重新確認本 sandbox docker daemon
-             # 可用〔需手動啟動 dockerd〕+ 逐一核對 8 個 open/in_progress issue 仍無
-             # 單 session 可行候選，純稽核記錄）
-  # total 129（7+2+120=129，與 ISSUES.md `### WMOM-` header 數一致）
+  done: 121  # +1（WMOM-20260505-25-a：TurbineDetail.tsx fatigue tab 新增 RUL 倒數 +
+             # 疲勞警報 badge + 累積損傷比例，就地擴充既有 tab、零後端改動）
+  # total 130（7+2+121=130，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine
