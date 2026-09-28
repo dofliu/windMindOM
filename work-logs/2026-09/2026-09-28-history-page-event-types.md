@@ -53,16 +53,27 @@ modules/monitoring/server/*.py modules/monitoring/server/routers/*.py
 `fatigue`/`fault_lifecycle` 兩個 entry，貼合既有 5 種型別一模一樣的 pattern：
 
 1. `EVENT_TYPES` 常數陣列（`as const` union 型別來源）
-2. `eventTone()`：`fatigue → 'danger'`、`fault_lifecycle → 'warn'`
+2. `eventTone()`：`fatigue → 'danger'`、`fault_lifecycle → 'muted'`（review 後修正，見下方）
 3. `EVENT_HEX`（chart ReferenceLine 顏色）：各配一組 light/dark hex，色調與既有 5 色區隔
 4. `eventTypeLabel()` zh 分支：`fatigue → '疲勞'`、`fault_lifecycle → '故障週期'`
 5. `enabledEventTypes` 初始 state：兩者預設 `true`（跟既有 5 型一致，預設全開）
 
-**tone 選擇說明**：`fault_lifecycle` 跟既有 `fault` 都給 `warn`（同屬「故障」大類、
-語意上合理共用同一 tone，用不同 hex 顏色區分「手動/情境注入的故障」vs「模擬自動追蹤的
-故障生命週期」，而非發明第三種 tone 製造認知負擔）；`fatigue` 給 `danger`（結構疲勞
-風險語意上比一般 grid/wind/operator 事件更需要引起注意，且與既有 `TurbineDetail.tsx`
-fatigue tab 的高等級警報視覺語言〔`-25-a` 用 danger tone 標示 4 級警報〕保持跨頁一致）。
+**tone 選擇說明（review 後修正）**：初版把 `fault_lifecycle` 跟既有 `fault` 都給
+`warn`，code review should-fix 指出這是本次新增事件類型裡第一次出現 tone 撞色——
+`StatusPill` 的 tone 只對應固定一組色，`fault`/`fault_lifecycle` 在事件清單/詳情面板
+的徽章會呈現完全相同顏色，只能靠文字辨識，跟圖表上 `ReferenceLine`/toggle 按鈕走
+`EVENT_HEX`（兩者確實不同色）的體驗不一致。已改為 `fault_lifecycle → 'muted'`
+（7 種 `PillTone` 扣掉既有 5 種 + 新增 `fatigue→danger`，`muted` 是唯一未被真實事件類型
+佔用的剩餘 tone；`fault_lifecycle` 是模擬自動追蹤的背景生命週期事件，語意上也適合較不
+搶眼的 muted，跟直接注入的 `fault` 用搶眼的 `warn` 區分開）。`fatigue` 維持 `danger`
+（結構疲勞風險語意上比一般事件更需要引起注意）——**但 review 也指出**這個 tone 是對
+「所有」疲勞事件（含 Lv1→Lv2 輕微升級）一律给最搶眼的紅色，並未依 `payload.toLevel`
+分級，跟 `TurbineDetail.tsx::FATIGUE_ALARM_LEVELS`（`danger` 只給最高 Lv4，Lv1-3 走
+`ok/info/warn/amber`）並非真正「分級邏輯一致」，只是 tone 名稱剛好都叫 danger——
+初版 work-log「保持跨頁一致」的措辭有過度宣稱之嫌，已在此更正說法。改成依 level 分級
+需要把 `eventTone(et: string)` 簽名改成能拿到完整事件物件（含 `payload`），是比「補查表
+entry」更大的改動，刻意不在本次處理，已在 `ISSUES.md` `WMOM-20260928-05` 補記
+follow-up（見該 issue 內文）。
 
 ## 測試
 
@@ -88,8 +99,35 @@ fatigue tab 的高等級警報視覺語言〔`-25-a` 用 danger tone 標示 4 �
 
 ## Code review
 
-（code-reviewer subagent 審查中，結論將在下方補上；若審查後有 must-fix/should-fix
-修正，會在此段落更新並重跑對應驗證。）
+**code-reviewer subagent（獨立 async review，43 次工具呼叫）：Approve，0 must-fix，
+3 should-fix + 3 nice-to-have**。獨立重跑 `npx vitest run components/__tests__/
+HistoryPage.test.tsx`（27 passed）與 mutation-verify（`git stash` 還原元件本體 → 4
+新測試如預期全部 fail、23 舊測仍過 → 還原）完全重現我的驗證結論；另獨立重新 grep
+`event_type="` 確認 7 種全數命中、`HistoryPage.tsx` 內 grep `EventType`/`event_type`
+確認沒有第 6 個查表點被漏掉。3 個 should-fix：
+
+1. **work-log 對 `fault_lifecycle` 的 `end_timestamp` 聲稱不準確，已修正**：初版
+   work-log 誤寫「`fatigue`/`fault_lifecycle` 事件本身沒有 `end_timestamp`」，reviewer
+   讀 `data_broker.py:854-859` + `storage.py:561-585` 發現 `fault_lifecycle` 的
+   「start」事件在故障清除時會被 `close_open_events()` 回填 `end_timestamp`（具備真實
+   區間語意），只有 `fatigue` 才是真的完全沒有 `end_timestamp`。已在下方「誠實揭露」
+   段落更正這個技術陳述（結論「本次不擴大修復 `ReferenceArea`」不變，只是原本的理由
+   前提有誤）。
+2. **`fault_lifecycle` 與既有 `fault` 共用 `warn` tone 在徽章上撞色，已修復**：改為
+   `muted`（唯一未被真實事件類型佔用的剩餘 tone），圖表 `ReferenceLine`/toggle 按鈕仍
+   走各自獨立的 `EVENT_HEX` 顏色不受影響。詳見上方「tone 選擇說明」。
+3. **`fatigue` tone 對所有嚴重度一律 `danger`，未依 level 分級，且初版「跨頁一致」措辭
+   過度宣稱**：reviewer 認同這需要改 `eventTone()` 簽名才能依 `payload.toLevel` 分級，
+   超出本次「純粹補查表」的刻意收斂範圍，不強制修，但已更正 work-log 措辭 + 在
+   `ISSUES.md` `WMOM-20260928-05` 補記 follow-up 子項。
+3 個 nice-to-have：①`EventComparisonView.tsx` 有自己獨立一份 `eventTone()`，已內建
+`fault_lifecycle` 但漏了 `fatigue`（fallback 到 `muted` 且 `Select` 篩選選項缺該項，
+非本次 diff 觸碰的檔案，不是隱形只是顏色/篩選不完整，已在下方誠實揭露段落記錄具體
+座標供後續 session 接手）；②`eventTypeLabel()` en 分支技術債（同意暫不修）；
+③`fault_lifecycle`/`grid` 的 hex 色相偏近，純美觀建議未修。
+
+修復 should-fix #2 後重新跑：`npx vitest run components/__tests__/HistoryPage.test.tsx`
+→ 27 passed（無需改測試斷言，未針對特定 tone 值斷言）；`npx tsc --noEmit` 0 error。
 
 ## 誠實揭露 / 未修範圍
 
@@ -97,15 +135,23 @@ fatigue tab 的高等級警報視覺語言〔`-25-a` 用 danger tone 標示 4 �
   `"grid"`/`"fault"`，並非真正翻譯過的英文標籤）——這是全部既有 5 型共享的既有技術債，
   非本次引入。`fatigue`/`fault_lifecycle` 沿用同款既有行為，未額外補齊英文翻譯，刻意
   把本次修復範圍聚焦在「登記表遺漏導致真實資料隱形」這單一問題，不蔓延到既有 i18n
-  缺口（若劉老師認為值得修，建議另開 issue 一次盤點全部事件類型的英文標籤）。
-- 未驗證這兩種事件在「情境比較」（`EventComparisonView.tsx`/`ScenarioCompareTimelineView.tsx`
-  等 A1/A2 情境比較元件）路徑上是否有類似遺漏——本次只查證並修復 `HistoryPage.tsx`
-  這條即時檢視路徑，情境比較路徑走的是完全不同元件與資料流，未展開檢查，非本 issue
-  範圍。
-- 圖表上的 `ReferenceArea`（用於有 `end_timestamp` 的區間事件）目前只認 `grid`/`wind`
-  兩型；`fatigue`/`fault_lifecycle` 事件本身沒有 `end_timestamp`（後端記錄時未帶），
-  故不需要、也未加入 `ReferenceArea` 判斷式，只會以 `ReferenceLine`（瞬時標記）顯示，
-  行為正確。
+  缺口（若劉老師認為值得修，建議另開 issue 一次盤點全部事件類型的英文標籤；
+  `EventComparisonView.tsx` 已有現成翻譯 `u('Fault lifecycle', '故障生命週期')` 可抄，
+  成本低）。
+- **`EventComparisonView.tsx`（情境比較路徑，非本次 diff 觸碰的檔案）有自己獨立一份
+  `eventTone()`（該檔第 32-39 行），已內建 `fault_lifecycle→warn`，但漏了
+  `fatigue`（fallback 到 `muted`，且第 176-186 行附近的 `Select` 篩選選項清單也沒有
+  `fatigue` 選項，使用者只能選「全部」才看得到，無法單獨篩選）——不是完全隱形（該頁
+  `eventTypeFilter` 預設空字串＝全部，fatigue 事件仍會顯示），嚴重度遠低於本次修的
+  bug，未修，留給後續 session。
+- 圖表上的 `ReferenceArea`（用於渲染色帶的區間事件）目前只認 `grid`/`wind` 兩型。
+  **更正**（初版此處聲稱有誤，經 code review 指正）：`fatigue` 事件確實沒有
+  `end_timestamp`；但 `fault_lifecycle` 的「start」事件在故障清除時會被
+  `data_broker.py` 呼叫的 `storage.py::close_open_events()` 回填 `end_timestamp`，
+  具備真實區間語意——`ReferenceArea` 尚未支援渲染它的故障期間色帶，是既有限制。本次
+  刻意聚焦在「登記表遺漏導致整組隱形」這個核心問題，未擴大處理 `ReferenceArea`（現況
+  是「看得到瞬時標記，但看不到完整期間色帶」，比修復前「完全看不到」已是淨改善），
+  建議另開 low-risk follow-up issue。
 
 ## 下個 session
 

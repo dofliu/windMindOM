@@ -3,8 +3,25 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-28"  # **2026-09-28 第二十一個 autonomous session
-  # （WMOM-20260505-25-a）** — `TurbineDetail.tsx` fatigue tab 新增 RUL 倒數 +
+last_updated: "2026-09-28"  # **2026-09-28 第二十二個 autonomous session
+  # （WMOM-20260928-05）** — `frontend/components/HistoryPage.tsx` 事件類型登記表
+  # 補上後端真實記錄但前端從未登記的 `fatigue`（疲勞警報升降級）/
+  # `fault_lifecycle`（故障生命週期）兩種事件：`visibleEvents` 的
+  # `enabledEventTypes[e.event_type] ?? false` 對這兩型恆為 `false`，等同真實資料
+  # 在事件紀錄清單/圖表標記/詳情面板整組隱形，無任何錯誤提示。純前端修復（五處
+  # 既有查表結構各補一 entry），零後端改動。**code-reviewer subagent review：
+  # Approve，0 must-fix，3 should-fix 已處理（work-log `fault_lifecycle`
+  # `end_timestamp` 技術陳述不準確已更正；`fault_lifecycle`/`fault` tone 撞色改
+  # `muted` 修復；`fatigue` tone 未依 level 分級的「跨頁一致」措辭過度宣稱已更正、
+  # 改 code 超出範圍列 follow-up）**，3 nice-to-have（`EventComparisonView.tsx`
+  # 同款查表漏 `fatigue`、en 標籤技術債、hex 色相相近，皆記錄為 follow-up 未修）。
+  # 新增 4 測，mutation-verified（`git stash` 還原元件本體確認 4 測如預期全部
+  # fail、23 舊測仍過，reviewer 獨立重現一致）。frontend 1486→**1490 passed**
+  # （70 files 不變，零 regression）、tsc 0、build OK；backend 未動 1295 passed
+  # （7 skipped, 1 xfailed）不變。詳見
+  # `work-logs/2026-09/2026-09-28-history-page-event-types.md`。
+  # **前一 session（2026-09-28 第二十一個 autonomous session，WMOM-20260505-25-a
+  # 完成）** — `TurbineDetail.tsx` fatigue tab 新增 RUL 倒數 +
   # 塔架/葉片疲勞警報 badge + 4 個累積損傷比例，就地擴充既有 tab（非新 tab/新
   # 檔案）。連續 4 個 session 判定全部 open/in_progress issue 皆需劉老師決策，
   # 本次重新盤點母 issue `WMOM-20260505-25`（RUL/alarm 視覺化）發現其「需要 3
@@ -787,15 +804,15 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-28（第二十一個 autonomous session）WMOM-20260505-25-a 完成，delta-only
-  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 120/total 129）。
+  # 2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
+  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 121/total 130）。
   open: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 121  # +1（WMOM-20260505-25-a：TurbineDetail.tsx fatigue tab 新增 RUL 倒數 +
-             # 疲勞警報 badge + 累積損傷比例，就地擴充既有 tab、零後端改動）
-  # total 130（7+2+121=130，與 ISSUES.md `### WMOM-` header 數一致）
+  done: 122  # +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
+             # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
+  # total 131（7+2+122=131，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine

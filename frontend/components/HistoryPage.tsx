@@ -96,7 +96,11 @@ const eventTone = (et: string): PillTone => {
   if (et === 'operator') return 'ok';
   if (et === 'state') return 'accent';
   if (et === 'fatigue') return 'danger';
-  if (et === 'fault_lifecycle') return 'warn';
+  // muted（非 warn）：warn 已被 'fault' 佔用，若共用會讓 StatusPill 徽章在事件清單/
+  // 詳情面板跟直接注入的 fault 撞色、只能靠文字辨識（code review should-fix，
+  // WMOM-20260928-05）；fault_lifecycle 是背景生命週期追蹤，語意上也適合較不搶眼的
+  // muted，圖表 ReferenceLine 仍走各自獨立的 EVENT_HEX 顏色不受影響。
+  if (et === 'fault_lifecycle') return 'muted';
   return 'muted';
 };
 

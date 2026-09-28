@@ -4913,8 +4913,9 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   operator/state/wind` 七種，登記表補齊後即涵蓋全部。
 - **Deliverable**：`frontend/components/HistoryPage.tsx` 五處既有查表結構（`EVENT_TYPES`
   常數陣列、`eventTone()`、`EVENT_HEX`、`eventTypeLabel()` zh 分支、`enabledEventTypes`
-  初始 state）各自補上 `fatigue`（tone=`danger`）/`fault_lifecycle`（tone=`warn`）兩個
-  entry，純粹補既有 pattern 的查表項，不新增邏輯分支、不動後端。
+  初始 state）各自補上 `fatigue`（tone=`danger`）/`fault_lifecycle`（tone=`muted`，
+  review 後由初版 `warn` 修正，見下方 Review）兩個 entry，純粹補既有 pattern 的查表項，
+  不新增邏輯分支、不動後端。
 - **Acceptance**：
   - 兩型事件出現在事件紀錄清單，可點擊查看詳情（title/detail/payload）
   - 各自篩選 toggle 可獨立開關，不影響其餘既有 5 型
@@ -4925,11 +4926,31 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   保留測試檔案，重跑確認 4 測如預期全部 fail、既有 23 測仍過，`stash pop` 還原後 27 測
   全過）。frontend 1486→**1490 passed**（70 files 不變，零 regression）；tsc 0；build OK。
   backend 未動，1295 passed（7 skipped, 1 xfailed）不變。
-- **誠實揭露 / 未修範圍**：`eventTypeLabel()` 對 `lang==='en'` 分支本來就是 `return et`
-  （直接印原始字串如 `"grid"`/`"fault"`，非真正英文翻譯），是全部既有 5 型共享的既有
-  技術債，非本次引入；`fatigue`/`fault_lifecycle` 沿用同款既有行為（英文模式顯示原字
-  串），未一併補齊英文翻譯，維持本次修復範圍聚焦於「登記表遺漏」單一問題，避免範圍
-  蔓延到既有 i18n 缺口。
+- **Review**：code-reviewer subagent（獨立 async review）：Approve，0 must-fix，
+  3 should-fix + 3 nice-to-have，獨立重跑測試與 mutation-verify 完全重現、獨立
+  re-grep 確認無第 6 個查表遺漏點。①work-log 對 `fault_lifecycle` `end_timestamp`
+  的聲稱不準確已更正（其「start」事件故障清除時會被 `storage.py::close_open_events()`
+  回填 `end_timestamp`，跟 `fatigue` 不同）；②`fault_lifecycle` 與 `fault` 共用
+  `warn` tone 在徽章上撞色，已改 `muted` 修復；③`fatigue` tone 對所有嚴重度一律
+  `danger`、未依 `payload.toLevel` 分級（跟 `TurbineDetail.tsx::FATIGUE_ALARM_LEVELS`
+  的分級邏輯不完全一致，初版「保持跨頁一致」措辭過度宣稱已更正），reviewer 認同
+  這需要改 `eventTone()` 簽名才能拿到 payload，超出本次刻意收斂範圍不強制修，列
+  follow-up（見下方）。修復 should-fix #2 後重新跑 `npx vitest run
+  components/__tests__/HistoryPage.test.tsx` 27 passed、`npx tsc --noEmit` 0 error。
+- **Follow-up（未在本 issue 處理，供後續 session 接手）**：
+  1. `frontend/components/HistoryPage.tsx::eventTone()` 的 `fatigue` 分支依
+     `payload.toLevel` 分級（比照 `TurbineDetail.tsx::FATIGUE_ALARM_LEVELS`
+     `ok/info/warn/amber/danger` 五級），需先把簽名從 `(et: string)` 改成能拿到
+     完整事件物件。
+  2. `frontend/components/EventComparisonView.tsx::eventTone()`（第 32-39 行，情境
+     比較路徑，獨立一份查表、非本次 diff 觸碰）已有 `fault_lifecycle` 但漏了
+     `fatigue`（fallback `muted`），且該檔 `Select` 篩選選項清單（約第 176-186 行）
+     缺 `fatigue` 選項，無法單獨篩選。
+  3. 圖表 `ReferenceArea` 色帶目前只認 `grid`/`wind`；`fault_lifecycle` 的
+     `end_timestamp`（見上方 Review）具備真實區間語意，可考慮加入色帶渲染。
+  4. `eventTypeLabel()` 英文分支技術債（全部 7 型皆是，非本次引入）：
+     `EventComparisonView.tsx` 已有 `u('Fault lifecycle', '故障生命週期')` 可抄，
+     一次補齊成本低。
 - **Reference**：
   - `modules/monitoring/server/data_broker.py:895-925`（`fatigue` event 記錄邏輯）、
     `data_broker.py:839-891`（`fault_lifecycle` event 記錄邏輯）
