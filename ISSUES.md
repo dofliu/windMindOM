@@ -16,10 +16,21 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 117 |
-| **total** | **126** |
+| done | 118 |
+| **total** | **127** |
 
-最後更新：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）—
+最後更新：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous session）——
+preflight 全綠，逐一核對 7 個 open issue 後本次無單 session 可行候選，乾淨收尾**：
+backend 1295 passed（7 skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477
+passed（70 files）/ build OK，皆與 baseline 一致零 regression；無開放 PR。7 個
+open + 2 個 in_progress issue 皆維持既有「多日工作/需劉老師決策或客戶素材/需
+docker 環境/等待人工動作」結論；`WMOM-20260505-26` 額外確認拆 sub-issue 需自訂
+降低版 acceptance、屬於會引入設計歧義的工作，未動工。本次未開其餘新 issue、
+未開 PR，僅記錄本次稽核結論供下一輪參考，並在 work-log 列出 4 點建議劉老師
+決策的問題（cost ledger 設計方向/PostgreSQL docker 環境/物理模型深化排程與
+`-26` sub-task acceptance 門檻/UI v2 設計交接書）。詳見
+`work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。**前一
+session：WMOM-20260928-01 完成（第十七個 autonomous session）—
 同步 `docs/routines/autonomous-daily-worker-prompt.md` 為實際 v4.1 內文**：
 canonical routine 文件版本標記長期停在 v3（2026-06-03），已被連續多個
 session work-log 提醒卻從未真正同步；本次把實際收到的 v4.1 cron prompt 全文
@@ -4536,6 +4547,45 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   一次性解決的問題，下個 session 若又發現版本標記落後於實際收到的 prompt，
   應直接動手同步，而非只在 work-log 留言提醒。詳見
   `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
+
+---
+
+### WMOM-20260928-02 — Preflight 全綠 + 逐一核對 7 個 open issue，本次無單 session 可行候選（乾淨收尾）
+
+- **Status**: done
+- **Milestone**: 工程基礎設施 / session 紀錄
+- **Priority**: low（本次無程式碼變更，純 session 稽核記錄）
+- **Estimate**: 30-45 分鐘
+- **Source**: 第十八個 autonomous session 例行 preflight + claim 流程
+- **Description**:
+  依 routine §2 完整重跑一次自我測試 baseline，並依 §4 決策樹逐一重新核對
+  `ISSUES.md` 全部 open/in_progress issue，記錄本次無單 session 可完工、無設計
+  歧義候選的完整推導過程（避免下個 session 又要重新做一次同樣的排查）。
+- **Acceptance**:
+  - backend/frontend 自我測試全套重跑且與 baseline 一致
+  - `ISSUES.md` 全部 7 個 open + 2 個 in_progress issue 逐一列出不可行原因
+  - work-log 誠實記錄推導過程 + 列出建議劉老師決策的具體問題
+- **Completion summary（2026-09-28，第十八個 autonomous session）**：`git
+  checkout main && git pull` 快轉至 `24c9b04`；backend pytest 7 條路徑
+  **1295 passed, 7 skipped, 1 xfailed**；frontend `npm ci && npx tsc --noEmit`
+  （0 error）`&& npx vitest run`（**1477 passed，70 files**）`&& npx vite
+  build`（成功）；皆與 baseline 完全一致，零 regression。
+  `mcp__github__list_pull_requests`（state=open）回傳空陣列，CI 飛輪正常。
+  逐一重新核對 `ISSUES.md` 全部 7 個 open issue（`WMOM-20260504-11`/
+  `WMOM-20260509-F6`/`WMOM-20260505-25~28`/`WMOM-20260513-01`）：皆維持既有
+  「多日工作 / 需劉老師決策或客戶素材 / 需 docker 環境」結論，非只沿用前一
+  session 判斷而是重新核對 estimate/acceptance/依賴。`WMOM-20260505-26`
+  額外深入評估「文內自稱可拆 4 個 sub-issue」是否可行——結論：即使挑最像純
+  狀態旗標的 Service/Maintenance state 子項，母 issue acceptance 仍要求與既有
+  fault scenario 物理耦合，要在單一 session 內自訂一份全新 sub-issue
+  範圍/acceptance 且無前例可循，屬於會引入設計歧義的工作，故未動工、未自行
+  開新 sub-issue。另核對 2 個 in_progress issue，皆等待劉老師/客戶端動作。
+  **本次無單 session 可完工、無設計歧義的候選工作**，未開新 issue（本身除外）、
+  未開 PR，僅同步 `STATUS.yaml`/`TODO.md`/`ISSUES.md` 紀錄本次結論。**誠實
+  揭露**：本 issue 本身即是「本次無工作」的記錄性 issue，非傳統程式碼變更，
+  無自動化測試保護（測試已於上方 preflight 全套驗證，但驗證對象是既有程式碼
+  而非本 issue 新增內容）。詳見
+  `work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。
 
 ---
 

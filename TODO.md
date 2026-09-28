@@ -16,7 +16,22 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）** —
+最後更新：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous session）：
+preflight 全綠，無可行 autonomous 工作，乾淨收尾** — backend 1295 passed（7
+skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build
+OK，與 baseline 一致零 regression；無開放 PR。逐一重新核對 `ISSUES.md` 全部 7
+個 open + 2 個 in_progress issue，皆維持既有結論（多日工作 / 需劉老師決策或
+客戶素材 / 需 docker 環境），`WMOM-20260505-26` 額外確認拆 sub-issue 需自訂
+降低版 acceptance、屬於會引入設計歧義的工作，未動工。**本次除本身這則稽核
+記錄 issue 外未開其餘新工作 issue、未開 PR**。work-log 列出 4 點建議劉老師
+決策的問題：①cost ledger（`WMOM-20260504-11`）
+設計方向 ②`WMOM-20260509-F6` 是否有 docker 環境可用 ③物理模型深化 4 項
+（`WMOM-20260505-25~28`）是否排入 sprint，`-26` 是否同意降低 sub-task acceptance
+門檻以利拆小 ④`WMOM-20260513-01` UI v2 設計交接書是否已備妥。**下個 session**：待
+劉老師針對上述任一給出決策即可解鎖；若持續無回覆，建議直接提案拆
+`WMOM-20260505-26` 的 Service/Maintenance state 子項為獨立降低版 issue，打破僵局。
+詳見 `work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。
+前一 session：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）** —
 `docs/routines/autonomous-daily-worker-prompt.md`（canonical routine 文件）版本
 長期停在 v3（2026-06-03），已被至少 3 個具名 session work-log（`-05`/`-06`/
 `-07`）提醒卻從未真正同步，本次把實際收到的 v4.1 cron prompt 全文整理進檔案
