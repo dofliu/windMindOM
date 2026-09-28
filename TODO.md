@@ -16,27 +16,45 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260928-03 完成（第十九個 autonomous session）：
-preflight 全綠，接續前一 session 建議草擬 `WMOM-20260505-26` Service/Maintenance
-state 子項降低版提案（`WMOM-20260505-26-a`）** — backend 1295 passed（7
-skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build
-OK，與 baseline 一致零 regression；無開放 PR。不再第三次重複「逐一核對 7 個
-open issue」流程，改為實地查證 `WMOM-20260505-26` 可行性：發現母 issue 描述
-已過時——`WSRV_SrvOn`（service mode flag）已存在且由真實 `service_mode` 狀態
-驅動；`operator_stop`/`tur_state==7`（emergency stop）是既有真實狀態但未單獨
-暴露成 tag；`calibration mode`/`firmware version` 則零命中無真實狀態可映射。
-據此提案只做 `WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag、映射既有
-真實狀態、acceptance 改用「整合測試證明既有控制路徑觸發時 tag 同步翻轉」，
-已寫入 `ISSUES.md` `WMOM-20260505-26` 本文，附一行可核准的問題給劉老師。
+最後更新：2026-09-28（**WMOM-20260928-04 完成（第二十個 autonomous session）：
+preflight 全綠，重新確認本 sandbox docker daemon 可用（需手動啟動 dockerd），
+仍無可行 autonomous 工作，乾淨收尾** — backend 1295 passed（7 skipped, 1
+xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，與
+baseline 一致零 regression；無開放 PR。**新發現**：前兩個 session（`-01`/
+`-02`）判定「本 sandbox 無 docker」只是沒人手動啟動 `dockerd`——用
+`run_in_background` 啟動後 `docker ps`/`docker info` 正常回應，與
+`WMOM-20260716-06`（2026-09-23）既有發現一致，非環境硬限制。重新檢視兩個
+「需 docker」issue：`WMOM-20260716-06` 已於 2026-09-23 完成（routine prompt
+快照過時仍列著）；`WMOM-20260509-F6`（PostgreSQL row-lock test）確認 docker
+可用與否非決定性因素，真正卡點是 M6 是否上 PostgreSQL 的架構決策未拍板 +
+需要全新 dialect 連線層，維持 🟡 不接。其餘 6 個 open + 2 個 in_progress issue
+逐一重新核對，結論與前三個連續 session 一致，`WMOM-20260505-26-a` 仍在等劉
+老師核准（自動排程無真人回覆，不可自行視為核准）。**未實作任何程式碼**，
+未開功能性 PR，僅提交稽核結論文件更新。**給劉老師的問題（累積，可一行
+回覆任一項即可解鎖）**：①是否核准 `WMOM-20260505-26-a`（最具體、最快可
+解鎖）②cost ledger（`WMOM-20260504-11`）設計方向 ③`WMOM-20260509-F6`
+的 M6 PostgreSQL 架構方向 ④`WMOM-20260505-25`/`-27`/`-28`（物理模型深化剩餘
+3 項）是否排入 sprint ⑤`WMOM-20260513-01` UI v2 設計交接書是否已備妥。
+**下個 session**：若 `-26-a` 已核准直接認領（單 session 可完工）；若無回覆，
+不建議再重複第 5 次「逐一核對全部 open/in_progress issue」完整流程，改評估
+是否能比照 `-26-a` 手法對 `WMOM-20260505-27`/`-28` 也切出小而無歧義的降低版
+子項。詳見
+`work-logs/2026-09/2026-09-28-docker-daemon-reconfirm-no-actionable-work.md`。
+前一 session：2026-09-28（**WMOM-20260928-03 完成（第十九個 autonomous
+session）：preflight 全綠，接續前一 session 建議草擬 `WMOM-20260505-26`
+Service/Maintenance state 子項降低版提案（`WMOM-20260505-26-a`）** —
+backend 1295 passed（7 skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477
+passed（70 files）/ build OK，與 baseline 一致零 regression；無開放 PR。
+不再第三次重複「逐一核對 7 個 open issue」流程，改為實地查證
+`WMOM-20260505-26` 可行性：發現母 issue 描述已過時——`WSRV_SrvOn`（service
+mode flag）已存在且由真實 `service_mode` 狀態驅動；`operator_stop`/
+`tur_state==7`（emergency stop）是既有真實狀態但未單獨暴露成 tag；
+`calibration mode`/`firmware version` 則零命中無真實狀態可映射。據此提案
+只做 `WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag、映射既有真實
+狀態、acceptance 改用「整合測試證明既有控制路徑觸發時 tag 同步翻轉」，已
+寫入 `ISSUES.md` `WMOM-20260505-26` 本文，附一行可核准的問題給劉老師。
 **未實作任何程式碼**（依 routine §4 item 7 不自行開工），**本次除稽核記錄
-issue 外未開其餘新工作 issue、未開 PR**。**給劉老師的問題（累積，可一行
-回覆任一項即可解鎖）**：①是否核准 `WMOM-20260505-26-a`（本次新提案，最具體、
-最快可解鎖）②cost ledger（`WMOM-20260504-11`）設計方向 ③`WMOM-20260509-F6`
-是否有 docker 環境可用 ④`WMOM-20260505-25`/`-27`/`-28`（物理模型深化剩餘 3
-項）是否排入 sprint ⑤`WMOM-20260513-01` UI v2 設計交接書是否已備妥。**下個
-session**：若 `-26-a` 已核准直接認領（單 session 可完工）；若無回覆，建議
-比照本次手法對 `WMOM-20260505-27`/`-28` 也嘗試切出小而無歧義的降低版子項。
-詳見
+issue 外未開其餘新工作 issue、未開 PR**。詳見
 `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
 前一 session：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous
 session）：preflight 全綠，逐一核對 7 個 open issue 後本次無單 session 可行

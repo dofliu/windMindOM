@@ -16,21 +16,23 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 119 |
-| **total** | **128** |
+| done | 120 |
+| **total** | **129** |
 
-最後更新：2026-09-28（**WMOM-20260928-03 完成（第十九個 autonomous session）——
+最後更新：2026-09-28（**WMOM-20260928-04 完成（第二十個 autonomous session）——
+preflight 全綠，重新確認本 sandbox docker daemon 可用（需手動啟動 `dockerd`），
+仍無可行 autonomous 工作**：backend 1295 passed（7 skipped, 1 xfailed）/
+frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，皆與 baseline 一致
+零 regression；無開放 PR。前兩個 session（`-01`/`-02`）判定「無 docker」只是
+沒手動啟動 `dockerd`，重新確認後兩個「需 docker」issue 中 `WMOM-20260716-06`
+早已完成、`WMOM-20260509-F6` 真正卡點是架構決策未拍板（非 docker 可用性），
+維持 🟡 不接。其餘 6 個 open + 2 個 in_progress issue 結論與前三個連續 session
+一致。**未實作任何程式碼**，未開功能性 PR。詳見
+`work-logs/2026-09/2026-09-28-docker-daemon-reconfirm-no-actionable-work.md`。
+**前一 session：WMOM-20260928-03 完成（第十九個 autonomous session）——
 preflight 全綠，接續前一 session 建議草擬 `WMOM-20260505-26` Service/Maintenance
-state 子項降低版提案（`WMOM-20260505-26-a`）**：backend 1295 passed（7 skipped,
-1 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，皆與
-baseline 一致零 regression；無開放 PR。實地查證程式碼發現母 issue描述已過時——
-`WSRV_SrvOn` 已存在且由真實 `service_mode` 狀態驅動，`operator_stop`/
-`tur_state==7`（emergency stop）是既有真實狀態但未單獨暴露成 tag，`calibration
-mode`/`firmware version` 則零命中無真實狀態可映射；據此提案只做
-`WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag、映射既有真實狀態、
-acceptance 改用整合測試證明既有控制路徑觸發時 tag 同步翻轉，已寫入
-`WMOM-20260505-26` 本文供劉老師一行核准。**未實作任何程式碼**，依 routine §4
-item 7 不自行開工。詳見
+state 子項降低版提案（`WMOM-20260505-26-a`）**：**未實作任何程式碼**，依
+routine §4 item 7 不自行開工。詳見
 `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
 **前一 session：WMOM-20260928-02 完成（第十八個 autonomous session）——
 preflight 全綠，逐一核對 7 個 open issue 後本次無單 session 可行候選，乾淨收尾**：
@@ -3853,6 +3855,11 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
     🟡 需劉老師決策 + 更正估時，避免未來 session 誤判成 0.5 天小題重工調查。
   - **Reference**: work-logs/2026-09/2026-09-23-footprint-cpu-torch-pin.md（同一 session，
     F6 調查記在「Claim」段落）
+  - **2026-09-28 重驗（`WMOM-20260928-04`，第二十個 autonomous session）**：重新確認本
+    sandbox docker daemon 需手動啟動（非硬限制，見 `WMOM-20260928-04` completion
+    summary），但本 issue 的阻塞點原本就不是 docker 可用性，是上方「架構決策未拍板 +
+    需全新 dialect 連線層」——docker 可用不改變此結論，維持 🟡 不接，避免未來 session
+    誤以為「docker 現在能用了所以可以接」。
 
 ---
 
@@ -4554,6 +4561,49 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   一次性解決的問題，下個 session 若又發現版本標記落後於實際收到的 prompt，
   應直接動手同步，而非只在 work-log 留言提醒。詳見
   `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
+
+---
+
+### WMOM-20260928-04 — Preflight 全綠；重新確認 docker daemon 可用性，逐一核對 8 個 open/in_progress issue 仍無單 session 可行候選
+
+- **Status**: done
+- **Milestone**: 工程基礎設施 / session 紀錄
+- **Priority**: low（本次無程式碼變更，純稽核 + 環境假設重驗）
+- **Estimate**: 30-45 分鐘
+- **Source**: 第二十個 autonomous session 例行 preflight + claim 流程
+- **Description**:
+  依 routine §2 完整重跑一次自我測試 baseline，並額外重新驗證「本 sandbox 無
+  docker」這個被 `WMOM-20260928-01`/`-02` 沿用的環境假設是否仍然成立（對照
+  `WMOM-20260716-06` 2026-09-23 session 的既有發現：docker daemon 需手動
+  `dockerd` 啟動，非環境硬限制）。
+- **Acceptance**:
+  - backend/frontend 自我測試全套重跑且與 baseline 一致
+  - 明確驗證 docker daemon 是否真的不可用（而非僅憑 `docker ps` 單次失敗判定）
+  - 依驗證結果重新檢視兩個標「需 docker」的 issue 是否因此變成單 session 可行候選
+  - work-log 誠實記錄推導過程 + 列出建議劉老師決策的具體問題
+- **Completion summary（2026-09-28，第二十個 autonomous session）**：preflight
+  全綠——backend **1295 passed, 7 skipped, 1 xfailed**；frontend tsc 0 error /
+  **vitest 1477 passed（70 files）**/ build OK，皆與 baseline 一致零
+  regression；`mcp__github__list_pull_requests`（state=open）回傳空陣列，CI
+  飛輪正常。用 Bash 工具 `run_in_background` 啟動 `dockerd` 後 `docker
+  ps`/`docker info` 正常回應，確認 docker daemon 可用性取決於「這次 session
+  有沒有手動啟動它」，不是環境層級硬限制。據此重新檢視：`WMOM-20260716-06`
+  （footprint CPU-torch pin）查證後發現**早於 2026-09-23 已完成**（routine
+  prompt §4 決策樹快照過時仍列著它，非真的還卡著）；`WMOM-20260509-F6`
+  （PostgreSQL row-lock test）讀完整本文（含 2026-09-23「範圍重新調查」段落）
+  確認即使 docker 可用，真正阻塞點是**架構決策未拍板**（M6 客戶部署是否選
+  PostgreSQL，`decision_log.md` 全文 grep 零命中）+ **需要全新 dialect-branch
+  連線層**（`work_order_repository.py::_get_engine()` 寫死 SQLite、缺
+  `psycopg2` 依賴、無 migration 工具），docker 可用性非決定性因素，維持 🟡
+  不接。其餘 6 個 open + 2 個 in_progress issue 逐一重新核對，結論與前三個
+  連續 session（`-01`/`-02`/`-03`）一致，`WMOM-20260505-26-a` 降低版子項提案
+  仍在等劉老師核准（本 session 是全自動排程觸發，過程無真人回覆，不可把前
+  session 自己寫的提案當作使用者核准）。**未實作任何程式碼**，未開功能性
+  PR，僅提交本次稽核結論文件更新。**誠實揭露**：臨時啟動的 `dockerd`
+  背景程序未建立、未 pull 任何 image，未留下殘留資源；docker 可用性重驗證只
+  用 `docker ps`/`docker info` 確認 API 可連線，未實際起 postgres container
+  跑整合測試（`WMOM-20260509-F6` 本身已確認非本次範圍）。詳見
+  `work-logs/2026-09/2026-09-28-docker-daemon-reconfirm-no-actionable-work.md`。
 
 ---
 
