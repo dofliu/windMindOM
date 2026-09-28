@@ -18,14 +18,17 @@
 
 最後更新：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）** —
 `docs/routines/autonomous-daily-worker-prompt.md`（canonical routine 文件）版本
-長期停在 v3（2026-06-03），已被連續 3+ 個 session work-log 提醒卻從未真正同步，
-本次把實際收到的 v4.1 cron prompt 全文整理進檔案取代舊內容：版本標記 v3→v4.1；
-baseline 638/59→1295/1477 全面更新；補上 v4.1 既有但 v3 缺漏的自我測試/
-mutation-verify/GitHub MCP 降級模式/誠實回報等章節；「## 3. 現況」章節與
-「維護備註」加註解說明該節是快照會過時、決策樹改依 `ISSUES.md`/`STATUS.yaml`
-實際內容判斷，避免同款 drift 循環重演。純文件修改，backend 1295 passed（7
-skipped, 1 xfailed）/frontend tsc 0/vitest 1477 passed（70 files）/build OK
-皆為 preflight baseline（未改動任何測試涵蓋的程式碼，未重跑）。**下個
+長期停在 v3（2026-06-03），已被至少 3 個具名 session work-log（`-05`/`-06`/
+`-07`）提醒卻從未真正同步，本次把實際收到的 v4.1 cron prompt 全文整理進檔案
+取代舊內容：版本標記 v3→v4.1；baseline 638/59→1295/1477 全面更新；補上 v4.1
+既有但 v3 缺漏的自我測試/mutation-verify/GitHub MCP 降級模式/誠實回報等章節；
+「## 3. 現況」章節與「維護備註」加註解說明該節是快照會過時、決策樹改依
+`ISSUES.md`/`STATUS.yaml` 實際內容判斷，避免同款 drift 循環重演。純文件修改，
+backend 1295 passed（7 skipped, 1 xfailed）/frontend tsc 0/vitest 1477
+passed（70 files）/build OK 皆為 preflight baseline（未改動任何測試涵蓋的
+程式碼，未重跑）。**code-reviewer subagent review：Needs revision，0
+must-fix，3 should-fix 皆已修復**（work-log/ISSUES.md 收尾敘述本身的統計
+落差與跨檔案數字矛盾，非 canonical 文件本體問題）。**下個
 session**：可從 `WMOM-20260505-25~28`（物理強化，逐一看 estimate，皆多日
 工作）或 M6 critical path 剩餘項（`WMOM-20260509-F6` PostgreSQL row-lock 需
 docker、HTTPS 部署配置需先定部署目標，皆需劉老師決策）中挑選；其餘 open

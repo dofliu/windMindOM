@@ -25,8 +25,9 @@ Stack-aware 檢查：`mcp__github__list_pull_requests`（state=open）回傳空�
 
 7 個 open issue 皆非本次可行候選。但本 session preflight 讀
 `docs/routines/autonomous-daily-worker-prompt.md` 發現一個**未被列進
-ISSUES.md、但已被至少 3 個近期 work-log（`-05`/`-06`/`-07`）重複提醒**的
-drift：該檔自稱「canonical 版本」，版本標記卻仍停在 v3（2026-06-03），而
+ISSUES.md、但至少已被 3 個近期 work-log（`-05`/`-06`/`-07`）重複提醒、未逐一
+往前查證是否更早就有**的 drift：該檔自稱「canonical 版本」，版本標記卻仍停在
+v3（2026-06-03），而
 cron trigger 實際注入的 prompt（本次任務描述，明確自稱 v4.1）內容豐富得多
 （含自我測試 baseline、mutation-verify 要求、8-phase 流程、GitHub MCP 降級
 模式等），repo 內文件完全沒有反映。純提醒不會自己解決——開新 issue
@@ -69,7 +70,36 @@ block，取代舊 v3 內容。
 
 ## Review
 
-`code-reviewer` subagent review（背景執行）：待補（見下方 Wrap-up 是否已回報）。
+`code-reviewer` subagent review（背景 async 執行，20 次工具呼叫，約 4 分鐘）：
+**Needs revision，0 must-fix，3 should-fix，皆已修復**：
+
+1. 🟡 **should-fix（已修復）**：work-log 原版 Wrap-up 統計描述「in_progress
+   3→2、done 116→117、total 126 不變」與 `ISSUES.md`/`STATUS.yaml` 實際 diff
+   不符——`in_progress` 全程維持 2（從未到過 3）、`total` 是 125→126（有變，
+   非「不變」）。已更正為「in_progress 不變（2）、done 116→117、total
+   125→126」。reviewer 精準點出：這份 work-log 本身主題就是「修正文件
+   drift」，結果自己的收尾敘述又跟實際改動對不上，是同款問題模式的自我
+   複製，必須修正。
+2. 🟡 **should-fix（已修復）**：`## Review` 段落先前是佔位字「待補」，
+   `ISSUES.md` 卻已把 `WMOM-20260928-01` 標成 `done` 並附 Completion
+   summary，完全沒提 review 結果——等於「同步 8-phase 流程文件」的這次
+   session，自己沒走完剛同步進去的 Phase 6（review 需先回報才能進
+   Phase 7 wrap-up）。現已回填本段實際 review 結果，並在 `ISSUES.md` 的
+   Completion summary 補上 code-reviewer 結論。
+3. 🟡 **should-fix（已修復）**：本次 diff 新增的文字裡，`ISSUES.md` 兩處說
+   「連續 5+ 個 / 至少 5 個 session」提醒過這個 drift，但 `STATUS.yaml`/
+   `TODO.md` 卻都說「3+」，且全部檔案具體點名的只有 3 支 work-log
+   （`-05`/`-06`/`-07`）——「5+」在 diff 範圍內找不到證據支撐。已統一改為
+   「至少 3 個具名 work-log（`-05`/`-06`/`-07`），未逐一往前查證是否更早
+   就有」，四個檔案（`ISSUES.md`×2、`STATUS.yaml`、`TODO.md`、本 work-log）
+   說法一致。
+
+Reviewer 也獨立確認：`docs/routines/autonomous-daily-worker-prompt.md` 本體
+（fenced code block + 維護備註 + 版本標記）內部自洽，無兩個版本號互相矛盾、
+無 v3 舊數字被誤當現行內容留下；`ISSUES.md` 頂部統計表最終狀態
+（open 7 / in_progress 2 / done 117 / total 126）與 `7+2+117=126` 自洽。
+修正上述 3 點後未重新跑 backend/frontend：純文字/敘述修正，未涉及任何被測試
+涵蓋的邏輯或程式碼路徑。
 
 ## Wrap-up
 
@@ -78,8 +108,9 @@ block，取代舊 v3 內容。
   cron prompt 內容（含自我測試 baseline、mutation-verify、8-phase、降級模式）；
   「維護備註」章節新增 v3→v4.1 差異摘要 + 「§3 現況快照會過時，請以
   ISSUES.md/STATUS.yaml 為準」提醒（防止同款 drift 循環重演）。
-- ISSUES.md：`WMOM-20260928-01` → done（完整 completion summary）；統計表
-  in_progress 3→2、done 116→117、total 126 不變。
+- ISSUES.md：`WMOM-20260928-01` → done（完整 completion summary，含
+  code-reviewer review 結果）；統計表 in_progress 不變（2）、done
+  116→117、total 125→126。
 - STATUS.yaml：`last_updated`/`issue_stats` 已同步。
 - TODO.md：已同步本次完成摘要 + 下個 session 建議。
 - **這份文件本身仍會隨開發推進過時**（baseline 數字、M6 critical path 現況

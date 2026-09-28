@@ -27,7 +27,9 @@ session work-log 提醒卻從未真正同步；本次把實際收到的 v4.1 cro
 會過時、決策樹改依 `ISSUES.md`/`STATUS.yaml` 實際內容判斷，避免同款 drift
 循環重演。純文件修改，backend 1295 passed / frontend tsc 0/vitest 1477
 passed（70 files）/build OK（preflight baseline，未改動任何測試涵蓋的程式碼
-故未重跑）。詳見
+故未重跑）。**code-reviewer subagent review：Needs revision，0 must-fix，3
+should-fix 皆已修復**（work-log/ISSUES.md 收尾敘述本身的統計落差與跨檔案
+數字矛盾，非 canonical 文件本體問題）。詳見
 `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
 **前一 session：2026-09-27（WMOM-20260927-07 完成（第十六個 autonomous session）—
 `scada_registry.py` 內 `WCOL_*` 兩個 tag 的 `subsystem` 欄位誤植修正**：410/413
@@ -4463,8 +4465,8 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 - **Status**: done
 - **Milestone**: 工程基礎設施 / 技術債
-- **Priority**: medium（連續 5+ 個 autonomous session 的 work-log 都提醒這個
-  drift，卡著沒人修）
+- **Priority**: medium（至少 3 個具名 autonomous session work-log〔`-05`/
+  `-06`/`-07`〕都提醒這個 drift，未逐一往前查證是否更早就有，卡著沒人修）
 - **Estimate**: 20-30 分鐘
 - **Source**: 本 session preflight 檢查（`docs/routines/autonomous-daily-worker-prompt.md`
   自述「本檔是 canonical 版本」，但實測其版本標記仍是 v3（2026-06-03），而
@@ -4512,14 +4514,25 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   決策樹 §4 也改寫成「依 ISSUES.md/STATUS.yaml 實際 open 項目判斷」而非在
   canonical 文件內硬編 issue 清單，目的是避免未來又出現「canonical 文件裡的
   快照本身就是 drift 來源」的同款問題循環（這正是 v3 檔案本身這次會落後
-  cron 實際內容超過 3 個月、被至少 5 個 session 重複提醒卻無人動手的根因：
-  上次同步時寫進去的細節後來又過時了）。backend 全套 1295 passed（7
-  skipped, 1 xfailed，preflight baseline，本次未改動任何被測試涵蓋的
-  程式碼，未重跑）；frontend tsc 0/vitest 1477 passed（70 files）/build OK
-  （preflight baseline，同理未重跑）。**誠實揭露**：純 Markdown 文件修改
-  無自動化測試保護，只能靠人工逐段比對本 session 實際收到的 v4.1 prompt
-  內容與寫入檔案的內容是否語意一致把關，無法 mutation-verify。**已知
-  限制**：本檔仍會隨開發推進持續過時（baseline 數字、§3 現況快照）——這不是
+  cron 實際內容超過 3 個月、至少被 3 個具名 session work-log〔`-05`/`-06`/
+  `-07`〕重複提醒卻無人動手的根因：上次同步時寫進去的細節後來又過時了）。
+  backend 全套 1295 passed（7 skipped, 1 xfailed，preflight baseline，本次
+  未改動任何被測試涵蓋的程式碼，未重跑）；frontend tsc 0/vitest 1477
+  passed（70 files）/build OK（preflight baseline，同理未重跑）。
+  **code-reviewer subagent review：Needs revision，0 must-fix，3 should-fix
+  皆已修復**——皆為 work-log/ISSUES.md 收尾敘述本身的落差（非 canonical 文件
+  本體問題）：①work-log Wrap-up 統計描述與實際 diff 不符（`in_progress`
+  誤寫成有變動、`total` 誤寫成不變）已更正；②`## Review` 段落原是佔位字
+  「待補」卻已把本 issue 標 `done`，即本次「同步 8-phase 流程文件」的
+  session 沒有走完剛同步進去的 Phase 6→7 順序，已回填實際 review 結果；
+  ③`ISSUES.md`/`STATUS.yaml`/`TODO.md` 對「被幾個 session 提醒過」給出
+  互相矛盾的數字（5+ vs 3+），已統一為有證據支撐的「至少 3 個具名
+  work-log」。reviewer 獨立確認 canonical 文件本體（fenced code block +
+  維護備註 + 版本標記）內部自洽、無矛盾版本號殘留。**誠實揭露**：純
+  Markdown 文件修改無自動化測試保護，只能靠人工逐段比對本 session 實際收到
+  的 v4.1 prompt 內容與寫入檔案的內容是否語意一致把關，無法
+  mutation-verify。**已知限制**：本檔仍會隨開發推進持續過時（baseline 數字、
+  §3 現況快照）——這不是
   一次性解決的問題，下個 session 若又發現版本標記落後於實際收到的 prompt，
   應直接動手同步，而非只在 work-log 留言提醒。詳見
   `work-logs/2026-09/2026-09-28-sync-autonomous-worker-prompt-v4.1.md`。
