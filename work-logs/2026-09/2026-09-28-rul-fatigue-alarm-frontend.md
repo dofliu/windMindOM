@@ -69,13 +69,17 @@ session_id` 情境化，範圍模糊、未開 issue）。
 
 ## Verify
 
-**Frontend 全套**：
+> 本節記錄 code review 前的第一輪驗證數字（1483/6 測）；review 後依 must-fix/
+> should-fix 補測 3 個，最終數字是 **1486 passed（9 個新測試）**，見下方
+> Review 段落與 Wrap-up 最終統計。
+
+**Frontend 全套（review 前）**：
 - `npx tsc --noEmit` → 0 error
 - `npx vitest run` → **1483 passed**（70 files，baseline 1477 + 新增 6，
   零 regression）
 - `npx vite build` → 成功（僅既有 chunk size 警告，與本次改動無關）
 
-**新增測試**（`frontend/components/__tests__/TurbineDetail.test.tsx`，6 個）：
+**新增測試（review 前，6 個）**：
 1. 無 `scadaTags` → 兩個警報 badge 皆顯示「正常」、RUL 顯示「—」
 2. `scadaTags` 帶塔架/葉片警報等級 → 顯示對應中文標籤 + RUL 4000h→「5月 16天」
 3. RUL 跨年（40000h）→「4年 6月」（不顯示日）
@@ -106,7 +110,60 @@ modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ tests/`
 
 ## Review
 
-`code-reviewer` subagent review：見下方（同步執行完成後補記）。
+`code-reviewer` subagent review（背景執行，約 4 分鐘完成）：**Needs revision，
+1 must-fix + 3 should-fix + 1 nice-to-have，全數已修復**：
+
+1. 🔴 **must-fix（已修復）**：`fatigueAlarmInfo(level)` 只檢查
+   `level >= 0 && level <= 4` 範圍但未 `round`，`scadaTags` 型別是
+   `Record<string, number>`，無法在型別層保證乾淨整數——一個範圍內的**非整數**
+   值（如 `2.5`）會通過範圍檢查、直接當陣列索引用在
+   `FATIGUE_ALARM_LEVELS[2.5]`，JS 陣列非整數索引取到 `undefined`，後續
+   `almTwr.tone` 直接 `TypeError` 炸掉整個 `SubsystemDetailCard` render（不只是
+   badge 本身）。reviewer 實測重現：`scadaTags: { WLOD_AlmTwr: 2.5 }` → 整個
+   fatigue tab crash。雖然目前後端（`_damage_to_alarm` 回傳值恆為整數）不會產生
+   這種輸入，但這是現場工程師事故排查時會盯著看的頁面，任何未來後端調整/通訊
+   異常/測試假資料產生非整數值都會讓頁面整個掛掉，屬於真實的防禦性輸入處理
+   缺口。修法：`Math.min(4, Math.max(0, Math.round(level)))`（`frontend/
+   components/TurbineDetail.tsx:71-78`）。
+2. 🟡 **should-fix（已修復）**：塔架/葉片警報兩列手刻 `<div>` 複製
+   `DataRow` 的 flex/border/字型樣式卻用 `alignItems: 'center'`（`DataRow`
+   本身是 `'baseline'`），與同 tab 其他列視覺不一致；`DataRow` 的 `value`
+   本就是 `React.ReactNode` 可直接吃 `<StatusPill>`。已改用
+   `<DataRow value={<StatusPill .../>} />`。
+3. 🟡 **should-fix（已修復）**：4 個累積損傷比例欄位的 warn/alert 門檻
+   （原 0.5/0.8）與後端 `FatigueSpec` 真實 alarm 門檻
+   （`alarm_notice=0.30`/`alarm_warning=0.60`/`alarm_danger=0.80`/
+   `alarm_shutdown=0.95`）不一致——例如塔架 FA 損傷 0.35 已足以讓
+   `WLOD_AlmTwr` 升到 1 級「注意」，但原始百分比那一列完全不會變色，同一 section
+   內兩個視覺指標對同一份資料給出不一致的嚴重度判斷。已改為 `>= 0.3`/
+   `>= 0.8`（對齊 `alarm_notice`/`alarm_danger`），並加註解說明門檻來源
+   （DataRow 只有二級 warn/alert，無法完整對齊 4 級，故取 notice/danger 作為
+   兩個切點）。
+4. 🟡 **should-fix（已修復）**：新增測試補齊兩個 reviewer 點名的風險缺口——
+   非整數/超出範圍警報等級（`2.5`→3「危險」clamp+round 驗證；另補負數 `-1`
+   →0「正常」的防禦性回歸測試）、RUL 介於 0-24 小時（未滿 1 天）目前顯示
+   「0天」而非小時數的已知顯示粒度限制（`formatRul` 加註解說明，測試明確
+   pin 住這個已知行為而非隱性錯誤）。
+5. 🟢 **nice-to-have（已修復）**：`FATIGUE_ALARM_LEVELS` 的 `tone` 型別原本
+   手動重複宣告 `'ok' | 'info' | 'warn' | 'amber' | 'danger'`，與
+   `StatusPill.tsx` 已匯出的 `PillTone` 型別會逐漸漂移不同步。改用
+   `Extract<PillTone, ...>` 複用既有型別。
+
+Reviewer 也獨立驗證了非須修正項：`formatRul` 手算覆核 4000h→166 天→
+「5月 16天」、40000h→1666 天→「4年 6月」皆與 diff 內測試相符；`-1`/`null`/
+`undefined`/`NaN` 皆正確短路到「—」；未改動的 `WLOD` section 無 regression
+風險（既有測試未對該區塊 DOM 結構斷言）；`tsc --noEmit` clean；後端已把
+`damage_*` clamp 到 `[0,1]`，前端 `(t.damageX || 0) * 100` 不會出現負數或
+>100% 顯示。
+
+**Mutation-verify must-fix**：`git stash push -- frontend/components/
+TurbineDetail.tsx` 暫時只還原元件本體（保留測試檔案的新測試），重跑「非整數
+警報等級」那條新測試 → **確認拋出與 reviewer 重現完全相同的
+`TypeError: Cannot read properties of undefined (reading 'tone')`**，證實測試
+真的鎖住這個 bug。「負數 clamp 到 0」那條測試在舊碼下**碰巧也通過**（舊版
+三元判斷式對超出範圍值本就 fallback 到 0，只有「範圍內但非整數」才會踩雷）——
+誠實記錄：這條測試對舊碼而言不是 bug-pinning，是替未來重構留的防禦性回歸測試。
+`git stash pop` 還原修正後重跑全部 102 測皆綠。
 
 ## Wrap-up
 
@@ -128,13 +185,18 @@ modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ tests/`
   模擬或加速時間尺度驗證。RUL 觸發時間軸（母 issue 提到的另一個 deliverable）
   也未實作，只顯示當下瞬時值；`data_broker.py:899-930` 既有的
   `event_type="fatigue"` history event 邏輯可作為未來 Part B 的資料來源。
+- **最終驗證數字（review 修復 must-fix/should-fix 後重跑全套）**：
+  `npx tsc --noEmit` 0 error；`npx vitest run` → **1486 passed**（70 files，
+  baseline 1477 + 最終 9 個新測試，零 regression）；`npx vite build` 成功。
+  backend 未動，1295 passed（7 skipped, 1 xfailed）不變。
 - ISSUES.md：新增 `WMOM-20260505-25-a`（done，含完整 completion summary）；
   `WMOM-20260505-25` 母 issue status 改註記「Part A 已完成」；統計表
-  open 7（不變，母 issue 仍 open）、done 120→121、total 129→130（已用
+  open 7（不變，母 issue仍 open）、done 120→121、total 129→130（已用
   `grep -c "^### WMOM-"` 核對一致）。
-- STATUS.yaml：`last_updated`/`test_baseline`（frontend vitest 1477→1483）
+- STATUS.yaml：`last_updated`/`issue_stats`（done 120→121、total 129→130）
   已同步。
-- TODO.md：待同步本次完成摘要（見下方時間統計後續步驟）。
+- TODO.md：已同步本次完成摘要 + 順手修正「物理模型強化」段落過時的
+  `-23`/`-24` 未勾選（實際皆早已 done）+ `-25` Part A 完成註記。
 - 下次接手：`-25` Part B（`SpectralAlarmPanel` 5-band 頻譜視覺化，需要決定
   頻譜動態 threshold curve 的視覺呈現方式，比 Part A 更需要圖表設計判斷）或
   Part C（`BearingDiagPanel` BPFO/BPFI）；或繼續 `-27`/`-28`

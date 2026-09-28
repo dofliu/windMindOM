@@ -12,8 +12,11 @@ last_updated: "2026-09-28"  # **2026-09-28 第二十一個 autonomous session
   # scadaTags` 全程透傳到前端（`data_broker.py::_sim_output_to_reading`），零
   # 後端改動即可顯示，拆出零風險「Part A」單 session 完工，`-25` 母 issue 標
   # 「Part A 已完成」保持 open（剩 SpectralAlarmPanel/BearingDiagPanel/RUL 觸發
-  # 時間軸）。新增 6 測，mutation-verified（`git stash` 還原元件本體確認皆
-  # fail，再還原）。frontend 1477→**1483 passed**（70 files 不變，零
+  # 時間軸）。**code-reviewer subagent review：1 must-fix（非整數 scadaTags 值
+  # 當陣列索引會 crash 整個 fatigue tab，已修復）+ 3 should-fix + 1
+  # nice-to-have 皆已修復**。最終新增 9 測，mutation-verified（`git stash`
+  # 還原元件本體，must-fix 測試精準重現 reviewer 回報的 crash，其餘皆
+  # fail，再還原）。frontend 1477→**1486 passed**（70 files 不變，零
   # regression）、tsc 0、build OK；backend 未動 1295 passed（7 skipped, 1
   # xfailed）不變。**誠實揭露**：僅驗證「給定等級/RUL 值 → 顯示正確」，未做
   # 「故障注入 → 長時間模擬 → 等級隨時間真實升級」端到端驗證（`fatigue_model.py`

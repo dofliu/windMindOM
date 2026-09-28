@@ -30,13 +30,23 @@ scadaTags` 早已完整透傳 `WLOD_AlmTwr`/`WLOD_AlmBld`/`WLOD_RulHours`，
 歧義，可拆出零風險的「Part A」單 session 完工（母 issue 標「done Part A」，
 `SpectralAlarmPanel`/`BearingDiagPanel`/RUL 觸發時間軸留待未來 Part B/C）。
 新增 `Cumulative Damage & RUL` section（就地擴充既有 `fatigue` tab，非新增
-tab/新檔案，貼合實際程式碼結構）。新增 6 測（`TurbineDetail.test.tsx`），
-mutation-verified（`git stash` 還原元件本體確認 6 測皆 fail，再還原）。
-frontend 1477→**1483 passed**（70 files 不變，零 regression）、tsc 0、build
-OK；backend 未動 1295 passed（7 skipped, 1 xfailed）不變。**誠實揭露**：僅
-驗證「給定警報等級/RUL 值 → 顯示正確」，未做「故障注入後長時間模擬、等級
-隨時間真實升級」的端到端驗證（`fatigue_model.py` 損傷累積在 1x 時間尺度需
-數小時模擬時間，非本次驗證範圍）。詳見
+tab/新檔案，貼合實際程式碼結構）。**code-reviewer subagent review：Needs
+revision，1 must-fix + 3 should-fix + 1 nice-to-have 皆已修復**——must-fix 是
+真實可重現的 crash：`fatigueAlarmInfo()` 對範圍內的非整數 `scadaTags` 值
+（如 `2.5`）未 `round` 就當陣列索引，導致 `undefined.tone` 炸掉整個 fatigue
+tab render（`scadaTags` 型別是 `Record<string,number>`，型別層無法保證整數），
+已加 `Math.round` + clamp 修復；should-fix 包含警報 badge 改用既有 `DataRow`
+（原手刻 div 樣式與其他列不一致）、累積損傷 warn/alert 門檻改對齊
+`FatigueSpec` 真實 alarm 門檻（0.30/0.80，原任意 0.5/0.8）、補齊 2 個測試
+缺口（非整數/超出範圍警報等級、RUL 介於 0-24 小時的已知顯示粒度限制）。最終
+新增 **9 測**（`TurbineDetail.test.tsx`），皆 mutation-verified（`git stash`
+還原元件本體，must-fix 那條測試精準重現 reviewer 回報的
+`TypeError: Cannot read properties of undefined (reading 'tone')`，其餘測試
+如預期 fail，再 `stash pop` 還原）。frontend 1477→**1486 passed**（70 files
+不變，零 regression）、tsc 0、build OK；backend 未動 1295 passed（7 skipped,
+1 xfailed）不變。**誠實揭露**：僅驗證「給定警報等級/RUL 值 → 顯示正確」，未做
+「故障注入後長時間模擬、等級隨時間真實升級」的端到端驗證（`fatigue_model.py`
+損傷累積在 1x 時間尺度需數小時模擬時間，非本次驗證範圍）。詳見
 `work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`。
 **前一 session：WMOM-20260928-04 完成（第二十個 autonomous session）——
 preflight 全綠，重新確認本 sandbox docker daemon 可用（需手動啟動 `dockerd`），
@@ -4834,24 +4844,33 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Deliverable**：
   - `frontend/components/TurbineDetail.tsx`：`fatigue` tab 改為兩欄 grid，原
     `WLOD Load & Fatigue` section 不動，新增 `Cumulative Damage & RUL` section——
-    4 個累積損傷比例（`damageTowerFa/Ss/BladeFlap/Edge` × 100%，>50%/>80% 走
-    warn/alert 顏色，比照既有 DEL 欄位慣例）、塔架/葉片 2 個 `StatusPill` 疲勞警報
-    badge（0-4 級對應 `ok/info/warn/amber/danger` tone，中英文標籤對齊
-    `data_broker.py::alarm_names`）、RUL 倒數（`formatRul()` 把小時數換算成
-    「年+月」/「月+日」/「日」，-1 或缺值顯示 `—`，<1 年 warn、<30 天 alert）。
+    4 個累積損傷比例（`damageTowerFa/Ss/BladeFlap/Edge` × 100%，`>=0.3`/`>=0.8`
+    走 warn/alert 顏色，對齊 `fatigue_model.py::FatigueSpec` 真實 alarm 門檻
+    `alarm_notice=0.30`/`alarm_danger=0.80`，而非任意經驗值）、塔架/葉片 2 個
+    `DataRow`+`StatusPill` 疲勞警報 badge（0-4 級對應 `ok/info/warn/amber/danger`
+    tone，中英文標籤對齊 `data_broker.py::alarm_names`）、RUL 倒數
+    （`formatRul()` 把小時數換算成「年+月」/「月+日」/「日」，-1 或缺值顯示
+    `—`，<1 年 warn、<30 天 alert；未滿 24 小時顯示「0天」為已知顯示粒度限制，
+    已加註解說明）。
   - 新增純函式 `fatigueAlarmInfo()`/`formatRul()`（同檔案內，非跨檔匯出，因僅此
-    一處消費）。
+    一處消費）；`fatigueAlarmInfo()` 對輸入值 `Math.round` + clamp 到 [0,4] 後才
+    當陣列索引（見下方 Review，code review must-fix）。
   - i18n（zh/en，沿用既有 `tr()` pattern）。
 - **Acceptance**：
   - simulator 模式下 RUL/警報/累積損傷比例即時隨 `scadaTags` 更新（資料流已由既有
     WS/REST 管線保證，未額外驗證故障注入的長時間累積測試——見下方誠實揭露）。
   - 4/5 級警報 badge tone/標籤與 `fatigue_model.py::_damage_to_alarm` 語意一致。
   - 既有 8 個明細 tab、既有 `fatigue` tab 內容（載荷力矩/DEL/發電時數）零 regression。
-- **測試**：`frontend/components/__tests__/TurbineDetail.test.tsx` 新增 6 測（無
-  scadaTags 預設正常/RUL `—`；警報等級中英標籤；跨年 RUL 換算；`rulHours=-1` 顯示
-  `—` 而非負數；累積損傷百分比換算；lang=en 全英文），皆 mutation-verified（暫時
-  `git stash` 還原元件本體，確認 6 測如預期全部 fail，再 `stash pop` 還原）。
-  frontend 1477→**1483 passed**（+6，70 files 不變，零 regression）；tsc 0；
+- **測試**：`frontend/components/__tests__/TurbineDetail.test.tsx` 最終新增
+  **9 測**（review 前 6 測 + review 後補 3 測）：無 scadaTags 預設正常/RUL `—`；
+  警報等級中英標籤；跨年 RUL 換算；`rulHours=-1` 顯示 `—` 而非負數；累積損傷
+  百分比換算；lang=en 全英文；**非整數/超出範圍警報等級 clamp+round 不拋錯**
+  （code review must-fix 的 regression test）；負數警報等級 clamp 到 0；
+  `rulHours` 介於 0-24 小時顯示「0天」的已知行為 pin 測試。皆
+  mutation-verified（`git stash` 還原元件本體，確認新測試如預期全部 fail/
+  crash，`stash pop` 還原；must-fix 那條精準重現 reviewer 回報的
+  `TypeError: Cannot read properties of undefined (reading 'tone')`）。
+  frontend 1477→**1486 passed**（+9，70 files 不變，零 regression）；tsc 0；
   build OK。backend 未動，1295 passed（7 skipped, 1 xfailed）不變。
 - **誠實揭露 / 未驗證範圍**：①未實測「故障注入後 alarm badge 從 0 級隨時間累積升級
   到 4 級」的完整長時間 e2e 流程——`fatigue_model.py` 的損傷累積速率在 simulator
@@ -4859,7 +4878,10 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   「給定等級 → 對應顯示正確」，未驗證「模擬過程中等級如何隨時間演變」這條路徑
   （母 issue acceptance 原文「故障注入時 alarm badge 會升級」嚴格來說未完整驗證，
   只驗證了顯示層邏輯，不是端到端物理模擬）。②RUL 觸發時間軸（母 issue 提到的
-  「觸發時間軸」）未實作，只有當下瞬時值。
+  「觸發時間軸」）未實作，只有當下瞬時值。③「負數警報等級 clamp 到 0」那條測試
+  對修正前的舊碼其實也會通過（舊版三元判斷式對超出範圍值本就 fallback 到 0，只有
+  「範圍內但非整數」才會踩雷）——誠實記錄：這條測試對舊碼而言不是 bug-pinning，
+  是替未來重構留的防禦性回歸測試，非本次 review 抓到的真實 bug 症狀。
 - **Reference**：
   - `modules/monitoring/simulator/physics/fatigue_model.py:311-330`（damage/alarm/RUL
     計算邏輯）

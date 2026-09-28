@@ -22,9 +22,11 @@ badge + 4 個累積損傷比例，零後端改動** — 重新盤點母 issue `W
 發現其「需要新 tab + 3 新元件」描述已過時，RUL/警報資料早已透過既有
 `scadaTags` 全程到前端，只是 `fatigue` tab 從未畫出來；拆出零風險 Part A
 單 session 完工，母 issue 保持 open（剩 SpectralAlarmPanel/BearingDiagPanel/
-RUL 觸發時間軸）。新增 6 測 mutation-verified。frontend 1477→**1483
-passed**（70 files 不變，零 regression）/ tsc 0 / build OK；backend 未動
-1295 passed（7 skipped, 1 xfailed）不變。**誠實揭露**：僅驗證顯示層邏輯，
+RUL 觸發時間軸）。**code-reviewer subagent 抓到 1 must-fix（非整數警報等級
+會 crash 整個 tab）+ 3 should-fix，皆已修復**。最終新增 9 測
+mutation-verified。frontend 1477→**1486 passed**（70 files 不變，零
+regression）/ tsc 0 / build OK；backend 未動 1295 passed（7 skipped, 1
+xfailed）不變。**誠實揭露**：僅驗證顯示層邏輯，
 未做故障注入長時間模擬的端到端驗證。詳見
 `work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`。
 **前一 session：WMOM-20260928-04 完成（第二十個 autonomous session）：

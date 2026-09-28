@@ -652,6 +652,32 @@ describe('TurbineDetail — Load/Fatigue tab 累積損傷 / RUL / 疲勞警報',
     // 4000h → 166 天 → 5mo 16d
     expect(screen.getByText('5mo 16d')).toBeInTheDocument();
   });
+
+  it('警報等級為非整數或超出 0-4 範圍 → clamp + round，不拋錯（scadaTags 型別無法保證乾淨整數）', async () => {
+    await renderDetail({
+      turbine: makeTurbine({ scadaTags: { WLOD_AlmTwr: 2.5, WLOD_AlmBld: 5 } }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    // 2.5 四捨五入 → 3「危險」
+    expect(screen.getByText('危險')).toBeInTheDocument();
+    // 5 clamp → 4「停機」——「停機」同時是 header 停機鈕文字，須 scope 在
+    // 「葉片警報」那一列才不誤判 header 按鈕。
+    const bladeAlarmRow = screen.getByText('葉片警報').closest('div');
+    expect(within(bladeAlarmRow!).getByText('停機')).toBeInTheDocument();
+  });
+
+  it('警報等級為負數 → clamp 到 0「正常」', async () => {
+    await renderDetail({ turbine: makeTurbine({ scadaTags: { WLOD_AlmTwr: -1 } }) });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    expect(screen.getAllByText('正常')).toHaveLength(2);
+  });
+
+  it('rulHours 介於 0-24 小時（未滿 1 天）→ 顯示「0天」（已知顯示粒度限制，非負數/非「—」）', async () => {
+    await renderDetail({ turbine: makeTurbine({ scadaTags: { WLOD_RulHours: 5 } }) });
+    fireEvent.click(screen.getByRole('button', { name: '載荷/疲勞' }));
+    const rulRow = screen.getByText('預估剩餘壽命').closest('div');
+    expect(within(rulRow!).getByText('0天')).toBeInTheDocument();
+  });
 });
 
 // ─── TrendChartPanel 接線 ───────────────────────────────────────────────────
