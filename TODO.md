@@ -16,21 +16,32 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous session）：
-preflight 全綠，無可行 autonomous 工作，乾淨收尾** — backend 1295 passed（7
+最後更新：2026-09-28（**WMOM-20260928-03 完成（第十九個 autonomous session）：
+preflight 全綠，接續前一 session 建議草擬 `WMOM-20260505-26` Service/Maintenance
+state 子項降低版提案（`WMOM-20260505-26-a`）** — backend 1295 passed（7
 skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build
-OK，與 baseline 一致零 regression；無開放 PR。逐一重新核對 `ISSUES.md` 全部 7
-個 open + 2 個 in_progress issue，皆維持既有結論（多日工作 / 需劉老師決策或
-客戶素材 / 需 docker 環境），`WMOM-20260505-26` 額外確認拆 sub-issue 需自訂
-降低版 acceptance、屬於會引入設計歧義的工作，未動工。**本次除本身這則稽核
-記錄 issue 外未開其餘新工作 issue、未開 PR**。work-log 列出 4 點建議劉老師
-決策的問題：①cost ledger（`WMOM-20260504-11`）
-設計方向 ②`WMOM-20260509-F6` 是否有 docker 環境可用 ③物理模型深化 4 項
-（`WMOM-20260505-25~28`）是否排入 sprint，`-26` 是否同意降低 sub-task acceptance
-門檻以利拆小 ④`WMOM-20260513-01` UI v2 設計交接書是否已備妥。**下個 session**：待
-劉老師針對上述任一給出決策即可解鎖；若持續無回覆，建議直接提案拆
-`WMOM-20260505-26` 的 Service/Maintenance state 子項為獨立降低版 issue，打破僵局。
-詳見 `work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。
+OK，與 baseline 一致零 regression；無開放 PR。不再第三次重複「逐一核對 7 個
+open issue」流程，改為實地查證 `WMOM-20260505-26` 可行性：發現母 issue 描述
+已過時——`WSRV_SrvOn`（service mode flag）已存在且由真實 `service_mode` 狀態
+驅動；`operator_stop`/`tur_state==7`（emergency stop）是既有真實狀態但未單獨
+暴露成 tag；`calibration mode`/`firmware version` 則零命中無真實狀態可映射。
+據此提案只做 `WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag、映射既有
+真實狀態、acceptance 改用「整合測試證明既有控制路徑觸發時 tag 同步翻轉」，
+已寫入 `ISSUES.md` `WMOM-20260505-26` 本文，附一行可核准的問題給劉老師。
+**未實作任何程式碼**（依 routine §4 item 7 不自行開工），**本次除稽核記錄
+issue 外未開其餘新工作 issue、未開 PR**。**給劉老師的問題（累積，可一行
+回覆任一項即可解鎖）**：①是否核准 `WMOM-20260505-26-a`（本次新提案，最具體、
+最快可解鎖）②cost ledger（`WMOM-20260504-11`）設計方向 ③`WMOM-20260509-F6`
+是否有 docker 環境可用 ④`WMOM-20260505-25`/`-27`/`-28`（物理模型深化剩餘 3
+項）是否排入 sprint ⑤`WMOM-20260513-01` UI v2 設計交接書是否已備妥。**下個
+session**：若 `-26-a` 已核准直接認領（單 session 可完工）；若無回覆，建議
+比照本次手法對 `WMOM-20260505-27`/`-28` 也嘗試切出小而無歧義的降低版子項。
+詳見
+`work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
+前一 session：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous
+session）：preflight 全綠，逐一核對 7 個 open issue 後本次無單 session 可行
+候選，乾淨收尾**）。詳見
+`work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。
 前一 session：2026-09-28（**WMOM-20260928-01 完成（第十七個 autonomous session）** —
 `docs/routines/autonomous-daily-worker-prompt.md`（canonical routine 文件）版本
 長期停在 v3（2026-06-03），已被至少 3 個具名 session work-log（`-05`/`-06`/
