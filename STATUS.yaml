@@ -3,10 +3,26 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-28"  # **2026-09-28 第十八個 autonomous session — preflight 全綠
-  # （backend 1295 passed/7 skipped/1 xfailed、frontend tsc 0/vitest 1477 passed 70
-  # files/build OK，皆與 baseline 一致零 regression），無開放 PR、CI 飛輪正常。逐一
-  # 重新核對 `ISSUES.md` 全部 7 個 open + 2 個 in_progress issue：7 個 open 皆維持
+last_updated: "2026-09-28"  # **2026-09-28 第十九個 autonomous session
+  # （WMOM-20260928-03）— preflight 全綠（backend 1295 passed/7 skipped/1
+  # xfailed、frontend tsc 0/vitest 1477 passed 70 files/build OK，皆與 baseline
+  # 一致零 regression），無開放 PR、CI 飛輪正常。接續前一 session
+  # （WMOM-20260928-02）work-log 明確交辦的任務——不再第三次重複「逐一核對 7 個
+  # open issue」流程，改為實地查證 `WMOM-20260505-26`（SCADA Service/Maintenance
+  # state tag）的可行性：發現母 issue 描述已過時，`WSRV_SrvOn`（service mode
+  # flag）**已存在**且由真實 `service_mode` 狀態驅動；`operator_stop`/
+  # `tur_state==7`（emergency stop）是既有真實狀態但未單獨暴露成 tag；
+  # `calibration mode`/`firmware version` 則零命中、無真實狀態可映射。據此草擬
+  # **`WMOM-20260505-26-a` 降低版子項提案**（只做 `WSRV_ManualOverride`/
+  # `WSRV_LockoutState` 兩個新 tag，映射既有真實狀態，acceptance 改用「整合測試
+  # 證明既有控制路徑觸發時 tag 同步翻轉」取代母 issue 原「5 條新 tag 於 fault
+  # scenario 下變化」，`calibration mode`/`firmware version` 留在母 issue 不動），
+  # 已寫入 `ISSUES.md` `WMOM-20260505-26` 本文，附一行可核准的問題給劉老師。
+  # **未實作任何程式碼**（依 routine §4 item 7「🟡 需劉老師決策的不要自己開工」），
+  # 未開 PR。詳見
+  # `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
+  # **前一 session（2026-09-28 第十八個 autonomous session）** — preflight 全綠，
+  # 逐一重新核對 `ISSUES.md` 全部 7 個 open + 2 個 in_progress issue：7 個 open 皆維持
   # 「多日工作 / 需劉老師決策或客戶素材 / 需 docker 環境」結論（非單純沿用前一
   # session，本次重新核對 estimate/acceptance/依賴，`WMOM-20260505-26` 額外確認即使
   # 挑最像純狀態旗標的 sub-task 仍需自訂降低版 acceptance、屬於會引入設計歧義的工作，
@@ -735,15 +751,15 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-28（第十八個 autonomous session）WMOM-20260928-02 完成，delta-only
-  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 117/total 126）。
-  open: 7  # 不變
+  # 2026-09-28（第十九個 autonomous session）WMOM-20260928-03 完成，delta-only
+  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 118/total 127）。
+  open: 7  # 不變（WMOM-20260505-26 本文附加降低版子項提案，狀態仍為 open 未變）
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 118  # +1（WMOM-20260928-02：preflight 全綠 + 逐一核對 7 個 open issue，
-             # 本次無單 session 可行候選的稽核記錄）
-  # total 127（7+2+118=127，與 ISSUES.md `### WMOM-` header 數一致）
+  done: 119  # +1（WMOM-20260928-03：preflight 全綠 + 草擬 WMOM-20260505-26-a
+             # 降低版子項提案，尚未開工的調查/提案記錄）
+  # total 128（7+2+119=128，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine

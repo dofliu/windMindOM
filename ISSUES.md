@@ -16,19 +16,26 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 118 |
-| **total** | **127** |
+| done | 119 |
+| **total** | **128** |
 
-最後更新：2026-09-28（**WMOM-20260928-02 完成（第十八個 autonomous session）——
+最後更新：2026-09-28（**WMOM-20260928-03 完成（第十九個 autonomous session）——
+preflight 全綠，接續前一 session 建議草擬 `WMOM-20260505-26` Service/Maintenance
+state 子項降低版提案（`WMOM-20260505-26-a`）**：backend 1295 passed（7 skipped,
+1 xfailed）/ frontend tsc 0 / vitest 1477 passed（70 files）/ build OK，皆與
+baseline 一致零 regression；無開放 PR。實地查證程式碼發現母 issue描述已過時——
+`WSRV_SrvOn` 已存在且由真實 `service_mode` 狀態驅動，`operator_stop`/
+`tur_state==7`（emergency stop）是既有真實狀態但未單獨暴露成 tag，`calibration
+mode`/`firmware version` 則零命中無真實狀態可映射；據此提案只做
+`WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag、映射既有真實狀態、
+acceptance 改用整合測試證明既有控制路徑觸發時 tag 同步翻轉，已寫入
+`WMOM-20260505-26` 本文供劉老師一行核准。**未實作任何程式碼**，依 routine §4
+item 7 不自行開工。詳見
+`work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
+**前一 session：WMOM-20260928-02 完成（第十八個 autonomous session）——
 preflight 全綠，逐一核對 7 個 open issue 後本次無單 session 可行候選，乾淨收尾**：
-backend 1295 passed（7 skipped, 1 xfailed）/ frontend tsc 0 / vitest 1477
-passed（70 files）/ build OK，皆與 baseline 一致零 regression；無開放 PR。7 個
-open + 2 個 in_progress issue 皆維持既有「多日工作/需劉老師決策或客戶素材/需
-docker 環境/等待人工動作」結論；`WMOM-20260505-26` 額外確認拆 sub-issue 需自訂
-降低版 acceptance、屬於會引入設計歧義的工作，未動工。本次未開其餘新 issue、
-未開 PR，僅記錄本次稽核結論供下一輪參考，並在 work-log 列出 4 點建議劉老師
-決策的問題（cost ledger 設計方向/PostgreSQL docker 環境/物理模型深化排程與
-`-26` sub-task acceptance 門檻/UI v2 設計交接書）。詳見
+7 個 open + 2 個 in_progress issue 皆維持既有「多日工作/需劉老師決策或客戶素材/需
+docker 環境/等待人工動作」結論。詳見
 `work-logs/2026-09/2026-09-28-preflight-only-no-actionable-work.md`。**前一
 session：WMOM-20260928-01 完成（第十七個 autonomous session）—
 同步 `docs/routines/autonomous-daily-worker-prompt.md` 為實際 v4.1 內文**：
@@ -4550,6 +4557,48 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
+### WMOM-20260928-03 — Preflight 全綠；接續前一 session 建議，草擬 `WMOM-20260505-26` Service/Maintenance state 降低版子項提案
+
+- **Status**: done
+- **Milestone**: 工程基礎設施 / session 紀錄
+- **Priority**: low（本次無程式碼變更，純調查 + 提案草擬）
+- **Estimate**: 30-45 分鐘
+- **Source**: 第十九個 autonomous session；`WMOM-20260928-02` work-log 明確交辦
+  「下個 session 建議直接評估拆 `WMOM-20260505-26` Service/Maintenance state
+  子項為獨立降低版 issue，打破僵局」
+- **Description**:
+  依 routine §2 完整重跑一次自我測試 baseline（與 `-01`/`-02` 一致，未重複第三次
+  「逐一核對 7 個 open issue」流程），改為執行前一 session 交辦的具體任務：實地
+  查證 `WMOM-20260505-26` 的 Service/Maintenance state 子項是否有真實狀態可映射
+  （而非只重複判定「有歧義故不開工」），並把可行性調查結果整理成劉老師可一行
+  核准的具體提案，寫入 `WMOM-20260505-26` 本文。
+- **Acceptance**:
+  - backend/frontend 自我測試全套重跑且與 baseline 一致
+  - 提案本身要具體到「核准後下個 session 可直接單 session 完工、無需再展開設計」
+  - 誠實記錄本次調查方法與限制
+- **Completion summary（2026-09-28，第十九個 autonomous session）**：preflight
+  全綠——backend **1295 passed, 7 skipped, 1 xfailed**；frontend tsc 0 error /
+  **vitest 1477 passed（70 files）**/ build OK，皆與 baseline 一致零
+  regression；`mcp__github__list_pull_requests`（state=open）回傳空陣列，CI
+  飛輪正常。查證 `turbine_physics.py`/`scada_registry.py` 後發現母 issue
+  `WMOM-20260505-26` 描述已過時：`WSRV_SrvOn`（service mode flag）已存在且由
+  真實 `service_mode` 狀態驅動；`operator_stop`/`tur_state==7`（emergency
+  stop）是既有真實狀態但未單獨暴露成 tag；`calibration mode`/`firmware
+  version` 則零命中、無真實狀態可映射。據此草擬 `WMOM-20260505-26-a` 降低版
+  提案（只做 `WSRV_ManualOverride`/`WSRV_LockoutState` 兩個新 tag，映射既有
+  真實狀態，acceptance 改用「整合測試證明既有控制路徑觸發時 tag 同步翻轉」取代
+  「fault scenario 下變化」，`calibration mode`/`firmware version` 留在母
+  issue 不動），已寫入 `WMOM-20260505-26` 本文，並列出可一行回覆的核准問題。
+  **未實作任何程式碼、未新增測試**——本 session 交付物是調查 + 提案文字，依
+  routine §4 item 7「🟡 需劉老師決策的不要自己開工」，不可自行動工。**誠實
+  揭露**：`operator_stop`/`tur_state==7` 對應關係僅透過讀原始碼 + grep 交叉
+  驗證，未做端到端驗證（tag 尚未存在，這正是提案要交付的內容）。其餘 5 項
+  open issue（cost ledger / PostgreSQL docker / 保護電驛 / 單齒缺陷 / UI v2）
+  維持 `-01`/`-02` 既有結論，本次未重新展開。詳見
+  `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
+
+---
+
 ### WMOM-20260928-02 — Preflight 全綠 + 逐一核對 7 個 open issue，本次無單 session 可行候選（乾淨收尾）
 
 - **Status**: done
@@ -4705,6 +4754,41 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 - **Reference**:
   - `docs/__Z72UserManual.pdf`（M5 餵 RAG，要先確認 tag 名稱對得上）
   - `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx`
+- **🟡 待劉老師核准的降低版子項提案（`WMOM-20260928-03`，2026-09-28 第十九個
+  autonomous session 草擬，尚未開工）**：
+  - **背景**：連續 2 個 session（`WMOM-20260928-01`/`-02`）判定「Service /
+    Maintenance state」子項要求與母 issue acceptance「5 條新 tag 於 fault
+    scenario 下變化」矛盾——這類 tag 是操作/管理狀態非感測讀數，本質上不會
+    因物理故障變化，屬於會引入設計歧義的工作，未自行開工。本次實地查證程式碼
+    後發現母 issue 描述已過時：`WSRV_SrvOn`（service mode flag）**已存在**
+    於 [`scada_registry.py:420`](modules/monitoring/simulator/physics/scada_registry.py#L420)，
+    由 `turbine_physics.py` 的 `self.service_mode` 真實狀態驅動；`operator_stop`
+    （[`turbine_physics.py:294`](modules/monitoring/simulator/physics/turbine_physics.py#L294)）
+    與 `tur_state==7`（emergency stop，
+    [`turbine_physics.py:377`](modules/monitoring/simulator/physics/turbine_physics.py#L377)）
+    亦是既有真實狀態但未單獨暴露成 tag，可分別對應「manual override active」
+    「lockout-tagout state」。`calibration mode`/`firmware version` 則在現有
+    程式碼零命中，無真實狀態可映射。
+  - **提議新開 `WMOM-20260505-26-a`**（只做 `WSRV_ManualOverride` +
+    `WSRV_LockoutState` 兩個新 tag，**不含** calibration mode / firmware
+    version）：
+    - Deliverable：兩個新 tag 對齊既有 `WSRV_*` 命名慣例，分別映射既有真實
+      `operator_stop` / `tur_state==7` 狀態，寫入 `scada_registry.py` `_TAGS`
+      + `turbine_physics.py::step()` 輸出（比照 `WSRV_SrvOn` 既有寫法）。
+    - 提議的降低版 acceptance（只取代母 issue「5 條新 tag 於 fault scenario
+      下變化」這一條，僅對此子項適用，母 issue 其餘 3 類 acceptance 不變）：
+      ① 兩個新 tag 註冊在 `scada_registry.py`，schema/type/subsystem 正確；
+      ② tag 值須直接映射既有真實狀態，不得手刻新的獨立布林旗標；
+      ③ 整合測試證明呼叫既有真實控制路徑（`cmd_stop()`/`cmd_start()`/
+      `cmd_emergency_stop()`）時對應 tag 值同步翻轉；④ 18/21 quality check
+      不被破壞。
+    - `calibration mode`/`firmware version` 留在母 issue 範圍內不動，未來
+      若劉老師認為需要可另立提案（需先設計一套全新觸發機制或接受純靜態常數）。
+  - **給劉老師的問題（可一行回覆）**：是否核准開 `WMOM-20260505-26-a`？
+    核准後下個 autonomous session 可直接單 session 完工，範圍/acceptance 已
+    無歧義。
+  - 詳見
+    `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
 
 ---
 
