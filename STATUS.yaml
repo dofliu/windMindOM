@@ -3,10 +3,27 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-28"  # **2026-09-28 第十九個 autonomous session
-  # （WMOM-20260928-03）— preflight 全綠（backend 1295 passed/7 skipped/1
+last_updated: "2026-09-28"  # **2026-09-28 第二十個 autonomous session
+  # （WMOM-20260928-04）** — preflight 全綠（backend 1295 passed/7 skipped/1
   # xfailed、frontend tsc 0/vitest 1477 passed 70 files/build OK，皆與 baseline
-  # 一致零 regression），無開放 PR、CI 飛輪正常。接續前一 session
+  # 一致零 regression），無開放 PR、CI 飛輪正常。**重新確認本 sandbox docker
+  # daemon 可用性**：前兩個 session（`-01`/`-02`）判定「本 sandbox 無 docker」，
+  # 本次發現只是 `dockerd` 常駐程序沒人手動啟動——用 `run_in_background` 啟動
+  # `dockerd` 後 `docker ps`/`docker info` 正常回應，可用性取決於「這次 session
+  # 有沒有試著啟動它」，非環境層級硬限制（與 `WMOM-20260716-06` 2026-09-23 session
+  # 的既有發現一致）。據此重新檢視兩個先前標「需 docker」的 issue：
+  # `WMOM-20260716-06`（footprint CPU-torch pin）**已於 2026-09-23 完成**（routine
+  # prompt §4 快照過時仍列著它）；`WMOM-20260509-F6`（PostgreSQL row-lock test）
+  # 確認即使 docker 可用，真正阻塞點是**架構決策未拍板**（M6 是否上 PostgreSQL）+
+  # **需要全新 dialect-branch 連線層**，docker 可用與否非決定性因素，維持 🟡 不接。
+  # 其餘 6 個 open + 2 個 in_progress issue 逐一重新核對，結論與前三個連續 session
+  # 一致（`WMOM-20260505-26-a` 降低版子項提案仍在等劉老師核准，`WMOM-20260928-03`
+  # 自己寫的提案不能當作使用者核准，全自動排程過程無真人回覆）。**未實作任何
+  # 程式碼**，未開功能性 PR，僅提交本次稽核結論的文件更新（比照 `WMOM-20260928-02`
+  # 既有慣例）。詳見
+  # `work-logs/2026-09/2026-09-28-docker-daemon-reconfirm-no-actionable-work.md`。
+  # **前一 session（2026-09-28 第十九個 autonomous session，WMOM-20260928-03
+  # 完成）** — preflight 全綠。接續前一 session
   # （WMOM-20260928-02）work-log 明確交辦的任務——不再第三次重複「逐一核對 7 個
   # open issue」流程，改為實地查證 `WMOM-20260505-26`（SCADA Service/Maintenance
   # state tag）的可行性：發現母 issue 描述已過時，`WSRV_SrvOn`（service mode
@@ -751,15 +768,16 @@ milestones:
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
 
 issue_stats:
-  # 2026-09-28（第十九個 autonomous session）WMOM-20260928-03 完成，delta-only
-  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 118/total 127）。
-  open: 7  # 不變（WMOM-20260505-26 本文附加降低版子項提案，狀態仍為 open 未變）
+  # 2026-09-28（第二十個 autonomous session）WMOM-20260928-04 完成，delta-only
+  # 更新自上次核實過的準確底數（open 7/in_progress 2/done 119/total 128）。
+  open: 7  # 不變
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 119  # +1（WMOM-20260928-03：preflight 全綠 + 草擬 WMOM-20260505-26-a
-             # 降低版子項提案，尚未開工的調查/提案記錄）
-  # total 128（7+2+119=128，與 ISSUES.md `### WMOM-` header 數一致）
+  done: 120  # +1（WMOM-20260928-04：preflight 全綠 + 重新確認本 sandbox docker daemon
+             # 可用〔需手動啟動 dockerd〕+ 逐一核對 8 個 open/in_progress issue 仍無
+             # 單 session 可行候選，純稽核記錄）
+  # total 129（7+2+120=129，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine
