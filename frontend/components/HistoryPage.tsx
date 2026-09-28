@@ -56,7 +56,7 @@ const TAG_PRESETS: Record<string, string[]> = {
   pitch: ['WROT_PtAngValBl1', 'WROT_PtAngValBl2', 'WROT_PtAngValBl3', 'WTUR_TotPwrAt'],
 };
 
-const EVENT_TYPES = ['grid', 'fault', 'operator', 'wind', 'state'] as const;
+const EVENT_TYPES = ['grid', 'fault', 'operator', 'wind', 'state', 'fatigue', 'fault_lifecycle'] as const;
 type EventType = typeof EVENT_TYPES[number];
 
 interface HistoryPageProps {
@@ -95,6 +95,8 @@ const eventTone = (et: string): PillTone => {
   if (et === 'wind') return 'info';
   if (et === 'operator') return 'ok';
   if (et === 'state') return 'accent';
+  if (et === 'fatigue') return 'danger';
+  if (et === 'fault_lifecycle') return 'warn';
   return 'muted';
 };
 
@@ -105,6 +107,8 @@ const EVENT_HEX: Record<string, { light: string; dark: string }> = {
   wind: { light: '#5A7A98', dark: '#7AB8E8' },
   operator: { light: '#5C8A5F', dark: '#3DDC97' },
   state: { light: '#8B7AB8', dark: '#B49DE8' },
+  fatigue: { light: '#B8546A', dark: '#FF6B8B' },
+  fault_lifecycle: { light: '#C9975A', dark: '#FFB380' },
 };
 
 const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
@@ -132,6 +136,8 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
     operator: true,
     wind: true,
     state: true,
+    fatigue: true,
+    fault_lifecycle: true,
   });
   const [tagLabels, setTagLabels] = useState<Record<string, string>>({});
   const [customTags, setCustomTags] = useState('');
@@ -273,6 +279,8 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
       if (et === 'operator') return '操作';
       if (et === 'wind') return '風況';
       if (et === 'state') return '狀態';
+      if (et === 'fatigue') return '疲勞';
+      if (et === 'fault_lifecycle') return '故障週期';
     }
     return et;
   };
