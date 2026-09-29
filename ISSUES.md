@@ -16,8 +16,8 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 121 |
-| **total** | **130** |
+| done | 123 |
+| **total** | **132** |
 
 最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
 session）——`TurbineDetail.tsx` `fatigue` tab 新增 RUL 倒數 + 塔架/葉片疲勞警報
@@ -4892,6 +4892,19 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
   - 詳見 `work-logs/2026-09/2026-09-28-rul-fatigue-alarm-frontend.md`
 
 ---
+
+### WMOM-20260929-01 — `EventComparisonView` 事件類型篩選缺 `fatigue` 選項 + 徽章色
+
+- **Status**: done（2026-09-29，autonomous session）
+- **Milestone**: M5 並行 / 技術債（`WMOM-20260928-05` code review nice-to-have follow-up）
+- **背景**：後端會記錄 `event_type="fatigue"`，`HistoryPage` 已於 -05 補齊，但情境/多機
+  事件比較面板 `EventComparisonView.tsx` 的 Select 只有 fault/fault_lifecycle/grid/state/
+  operator/wind，無法單獨篩疲勞事件；`eventTone` 對 fatigue 落入 `muted`，與 HistoryPage 的
+  `danger` 不一致。
+- **完成**：Select 新增「疲勞 / Fatigue」；`eventTone` fatigue → `danger`。新增 2 測
+  （選項存在、選取後 compare 請求帶 `event_type=fatigue`），mutation-verified（還原元件本體
+  → 2 測 fail）。frontend 1490→1492；backend 未動。
+- **未保護**：徽章 tone 無測試斷言（StatusPill tone 為樣式，僅原始碼層級把關）。
 
 ### WMOM-20260928-05 — `HistoryPage.tsx` 事件類型登記表遺漏 `fatigue`/`fault_lifecycle`（真實後端事件整組隱形）
 

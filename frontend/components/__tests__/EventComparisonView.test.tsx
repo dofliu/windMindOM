@@ -225,6 +225,23 @@ describe('EventComparisonView — filters / 匯出', () => {
     expect(within(select).getByRole('option', { name: 'Grid' })).toBeInTheDocument();
   });
 
+  it('事件類型 Select 含「疲勞」/ Fatigue 選項（後端 event_type=fatigue，WMOM-20260929-01）', async () => {
+    await renderView({ lang: 'zh' });
+    expect(within(screen.getByRole('combobox')).getByRole('option', { name: '疲勞' })).toBeInTheDocument();
+    cleanup();
+    await renderView({ lang: 'en' });
+    expect(within(screen.getByRole('combobox')).getByRole('option', { name: 'Fatigue' })).toBeInTheDocument();
+  });
+
+  it('選「疲勞」→ compare 請求帶 event_type=fatigue', async () => {
+    await renderView({ lang: 'zh' });
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'fatigue' } });
+    });
+    const urls = (global.fetch as Mock).mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('event_type=fatigue'))).toBe(true);
+  });
+
   it('「匯出 CSV」→ window.open 帶 /api/export/events?format=csv', async () => {
     await renderView({ lang: 'zh' });
     await act(async () => {

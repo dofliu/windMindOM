@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-28"  # **2026-09-28 第二十二個 autonomous session
+last_updated: "2026-09-29"  # **2026-09-28 第二十二個 autonomous session
   # （WMOM-20260928-05）** — `frontend/components/HistoryPage.tsx` 事件類型登記表
   # 補上後端真實記錄但前端從未登記的 `fatigue`（疲勞警報升降級）/
   # `fault_lifecycle`（故障生命週期）兩種事件：`visibleEvents` 的
@@ -592,100 +592,100 @@ last_updated: "2026-09-28"  # **2026-09-28 第二十二個 autonomous session
   # 副作用、測試非同義反覆、`ReportsPage` 目的地乾淨；提醒溝通風險已記錄化解）。
   # **`WMOM-20260507-02` 清單至此僅剩 sub-task d**（依賴 `WMOM-20260505-22`
   # `inspection_schedule` 尚未做，持續卡著）。**前一 session（WMOM-20260925-03，完成）**：`MaintenanceHub.tsx` PageHeader『+ 新工單』鈕接線（`WMOM-20260507-02` sub-task e）——新增 `NewWorkOrderModal`（比照 `TurbineDetail.tsx` `CurtailModal`/`DispatchModal`/`FarmSelector.tsx` `CreateFarmModal` 遮罩/`role="dialog"` 慣例）：風機 `Select`（新增 `turbines` prop，非寫死清單）+ 問題描述 `textarea` + 技師 `Select`（僅列 `ON_DUTY`，比照 `DispatchModal` 既有「只能派遣在崗者」規則）。送出打既有 `maintenanceData.createWorkOrder`（`useMaintenanceData.ts` 早已實作、原供 `DispatchModal` 使用，`POST /api/maintenance/work-orders`，`SUPERVISOR`-only），成功後關窗（不額外維護送出狀態，比照 sub-task b/c 決策）。`createWorkOrder` 第 4 參數 `technicianId` 型別由必填改選填（對齊後端 `Optional[int]` 既有契約）。`App.tsx` 呼叫點補 `turbines`/`lang`（`lang` 為附帶發現的既有缺口，先前完全未傳，一併修正）。新增 11 測（開關 dialog、必填欄位擋送出、`technicianId` undefined/number 兩路徑、技師下拉僅列 `ON_DUTY`、風機選項來自 prop、lang=en、`turbines=[]` 邊界、**已選技師於 10s 輪詢期間變成非 `ON_DUTY` → 送出視同未指派**），皆 mutation-verified。backend 未動 1103 passed 不變；frontend tsc 0、1275→1286 passed（60 files，+11 新測，零 regression）、build OK。code-reviewer subagent review：**Approve，0 must-fix**，2 should-fix（①技師選取與輪詢資料脫節可能送出過期 id，已修＋補測 mutation-verified；②選擇沿用 `DispatchModal` fire-and-forget 模式而非 `CurtailModal` 完整 error state 寫法，reviewer 確認屬已誠實揭露的既有系統性缺口不阻塞，未修）+ 3 nice-to-have（`aria-label` 缺失為新舊 modal 慣例並存的既有現象未採納；`turbines=[]` 邊界測試已採納；死碼 `useMockMaintenanceData.ts` 型別未同步放寬不影響未採納）。`WMOM-20260507-02` 清單至此僅剩 sub-task d（依賴 `WMOM-20260505-22`）與 f（依賴確認 reporting module 報告類型）。**前一 session（WMOM-20260925-02，完成）**：`TurbineDetail.tsx` PageHeader『限載』鈕接線（`WMOM-20260507-02` sub-task c）——新增 `CurtailModal`（比照 `FarmSelector.tsx` 的 `CreateFarmModal` 遮罩/`role="dialog"` 慣例）收 kW 值後打 `authFetch POST /api/control/curtail`（`SUPERVISOR`-only），是右欄 `OperatorControlCard` 限載輸入的重複入口（比照 sub-task b『停機』header 鈕先例，不重寫 `OperatorControlCard` 邏輯）。留空 = 解除限載（語意同既有 `setCurtail`）、前端擋負值/非數字、後端非 2xx 顯示 `detail` 訊息不關窗。新增 8 測（開關 dialog、送出 kW 值/留空解除、前端擋負值、後端錯誤顯示、`authFetch` header）皆 mutation-verified（本 session 1 輪 + code-reviewer 獨立額外 2 輪：移除負值檢查、body 漏 `turbineId`，皆如預期 fail）；另修共用 `stubFetch()` helper 補 `ok: true`（原缺此欄位會讓新寫的 `res.ok` 檢查誤判成功回應為失敗）。backend 未動 1103 passed 不變；frontend tsc 0 error、1267→1275 passed（60 files 不變，+8 新測，零 regression）、build OK。code-reviewer subagent review：**Approve，0 must-fix**，1 should-fix（issue 狀態同步收尾，已修）、1 nice-to-have（`CurtailModal` 送出中 Cancel/✕ 未 disable——逐字複製 `CreateFarmModal` 既有相同結構，非本次新增問題，未採納）。`WMOM-20260507-02` 清單尚餘 sub-task d~f（`d` 依賴 `WMOM-20260505-22` `inspection_schedule` 尚未做；`e`/`f` 無阻塞可續接）。**前一 session（WMOM-20260925-01，完成）**：`frontend/hooks/*.ts` authFetch 稽核缺口一次做完全部 sub-task（未依 issue 建議拆多 session，因 4 支 hook 修法完全一致、無設計歧義）：`useSettings.ts`（`POST /api/config/simulation`+`/datasource`，皆 `require_role(SUPERVISOR)`）、`useMaintenanceData.ts`（2 GET `require_authenticated()` + 3 個 `SUPERVISOR` 寫入 + 2 內部 refresh GET）、`useRealtimeData.ts`（初始 REST fetch + WS 斷線 5 秒輪詢 fallback，皆 `GET /api/turbines`）、`useI18n.ts`（`GET /api/i18n/tags/all`），以及 review 過程中 `WMOM-20260924-08` 已標記待查、本次一併確認的 `App.tsx:166`（`GET /api/farms` 後端健康檢查）——共 13 處裸 `fetch(` 改 `authFetch(`，逐一重讀後端 router 源碼（`config.py`/`maintenance.py`/`turbines.py`/`i18n.py`/`farms.py`）核對角色設定與 issue 描述完全一致。新增/追加測試 11 個（`useSettings` +2、`useMaintenanceData` 新建測試檔 +4、`useRealtimeData` +3、`useI18n` 新建測試檔 +2），皆逐一 mutation-verified（改回裸 fetch → 對應「已登入」header 斷言如預期 fail，用 scratchpad 備份而非 `git checkout` 還原確認）。`frontend/` 全樹遞迴 grep 確認無裸 fetch 殘留（除 `authClient.ts` 自身 wrapper 實作 + 刻意繞過 401 handler 的 `authApi.login`）。`App.tsx` 該處因元件 525 行、零 render test 基礎設施（需 mock ~15 個子元件）判斷超出本次範圍，僅程式碼閱讀 + `tsc --noEmit` 驗證，已誠實記錄於 work-log（無自動化保護）。已回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入 request 都帶 token」**重新勾選**——**M6 auth cutover 的前端側阻塞至此清除**（cutover 本身〔翻 `WMOM_AUTH_ENFORCE=true`〕仍是獨立、需另評估時機的動作，非本次範圍）。backend 未動 1103 passed 不變；frontend tsc 0 error、1256→1267 passed（58→60 files，+11 新測，零 regression）、build OK。code-reviewer subagent review：**Approve，0 must-fix**，2 nice-to-have（①`useSettings.ts` 兩個寫入呼叫是 fire-and-forget、401 錯誤只 console.warn 未浮現 UI，屬既有行為非本次引入，宜另開「UI 浮現 auth 錯誤」issue，未採納；②reviewer 獨立確認 `frontend/` 全樹〔非僅 `hooks/`〕已無裸 fetch 殘留，記錄性非動作項）。**前一 session（WMOM-20260924-08）**：`components/field/MyOrdersMode.tsx` 的 `fetchActiveFarmId()`（GET `/api/farms`，供「我的工單」列表過濾用，後端 `require_authenticated()`）僅存一處裸 `fetch` 改 `authFetch`，比照姊妹 PR 系列手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail `expected undefined to be 'Bearer test-token-myorders'`，用 scratchpad 備份而非 `git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1254→1256 passed（+2 新測，58 files 不變）、tsc 0、build OK。code-reviewer subagent review：Approve，0 must-fix，1 should-fix（追蹤檔案時序，已補齊）、2 nice-to-have（測試檔 hook 疊加未採納；獨立驗證 hooks 層缺口與本 session 發現一致）。**⚠ 重大發現**：本 session 主動遞迴重掃 `frontend/hooks/*.ts`（`WMOM-20260923-10` 系列稽核從未涵蓋此目錄），發現 `hooks/useSettings.ts`（`POST /api/config/simulation` + `POST /api/config/datasource`，皆 `require_role(SUPERVISOR)`）與 `hooks/useMaintenanceData.ts`（`PATCH .../technicians/{id}/status`、`POST`/`PATCH /work-orders`，皆 `require_role(SUPERVISOR)`）內的裸 fetch **寫入呼叫**仍缺 auth header——嚴重度高於已修復的純讀取缺口，`WMOM_AUTH_ENFORCE=true` cutover 後會讓 `MaintenanceHub`/`SettingsPage` 的寫入操作整面靜默 401。code-reviewer subagent 用獨立 recursive grep 得到相同結論（另補一處 `App.tsx:166` 待下個 session 核對）。已開新 issue **WMOM-20260925-01**（high priority）追蹤，並回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入 request 都帶 token」**取消勾選**（該勾選現已證實不成立，完成 WMOM-20260925-01 前不得翻 `WMOM_AUTH_ENFORCE=true`）。**前一 session（WMOM-20260923-08）**：`components/field/MyOrdersMode.tsx` 的 `fetchActiveFarmId()`（GET `/api/farms`，供「我的工單」列表過濾用，後端 `require_authenticated()`）僅存一處裸 `fetch` 改 `authFetch`，比照姊妹 PR 系列手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail `expected undefined to be 'Bearer test-token-myorders'`，用 scratchpad 備份而非 `git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1254→1256 passed（+2 新測，58 files 不變）、tsc 0、build OK。code-reviewer subagent review：Approve，0 must-fix，1 should-fix（追蹤檔案時序，已補齊）、2 nice-to-have（測試檔 hook 疊加未採納；獨立驗證 hooks 層缺口與本 session 發現一致）。**⚠ 重大發現**：本 session 主動遞迴重掃 `frontend/hooks/*.ts`（`WMOM-20260923-10` 系列稽核從未涵蓋此目錄），發現 `hooks/useSettings.ts`（`POST /api/config/simulation` + `POST /api/config/datasource`，皆 `require_role(SUPERVISOR)`）與 `hooks/useMaintenanceData.ts`（`PATCH .../technicians/{id}/status`、`POST`/`PATCH /work-orders`，皆 `require_role(SUPERVISOR)`）內的裸 fetch **寫入呼叫**仍缺 auth header——嚴重度高於已修復的純讀取缺口，`WMOM_AUTH_ENFORCE=true` cutover 後會讓 `MaintenanceHub`/`SettingsPage` 的寫入操作整面靜默 401。code-reviewer subagent 用獨立 recursive grep 得到相同結論（另補一處 `App.tsx:166` 待下個 session 核對）。已開新 issue **WMOM-20260925-01**（high priority）追蹤，並回頭把 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入 request 都帶 token」**取消勾選**（該勾選現已證實不成立，完成 WMOM-20260925-01 前不得翻 `WMOM_AUTH_ENFORCE=true`）。**前一 session（WMOM-20260923-08）**：`FarmOverview.tsx` 的 `TrendCard` 內僅存一處裸 `fetch`（`/api/turbines/farm-trend`，後端 `require_authenticated()` 任何登入者可讀）改 `authFetch`，比照同檔案 WMOM-20260923-07 匯出鈕已建立的手法。新增 2 測（已登入時 mount GET 帶 `Authorization` header；未登入時驗證過渡期行為不變），皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail `Cannot read properties of undefined (reading 'headers')`，用 scratchpad 備份而非 `git checkout` 還原確認）。backend 未動 1103 passed 不變；frontend 1252→1254 passed（+2 新測，58 files 不變）、tsc 0、build OK。此為 `WMOM-20260923-07` review 時登記的 nice-to-have follow-up，`FarmOverview.tsx` 全檔至此無裸 `fetch` 殘留。code-reviewer subagent review：Approve，0 must-fix，1 should-fix（範圍外發現：`components/field/MyOrdersMode.tsx:31` 仍是裸 fetch——`WMOM-20260923-10` 原稽核指令未遞迴子目錄漏掉這支現場工程師頁面，登記為新 follow-up **WMOM-20260924-08**、非本次範圍）。**前一 session（WMOM-20260924-07）**：`WMOM-20260923-10` 前端 authFetch 稽核清單 sub-task 7/7（清單收尾）——`TrendChartPanel.tsx`（即時趨勢圖面板）2 處裸 fetch（mount 時 GET `/api/i18n/tags` + mount/preset/自訂 tag/turbineId 變更時且每 2 秒輪詢 GET `/api/turbines/{id}/trend`，皆任何登入者可讀）改 `authFetch`，比照姊妹 PR WMOM-20260923-07/-09/WMOM-20260924-01~06 手法，新增 2 測（已登入時兩條 mount GET 皆帶 header + 未登入行為不變對照組）皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail，用備份而非 git checkout 還原確認）。backend 未動 1103 passed 不變；frontend 1250→1252 passed、tsc 0、build OK。**`WMOM-20260923-10` 稽核清單（7 支元件）至此全數完成，已標 done**，並回頭勾掉 `docs/product/WMOM-20260716-05_auth_enforcement_plan.md` §6 cutover 檢查表「前端所有寫入 request 都帶 token」項目。code-reviewer review：Approve，0 must-fix、0 should-fix（確認 2 秒輪詢下 `authFetch` 401 handler 重複觸發為既有跨元件已接受特性，非本次新增問題）。**前一 session（WMOM-20260924-06）**：`HistoryPage.tsx` 2 處裸 fetch 改 `authFetch`，新增 2 測皆 mutation-verified，frontend 1248→1250 passed。**前一 session（WMOM-20260924-05）**：`EventComparisonView.tsx` 1 處裸 fetch（`/api/maintenance/events/compare`）改 `authFetch`，新增 2 測皆 mutation-verified，frontend 1246→1248 passed。**前一 session（WMOM-20260924-04）**：`WMOM-20260923-10` 前端 authFetch 稽核清單 sub-task 4/7——`CostPage.tsx`（`/admin/cost` 成本模型頁）1 處裸 fetch（mount 時 GET `/api/farms`，供 dataset/farm selector，`require_authenticated()` 任何登入者可讀）改 `authFetch`，比照姊妹 PR WMOM-20260923-07/-09/-20260924-01/-02/-03 手法，新增 2 測（已登入 mount GET 帶 header + 未登入行為不變對照組）皆 mutation-verified（authFetch 改回裸 fetch → 已登入測試如預期 fail，用備份而非 git checkout 還原確認）。backend 未動 1103 passed 不變；frontend 1244→1246 passed、tsc 0、build OK。code-reviewer review：Approve，0 must-fix（附帶說明：reviewer 過程中誤執行 `git checkout` 重置 working tree，已自行發現並手動重建，本 session 事後獨立以 `git diff` + 全套重跑確認內容與行為未受影響）。清單尚餘 3 支純讀取元件（`EventComparisonView`/`HistoryPage`/`TrendChartPanel`）。**前一 session（WMOM-20260924-03）**：`SettingsPage.tsx` 11 處裸 fetch（5 GET + 6 SUPERVISOR-only 寫入）全改 `authFetch`，新增 8 測皆 mutation-verified，0 must-fix Approve，frontend 1236→1244 passed。**前一 session（WMOM-20260924-02）**：`WMOM-20260923-10` 前端 authFetch 稽核清單 sub-task 2/7——`FarmSelector.tsx`（sidebar 底部風場切換器 + 建立風場 modal）3 處裸 fetch（GET 列表 + POST 切換/建立，後兩者皆 SUPERVISOR-only 寫入）全改 `authFetch`，比照姊妹 PR WMOM-20260923-07/-09/WMOM-20260924-01 手法，新增 4 測（mount GET + 切換 POST + 建立 POST header 斷言 + 未登入行為不變對照組）皆 mutation-verified。code-reviewer review 0 must-fix/should-fix，2 nice-to-have（記錄性，不需改動），Approve。backend 未動 1103 passed 不變；frontend 1232→1236 passed、tsc 0、build OK。清單尚餘 5 支（`SettingsPage` 含 SUPERVISOR 寫入優先）。**前一 session（WMOM-20260924-01）**：`FaultInjectionPanel.tsx` 6 處裸 fetch（含 3 個 SUPERVISOR-only 寫入：注入/清除故障/執行測試計畫）全改 `authFetch`，新增 5 測皆 mutation-verified，0 must-fix，Approve，frontend 1227→1232 passed。情境模式深化 arc：DB-lock 根治（WMOM-20260720-01, #142）+ 情境=凍結資料集 DEC-20260720-01（設定 gate #146 / 產生情境不自由跑 #147）+ 情境比較分析 epic DEC-20260720-02（A0 摘要端點 #148 merged / A1 同情境內比較 #150 merged，round-2 的 4 個 Should-fix follow-up 記在 WMOM-20260720-13）。**2026-09-01**：對外素材 — `promo/` 3 分鐘專案介紹影片落地（WMOM-20260901-01，18 景 HTML 動畫 + storyboard + 180.0s 1080p30 MP4，戲劇景＝Simulator-first；供 M6 客戶接觸 / partner 對接用，見 promo/README.md）。**2026-09-22 autonomous session**：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**——M6 現場部署唯一硬阻塞的 5 個延後子問題（stop() 未停 OPC thread / 切走 live 無角色檢查 / set_simulation 靜默 switch_mode / start-stop-switch_mode 無鎖 / engine 不可中斷睡眠）一次修完，逐項 mutation-verified（含 4×30 併發壓測腳本直接重現「無鎖時 20s 內 15 次例外」vs「加鎖 0.77s 零例外」）。code-reviewer subagent review 抓到 2 Must-fix（`switch_farm`/`select_view_only` 亦需納入同一把鎖；`OPCDAAdapter._poll_loop` 同款不可中斷睡眠）+ 1 Should-fix（壓測 mock 失效）皆已修復並重新 mutation-verified。monitoring +17 測、backend 1093 passed / frontend 957 passed 全綠回歸。**2026-09-22 autonomous session #2（WMOM-20260922-01）**：補上 session #1 work-log §7 open questions 留的殘留問題——`_loop` accelerated 分支（time_scale>1）的 `time.sleep(wall_sleep)` 同款不可中斷，改 `Event.wait()`，mutation-verified（+1 測，1094 passed）。code-reviewer review：0 Must-fix，1 Should-fix（欄位註解過時）已採納。**session #3（WMOM-20260720-13）**：A1 round-2 review 的 4 個 Should-fix 全修（PR #157 merged）。**session #4（WMOM-20260922-02，PR D）**：`GuidedTourPage.tsx` 5 個純展示子元件（`Eyebrow`/`ModChip`/`Beat`/`Story`/`Row`）原定義在元件函式體內，任何 re-render（含跟情境步驟無關的主題切換）都逼 React 整棵子樹 unmount/remount，提升到 module scope 解決（同款修法已用於同日 `ScenarioTrendView`）；新增 DOM node identity 回歸測試並 mutation-verified；frontend 960→961 passed，backend 未動。code-reviewer review：0 Must-fix/Should-fix，5 Nice-to-have（皆選擇性優化，Approve）。**⚠ CI runner 基礎設施自本日起持續失效**（每一個 CI run 皆在數秒內 `runner_id: 0` 失敗、auto-merge 全數 `skipped`，帳號/組織層級問題，非本 repo 程式碼可修復範圍；PR #157/#158 已由劉老師人工合併，PR #159（追蹤檔案數字更正）待合併），需人工排查 GitHub Actions 帳號設定。**session #5（WMOM-20260922-03）**：情境比較分析 A2 Part 1——新增 `GET /api/scenarios/compare?ids=1,2,3` 跨情境摘要並排端點，重用 A0 單情境摘要邏輯（抽 `_load_scenario_summary` helper 供兩端點共用），純函式 `_parse_compare_ids` 處理去重/排序/數量邊界（2-5）；新增 HTTP 層路由順序守門測試守住「`/compare` 必須註冊在 `/{scenario_id}` 之前」這個易踩雷點（純直呼 endpoint 函式的既有測試對此類 bug 是盲區）。code-reviewer review：0 must-fix，1 should-fix（`compare_scenarios` 改 `asyncio.gather` 平行取代序列 await，呼應設計意圖的效能考量）+ 2 nice-to-have（補 HTTP 層 400 測試、常數搬到消費者附近）已採納，皆 mutation-verified。backend 1094→1103 passed，frontend 未動 961 passed 不變。範圍刻意只做後端摘要並排（比照 A0→A1 節奏），相對時間對齊時序疊圖留給下個 session（A2 Part 2）。**session #6（追蹤檔更正，無程式碼變更）**：PR #162 上板後觀察到 CI 兩個 job 皆拿到真實 runner_id、逐步驟正常跑完、雙雙綠燈，`auto-merge.yml` 全自動 squash-merge 進 main——是當日第一個未秒退的 CI run，CI runner 基礎設施疑似恢復（仍待連續多個 session 觀察確認非偶發，見 TODO.md 新警語）。**session #7（WMOM-20260922-04）**：情境比較分析 A2 Part 2 前端——消費前一 session 已完成但無前端呼叫方的 `GET /api/scenarios/compare`，新增 `ScenarioCompareAcrossView.tsx`（風場層 rollup 跨情境並排：headline 卡片 + 指標選擇 + 長條圖 + 全指標並排表，配色複用既有 5 色 chart token）+ `ScenarioPage.tsx` 勾選（2-5 個）/「比較所選」UI，與 A1 對稱（比較單位是情境而非機組）。開發過程中自行抓到並修正 2 個真實 bug（並排表誤用目前選中指標的格式化函式格式化每一列；刪除已勾選情境未同步清除勾選，會讓後續 `/compare` 因殘留失效 id 整批 404），皆測試鎖住 + mutation-verified。code-reviewer review：0 must-fix / 0 should-fix / 3 nice-to-have（皆非阻塞，未採納），Approve。backend 未動 1103 passed 不變；frontend 961→978 passed（+17 新測）、tsc 0、build OK。CI runner 基礎設施查最近 5 個 run 全數 success，連續綠燈樣本持續累積中。**2026-09-23（WMOM-20260923-01）**：`MaintenanceHub` component render 測試——439 行的 `/admin/maintenance` 頁面元件先前零 component 測試（TODO.md 從 2026-06 起多筆 session 點名但一直沒人接手），比照 `DispatchModal` 純 props-driven 範式補上 49 測（PageHeader/Filter/WorkOrderTable 全欄位含 techMap fallback 邊界/RosterCard/WeekCalendar 計數徽章），5 個關鍵邏輯分支手動 mutation-verified。code-reviewer review：0 must-fix，3 should-fix 全數採納（皆為 reviewer 親自 mutation testing 抓到的具體覆蓋率缺口：「最後一位無分隔線」測試斷言與名稱不符只驗證內容存在、`WeekCalendar` 計數徽章只驗證「某處出現」未鎖住星期分桶邏輯、技師目前非 ON_DUTY 時查表 fallback 未覆蓋），production 加一行 `data-testid="week-day-{i}"` 供分桶測試精確 scope，3 個 should-fix 逐一 mutation-verified；另採納 4 nice-to-have，Approve。backend 未動 1103 passed 不變；frontend 978→1027 passed（+49 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260923-02）**：`FaultInjectionPanel` component render 測試——555 行的 `/admin` 故障模擬頁面元件先前零 component 測試，`MaintenanceHub`/`FaultInjectionPanel` 同批 untested 大元件最後一支。元件比 `MaintenanceHub` 複雜（3 條 mount fetch effect + 3s 輪詢 + inject/clear/run 三個 action + message toast 自動清除），比照 `TrendChartPanel`/`SettingsPage` 的 fetch mock + `vi.useFakeTimers()` 範式補上 40 測。6 個關鍵邏輯分支手動 mutation-verified（inject 按鈕 disabled 條件/風機選項數固定 14/執行中互斥 disable/DB 大小 fallback/訊息 3s 清除/3s 輪詢間隔）。code-reviewer review：0 must-fix，2 should-fix 全數採納（`scenario_id ?? name_en` fallback 測試原本無法區分優先順序，補上兩者皆有值且不同的對照測試並 mutation-verified；`.parentElement` DOM 遍歷 scoping 技術債 reviewer 標註優先度低不必卡此 PR，本次不動）+ 3 nice-to-have 未採納（次要覆蓋率缺口），Approve。純測試新增，零 production 變更；backend 未動 1103 passed 不變；frontend 1027→1067 passed（+40 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260923-03）**：情境
-比較分析 A2 Part 3——跨情境相對時間對齊時序疊圖。連續兩個 session 把此項標成「需要新後端端點」而
-延後，本次重新檢視資料層判定不需要：既有單情境端點 `GET /api/scenarios/{id}/turbines/{tid}/
-history`（A1 已在用）+ 前端已持有的 `SavedScenario.config.sim_start` 就足以純前端算相對時間對齊，
-零後端變更（決策翻案已記錄於 `docs/product/decision_log.md` DEC-20260923-01，`DEC-20260720-02`
-原文加註 superseded）。新增 `utils/scenarioTimeline.ts`（純函式）+
-`ScenarioCompareTimelineView.tsx`（新頁籤：機組+指標選擇器、每情境各自 fetch 既有 history 端點、
-recharts 各 `<Line>` 自帶 `data` 疊圖、純 DOM 圖例因應 jsdom 無 ResizeObserver 的既有測試限制、
-fallback 對齊/截斷/載入失敗三種 banner），`ScenarioCompareAcrossView.tsx` 加頁籤列（摘要並排/
-時序疊圖，向後相容 optional prop）。只做疊圖，差異圖（Part 4，需先解決多序列取樣點不完全對齊的
-插值/分桶問題）留待下個 session。4 個關鍵分支手動 mutation-verified。code-reviewer subagent
-review：**1 must-fix**（架構翻案未寫進 decision_log，已補 DEC-20260923-01）+ **2 should-fix 全數
-採納**（recharts 跨線 tooltip 精確比對非最近點、取樣間隔不同時可能只命中部分情境——非 bug，已加
-註解+UI 說明；單一情境 fetch 失敗原本靜默併入無資料，新增獨立 `failed` 旗標+banner 區分，2 測+
-mutation-verified）+ 1 個 nice-to-have（docstring 歸屬）已修，Approve。backend 未動 1103 passed
-不變；frontend 1067→1100 passed（+33 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260923-04）**：
-`components/ui` primitives 測試補齊——9 支 UI primitive 檔案（1220 行）先前零 `__tests__`，逐檔
-評估後判定 `StatusPill.tsx`（3 支狀態顏色映射純函式）+ `Charts.tsx`（`MiniSparkline`/`BigChart`/
-`HealthBar` SVG path 數學 + clamp + 顏色門檻）值得補測試，其餘 7 支（`Btn`/`Card`/`Field`/`Stat`/
-`PageHeader`/`Logo`/`Sidebar`）判定 ROI 低或範圍另計，暫不動。新增 27+21=48 測，6 個關鍵分支
-mutation-verified。零 production 變更。code-reviewer review：0 must-fix，2 should-fix 全數採納
-（issue 補登記進 ISSUES.md/STATUS.yaml；docstring 用詞澄清為本 repo 首次引入此測試模式，非沿用
-既有慣例）+ 1 nice-to-have 採納（`BigChart` events 測試改精確 `cx` 座標斷言）+ 1 nice-to-have
-不採納（`hexToRgb` helper 重複，僅 2 處不急著抽），Approve。backend 未動 1103 passed 不變；
-frontend 1100→1148 passed（53→55 files）、tsc 0、build OK。**2026-09-23（WMOM-20260923-05）**：
-`Sidebar.tsx` component render 測試——前一 session 逐檔評估 `components/ui/*.tsx` 時點名
-`Sidebar.tsx`（220px 主導覽，294 行，全站唯一主導覽入口）範圍較大另開一支，本次接手：先前完全
-零 `__tests__`，新增 23 測（primary/secondary 導覽項目渲染/active 樣式/badge 顯示條件含
-`badge=0` falsy 邊界、onSelect+onMobileClose 點擊行為含 desktop 下未傳 `onMobileClose` 的
-optional chaining 安全性、backend 健康狀態 dot、lang/theme 切換按鈕、footerExtra 條件渲染、
-mobile drawer 響應式行為）。5 個關鍵分支手動 mutation-verified。零 production 變更。
-code-reviewer subagent review：**1 must-fix（已修）**——work-log 原稿缺
-Implement/Verify/Review/Wrap-up 段落且結尾自我指向不存在內容，已補齊完整 8-phase 記錄；
-**2 should-fix 全數採納**：(1) 主題切換測試會透過真實 `ThemeProvider.toggle()` 寫入真實
-`localStorage['wmom.theme']`，vitest per-file isolation 下同檔案後續測試可能讀到污染值
-（本檔是本 repo 第一支真正呼叫 `toggle()` 的測試），`afterEach` 補 `localStorage.clear()`；
-(2) backend 健康狀態 dot 測試原用全域 `querySelector('span[aria-hidden]')`，但頁面另有 theme
-按鈕圖示同款屬性，測試通過純屬僥倖命中 DOM 順序，改用 `getByText(...)` 先定位文字所在 row 再
-scope 查詢。1 nice-to-have（`NavIcon` active/inactive 顏色分支未斷言）未採納，Approve。
-backend 未動 1103 passed 不變；frontend 1148→1171 passed（55→56 files）、tsc 0、build OK。
-`components/ui/*.tsx` 9 支 primitive 檔案測試評估至此全數完成。⚠ 附帶提醒：canonical routine
-文件 `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停在 v3（baseline
-backend 638 / frontend 59，無「自我測試」/mutation 驗證/降級模式框架），已明顯落後於本次 cron
-trigger 實際送入的 prompt（v4.1，baseline 1076/970），建議劉老師找時間把 cron trigger 目前
-設定同步回這份文件。**2026-09-23（WMOM-20260923-06，A2 Part 4：跨情境差異圖）**：DEC-20260720-02
-A2「情境比較分析」epic 完整範圍至此全數完成——差異圖判定不需要後端（比照 Part 3），純前端分桶
-重採樣解決多情境序列取樣點不對齊的問題：`utils/scenarioTimeline.ts` 新增 `medianInterval`/
-`pickBinMs`/`binSeries`/`buildDiffSeries` 純函式，`utils/scenarioHistoryFetch.ts` 抽出 Part 3
-既有 fetch 邏輯供新頁籤重用，新增 `ScenarioCompareDiffView.tsx`（baseline 可選、`compare −
-baseline` 疊圖）掛上 `ScenarioCompareAcrossView` 第三個頁籤。開發中自行抓到並修正 2 個真實 bug
-（`hasAnyDiff` 誤把「聯集後桶陣列非空」當成有資料；元件測試 `getByText` 與 `<option>` 撞名，
-改 `data-testid`）。code-reviewer review：1 must-fix（`usedFallbackAlign` 抓了卻未提示使用者，
-差異圖把兩條線相減成一個數字時，一真一假對齊會算出看似精確卻誤導的差異，已補 banner）+
-3 should-fix 全數採納（`truncated` 同款補提示；抽出的 `fetchScenarioHistory` 在 HTTP 失敗分支
-與原內嵌寫法在「失敗+缺 sim_start」組合上行為分歧，已修正一致並補測試；`useMemo` 省略依賴補
-說明註解）+ 3 nice-to-have 採納（decision_log 回填已解決、`binSeries` 補 3+ 點/桶測試、baseline
-失敗時排除通用提示避免語意重疊），Approve。backend 未動 1103 passed 不變；frontend
-1171→1216 passed（56→58 files，+45 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260716-06）**：
-footprint CPU-torch pin follow-up——多個 session 因「本地無 docker daemon」擱置，本次 preflight
-發現本 sandbox 這次可手動啟動 `dockerd` 成功，接手實測收尾。`Dockerfile` 新增 1 行 CPU-only
-torch wheel pin（`pip install torch --index-url .../whl/cpu`，在 `pip install -r
-requirements.txt` 之前），真實 `docker build`/`docker run` 驗證：image content size
-3.37GB→550MB（省 ~2.8GB，優於 DEC-20260716-02 原估「砍半」），`torch.cuda.is_available()`
-True→False，`sentence_transformers`/`chromadb` import smoke test 正常，疊上真正 app 程式碼層
-起容器 `/api/health` 回應 200 OK 正常開機。code-reviewer review：0 must-fix，2 項
-should/nice-to-have（ISSUES.md 統計表同步、狀態標記格式）已採納。附帶重新調查
-WMOM-20260509-F6（PostgreSQL row-lock test）範圍，判定遠比原估「0.5 工作天」大（repo 完全
-無 Postgres 連線路徑，需先有架構決策才能動工），更正估時並標記 🟡 需劉老師決策，本次不接、
-避免未來 session 誤判重工。backend/frontend 測試數量不受影響（Dockerfile-only 變更，CI 本來
-就不 build Docker image）。**2026-09-23（WMOM-20260923-07）**：`WMOM-20260507-02`（PageHeader
-placeholder 按鈕清單）sub-task a——`FarmOverview.tsx`「匯出」鈕接線：`handleExportSnapshot` 走
-既有 `authFetch` 打 `GET /api/export/snapshot`（後端 `require_authenticated()` 閘門）→
-`resp.blob()`（不解析、保留原始位元組）→ 沿用 reporting module 既有 `downloadBlob` 工具觸發下載
-`farm-snapshot-{YYYY-MM-DD}.json`，失敗僅 `console.error`（沿用劉老師既有決定不彈 alert）。新增
-4 測（happy path / authFetch header / loading disabled / 失敗態），皆 mutation-verified。
-code-reviewer review：0 must-fix，2 should-fix 全數採納（happy-path 原測試用
-`expect.any(Object)` 無法區分 `authFetch` 與裸 `fetch`，補專測直接斷言 `Authorization` header
-並 mutation-verified 抓到回退裸 fetch 的 regression；測試檔一則誤導性註解已更正）+ 3
-nice-to-have（同檔案 farm-trend fetch 同款缺口登記為新 follow-up **WMOM-20260923-08**、不阻塞；
-unmount guard／UTC 檔名日期判定非阻塞未採納），Approve。backend 未動 1103 passed 不變；frontend
-1216→1220 passed（+4 新測）、tsc 0、build OK。`WMOM-20260507-02` 清單尚餘 5 項（b~f）。
-**2026-09-23（WMOM-20260923-09）**：`WMOM-20260507-02` sub-task b——`TurbineDetail.tsx` PageHeader
-「停機」placeholder 鈕接上 `POST /api/control/command { command: 'stop' }`（走 `authFetch`）。
-認領時追查發現右側「操作控制」卡片（`OperatorControlCard`）本身 4 處既有 `fetch` 呼叫（GET
-status 輪詢 + POST command + POST curtail ×2）全部裸 `fetch`、未帶 `Authorization` header，且
-`command`/`curtail` 兩端點皆 `require_role(SUPERVISOR)`——比先前 WMOM-20260923-08 的
-farm-trend 缺口風險更高（enforce 開啟後操作控制面板整面失效）；同一次一併修復。新增 7 測皆
-mutation-verified（含既有測試從未驗證 headers 而未鎖住 `clearCurtail` 這一缺口，本次補齊）。
-code-reviewer review：0 must-fix，1 should-fix（`ISSUES.md` 父 issue checklist 未同步勾選）已
-採納，1 nice-to-have（既有 `resp.ok` 缺錯誤處理，非本次引入）未採納維持現狀，Approve。backend
-未動 1103 passed 不變；frontend 1220→1227 passed（+7 新測）、tsc 0、build OK。⚠ 稽核過程發現
-**另有 7 支元件同款 authFetch 缺口**（`CostPage`/`EventComparisonView`/`FarmSelector`/
-`FaultInjectionPanel`/`HistoryPage`/`SettingsPage`/`TrendChartPanel`，其中 `FarmSelector`/
-`FaultInjectionPanel`/`SettingsPage` 含 SUPERVISOR/ADMIN 寫入），登記為新 follow-up
-**WMOM-20260923-10**，標記為 M6 auth cutover（`WMOM-20260716-05i`）前置阻塞項，未在本次修復。
+  # 比較分析 A2 Part 3——跨情境相對時間對齊時序疊圖。連續兩個 session 把此項標成「需要新後端端點」而
+  # 延後，本次重新檢視資料層判定不需要：既有單情境端點 `GET /api/scenarios/{id}/turbines/{tid}/
+  # history`（A1 已在用）+ 前端已持有的 `SavedScenario.config.sim_start` 就足以純前端算相對時間對齊，
+  # 零後端變更（決策翻案已記錄於 `docs/product/decision_log.md` DEC-20260923-01，`DEC-20260720-02`
+  # 原文加註 superseded）。新增 `utils/scenarioTimeline.ts`（純函式）+
+  # `ScenarioCompareTimelineView.tsx`（新頁籤：機組+指標選擇器、每情境各自 fetch 既有 history 端點、
+  # recharts 各 `<Line>` 自帶 `data` 疊圖、純 DOM 圖例因應 jsdom 無 ResizeObserver 的既有測試限制、
+  # fallback 對齊/截斷/載入失敗三種 banner），`ScenarioCompareAcrossView.tsx` 加頁籤列（摘要並排/
+  # 時序疊圖，向後相容 optional prop）。只做疊圖，差異圖（Part 4，需先解決多序列取樣點不完全對齊的
+  # 插值/分桶問題）留待下個 session。4 個關鍵分支手動 mutation-verified。code-reviewer subagent
+  # review：**1 must-fix**（架構翻案未寫進 decision_log，已補 DEC-20260923-01）+ **2 should-fix 全數
+  # 採納**（recharts 跨線 tooltip 精確比對非最近點、取樣間隔不同時可能只命中部分情境——非 bug，已加
+  # 註解+UI 說明；單一情境 fetch 失敗原本靜默併入無資料，新增獨立 `failed` 旗標+banner 區分，2 測+
+  # mutation-verified）+ 1 個 nice-to-have（docstring 歸屬）已修，Approve。backend 未動 1103 passed
+  # 不變；frontend 1067→1100 passed（+33 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260923-04）**：
+  # `components/ui` primitives 測試補齊——9 支 UI primitive 檔案（1220 行）先前零 `__tests__`，逐檔
+  # 評估後判定 `StatusPill.tsx`（3 支狀態顏色映射純函式）+ `Charts.tsx`（`MiniSparkline`/`BigChart`/
+  # `HealthBar` SVG path 數學 + clamp + 顏色門檻）值得補測試，其餘 7 支（`Btn`/`Card`/`Field`/`Stat`/
+  # `PageHeader`/`Logo`/`Sidebar`）判定 ROI 低或範圍另計，暫不動。新增 27+21=48 測，6 個關鍵分支
+  # mutation-verified。零 production 變更。code-reviewer review：0 must-fix，2 should-fix 全數採納
+  # （issue 補登記進 ISSUES.md/STATUS.yaml；docstring 用詞澄清為本 repo 首次引入此測試模式，非沿用
+  # 既有慣例）+ 1 nice-to-have 採納（`BigChart` events 測試改精確 `cx` 座標斷言）+ 1 nice-to-have
+  # 不採納（`hexToRgb` helper 重複，僅 2 處不急著抽），Approve。backend 未動 1103 passed 不變；
+  # frontend 1100→1148 passed（53→55 files）、tsc 0、build OK。**2026-09-23（WMOM-20260923-05）**：
+  # `Sidebar.tsx` component render 測試——前一 session 逐檔評估 `components/ui/*.tsx` 時點名
+  # `Sidebar.tsx`（220px 主導覽，294 行，全站唯一主導覽入口）範圍較大另開一支，本次接手：先前完全
+  # 零 `__tests__`，新增 23 測（primary/secondary 導覽項目渲染/active 樣式/badge 顯示條件含
+  # `badge=0` falsy 邊界、onSelect+onMobileClose 點擊行為含 desktop 下未傳 `onMobileClose` 的
+  # optional chaining 安全性、backend 健康狀態 dot、lang/theme 切換按鈕、footerExtra 條件渲染、
+  # mobile drawer 響應式行為）。5 個關鍵分支手動 mutation-verified。零 production 變更。
+  # code-reviewer subagent review：**1 must-fix（已修）**——work-log 原稿缺
+  # Implement/Verify/Review/Wrap-up 段落且結尾自我指向不存在內容，已補齊完整 8-phase 記錄；
+  # **2 should-fix 全數採納**：(1) 主題切換測試會透過真實 `ThemeProvider.toggle()` 寫入真實
+  # `localStorage['wmom.theme']`，vitest per-file isolation 下同檔案後續測試可能讀到污染值
+  # （本檔是本 repo 第一支真正呼叫 `toggle()` 的測試），`afterEach` 補 `localStorage.clear()`；
+  # (2) backend 健康狀態 dot 測試原用全域 `querySelector('span[aria-hidden]')`，但頁面另有 theme
+  # 按鈕圖示同款屬性，測試通過純屬僥倖命中 DOM 順序，改用 `getByText(...)` 先定位文字所在 row 再
+  # scope 查詢。1 nice-to-have（`NavIcon` active/inactive 顏色分支未斷言）未採納，Approve。
+  # backend 未動 1103 passed 不變；frontend 1148→1171 passed（55→56 files）、tsc 0、build OK。
+  # `components/ui/*.tsx` 9 支 primitive 檔案測試評估至此全數完成。⚠ 附帶提醒：canonical routine
+  # 文件 `docs/routines/autonomous-daily-worker-prompt.md` 內文仍停在 v3（baseline
+  # backend 638 / frontend 59，無「自我測試」/mutation 驗證/降級模式框架），已明顯落後於本次 cron
+  # trigger 實際送入的 prompt（v4.1，baseline 1076/970），建議劉老師找時間把 cron trigger 目前
+  # 設定同步回這份文件。**2026-09-23（WMOM-20260923-06，A2 Part 4：跨情境差異圖）**：DEC-20260720-02
+  # A2「情境比較分析」epic 完整範圍至此全數完成——差異圖判定不需要後端（比照 Part 3），純前端分桶
+  # 重採樣解決多情境序列取樣點不對齊的問題：`utils/scenarioTimeline.ts` 新增 `medianInterval`/
+  # `pickBinMs`/`binSeries`/`buildDiffSeries` 純函式，`utils/scenarioHistoryFetch.ts` 抽出 Part 3
+  # 既有 fetch 邏輯供新頁籤重用，新增 `ScenarioCompareDiffView.tsx`（baseline 可選、`compare −
+  # baseline` 疊圖）掛上 `ScenarioCompareAcrossView` 第三個頁籤。開發中自行抓到並修正 2 個真實 bug
+  # （`hasAnyDiff` 誤把「聯集後桶陣列非空」當成有資料；元件測試 `getByText` 與 `<option>` 撞名，
+  # 改 `data-testid`）。code-reviewer review：1 must-fix（`usedFallbackAlign` 抓了卻未提示使用者，
+  # 差異圖把兩條線相減成一個數字時，一真一假對齊會算出看似精確卻誤導的差異，已補 banner）+
+  # 3 should-fix 全數採納（`truncated` 同款補提示；抽出的 `fetchScenarioHistory` 在 HTTP 失敗分支
+  # 與原內嵌寫法在「失敗+缺 sim_start」組合上行為分歧，已修正一致並補測試；`useMemo` 省略依賴補
+  # 說明註解）+ 3 nice-to-have 採納（decision_log 回填已解決、`binSeries` 補 3+ 點/桶測試、baseline
+  # 失敗時排除通用提示避免語意重疊），Approve。backend 未動 1103 passed 不變；frontend
+  # 1171→1216 passed（56→58 files，+45 新測）、tsc 0、build OK。**2026-09-23（WMOM-20260716-06）**：
+  # footprint CPU-torch pin follow-up——多個 session 因「本地無 docker daemon」擱置，本次 preflight
+  # 發現本 sandbox 這次可手動啟動 `dockerd` 成功，接手實測收尾。`Dockerfile` 新增 1 行 CPU-only
+  # torch wheel pin（`pip install torch --index-url .../whl/cpu`，在 `pip install -r
+  # requirements.txt` 之前），真實 `docker build`/`docker run` 驗證：image content size
+  # 3.37GB→550MB（省 ~2.8GB，優於 DEC-20260716-02 原估「砍半」），`torch.cuda.is_available()`
+  # True→False，`sentence_transformers`/`chromadb` import smoke test 正常，疊上真正 app 程式碼層
+  # 起容器 `/api/health` 回應 200 OK 正常開機。code-reviewer review：0 must-fix，2 項
+  # should/nice-to-have（ISSUES.md 統計表同步、狀態標記格式）已採納。附帶重新調查
+  # WMOM-20260509-F6（PostgreSQL row-lock test）範圍，判定遠比原估「0.5 工作天」大（repo 完全
+  # 無 Postgres 連線路徑，需先有架構決策才能動工），更正估時並標記 🟡 需劉老師決策，本次不接、
+  # 避免未來 session 誤判重工。backend/frontend 測試數量不受影響（Dockerfile-only 變更，CI 本來
+  # 就不 build Docker image）。**2026-09-23（WMOM-20260923-07）**：`WMOM-20260507-02`（PageHeader
+  # placeholder 按鈕清單）sub-task a——`FarmOverview.tsx`「匯出」鈕接線：`handleExportSnapshot` 走
+  # 既有 `authFetch` 打 `GET /api/export/snapshot`（後端 `require_authenticated()` 閘門）→
+  # `resp.blob()`（不解析、保留原始位元組）→ 沿用 reporting module 既有 `downloadBlob` 工具觸發下載
+  # `farm-snapshot-{YYYY-MM-DD}.json`，失敗僅 `console.error`（沿用劉老師既有決定不彈 alert）。新增
+  # 4 測（happy path / authFetch header / loading disabled / 失敗態），皆 mutation-verified。
+  # code-reviewer review：0 must-fix，2 should-fix 全數採納（happy-path 原測試用
+  # `expect.any(Object)` 無法區分 `authFetch` 與裸 `fetch`，補專測直接斷言 `Authorization` header
+  # 並 mutation-verified 抓到回退裸 fetch 的 regression；測試檔一則誤導性註解已更正）+ 3
+  # nice-to-have（同檔案 farm-trend fetch 同款缺口登記為新 follow-up **WMOM-20260923-08**、不阻塞；
+  # unmount guard／UTC 檔名日期判定非阻塞未採納），Approve。backend 未動 1103 passed 不變；frontend
+  # 1216→1220 passed（+4 新測）、tsc 0、build OK。`WMOM-20260507-02` 清單尚餘 5 項（b~f）。
+  # **2026-09-23（WMOM-20260923-09）**：`WMOM-20260507-02` sub-task b——`TurbineDetail.tsx` PageHeader
+  # 「停機」placeholder 鈕接上 `POST /api/control/command { command: 'stop' }`（走 `authFetch`）。
+  # 認領時追查發現右側「操作控制」卡片（`OperatorControlCard`）本身 4 處既有 `fetch` 呼叫（GET
+  # status 輪詢 + POST command + POST curtail ×2）全部裸 `fetch`、未帶 `Authorization` header，且
+  # `command`/`curtail` 兩端點皆 `require_role(SUPERVISOR)`——比先前 WMOM-20260923-08 的
+  # farm-trend 缺口風險更高（enforce 開啟後操作控制面板整面失效）；同一次一併修復。新增 7 測皆
+  # mutation-verified（含既有測試從未驗證 headers 而未鎖住 `clearCurtail` 這一缺口，本次補齊）。
+  # code-reviewer review：0 must-fix，1 should-fix（`ISSUES.md` 父 issue checklist 未同步勾選）已
+  # 採納，1 nice-to-have（既有 `resp.ok` 缺錯誤處理，非本次引入）未採納維持現狀，Approve。backend
+  # 未動 1103 passed 不變；frontend 1220→1227 passed（+7 新測）、tsc 0、build OK。⚠ 稽核過程發現
+  # **另有 7 支元件同款 authFetch 缺口**（`CostPage`/`EventComparisonView`/`FarmSelector`/
+  # `FaultInjectionPanel`/`HistoryPage`/`SettingsPage`/`TrendChartPanel`，其中 `FarmSelector`/
+  # `FaultInjectionPanel`/`SettingsPage` 含 SUPERVISOR/ADMIN 寫入），登記為新 follow-up
+  # **WMOM-20260923-10**，標記為 M6 auth cutover（`WMOM-20260716-05i`）前置阻塞項，未在本次修復。
 next_milestone: "【2026-07-18 — auth 全面完成，14 PR 進 main #109-#122】auth 基礎層 done (#108) → DB-backed user store + admin API (#110) → 雙模式授權 scaffold (#112) → 全 5 module router 授權遷移 (#113/#115-#117/#120-#122，含 workflow 4 router + cost + reporting + knowledge + monitoring 9 router 共 61+ 端點) → 前端 auth client + token 帶入 (#118) → 前端登入頁 + AuthProvider (#119) → GuidedTourPage (#114)。backend 998 tests collected / CI 涵蓋全 6 module + monitoring/physics + e2e。**2026-07-18 追加**：實測機組資料 → 修 Settings 改風速無反應（WMOM-20260718-01, PR #123）+ 拍板**模擬雙軌 DEC-20260718-01**（Scenario 批次生成為主 / Live 實接連續落地；WMOM-20260718-02~05）。**scenario-setup（WMOM-20260718-03）**：後端 generate_bulk 排程故障 primitive（#125 merged）+ 前端「情境」獨立頁 ScenarioPage（本 PR）。**下一步**：狀態可見性/顯示重設計（-04/-05）；並行 WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 客戶接觸（WMOM-20260503-05）。 **2026-07-20 情境模式深化 arc**：(a) generate-bulk 並發 writer 撞 SQLite `database is locked` 根治——decouple `_bulk_running` + `pause_live_for_batch` context + 單交易 `store_readings`（WMOM-20260720-01, #142 merged）；(b) 定 **DEC-20260720-01「情境＝凍結資料集」**：設定頁依實際來源 gate（view/live/scenario 時停用模擬參數，#146）+ 選「產生情境」不再自由跑連續產資料（`run_loop` 貫穿、新 `source_kind='scenario'`、不起 Modbus，#147）；(c) 立 **DEC-20260720-02 情境比較分析 epic**（序列 B→A0→C 與 A1/A2 並進）：**A0 情境摘要端點** `GET /api/scenarios/{id}/summary`（每台機組物理聚合〔容量因數/累積損傷/結束 RUL/極限負載/DEL/故障數〕+ 風場 rollup，storage 層 SQL 聚合，#148 merged）、**A1 同情境內比較視圖**（消費 A0、faulted vs healthy 分群比較圖表，#150 merged；round-2 review 的 4 個
 Should-fix follow-up 見 WMOM-20260720-13）。**WMOM-20260720-04 + -08 live/OPC 後端硬化（2026-09-22
 merged）**：M6 現場部署唯一硬阻塞已清除——DataBroker.stop() 補停 OPC adapter、切走 live 對稱要求
@@ -810,9 +810,9 @@ issue_stats:
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 122  # +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
+  done: 123  # +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
              # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
-  # total 131（7+2+122=131，與 ISSUES.md `### WMOM-` header 數一致）
+  # total 132（7+2+123=132，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine
