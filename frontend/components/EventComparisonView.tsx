@@ -35,6 +35,7 @@ const eventTone = (et: string): PillTone => {
   if (et === 'wind') return 'info';
   if (et === 'operator') return 'ok';
   if (et === 'state') return 'accent';
+  if (et === 'fatigue') return 'danger';
   return 'muted';
 };
 
@@ -185,6 +186,7 @@ const EventComparisonView: React.FC<Props> = ({ turbines, lang = 'zh' }) => {
                 { value: 'state', label: u('State', '狀態') },
                 { value: 'operator', label: u('Operator', '操作') },
                 { value: 'wind', label: u('Wind', '風況') },
+                { value: 'fatigue', label: u('Fatigue', '疲勞') },
               ]}
               fullWidth
             />
