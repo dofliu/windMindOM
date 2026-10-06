@@ -18,7 +18,7 @@
 
 最後更新：2026-10-06（**WMOM-20260505-26-a 完成**：SCADA 新增 `WSRV_ManualOverride`/
 `WSRV_LockoutState`）。**劉老師 2026-10-06 回覆，下個 session 起依此挑題**：
-- ✅ `WMOM-20260505-25` Part B（`SpectralAlarmPanel`）/ Part C（`BearingDiagPanel`）核准 → **下個 session 優先認領 Part B**
+- ✅ `WMOM-20260505-25` Part B（振動頻譜 tab）已完成（`-25-b`，2026-10-06）；Part C（`BearingDiagPanel`：BPFO/BPFI + GMF sideband）已核准 → **下個 session 優先認領 Part C**
 - 🏠 HTTPS 部署配置：劉老師本機自測，**移出 autonomous 佇列**
 - 🚫 docker 環境無法提供：`WMOM-20260509-F6`（PG row-lock）維持卡住，不要再嘗試
 

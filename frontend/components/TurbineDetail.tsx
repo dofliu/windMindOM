@@ -79,6 +79,32 @@ const fatigueAlarmInfo = (level: number | undefined) => {
   return FATIGUE_ALARM_LEVELS[lvl];
 };
 
+/** 振動 0-2 級警報（WMOM-20260505-25-b，對齊 `vibration_spectral.py`
+ * `VibrationAlarms`：0=normal / 1=warning / 2=alarm）。同樣 clamp + round，
+ * 避免 `scadaTags` 的非整數/越界值取到 `undefined` 讓 tab render 拋錯。 */
+const VIB_ALARM_LEVELS: { en: string; zh: string; tone: Extract<PillTone, 'ok' | 'warn' | 'danger'> }[] = [
+  { en: 'Normal', zh: '正常', tone: 'ok' },
+  { en: 'Warning', zh: '警告', tone: 'warn' },
+  { en: 'Alarm', zh: '警報', tone: 'danger' },
+];
+
+/** 缺值（離線 / 舊後端 / 部分 payload）回 muted「無資料」——「沒資料」不等於「健康」。 */
+const VIB_NO_DATA = { en: 'No data', zh: '無資料', tone: 'muted' as const };
+
+const vibAlarmInfo = (level: number | undefined) => {
+  if (level == null || !Number.isFinite(level)) return VIB_NO_DATA;
+  return VIB_ALARM_LEVELS[Math.min(2, Math.max(0, Math.round(level)))];
+};
+
+/** 5 個頻帶（1P/3P/gear/HF/Bb）對應的 SCADA tag 與中英標籤。 */
+const VIB_BANDS: { key: string; en: string; zh: string; x: string; y: string; alarm: string }[] = [
+  { key: '1p', en: '1P (rotor)', zh: '1P（轉子）', x: 'WVIB_Band1pX', y: 'WVIB_Band1pY', alarm: 'WVIB_Alarm1p' },
+  { key: '3p', en: '3P (blade pass)', zh: '3P（葉片通過）', x: 'WVIB_Band3pX', y: 'WVIB_Band3pY', alarm: 'WVIB_Alarm3p' },
+  { key: 'gear', en: 'Gear mesh', zh: '齒輪嚙合', x: 'WVIB_BandGearX', y: 'WVIB_BandGearY', alarm: 'WVIB_AlarmGear' },
+  { key: 'hf', en: 'High freq', zh: '高頻', x: 'WVIB_BandHfX', y: 'WVIB_BandHfY', alarm: 'WVIB_AlarmHf' },
+  { key: 'bb', en: 'Broadband', zh: '寬頻', x: 'WVIB_BandBbX', y: 'WVIB_BandBbY', alarm: 'WVIB_AlarmBb' },
+];
+
 /** RUL（剩餘壽命，小時）換算為「年/月/日」可讀字串。-1 或無值代表尚無足夠
  * 發電時數估算損傷速率（`fatigue_model.py` 的 sentinel）。已知顯示粒度限制：
  * 未滿 24 小時會顯示「0天」而非小時數（見 code review 討論，此欄位本就是
@@ -695,7 +721,7 @@ const LiveTrendsCard: React.FC<{
 
 // ─── Subsystem detail tabs（沿用既有資料）──────────────────
 
-type DetailTab = 'overview' | 'generator' | 'pitch' | 'converter' | 'nacelle' | 'yaw' | 'grid' | 'fatigue';
+type DetailTab = 'overview' | 'generator' | 'pitch' | 'converter' | 'nacelle' | 'yaw' | 'grid' | 'fatigue' | 'vibration';
 
 const DETAIL_TABS: { id: DetailTab; en: string; zh: string }[] = [
   { id: 'overview', en: 'Overview', zh: '總覽' },
@@ -706,6 +732,7 @@ const DETAIL_TABS: { id: DetailTab; en: string; zh: string }[] = [
   { id: 'yaw', en: 'Yaw', zh: '轉向系統' },
   { id: 'grid', en: 'Grid/Met', zh: '電網/氣象' },
   { id: 'fatigue', en: 'Load/Fatigue', zh: '載荷/疲勞' },
+  { id: 'vibration', en: 'Vibration', zh: '振動頻譜' },
 ];
 
 const DataRow: React.FC<{
@@ -988,6 +1015,66 @@ const SubsystemDetailCard: React.FC<{
                 value={formatRul(rulHours, tr)}
                 warn={rulHours != null && rulHours >= 0 && rulHours < 8760}
                 alert={rulHours != null && rulHours >= 0 && rulHours < 720}
+              />
+            </SubsystemSection>
+          </div>
+        );
+      }
+      case 'vibration': {
+        const tags = t.scadaTags;
+        const overall = vibAlarmInfo(tags?.WVIB_AlarmOverall);
+        const crest = vibAlarmInfo(tags?.WVIB_AlarmCrest);
+        const kurt = vibAlarmInfo(tags?.WVIB_AlarmKurt);
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <SubsystemSection title={tr('Spectral Bands (RMS X / Y)', '頻帶 RMS（X / Y）')}>
+              {VIB_BANDS.map(b => {
+                const info = vibAlarmInfo(tags?.[b.alarm]);
+                return (
+                  <DataRow
+                    key={b.key}
+                    label={tr(b.en, b.zh)}
+                    value={
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                        <span>{`${fmt(tags?.[b.x], 3)} / ${fmt(tags?.[b.y], 3)} mm/s`}</span>
+                        <StatusPill tone={info.tone}>{tr(info.en, info.zh)}</StatusPill>
+                      </span>
+                    }
+                  />
+                );
+              })}
+              {/* 警報由後端依 X/Y 較大值、轉速縮放且逐機差異的門檻判定，並帶遲滯與最短保持
+                  時間，故 badge 可能與畫面數值不完全對應；僅 1P 門檻對外提供。 */}
+              {/* 1P 門檻會隨轉速縮放（vibration_spectral.py thresh_1p_*），僅 1P 對外提供。 */}
+              <DataRow
+                label={tr('1P warn / alarm threshold', '1P 警告 / 警報門檻')}
+                value={`${fmt(tags?.WVIB_Thresh1pWarn, 3)} / ${fmt(tags?.WVIB_Thresh1pAlrm, 3)} mm/s`}
+              />
+            </SubsystemSection>
+            <SubsystemSection title={tr('Impulsiveness & Overall', '衝擊指標與整體警報')}>
+              {/* 正常 crest≈3.0–3.5、kurtosis≈3.0（高斯）；warn/alarm 門檻 5/7、5/8
+                  見 vibration_spectral.py，軸承缺陷造成衝擊時才會上升。 */}
+              <DataRow
+                label={tr('Crest factor', '波峰因數')}
+                value={
+                  <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                    <span>{fmt(tags?.WVIB_CrestFactor, 2)}</span>
+                    <StatusPill tone={crest.tone}>{tr(crest.en, crest.zh)}</StatusPill>
+                  </span>
+                }
+              />
+              <DataRow
+                label={tr('Kurtosis', '峰度')}
+                value={
+                  <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                    <span>{fmt(tags?.WVIB_Kurtosis, 2)}</span>
+                    <StatusPill tone={kurt.tone}>{tr(kurt.en, kurt.zh)}</StatusPill>
+                  </span>
+                }
+              />
+              <DataRow
+                label={tr('Overall vibration alarm', '整體振動警報')}
+                value={<StatusPill tone={overall.tone}>{tr(overall.en, overall.zh)}</StatusPill>}
               />
             </SubsystemSection>
           </div>
