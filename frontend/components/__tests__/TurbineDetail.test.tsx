@@ -751,6 +751,42 @@ describe('TurbineDetail — Vibration tab 頻譜警報', () => {
     expect(within(threePRow!).getByText('無資料')).toBeInTheDocument();
   });
 
+  it('軸承/齒輪診斷：BPFO/BPFI/GMF/邊帶各自對應正確的列與格式', async () => {
+    await renderDetail({
+      turbine: makeTurbine({
+        scadaTags: {
+          WVIB_BpfoFreq: 5.123, WVIB_BpfoAmp: 0.0456,
+          WVIB_BpfiFreq: 7.891, WVIB_BpfiAmp: 0.0789,
+          WVIB_GmfFreq: 123.45,
+          WVIB_Sideband1Amp: 0.111, WVIB_Sideband2Amp: 0.222,
+          WVIB_SidebandRatio: 0.3333,
+        },
+      }),
+    });
+    openVib();
+    const outer = screen.getByText('BPFO（外環）').closest('div');
+    expect(within(outer!).getByText('5.12 Hz / 0.046 mm/s')).toBeInTheDocument();
+    const inner = screen.getByText('BPFI（內環）').closest('div');
+    expect(within(inner!).getByText('7.89 Hz / 0.079 mm/s')).toBeInTheDocument();
+    const gmf = screen.getByText('齒輪嚙合頻率（GMF）').closest('div');
+    expect(within(gmf!).getByText('123.5 Hz')).toBeInTheDocument();
+    const sb = screen.getByText('邊帶 一階 / 二階').closest('div');
+    expect(within(sb!).getByText('0.111 / 0.222 mm/s')).toBeInTheDocument();
+    const ratio = screen.getByText('邊帶能量比').closest('div');
+    expect(within(ratio!).getByText('0.333')).toBeInTheDocument();
+  });
+
+  it('軸承/齒輪診斷：無 scadaTags → 全部顯示「—」不拋錯', async () => {
+    await renderDetail({ turbine: makeTurbine({}) });
+    openVib();
+    const outer = screen.getByText('BPFO（外環）').closest('div');
+    expect(within(outer!).getByText('— Hz / — mm/s')).toBeInTheDocument();
+    const gmf = screen.getByText('齒輪嚙合頻率（GMF）').closest('div');
+    expect(within(gmf!).getByText('— Hz')).toBeInTheDocument();
+    const ratio = screen.getByText('邊帶能量比').closest('div');
+    expect(within(ratio!).getByText('—')).toBeInTheDocument();
+  });
+
   it('lang=en → tab 與標籤走英文', async () => {
     await renderDetail({
       lang: 'en',

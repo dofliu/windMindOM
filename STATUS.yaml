@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-10-06"  # **2026-10-06 WMOM-20260505-25-b done**：`TurbineDetail`
+last_updated: "2026-10-06"  # **2026-10-06 WMOM-20260505-25-c done**：振動 tab 新增「軸承 / 齒輪診斷」區塊（BPFO/BPFI 頻率+振幅、GMF、邊帶，純前端、零後端改動）；frontend vitest 1497→1499（main 實測 baseline 1497）、backend 1305 不變。前次：**WMOM-20260505-25-b done**：`TurbineDetail`
   # 新增「振動頻譜」tab（5 頻帶 RMS X/Y + 警報 badge、crest/kurtosis/overall 警報，
   # 純前端消費既有 `WVIB_*` scadaTags，零後端改動）；frontend vitest 1492→1497
   # （+5），backend 1305 不變。Part C（BearingDiagPanel）待下個 session。前次：
