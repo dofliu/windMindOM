@@ -16,7 +16,13 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-09-28（**WMOM-20260928-05 完成（第二十二個 autonomous
+最後更新：2026-10-06（**WMOM-20260505-26-a 完成**：SCADA 新增 `WSRV_ManualOverride`/
+`WSRV_LockoutState`）。**劉老師 2026-10-06 回覆，下個 session 起依此挑題**：
+- ✅ `WMOM-20260505-25` Part B（`SpectralAlarmPanel`）/ Part C（`BearingDiagPanel`）核准 → **下個 session 優先認領 Part B**
+- 🏠 HTTPS 部署配置：劉老師本機自測，**移出 autonomous 佇列**
+- 🚫 docker 環境無法提供：`WMOM-20260509-F6`（PG row-lock）維持卡住，不要再嘗試
+
+前次最後更新：2026-09-28（**WMOM-20260928-05 完成（第二十二個 autonomous
 session）：`HistoryPage.tsx` 事件類型登記表補上 `fatigue`/`fault_lifecycle`，
 修復真實後端事件整組隱形的 bug** — 接續前一 session 盤點 fatigue 資料流，
 全庫 grep `event_type="` 發現後端實際記錄 7 種事件（`fatigue/fault/

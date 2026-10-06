@@ -3,7 +3,11 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-09-29"  # **2026-09-28 第二十二個 autonomous session
+last_updated: "2026-10-06"  # **2026-10-06 WMOM-20260505-26-a done**：新增
+  # `WSRV_ManualOverride`/`WSRV_LockoutState` 兩個 SCADA tag（109→111，映射既有
+  # operator_stop / tur_state==7）；backend 1305 passed / 7 skipped / 1 xfailed
+  # （+10），frontend tsc 0 / vitest 1492 / build OK。劉老師同日回覆：HTTPS 本機自測、
+  # -25 Part B/C 核准、無 docker 環境。前次：**2026-09-28 第二十二個 autonomous session
   # （WMOM-20260928-05）** — `frontend/components/HistoryPage.tsx` 事件類型登記表
   # 補上後端真實記錄但前端從未登記的 `fatigue`（疲勞警報升降級）/
   # `fault_lifecycle`（故障生命週期）兩種事件：`visibleEvents` 的
@@ -810,9 +814,9 @@ issue_stats:
   in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
                   # 24h 記憶體驗收後 close）
   blocked: 0
-  done: 123  # +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
+  done: 124  # +1 WMOM-20260505-26-a（2026-10-06）；前次 +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
              # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
-  # total 132（7+2+123=132，與 ISSUES.md `### WMOM-` header 數一致）
+  # total 133（7+2+124=133，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine

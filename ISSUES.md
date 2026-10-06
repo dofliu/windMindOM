@@ -16,10 +16,17 @@
 | open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
-| done | 123 |
-| **total** | **132** |
+| done | 124 |
+| **total** | **133** |
 
-最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
+最後更新：2026-10-06（**WMOM-20260505-26-a 完成**——劉老師 2026-10-06 核准降低版提案後實作：
+`scada_registry.py` 新增 `WSRV_ManualOverride`（映射既有 `operator_stop`）/
+`WSRV_LockoutState`（映射既有 `tur_state==7`）兩個 SCADA tag，SCADA tag 109→111；
+新增 10 測（含引擎層故障跳機路徑），mutation-verified；data quality 20 通過/0 待改善
+與 main 一致。**同日劉老師另回覆**：HTTPS 部署由劉老師本機自測（移出 autonomous 佇列）；
+`-25` Part B/C 核准開工；無法提供 docker 環境（`WMOM-20260509-F6` 維持卡住）。
+詳見 `work-logs/2026-10/2026-10-06-scada-service-state-tags.md`）。
+前次最後更新：2026-09-28（**WMOM-20260505-25-a 完成（第二十一個 autonomous
 session）——`TurbineDetail.tsx` `fatigue` tab 新增 RUL 倒數 + 塔架/葉片疲勞警報
 badge + 累積損傷比例顯示**：連續 4 個 session 判定全部 open/in_progress issue
 皆需劉老師決策或跨日大工，本次重新盤點 `WMOM-20260505-25`（母 issue，RUL/多
@@ -4783,6 +4790,9 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 - **Status**: open（🟢 Part A 已完成，見下方 `WMOM-20260505-25-a`；`SpectralAlarmPanel`/
   `BearingDiagPanel`/獨立 RUL 觸發時間軸仍待做）
+- **✅ 2026-10-06 劉老師核准 Part B/C 開工**（autonomous 可直接認領，一 session 一個 Part）：
+  Part B = `SpectralAlarmPanel`（5-band 頻譜 + crest/kurtosis）、Part C = `BearingDiagPanel`
+  （BPFO/BPFI + GMF sideband）；RUL 觸發時間軸可併入其一或另拆。
 - **Milestone**: M3 並行 / M5 demo 增值
 - **Priority**: medium（P1 — M5 RAG demo 視覺化 PMF 關鍵）
 - **Estimate**: 1.5-2 工作天
@@ -5027,11 +5037,44 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
       不被破壞。
     - `calibration mode`/`firmware version` 留在母 issue 範圍內不動，未來
       若劉老師認為需要可另立提案（需先設計一套全新觸發機制或接受純靜態常數）。
-  - **給劉老師的問題（可一行回覆）**：是否核准開 `WMOM-20260505-26-a`？
+  - ✅ **2026-10-06 劉老師核准，`WMOM-20260505-26-a` 已同日完成**（見下方條目）。
+  - ~~**給劉老師的問題（可一行回覆）**：是否核准開 `WMOM-20260505-26-a`？~~
     核准後下個 autonomous session 可直接單 session 完工，範圍/acceptance 已
     無歧義。
   - 詳見
     `work-logs/2026-09/2026-09-28-scada-26-service-maintenance-subscope-proposal.md`。
+
+---
+
+### WMOM-20260505-26-a — Service/Maintenance state 降低版子項：`WSRV_ManualOverride` + `WSRV_LockoutState`
+
+- **Status**: done（2026-10-06）
+- **Milestone**: 同母 issue `WMOM-20260505-26`（M3 後續 / M5 RAG 素材）
+- **Priority**: medium
+- **Owner**: Claude (autonomous worker, session 2026-10-06)
+- **核准**：劉老師 2026-10-06 於 session 內回覆「可以採納」（同時核准 `-25` Part B/C）。
+- **Deliverable**（依 `WMOM-20260928-03` 提案範圍，不含 calibration mode / firmware version）：
+  - `modules/monitoring/simulator/physics/scada_registry.py`：新增 `WSRV_ManualOverride`
+    （人工操作停機中）、`WSRV_LockoutState`（緊急停機狀態）兩個 `SINT16` 0/1 tag。
+  - `turbine_physics.py::step()`：直接映射 `self.operator_stop` / `self.tur_state == 7`，
+    無新旗標；兩 tag 加入 `_integer_tags`（不加 sensor 雜訊）。
+  - `server/routers/export.py`：歷史 CSV 匯出欄位加入兩 tag。
+  - `docs/API_GUIDE.md`：SCADA tag 數 109→111、WSRV 列 1→3。
+- **Acceptance（降低版，劉老師核准）**：① registry schema 正確 ✅ ② 直接映射既有真實狀態 ✅
+  ③ 整合測試證明 `cmd_stop()`/`cmd_start()`/`cmd_reset()`/`cmd_emergency_stop()` 與引擎層故障
+  跳機路徑下 tag 同步翻轉 ✅ ④ data quality 不被破壞（`examples/data_quality_analysis.py`
+  20 通過/0 待改善，與 main 報告一致）✅
+- **測試**：`modules/monitoring/tests/test_scada_service_state_tags.py` 10 測。mutation 驗證：
+  移除 `_integer_tags` 項目→6 fail；映射改成常數/service_mode→5 fail；還原 registry→2 fail；
+  還原 export.py→1 fail。
+- **已知語意限制（code review should-fix，已在 registry 註解標明）**：
+  - `WSRV_LockoutState` 鏡射 `tur_state==7`，**非 latched lockout**；故障持續時 state 在 7↔3
+    間擺盪，tag 也隨之擺盪。label 因此定為「Emergency Stop State / 緊急停機狀態」而非「閉鎖」。
+    若要真正 latch-until-reset 的 LOTO 語意需另開 issue（要新增狀態，違反本子項 acceptance ②）。
+  - 兩個 OPC 名稱（`WSRV.Z72PLC__UI_Srv_State_ManualOverride` / `_Lockout`）為 simulator-only
+    placeholder，Bachmann Z72 tag 表無對應項；`opc_adapter.py` 用自己的 `TAG_MAPS`，不讀 registry，
+    故 live 模式不受影響。
+- 詳見 `work-logs/2026-10/2026-10-06-scada-service-state-tags.md`。
 
 ---
 

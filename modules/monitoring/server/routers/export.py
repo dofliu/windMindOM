@@ -37,7 +37,7 @@ SCADA_CSV_COLUMNS = [
     "WLOD_DelTwrFa", "WLOD_DelTwrSs", "WLOD_DelBldFlap", "WLOD_DelBldEdge",
     "WLOD_DmgTwrFa", "WLOD_DmgTwrSs", "WLOD_DmgBldFlap", "WLOD_DmgBldEdge",
     "WLOD_ProdHours",
-    "WSRV_SrvOn", "MBUS_Contact2",
+    "WSRV_SrvOn", "WSRV_ManualOverride", "WSRV_LockoutState", "MBUS_Contact2",
 ]
 
 # Event severity mapping for grouping

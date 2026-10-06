@@ -420,6 +420,17 @@ _TAGS: List[ScadaTag] = [
     ScadaTag("WSRV_SrvOn", "WSRV.Z72PLC__UI_Srv_State_SrvOn",
              "WSRV", "SINT16", "", "Service Mode On", "系統服務模式",
              0, 1),
+    # WMOM-20260505-26-a：兩個 tag 皆直接映射 turbine_physics 既有真實狀態，非獨立旗標。
+    # ⚠ OPC 名稱為 simulator-only placeholder（Bachmann Z72 tag 表無對應項），
+    #   接真實 PLC 前須依現場 tag 表重新對齊，不可直接拿來建 OPC mapping。
+    # WSRV_LockoutState 鏡射 tur_state==7（緊急停機狀態），非 latched lockout：
+    #   故障持續時 state 會 7↔3 擺盪，本 tag 隨之擺盪。
+    ScadaTag("WSRV_ManualOverride", "WSRV.Z72PLC__UI_Srv_State_ManualOverride",
+             "WSRV", "SINT16", "", "Manual Override Active", "人工操作停機中",
+             0, 1),
+    ScadaTag("WSRV_LockoutState", "WSRV.Z72PLC__UI_Srv_State_Lockout",
+             "WSRV", "SINT16", "", "Emergency Stop State", "緊急停機狀態",
+             0, 1),
     ScadaTag("MBUS_Contact2", "MBUS.Z72PLC__UI_Mbus_Contact[2]",
              "MBUS", "UINT16", "", "Local/Remote Control", "風機本地/遠端控制",
              0, 1, "Contact[2]"),

@@ -828,6 +828,10 @@ class TurbinePhysicsModel:
             "WYAW_YwBrkHyPrs": round(max(0, yaw_out["brake_pressure"]), 2),
             "WYAW_CabWup": round(yaw_out["cable_windup"], 2),
             "WSRV_SrvOn": 1.0 if self.service_mode else 0.0,
+            # WMOM-20260505-26-a：映射既有真實狀態——operator_stop 由 cmd_stop()/
+            # cmd_start()/cmd_reset() 翻轉；tur_state==7 為 emergency stop 狀態機狀態
+            "WSRV_ManualOverride": 1.0 if self.operator_stop else 0.0,
+            "WSRV_LockoutState": 1.0 if self.tur_state == 7 else 0.0,
             "MBUS_Contact2": 1.0 if self.local_control else 0.0,
             # ── Drivetrain tags ──
             "WDRV_GbxOilTmp": round(self.drivetrain.oil_temperature, 2),
@@ -1316,7 +1320,8 @@ class TurbinePhysicsModel:
         # Tags that should not be filtered through the sensor model
         _integer_tags = {"WTUR_TurSt", "WCNV_CnvMode", "WCNV_RtBand",
                          "WROT_RotLckd", "WROT_SrvcBrkAct", "WROT_LckngPnPos",
-                         "WSRV_SrvOn", "MBUS_Contact2",
+                         "WSRV_SrvOn", "WSRV_ManualOverride", "WSRV_LockoutState",
+                         "MBUS_Contact2",
                          # Vibration alarm levels (discrete integers)
                          "WVIB_Alarm1p", "WVIB_Alarm3p", "WVIB_AlarmGear",
                          "WVIB_AlarmHf", "WVIB_AlarmBb",
