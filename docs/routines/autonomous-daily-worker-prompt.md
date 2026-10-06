@@ -89,7 +89,7 @@ python -m pytest \
 # baseline expect: 1305 passed, 7 skipped, 1 xfailed（1313 collected）
 
 cd frontend && npm ci && npx tsc --noEmit && npx vitest run && npx vite build && cd ..
-# baseline expect: tsc 0 error / vitest 1497 passed（70 files）/ build OK
+# baseline expect: tsc 0 error / vitest 1500 passed（70 files）/ build OK
 ```
 
 **baseline 對不上怎麼辦**：
