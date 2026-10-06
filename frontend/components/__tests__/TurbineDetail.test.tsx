@@ -757,7 +757,7 @@ describe('TurbineDetail — Vibration tab 頻譜警報', () => {
         scadaTags: {
           WVIB_BpfoFreq: 5.123, WVIB_BpfoAmp: 0.0456,
           WVIB_BpfiFreq: 7.891, WVIB_BpfiAmp: 0.0789,
-          WVIB_GmfFreq: 123.45,
+          WVIB_GmfFreq: 123.46,
           WVIB_Sideband1Amp: 0.111, WVIB_Sideband2Amp: 0.222,
           WVIB_SidebandRatio: 0.3333,
         },
@@ -774,6 +774,19 @@ describe('TurbineDetail — Vibration tab 頻譜警報', () => {
     expect(within(sb!).getByText('0.111 / 0.222 mm/s')).toBeInTheDocument();
     const ratio = screen.getByText('邊帶能量比').closest('div');
     expect(within(ratio!).getByText('0.333')).toBeInTheDocument();
+  });
+
+  it('軸承/齒輪診斷：部分缺值 → 僅缺的欄位顯示「—」，Freq/Amp 不互換', async () => {
+    await renderDetail({
+      turbine: makeTurbine({ scadaTags: { WVIB_BpfoFreq: 5.0, WVIB_BpfiAmp: 0.05, WVIB_GmfFreq: NaN } }),
+    });
+    openVib();
+    const outer = screen.getByText('BPFO（外環）').closest('div');
+    expect(within(outer!).getByText('5.00 Hz / — mm/s')).toBeInTheDocument();
+    const inner = screen.getByText('BPFI（內環）').closest('div');
+    expect(within(inner!).getByText('— Hz / 0.050 mm/s')).toBeInTheDocument();
+    const gmf = screen.getByText('齒輪嚙合頻率（GMF）').closest('div');
+    expect(within(gmf!).getByText('— Hz')).toBeInTheDocument();
   });
 
   it('軸承/齒輪診斷：無 scadaTags → 全部顯示「—」不拋錯', async () => {
