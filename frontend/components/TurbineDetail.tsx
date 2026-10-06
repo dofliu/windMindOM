@@ -1077,6 +1077,30 @@ const SubsystemDetailCard: React.FC<{
                 value={<StatusPill tone={overall.tone}>{tr(overall.en, overall.zh)}</StatusPill>}
               />
             </SubsystemSection>
+            {/* 軸承 / 齒輪診斷（WMOM-20260505-25-c）：BPFO/BPFI 缺陷頻率與振幅、GMF 與邊帶；
+                後端未對外提供這些項目的警報等級，僅顯示數值，缺值顯示「—」。 */}
+            <SubsystemSection title={tr('Bearing & Gear Diagnostics', '軸承 / 齒輪診斷')}>
+              <DataRow
+                label={tr('BPFO (outer race)', 'BPFO（外環）')}
+                value={`${fmt(tags?.WVIB_BpfoFreq, 2)} Hz / ${fmt(tags?.WVIB_BpfoAmp, 3)} mm/s`}
+              />
+              <DataRow
+                label={tr('BPFI (inner race)', 'BPFI（內環）')}
+                value={`${fmt(tags?.WVIB_BpfiFreq, 2)} Hz / ${fmt(tags?.WVIB_BpfiAmp, 3)} mm/s`}
+              />
+              <DataRow
+                label={tr('Gear mesh freq (GMF)', '齒輪嚙合頻率（GMF）')}
+                value={`${fmt(tags?.WVIB_GmfFreq, 1)} Hz`}
+              />
+              <DataRow
+                label={tr('Sideband 1st / 2nd', '邊帶 一階 / 二階')}
+                value={`${fmt(tags?.WVIB_Sideband1Amp, 3)} / ${fmt(tags?.WVIB_Sideband2Amp, 3)} mm/s`}
+              />
+              <DataRow
+                label={tr('Sideband energy ratio', '邊帶能量比')}
+                value={fmt(tags?.WVIB_SidebandRatio, 3)}
+              />
+            </SubsystemSection>
           </div>
         );
       }

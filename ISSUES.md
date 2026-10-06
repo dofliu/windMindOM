@@ -4839,6 +4839,17 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
+### WMOM-20260505-25-c — Part C：軸承 / 齒輪診斷區塊（`BearingDiagPanel` 降級版）
+
+- **Status**: done（2026-10-06）
+- **Deliverable**：`TurbineDetail.tsx` 振動 tab 新增第三區塊「軸承 / 齒輪診斷」：BPFO/BPFI
+  頻率+振幅、GMF、一/二階邊帶、邊帶能量比；缺值顯示「—」。就地擴充、零後端改動。
+- **測試**：`TurbineDetail.test.tsx` +2；mutation（BPFO 讀成 BPFI tag）被抓到。
+- **未涵蓋**：後端未對外提供這些項目的警報等級，故無 badge；RUL 觸發時間軸仍待做；
+  版面未經瀏覽器人工驗證。
+
+---
+
 ### WMOM-20260505-25-a — Part A：RUL 倒數 + 累積損傷 + 塔架/葉片疲勞警報 badge（`-25` 降低版子項）
 
 - **Status**: done（2026-09-28 完成，第二十一個 autonomous session）
