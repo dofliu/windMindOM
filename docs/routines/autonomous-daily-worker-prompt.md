@@ -86,7 +86,7 @@ pip install --ignore-installed PyYAML -r requirements.txt -r requirements-dev.tx
 python -m pytest \
   modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ \
   modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ tests/ -q
-# baseline expect: 1295 passed, 7 skipped, 1 xfailed（1303 collected）
+# baseline expect: 1305 passed, 7 skipped, 1 xfailed（1313 collected）
 
 cd frontend && npm ci && npx tsc --noEmit && npx vitest run && npx vite build && cd ..
 # baseline expect: tsc 0 error / vitest 1492 passed（70 files）/ build OK
@@ -197,7 +197,7 @@ cd frontend && npm ci && npx tsc --noEmit && npx vitest run && npx vite build &&
 
 ## 維護備註
 
-- baseline 數字（backend **1295 passed / 7 skipped / 1 xfailed**、frontend **tsc 0 /
+- baseline 數字（backend **1305 passed / 7 skipped / 1 xfailed**、frontend **tsc 0 /
   vitest 1477 passed 70 files / build OK**）會隨開發推進持續變動，更新時同步改本檔、
   `ci.yml` 註解與 cron 設定。**發現數字對不上時，直接動手更新本檔，不要只在
   work-log 留提醒**——這正是 v3→v4.1 這次同步花了 5+ 個 session 才處理的教訓：
@@ -214,7 +214,7 @@ cd frontend && npm ci && npx tsc --noEmit && npx vitest run && npx vite build &&
 | 項目 | v3（2026-06-03） | v4.1（2026-09-28 同步） |
 |------|------------------|--------------------------|
 | Cadence | 每 3 小時 | 不變 |
-| Backend baseline | 638 passed, 1 xfailed | 1295 passed, 7 skipped, 1 xfailed |
+| Backend baseline | 638 passed, 1 xfailed | 1305 passed, 7 skipped, 1 xfailed |
 | Frontend baseline | vitest 59 | tsc 0 / vitest 1477（70 files）/ build OK |
 | 自我測試哲學 | 無明確章節 | §0 明列為 routine 兩大目的之一 |
 | Mutation-verify | 無 | §5 phase 5 明確要求 |

@@ -53,7 +53,7 @@ Open in browser: `http://localhost:8100/docs` (Swagger UI)
 
 ## SCADA Tag System
 
-The simulator outputs **109 SCADA tags** per turbine, organized by subsystem:
+The simulator outputs **111 SCADA tags** per turbine, organized by subsystem:
 
 | Subsystem | Tag Count | Description |
 |-----------|-----------|-------------|
@@ -69,7 +69,7 @@ The simulator outputs **109 SCADA tags** per turbine, organized by subsystem:
 | WLOD | 16 | Structural load & fatigue (tower fore-aft/side-side & blade flapwise/edgewise moments, DEL, cumulative damage, production hours, RUL, alarms) |
 | WCOL | 2 | Coolant level & alarm |
 | WDRV | 2 | Drivetrain (gearbox oil temp, tooth wear index) |
-| WSRV | 1 | Service mode |
+| WSRV | 3 | Service state (service mode, manual-stop override, emergency-stop state) |
 | MBUS | 1 | Local/remote control |
 
 ### Get Tag Registry
@@ -157,7 +157,7 @@ Single turbine (e.g., `WT001` to `WT014`).
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001")
 t = r.json()
-scada = t['scadaTags']  # dict of 109 tag_id -> float
+scada = t['scadaTags']  # dict of 111 tag_id -> float
 print(f"Tower load = {scada['WLOD_TwrFaMom']:.1f} kNm")
 ```
 
