@@ -4824,6 +4824,21 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ---
 
+### WMOM-20260505-25-b — Part B：振動頻譜 tab（5 頻帶 + crest/kurtosis 警報）
+
+- **Status**: done（2026-10-06，劉老師同日核准 Part B/C）
+- **Deliverable**：`frontend/components/TurbineDetail.tsx` 新增 `vibration`「振動頻譜」tab
+  （就地擴充，不新增獨立元件檔，比照 Part A）：5 頻帶（1P/3P/gear/HF/Bb）RMS X/Y +
+  0/1/2 警報 badge、1P 轉速縮放門檻、crest factor / kurtosis / overall 警報。純函式
+  `vibAlarmInfo()` clamp+round 到 [0,2]。資料全來自既有 `scadaTags.WVIB_*`，零後端改動。
+- **測試**：`TurbineDetail.test.tsx` +5（vitest 1492→1497）；mutation（移除 clamp、
+  alarm tag 對調）皆被抓到。
+- **未涵蓋**：HealthBar / 動態 A-D zone threshold curve / crest-kurtosis trend 未做（後端只
+  對外提供 1P 門檻，其餘頻帶門檻在 `vibration_spectral.py` 內部、不在 scadaTags）；
+  圖形呈現未做瀏覽器人工驗證。Part C（`BearingDiagPanel`）與 RUL 觸發時間軸仍待做。
+
+---
+
 ### WMOM-20260505-25-a — Part A：RUL 倒數 + 累積損傷 + 塔架/葉片疲勞警報 badge（`-25` 降低版子項）
 
 - **Status**: done（2026-09-28 完成，第二十一個 autonomous session）

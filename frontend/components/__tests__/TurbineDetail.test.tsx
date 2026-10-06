@@ -680,6 +680,89 @@ describe('TurbineDetail — Load/Fatigue tab 累積損傷 / RUL / 疲勞警報',
   });
 });
 
+// ─── 振動頻譜 tab：5 頻帶 / crest / kurtosis 警報（WMOM-20260505-25-b）────────
+
+describe('TurbineDetail — Vibration tab 頻譜警報', () => {
+  const openVib = () => fireEvent.click(screen.getByRole('button', { name: '振動頻譜' }));
+
+  it('無 scadaTags → 8 個 badge 皆「無資料」（不可誤報正常），數值「—」', async () => {
+    await renderDetail({ turbine: makeTurbine({}) });
+    openVib();
+    expect(screen.getAllByText('無資料')).toHaveLength(8);
+    expect(screen.queryByText('正常')).not.toBeInTheDocument();
+    const hfRow = screen.getByText('高頻').closest('div');
+    expect(within(hfRow!).getByText('— / — mm/s')).toBeInTheDocument();
+    expect(screen.getByText('1P（轉子）')).toBeInTheDocument();
+    expect(screen.getByText('寬頻')).toBeInTheDocument();
+  });
+
+  it('頻帶 RMS 與警報等級依 tag 顯示，且各自對應正確的列', async () => {
+    await renderDetail({
+      turbine: makeTurbine({
+        scadaTags: {
+          WVIB_BandGearX: 0.6123, WVIB_BandGearY: 0.4, WVIB_AlarmGear: 1,
+          WVIB_Band1pX: 1.0, WVIB_Band1pY: 2.0, WVIB_Alarm1p: 2,
+          WVIB_Thresh1pWarn: 0.8, WVIB_Thresh1pAlrm: 1.5,
+        },
+      }),
+    });
+    openVib();
+    const gearRow = screen.getByText('齒輪嚙合').closest('div');
+    expect(within(gearRow!).getByText('0.612 / 0.400 mm/s')).toBeInTheDocument();
+    expect(within(gearRow!).getByText('警告')).toBeInTheDocument();
+    const onePRow = screen.getByText('1P（轉子）').closest('div');
+    expect(within(onePRow!).getByText('警報')).toBeInTheDocument();
+    expect(screen.getByText('0.800 / 1.500 mm/s')).toBeInTheDocument();
+  });
+
+  it('crest / kurtosis / overall 警報各自獨立顯示', async () => {
+    await renderDetail({
+      turbine: makeTurbine({
+        scadaTags: {
+          WVIB_CrestFactor: 7.5, WVIB_AlarmCrest: 2,
+          WVIB_Kurtosis: 5.5, WVIB_AlarmKurt: 1,
+          WVIB_AlarmOverall: 2,
+        },
+      }),
+    });
+    openVib();
+    const crestRow = screen.getByText('波峰因數').closest('div');
+    expect(within(crestRow!).getByText('7.50')).toBeInTheDocument();
+    expect(within(crestRow!).getByText('警報')).toBeInTheDocument();
+    const kurtRow = screen.getByText('峰度').closest('div');
+    expect(within(kurtRow!).getByText('警告')).toBeInTheDocument();
+    const overallRow = screen.getByText('整體振動警報').closest('div');
+    expect(within(overallRow!).getByText('警報')).toBeInTheDocument();
+  });
+
+  it('警報等級非整數 / 越界 → clamp + round，不拋錯', async () => {
+    await renderDetail({
+      turbine: makeTurbine({ scadaTags: { WVIB_Alarm1p: 1.6, WVIB_AlarmHf: 9, WVIB_AlarmBb: -3 } }),
+    });
+    openVib();
+    const onePRow = screen.getByText('1P（轉子）').closest('div');
+    expect(within(onePRow!).getByText('警報')).toBeInTheDocument(); // 1.6 → 2
+    const hfRow = screen.getByText('高頻').closest('div');
+    expect(within(hfRow!).getByText('警報')).toBeInTheDocument(); // 9 → 2
+    const bbRow = screen.getByText('寬頻').closest('div');
+    expect(within(bbRow!).getByText('正常')).toBeInTheDocument(); // -3 → 0
+    // 其餘未帶值的列為「無資料」
+    const threePRow = screen.getByText('3P（葉片通過）').closest('div');
+    expect(within(threePRow!).getByText('無資料')).toBeInTheDocument();
+  });
+
+  it('lang=en → tab 與標籤走英文', async () => {
+    await renderDetail({
+      lang: 'en',
+      turbine: makeTurbine({ scadaTags: { WVIB_AlarmOverall: 1 } }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Vibration' }));
+    expect(screen.getByText('Crest factor')).toBeInTheDocument();
+    const overallRow = screen.getByText('Overall vibration alarm').closest('div');
+    expect(within(overallRow!).getByText('Warning')).toBeInTheDocument();
+  });
+});
+
 // ─── TrendChartPanel 接線 ───────────────────────────────────────────────────
 
 describe('TurbineDetail — 詳細趨勢面板接線', () => {
