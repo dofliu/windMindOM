@@ -12,6 +12,8 @@
 - ``GET  /api/scenarios/{id}/farm-status``                    該情境風場層 KPI（PR C Phase 1 掛載用）
 - ``GET  /api/scenarios/{id}/turbines/{turbine_id}/history``  某情境某機組的資料（隔離調閱）
 - ``GET  /api/scenarios/{id}/ground-truth``                   情境標準答案（評分端用，主管；WMOM-20261021-04）
+- ``GET  /api/scenarios/{id}/pack``                           情境資料包 zip（盲測版，不含答案；WMOM-20261021-05）
+- ``GET  /api/scenarios/{id}/pack/full``                      情境資料包 zip（評分端版，含 ground_truth.json，主管）
 - ``DELETE /api/scenarios/{id}``                              刪除情境（含資料列、事件、標準答案）
 
 事件隔離（WMOM-20261021-04）：情境 config 帶 ``events_session_isolated: True`` 者，事件以
@@ -20,17 +22,24 @@
 
 import asyncio
 import logging
+import shutil
+import tempfile
+import threading
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
-from server.storage import is_observable_event
+from server.storage import Storage, is_observable_event
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.time_utils import parse_iso, to_utc, utc_now
 
@@ -765,3 +774,118 @@ async def delete_scenario(scenario_id: int):
     if not deleted:
         raise HTTPException(404, f"Scenario {scenario_id} not found")
     return {"status": "deleted", "scenario_id": scenario_id}
+
+
+# ── 情境資料包（WMOM-20261021-05，EPIC-DS Phase 3a）────────────────────────────
+
+# 每次下載的暫存目錄都放在這個根目錄下；回應送出後刪掉，行程中斷留下的殘骸由下一次下載清掉
+PACK_TMP_ROOT = Path(tempfile.gettempdir()) / "wmom-packs"
+PACK_TMP_MAX_AGE_S = 3600
+# HTTP 匯出的上限：同時匯出數、單包 raw 筆數（更大的情境用 CLI tools/export_scenario_pack.py）
+MAX_CONCURRENT_PACKS = 2
+MAX_PACK_ROWS_HTTP = 2_000_000
+_pack_slots = threading.BoundedSemaphore(MAX_CONCURRENT_PACKS)
+
+
+def _sweep_stale_pack_dirs(now: Optional[float] = None) -> None:
+    """刪掉超過 ``PACK_TMP_MAX_AGE_S`` 的暫存目錄（例：送出前伺服器重啟，背景清理沒跑到）。"""
+    if not PACK_TMP_ROOT.is_dir():
+        return
+    cutoff = (now if now is not None else time.time()) - PACK_TMP_MAX_AGE_S
+    for entry in PACK_TMP_ROOT.iterdir():
+        try:
+            if entry.is_dir() and entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry, ignore_errors=True)
+        except OSError:
+            continue  # 另一個請求剛好在清同一個目錄
+
+
+def _build_pack_zip(storage: Storage, scenario_id: int, include_ground_truth: bool) -> Path:
+    """匯出資料包並壓成 zip（暫存目錄由呼叫端在回應送出後刪除）。
+
+    Args:
+        storage: 情境所在的 storage。
+        scenario_id: 情境 session id。
+        include_ground_truth: 是否含 ``ground_truth.json``。
+
+    Returns:
+        zip 檔路徑（父目錄是本次的暫存目錄）。
+
+    Raises:
+        ScenarioPackError: 情境不能匯出（暫存目錄已清掉）。
+    """
+    # pyarrow 只有匯出時才需要：延後匯入，不拖慢伺服器啟動
+    from server.scenario_pack import export_scenario_pack, pack_id_for, write_pack_zip
+
+    _sweep_stale_pack_dirs()
+    PACK_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+    workdir = Path(tempfile.mkdtemp(prefix="pack-", dir=PACK_TMP_ROOT))
+    try:
+        pack_id = pack_id_for(scenario_id)
+        pack_dir = workdir / pack_id
+        export_scenario_pack(storage, scenario_id, pack_dir, include_ground_truth=include_ground_truth,
+                             max_rows=MAX_PACK_ROWS_HTTP)
+        zip_path = workdir / f"{pack_id}{'-full' if include_ground_truth else ''}.zip"
+        write_pack_zip(pack_dir, zip_path, include_ground_truth)
+        shutil.rmtree(pack_dir, ignore_errors=True)  # 只留 zip
+        return zip_path
+    except Exception:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+
+
+def _build_pack_zip_in_slot(storage: Storage, scenario_id: int, include_ground_truth: bool) -> Path:
+    """``_build_pack_zip``，結束時（在 worker thread 裡）才歸還匯出名額。
+
+    用戶端中途斷線時 await 會被取消、thread 卻還在跑；名額跟著 thread 走，才不會多開匯出。
+    斷線那次的暫存目錄由之後的下載清掉（``_sweep_stale_pack_dirs``）。
+    """
+    try:
+        return _build_pack_zip(storage, scenario_id, include_ground_truth)
+    finally:
+        _pack_slots.release()
+
+
+async def _pack_response(scenario_id: int, include_ground_truth: bool) -> FileResponse:
+    from server.scenario_pack import ScenarioPackError
+
+    b = get_broker()
+    if not _pack_slots.acquire(blocking=False):
+        raise HTTPException(429, "Too many scenario pack exports in progress; retry shortly")
+    try:
+        # 長情境的匯出要數秒到數分鐘（讀 raw、寫 Parquet）：丟到 thread，不卡 event loop
+        zip_path = await asyncio.to_thread(_build_pack_zip_in_slot, b.storage, scenario_id, include_ground_truth)
+    except ScenarioPackError as exc:
+        raise HTTPException(exc.status_code, str(exc))
+    return FileResponse(
+        zip_path, media_type="application/zip", filename=zip_path.name,
+        background=BackgroundTask(shutil.rmtree, zip_path.parent, ignore_errors=True),
+    )
+
+
+@router.get(
+    "/{scenario_id}/pack",
+    # 盲測版（不含答案）＝任何登入者，比照情境調閱
+    dependencies=[Depends(require_authenticated())],
+)
+async def download_scenario_pack(scenario_id: int) -> FileResponse:
+    """情境資料包 zip（設計文件 §5.1，盲測版：不含 ``ground_truth.json``）。
+
+    內容：manifest、tag 字典、警報目錄、raw / 10 分鐘統計 Parquet、可觀測事件。這是出題者下載後
+    **以檔案交給**受測端（外部 RAG 助手 / 學生）用的；受測端不該有本系統帳號——任何登入者都看得到
+    情境清單（含出題者取的情境名稱）與情境調閱，等於看得到題目（DEC-20261021-03）。
+
+    錯誤：404 情境不存在；409 WMOM-20261021-04 之前生成、生成未成功或沒有讀值；413 raw 超過
+    ``MAX_PACK_ROWS_HTTP``（改用 CLI）；429 同時匯出數已滿。
+    """
+    return await _pack_response(scenario_id, include_ground_truth=False)
+
+
+@router.get(
+    "/{scenario_id}/pack/full",
+    # 評分端版（含答案）＝主管，比照 ground-truth 端點用永遠強制的 require_roles
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
+)
+async def download_scenario_pack_full(scenario_id: int) -> FileResponse:
+    """情境資料包 zip（評分端版：另含 ``ground_truth.json``）。"""
+    return await _pack_response(scenario_id, include_ground_truth=True)

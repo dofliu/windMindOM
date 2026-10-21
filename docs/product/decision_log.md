@@ -769,6 +769,37 @@ EPIC-DS Phase 2 要讓批次情境帶可觀測事件（PLC 警報 / 跳機、狀
 
 ---
 
+## DEC-20261021-03 — 情境資料包排除 16 個模擬器內部量；盲測版以檔案交付，受測端不開帳號
+
+**日期**：2026-10-21　**狀態**：accepted　**Decision maker**：Claude（WMOM-20261021-05 code review S3 / S4，依 DEC-20261021-01 / -02 的盲測原則）
+
+### Context
+
+模擬器輸出 116 個 tag，其中 71 個是依命名規則自創（真實 Z72 沒有）。自創 tag 有兩種：一種是現實中有感測器 / 系統量得到、只是 Z72 沒裝的（振動頻帶、負載彎矩、無功功率、冷卻液位…），另一種是模擬器的模型狀態或預測輸出（尾流虧損、大氣穩定度、疲勞累積損傷、剩餘壽命、齒面磨耗指數、轉子不平衡力）。後者沒有任何現場系統會提供，而且其中幾個等於直接報出劣化程度（`WDRV_GbxToothWear` 是齒面磨耗的累積狀態、齒輪箱過熱會加速它；疲勞損傷與剩餘壽命同理；`WROT_ImbForce` 是由各機組個體差異參數算出的不平衡力，現場只看得到 1P 振動）——盲測時等於把答案或模型參數放進資料。
+
+另外，盲測版資料包的端點對任何登入者開放（比照情境調閱），但登入者本來就看得到情境清單（含出題者取的情境名稱）、情境 config 的 `fault_schedule` 與調閱頁的注入標記。
+
+### Considered Options
+
+- A. 全部 116 個 tag 都匯出，用 `source` 標明自創：最省事，但內部量洩漏答案、也不擬真。
+- B. 只匯出 45 個真實 tag：最擬真，但丟掉兩個故障情境的 key signal（`WLOD_TwrSsMom`、`WLOD_DelTwrSs`）與振動 / CMS 特徵（多個情境靠它們），學生能練的題目大幅減少。
+- C. 排除模型內部量，保留量得到的自創訊號並標 `source: synthetic`。
+
+### Decision
+
+1. 採 C。`scenario_pack.MODEL_INTERNAL_TAGS`（16 個）：`WMET_LocalTi`、`WMET_WakeDef`、`WMET_WakeMndr`、`WMET_WakeDefl`、`WMET_WakeTi`、`WMET_ShearAlpha`、`WMET_AtmStab`、`WLOD_DmgTwrFa`、`WLOD_DmgTwrSs`、`WLOD_DmgBldFlap`、`WLOD_DmgBldEdge`、`WLOD_RulHours`、`WLOD_AlmTwr`、`WLOD_AlmBld`、`WROT_ImbForce`、`WDRV_GbxToothWear`。資料包 100 欄＝45 真實＋55 自創。
+2. 塔架 / 葉片彎矩與 DEL 保留：負載監測系統量得到，且是故障情境的 key signal。測試守住：排除的 tag 不得是真實 tag、不得是任何情境的 key signal。
+3. 模擬語意與真實同名 tag 不同之處寫進 tag 字典的 `note`（`WMET_WSpeedNac` 是自由流風速而非風速計、`WMET_WDirAbs` 是風場真實風向）。
+4. **盲測版以檔案交付**：出題者下載（或用 CLI 匯出）後交給受測端；受測端（學生 / 外部 RAG）不開本系統帳號。端點權限維持「任何登入者」不變——擋端點擋不住清單與調閱頁。
+
+### Consequences
+
+- 新增會洩漏故障的模擬量時，要加進 `MODEL_INTERNAL_TAGS`（或改成量得到的形式）；-08 加入新故障情境時，key signal 不能選排除的 tag（測試會擋）。
+- Live / 情境頁仍顯示全部 116 個 tag（操作端與教學用），只有資料包排除。
+- 若將來要讓受測端直接連線（-06 WS 回放、-07 OPC UA），要另設不看得到情境清單的角色或 token，不能沿用一般帳號。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

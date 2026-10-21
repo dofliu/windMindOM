@@ -334,9 +334,10 @@ requests.post("http://localhost:8100/api/config/grid", json={"profile": "low_fre
 > `timezone` (IANA name, default `Asia/Taipei`; unknown names, `localtime` and non-strings → 400).
 > The simulator's diurnal and seasonal cycles follow the farm's local time, so the same UTC instants
 > produce the same data on any server. A change takes effect the next time the farm's simulation
-> starts. `POST /api/farms/{farm_id}/clone` keeps the source farm's zone. Live, scenario and
-> dataset-generation (`POST /api/farms/{farm_id}/datasets/generate`) sessions record the zone they
-> ran with in `config.site_timezone`.
+> starts. `POST /api/farms/{farm_id}/clone` keeps the source farm's zone. Live and scenario sessions
+> record the zone they ran with in `config.site_timezone`. (`POST /api/farms/{farm_id}/datasets/generate`
+> was removed in WMOM-20261021-05: it never produced data. Use a named scenario — `generate-bulk` with
+> `name` — and export it as a scenario pack.)
 
 #### POST `/api/faults/inject`
 
@@ -398,6 +399,23 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > and are not observable events — exporters must filter with `storage.is_observable_event` (allow-list:
 > PLC events and operating-state changes).
 > Scenarios generated before this change have no ground truth (404).
+
+> **Scenario packs (WMOM-20261021-05).** `GET /api/scenarios/{id}/pack` (any authenticated user) returns
+> the blind pack as a zip: `manifest.json`, `tag_dictionary.json`, `alarm_catalog.json`,
+> `timeseries_raw.parquet`, `stats_10min.parquet` and `events.jsonl` under `z72-scenario-{id:05d}/`.
+> `GET /api/scenarios/{id}/pack/full` (supervisor; always requires a token) adds `ground_truth.json`.
+> Raw columns are the Bachmann tag names with PLC types (`timestamp` is `timestamp[us, UTC]`); 16
+> simulator-internal tags are left out (DEC-20261021-03). 10-minute stats are aligned to UTC,
+> left-closed, with `window_end`, `n_samples` and `is_partial`. `events.jsonl` holds the observable events
+> only, every line with the same keys (`ts`, `turbine_id`, `event_type`, `alarm_code`, `alarm_level`,
+> `alarm_text`, `event_id`, `plc_tag`, `from_state`, `to_state`, `from_state_name`, `to_state_name`,
+> `stop_reason`). The blind pack is meant to be handed over as a file; the people being tested should
+> not have accounts (any user can list scenarios, whose names and fault schedules give the answer away).
+> Errors: 404 unknown scenario; 409 scenario generated before WMOM-20261021-04, failed, or without
+> readings; 413 more than 2,000,000 raw rows (use the CLI); 429 two exports already running.
+> CLI: `python tools/export_scenario_pack.py <db> <scenario_id> --out packs/ [--ground-truth] [--zip]`
+> (`--list` lists the scenarios in a DB). Format details: `docs/product/EPIC-DS_realistic_data_source.md`
+> §5.1 / §6.8.
 
 #### POST `/api/control/command`
 
