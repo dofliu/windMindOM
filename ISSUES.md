@@ -1288,11 +1288,12 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **完成紀錄**:
   - **修 bug**：`turbine_physics.py` 組 `extra_heat` 用 dict union，右邊（傳動 / 煞車 / 變頻器熱）覆蓋了故障熱的 `bearing` / `nacelle` / `converter` 鍵 → bearing_wear、nacelle_cooling_failure、converter 類故障從未發熱
   - **熱模型語意修正**：冷卻劣化原本只拉長時間常數、不改穩態溫度；`ThermalSystem.step(cooling_degradation=…)` 改為同時提高受影響節點熱阻（water / cabinet / transformer / nacelle / bearing / stator）
-  - **重新校正**：bearing（潤滑劣化熱阻 + 30 kW 摩擦熱）、stator（絕緣熱阻 + 40 kW）、transformer（30 kW、冷卻 floor 0.30）、nacelle（通風 floor 0.25、22 kW）、converter 洩漏 0.8 → 12 L/h·s（數小時後靜水壓降）、pitch 偏差 3.0 → 1.25°（跳機延後到後期）、vane 1 漂移 12 → 18°、icing 轉速 bias −1.5 → −0.3（不再卡在啟動）、grid sag 端電壓下陷 11 % + 5 % 擺盪
+  - **重新校正**：bearing（潤滑劣化熱阻 + 30 kW 摩擦熱）、stator（絕緣熱阻 + 40 kW）、transformer（30 kW、冷卻 floor 0.30）、nacelle（通風 floor 0.25、22 kW）、converter 洩漏係數 0.8 → 12（洩漏率 = 12 × 嚴重度 L/h，數小時後靜水壓降）、pitch 偏差 3.0 → 1.25°（跳機延後到後期）、vane 1 漂移 12 → 18°、icing 轉速 bias −1.5 → −0.3（不再卡在啟動）、grid sag 端電壓下陷 11 % + 5 % 擺盪
   - **新增 5 個真實 Bachmann tag**（111 → 116）：`WYAW_YwVn2AlgnAvg5s`（風向標 2，233 比對對象）、`WCNV_VtgMsCnvGd1/2/3`（變頻器電網側電壓，481 量測）、`WYAW_YwBrkSealsLeak`（油封洩漏偵測，261）；新類比 tag 用獨立 `_aux_rng`，**健康機組既有 111 tag 輸出逐位元不變**（3 工況 × 90 樣本 0 差異）
-  - **`TurbineSpec` 新增保護設定值**：每個標 manual（手冊 Appendix C）或 assumed（手冊只寫 See [ABB]）；`yaw_pressure_alarm` 170 → 180（對齊手冊 260 的 < 180 bar）
-  - **測試** `tests/physics/test_fault_threshold_reach.py`（29 項）：健康機組 30 °C 炎熱天 9/14/20 m/s 不越任何設定值；14 m/s 滿嚴重度越過跳機設定值；嚴重度 0.5 尚未到；定子故障低負載不到警報。mutation：把合併 bug 放回 → 2 項失敗
-  - 驗證：backend 1464 passed / 7 skipped / 1 xfailed；`examples/data_quality_analysis.py` 20 項通過 / 0 待改善（與 main 一致）
+  - **`TurbineSpec` 新增保護設定值**：每個標 manual（手冊 Appendix C）或 assumed（手冊只寫 See [ABB]，取高於健康機組 37 °C 最熱日的最大值）；`yaw_pressure_alarm` 170 → 180（對齊手冊 260 的 < 180 bar），兩個 git 追蹤的 farm `config.json` 同步更新
+  - **code-reviewer review**：1 must-fix（assumed 設定值原本只對 30 °C 安全，天氣模型最熱 37 °C 會誤報 → 改 46 / 51-56 / 62-67 並把健康測試擴到 37 °C）+ 7 should-fix 已處理（洩漏偵測用 spec 值、farm config、`VtgMsCnvGd` 改 kV 相電壓對齊現場 SCADA、`YwBrkSealsLeak` 改 BOOL、電壓驟降實際走 LVRT band 1、風向標漂移改為「控制器跟隨風向標 1」的一致語意、補 RNG 隔離與熱阻倍率守門測試）
+  - **測試** `tests/physics/test_fault_threshold_reach.py`（36 項）：健康機組 30 / 37 °C × 9/14/20 m/s 不越設定值；14 m/s 滿嚴重度越過跳機設定值；嚴重度 0.5 尚未到；定子故障低負載不到警報；新感測器只用 `_aux_rng`；熱阻倍率邊界。mutation：把合併 bug 放回 → 2 項失敗
+  - 驗證：backend 1471 passed / 7 skipped / 1 xfailed；`examples/data_quality_analysis.py` 20 項通過 / 0 待改善（與 main 一致）
 - **未做（-03-b）**：警報 / 跳機仍由 `FaultEngine` severity 觸發；物理訊號與事件時點目前只在高負載下大致一致
 
 ### WMOM-20261021-03-b — PLC 保護層：警報 / 跳機改由物理訊號觸發
@@ -1302,7 +1303,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Priority**: high
 - **Estimate**: 2 天
 - **Owner**: -
-- **Description**: 新增 PLC 保護層，以 `TurbineSpec` 設定值（-03-a）對量測訊號做判定（含遲滯、延時：葉片差 5 s / 3 s / 瞬間、風向標 25 s 濾波 + 10 分鐘風速條件），送出真實事件碼；T1 走正常伺服停機、T2 走緊急變槳；跳機鎖存，條件解除後依目錄 `max_per_hour` 自動重啟，超過則需復位；故障機組維持「復位不等於修好」的既有不變量（WMOM-20260719-01），但改用重啟封鎖取代每步 `cmd_emergency_stop`（修 7↔3 擺盪）；物理層自有跳機（overspeed / cut-out / grid）對應事件碼；`FaultEngine.alarm_codes` 改為情境的預期碼 metadata；broker 事件改記 PLC 事件碼。
+- **Description**: 新增 PLC 保護層，以 `TurbineSpec` 設定值（-03-a）對量測訊號做判定（含遲滯、延時：葉片差 5 s / 3 s / 瞬間——健康機組紊流下瞬間差異可達 1.16°，不可看瞬間值；風向標 25 s 濾波 + 10 分鐘風速條件；電網欠壓對應物理層 `ride_through:lvrt_*` / `grid_*` 跳機原因），注意事項見設計文件 §6.2，送出真實事件碼；T1 走正常伺服停機、T2 走緊急變槳；跳機鎖存，條件解除後依目錄 `max_per_hour` 自動重啟，超過則需復位；故障機組維持「復位不等於修好」的既有不變量（WMOM-20260719-01），但改用重啟封鎖取代每步 `cmd_emergency_stop`（修 7↔3 擺盪）；物理層自有跳機（overspeed / cut-out / grid）對應事件碼；`FaultEngine.alarm_codes` 改為情境的預期碼 metadata；broker 事件改記 PLC 事件碼。
 - **Depends on**: WMOM-20261021-03-a
 
 ### WMOM-20261021-03-c — monitoring 時間戳改 UTC tz-aware

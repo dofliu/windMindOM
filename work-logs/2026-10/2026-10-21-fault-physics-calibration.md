@@ -35,13 +35,14 @@ WMOM-20261021-03（Phase 1b）：警報改由物理訊號越過真實判定條�
 ### 2.3 校正與新訊號
 
 - bearing：潤滑劣化熱阻 + 30 kW 摩擦熱；stator：絕緣熱阻 + 40 kW；transformer：30 kW、冷卻 floor 0.30；nacelle：通風 floor 0.25、22 kW、機櫃劣化減弱（讓 A273 先於 T256）
-- converter：洩漏 0.8 → 12 L/h·s（數小時後液位 < 70 % → 泵穴蝕 → 靜水壓降，事件 432）
+- converter：洩漏係數 0.8 → 12（洩漏率 = 12 × 嚴重度 L/h；數小時後液位 < 70 % → 泵穴蝕 → 靜水壓降，事件 432）；冷卻水劣化 floor 0.25 → 0.20、斜率 0.7 → 0.8
 - pitch_imbalance：偏差 3.0 → 1.25°（維持「細微、後期才跳」；`test_fault_signature` 要求 0.85 時 ≥ 1.0°）
-- yaw_sensor_drift：只偏風向標 1（新 key `vane1_drift_deg`），12 → 18°
+- yaw_sensor_drift：新 key `vane1_drift_deg`，12 → 18°；語意為「控制器跟隨漂移的風向標 1」：風向標 1 讀數接近 0、風向標 2 與疲勞 / 斜流 / 尾流用真實偏航誤差 −drift
 - blade_icing：轉速 bias −1.5 → −0.3（原本中度就卡在啟動狀態 5），振動 6 / 9 mm/s
-- grid_voltage_sag：端電壓下陷 11 % + 5 % 擺盪（60 s），既有 ride-through 保護約嚴重度 0.7 起跳機
+- grid_voltage_sag：端電壓下陷 11 % + 5 % 擺盪（60 s），約嚴重度 0.7 起由既有 LVRT band 1（< 0.90 p.u. 過久）跳機；同時觸發既有電壓降載
 - 新增 5 個**真實 Bachmann tag**（從 xlsx 找到）：`WYAW_YwVn2AlgnAvg5s`、`WCNV_VtgMsCnvGd1/2/3`、`WYAW_YwBrkSealsLeak`
-- `TurbineSpec` 新增保護設定值，每個標 manual / assumed；`yaw_pressure_alarm` 170 → 180（手冊）
+- `TurbineSpec` 新增保護設定值，每個標 manual / assumed；assumed 取高於健康機組 37 °C 最熱日最大值（機艙空氣 46、冷卻水 51/56、變頻器機櫃 62/67、變壓器 80/90、振動 7）；`yaw_pressure_alarm` 170 → 180（手冊），兩個 farm `config.json` 同步
+- `WCNV_VtgMsCnvGd1/2/3` 輸出 kV 相電壓（對齊現場 SCADA「公元」sheet 的 `V_A_N`）；`YwBrkSealsLeak` 型別 BOOL
 
 ### 2.4 健康輸出不變
 
@@ -56,7 +57,7 @@ WMOM-20261021-03（Phase 1b）：警報改由物理訊號越過真實判定條�
 
 ### 新增檔案
 
-- `tests/physics/test_fault_threshold_reach.py`（29 項）
+- `tests/physics/test_fault_threshold_reach.py`（36 項）
 - 本 work-log
 
 ### 修改檔案
@@ -79,10 +80,18 @@ WMOM-20261021-03（Phase 1b）：警報改由物理訊號越過真實判定條�
 2. **WMOM-20261021-03-c**：UTC 時間戳
 3. 阻擋項：無
 
+## 4.1 Code review（code-reviewer subagent）
+
+- 獨立重驗逐位元不變（5 工況 × 2 seed × 150 樣本 × 111 tag，166,500 值 0 差異）；下游無 tag 數量假設
+- 🔴 must-fix：assumed 設定值只對 30 °C 安全，天氣模型 7-8 月正午可到 ~37 °C，健康機組會誤報 A273 / A420 → 依 37 °C 健康最大值重訂（46 / 51-56 / 62-67），健康測試擴到 37 °C；手冊 T256（50 °C）不調，真機同樣會跳
+- should-fix 已處理：洩漏偵測改用 spec 值；兩個 farm config 170 → 180；`VtgMsCnvGd` 改 kV 相電壓、`YwBrkSealsLeak` 改 BOOL；電壓驟降實際走 LVRT band 1（文件 / 測試修正）；風向標漂移改成一致語意；補 RNG 隔離、熱阻倍率守門測試
+- 記為 -03-b / -04 注意事項（設計文件 §6.2）：葉片差異需時間窗（健康紊流瞬間 1.16°）、風向標 25 s 濾波、洩漏隨時間累積、事件順序由物理決定
+- 未採納：把 dt 拉到 10 s 加速測試（物理 sub-step 上限 5 s，> 8 s 轉子會發散）
+
 ## 5. 驗證
 
-- `python -m pytest modules/*/tests/ tests/ -q` → **1464 passed / 7 skipped / 1 xfailed**（基準 1435，+29）
-- `tests/physics/test_fault_threshold_reach.py` 29 項通過；mutation：把合併 bug 放回 → bearing / nacelle 2 項失敗
+- `python -m pytest modules/*/tests/ tests/ -q` → **1471 passed / 7 skipped / 1 xfailed**（基準 1435，+36）
+- `tests/physics/test_fault_threshold_reach.py` 36 項通過；mutation：把合併 bug 放回 → bearing / nacelle 2 項失敗
 - `modules/monitoring/examples/data_quality_analysis.py` → **20 項通過 / 0 待改善**（與 main 一致；產生的報告與 CSV 已還原，未提交）
 - 健康輸出逐位元比對：0 差異
 

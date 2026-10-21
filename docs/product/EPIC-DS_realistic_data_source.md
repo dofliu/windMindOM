@@ -176,24 +176,35 @@ A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip
 
 ### 6.2 Phase 1b-a 故障物理校正結果（2026-10-21）
 
-保護設定值在 `TurbineSpec`（manual = 手冊 Appendix C；assumed = 手冊只寫「See [ABB]」，取高於健康機組炎熱天最大值）。
-下表為 14 m/s、25 °C、3 h 定嚴重度的量測值（`tests/physics/test_fault_threshold_reach.py` 鎖住「滿嚴重度越過、0.5 未到、健康 30 °C 不越」）：
+保護設定值在 `TurbineSpec`（manual = 手冊 Appendix C；assumed = 手冊只寫「See [ABB]」，取高於本模型健康機組在天氣模型最熱日——37 °C、額定負載——的最大值）。
+下表為 14 m/s、25 °C、3 h 定嚴重度的量測值（`tests/physics/test_fault_threshold_reach.py` 鎖住「滿嚴重度越過、0.5 未到、健康機組 30 °C 與 37 °C 不越」）：
 
 | 情境 | 訊號 | 設定值（事件） | 嚴重度 0.6 | 0.8 | 1.0 |
 |---|---|---|---|---|---|
 | bearing_wear | `WGEN_GnBrgTmp1` | 85 A262 / 95 T240（manual） | 68 | 89 | 135 |
-| stator_winding_degradation | `WGEN_GnStaTmp1` | 140 A264 / 150 T244（manual） | 102 | 132 | 180 |
-| nacelle_cooling_failure | `WNAC_NacTmp` / `WNAC_NacCabTmp` | 40 A273（assumed）/ 50 T256（manual） | 37 / 44 | 42 / 49 | 49 / 57 |
+| stator_winding_degradation | `WGEN_GnStaTmp1` | 140 A264 / 150 T244（manual） | 102 | 132 | 180¹ |
+| nacelle_cooling_failure | `WNAC_NacTmp` / `WNAC_NacCabTmp` | 46 A273（assumed）/ 50 T256（manual） | 37 / 44 | 42 / 49 | 49 / 57 |
 | transformer_overheat | `WGDC_TrfCoreTmp` | 80 A417 / 90 T444（assumed） | 67 | 83 | 107 |
-| converter_cooling_fault | `WCNV_IGCTWtrTmp` | 46 A420 / 52 T437（assumed） | 43 | 50 | 63 |
+| converter_cooling_fault | `WCNV_IGCTWtrTmp` | 51 A420 / 56 T437（assumed） | 46 | 56 | 81 |
 | hydraulic_leak | `WYAW_YwBrkHyPrs` | 180 A260 / 150 T228（manual） | 162 | 146 | 130 |
 | yaw_sensor_drift | 風向標 1−2 差 | 15° T233（manual） | 10.9 | 14.5 | 18.1 |
 | pitch_imbalance | 葉片角度差 | 1° / 5 s T335（manual） | 0.9 | 1.2 | 1.4 |
 | blade_icing | 機艙振動 max(X, Y) | 7 mm/s T236（assumed） | 6.0 | 7.4 | 8.7 |
-| grid_voltage_sag | `WCNV_VtgMsCnvGd1` | < 0.87 p.u. 跳機（ride-through） | 正常 | 跳機（約 0.7 起） | 跳機 |
+| grid_voltage_sag | `WCNV_VtgMsCnvGd1`（kV 相電壓） | LVRT band 1（< 0.90 p.u. 過久）跳機 | 正常（已降載） | 跳機（約 0.7 起） | 跳機 |
 | generator_overspeed | `WROT_RotSpd` | 26.5 rpm（manual，物理層軟體超速停機） | 約 0.45 起停機 | — | — |
 
+¹ 180 是感測器量程上限（`_get_sensor_config` 的 Tmp max），不是物理值。
+
 負載相依：同樣滿嚴重度，9 m/s 時 stator 只到 97 °C、不會警報；generator_overspeed 也不會超速。
+
+注意事項（給 -03-b / -04）：
+- **事件順序由物理決定**：nacelle_cooling_failure 的機艙控制櫃（T256，50 °C）通常比機艙空氣（A273，46 °C）先到，跳機可能先於警報出現。
+- **37 °C 健康機組會碰到手冊的 T256（50 °C）**：真機在同樣條件也會跳，是合理的環境性跳機，不調整手冊值。
+- **洩漏是隨時間累積的**：converter 冷卻液位跌破 70 % 才會壓降（A432），嚴重度 0.3 約 7 h、0.1 約 30 h；ground truth 不能只看嚴重度。
+- **葉片差異需要時間窗**：健康機組在紊流風下瞬間差異可達約 1.16°（> 1°），PLC 判定必須用手冊的 5 s / 3 s / 瞬間三段，不可看瞬間值。
+- **風向標 233 用 25 s 濾波值**：真實 tag `YwVn1/2AlgnAvg25s` 存在，本模擬只輸出 5 s 版本，濾波由 PLC 層做。
+- **yaw_sensor_drift 的語意**：控制器跟隨風向標 1，所以風向標 1 讀數仍接近 0、風向標 2 顯示真實偏航誤差（−drift），疲勞 / 偏航斜流 / 尾流轉向都用真實誤差。
+- **電壓驟降的副作用**：端電壓降低會啟動既有的電壓降載，嚴重度 0.3 時功率已降到約 1720 kW（健康約 2000 kW），遠早於跳機。
 
 ## 7. 不做的事
 

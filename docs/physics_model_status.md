@@ -152,18 +152,22 @@ Included:
 - emergency stop interaction for tripping faults
 - calibrated to real Z72 protection setpoints (WMOM-20261021-03a): at high load (14 m/s, 25 °C)
   every scenario's measured signal crosses its trip event's setpoint at full severity but not at
-  severity 0.5; a healthy turbine on a 30 °C day stays inside every setpoint
-  (`tests/physics/test_fault_threshold_reach.py`). Setpoints live on `TurbineSpec`, each marked
-  "manual" (Z72 user manual Appendix C) or "assumed" (manual only says "See [ABB]").
+  severity 0.5; a healthy turbine at 30 °C and at the weather model's hottest 37 °C stays inside
+  every setpoint except the manual nacelle-cabinet trip (50 °C, event 256), which the real machine
+  also reaches on such a day (`tests/physics/test_fault_threshold_reach.py`). Setpoints live on
+  `TurbineSpec`, each marked "manual" (Z72 user manual Appendix C) or "assumed" (manual only says
+  "See [ABB]"; chosen above the 37 °C healthy maximum).
 
 Fixed in WMOM-20261021-03a:
 - `extra_heat` was merged with a dict union whose right operand overwrote the fault heat for
   `bearing` / `nacelle` / `converter` — bearing_wear, nacelle_cooling_failure and converter faults
   never heated anything.
-- grid_voltage_sag had no voltage effect; it now depresses the local terminal voltage and the
-  existing ride-through protection trips on sustained undervoltage.
-- yaw_sensor_drift now biases vane 1 only; vane 2 (`WYAW_YwVn2AlgnAvg5s`) stays true, giving the
-  PLC its vane 1-2 discrepancy signal.
+- grid_voltage_sag had no voltage effect; it now depresses the local terminal voltage, which
+  engages the existing voltage derate and, from about severity 0.7, the existing LVRT band-1 trip
+  (`ride_through:lvrt_band1`, < 0.90 p.u. held too long).
+- yaw_sensor_drift: the yaw controller follows the drifting vane 1, so vane 1 still reads ~0 while
+  vane 2 (`WYAW_YwVn2AlgnAvg5s`) and the load / skew / wake consumers see the true misalignment
+  (−drift), giving the PLC its vane 1-2 discrepancy signal.
 - blade_icing no longer stalls the rotor in start-up at moderate severity.
 
 Current realism level:

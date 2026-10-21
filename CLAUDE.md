@@ -138,7 +138,7 @@ WMOM = WindMindOM 縮寫。
 - **警報碼守則**：模擬器、語料、前端用到的 Z72 警報碼一律以 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C）為準，不自創碼或描述；`tests/test_alarm_codes.py`、`modules/monitoring/tests/test_fault_alarm_codes.py` 會擋
 - **物理改動守則補充**：新增感測器 / tag 的隨機數一律走 `TurbinePhysicsModel._aux_rng`，不可動主 `_rng` 序列（否則所有已校準的健康輸出都會位移）
 - **下次工作**：EPIC-DS 依序 1b-b（WMOM-20261021-03-b PLC 保護層：訊號觸發警報 / 跳機、T1/T2 停機、鎖存、修 7↔3）→ 1b-c（-03-c UTC）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1464 passed / 7 skipped / 1 xfailed；frontend vitest 1501 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1471 passed / 7 skipped / 1 xfailed；frontend vitest 1501 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
