@@ -28,7 +28,9 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 **範圍限定 Z72**：手冊與真實警報清單都是 Z72；`update_spec` 對非 Z72 機型只重建一半子模型
 （見 2026-10-20 物理層盤點），在修好前其他機型不列入資料源。
 
-## 3. 現況盤點（2026-10-20 / 21 調查結果）
+## 3. 現況盤點（2026-10-20 / 21 調查結果，Phase 1a 之前的快照）
+
+> 「真實警報目錄」「模擬器警報碼」兩列已由 Phase 1a（WMOM-20261021-02）處理，現況見 §6.1。
 
 | 需求 | 現況 | 證據 |
 |---|---|---|
@@ -155,6 +157,25 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | 5 | （parking lot） | 只修會改變特徵訊號的物理：10-min std 合理化、yaw error → 發電損失等；高保真物理不做 |
 
 建議順序：1a → 1b → 2 → 3a → 3d（先讓學生拿到檔案）→ 3b → 3c → 4。
+
+### 6.1 Phase 1a 定案與已知限制
+
+**警報門檻慣例**（`fault_engine.py` docstring，`test_fault_alarm_codes.py` 強制）：
+A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip_severity`。
+跳機碼只在跳機當下出現，不會有「跳機碼已觸發但機組仍在發電」的資料。
+
+**已知限制（留給 Phase 1b / 2）**：
+
+1. **警報由 severity 觸發，不是由物理訊號越過真實門檻觸發**。以下情境的物理量級與真實判定條件不一致：
+   - `pitch_imbalance`：葉片偏差 = 3°·severity；真實 335/336 在持續 5 秒 > 1° 就跳機（約 severity 0.33），模擬器到 0.90 才跳
+   - `yaw_sensor_drift`：風向標偏差 = 12°·severity，最大仍低於 233 的 15° 判定
+   - `generator_overspeed`：351 / 320 應分別在轉速越過 26.5 / 28.5 rpm 時觸發
+   - `grid_voltage_sag`：物理層只有變頻器發熱與降載，沒有電壓下降訊號，卻送出 ARU 欠壓碼
+   - `hydraulic_leak` 已把 260 門檻對齊 180 bar（severity 0.4）；228（< 150 bar）對應 severity 0.75，但仍在 auto-trip 0.85 才跳
+2. **5 個情境在跳機前沒有任何警報**（pitch_imbalance、yaw_sensor_drift、generator_overspeed、blade_icing、grid_voltage_sag）。這符合真實 Z72 事件清單（沒有對應的 A 級警報），但 ground truth 的 `first_alarm_ts` 會等於 `trip_ts`，「早期徵兆」評分只能靠 SCADA 趨勢。
+3. **跳機一律走 emergency stop**（`simulator/engine.py` 對 tripped fault 呼叫 `cmd_emergency_stop`），但 T1 定義為正常伺服停機、T2 才是緊急變槳。
+4. **變頻器事件（400-700）手冊只寫「See [ABB]」**：只靠 Z72 手冊的 RAG 查不到細節，ground truth 應標註預期答案僅能指向 ABB 手冊。
+5. 物理層自有跳機（overspeed / cut-out / grid / ride-through）只寫 `shutdown_cause` 字串，沒有事件碼。
 
 ## 7. 不做的事
 

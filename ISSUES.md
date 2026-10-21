@@ -1246,7 +1246,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Owner**: Claude session 2026-10-21
 - **Description**: 模擬器的 24 個警報碼散在 `fault_engine.py` 的 11 個 `FAULT_SCENARIOS`，多個與真實 Z72 清單不符（350/351/311/30/32/241 意義不同、41/42/43 不存在、223/256/273 等級錯）。以 `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx`「警告訊息列表」314 筆為唯一 source of truth，建立共用警報目錄，並把 11 個情境的 `alarm_codes` 改成真實碼（等級、文字一併對齊）。手冊 Appendix C 的原因 / 處置提示 / 每小時重啟次數若能可靠解析就併入，否則留給 Phase 2。
 - **Deliverable**:
-  - `tools/build_z72_alarm_catalog.py`（xlsx → JSON，build-time 才需要 openpyxl）
+  - `tools/build_z72_alarm_catalog.py`（xlsx + 手冊 → JSON，build-time 才需要 openpyxl、pdfplumber）
   - `shared/data/z72_alarm_catalog.json`
   - `shared/alarm_codes.py`（型別化查詢 API）
   - `modules/monitoring/simulator/physics/fault_engine.py`（11 情境改真實碼）
@@ -1255,11 +1255,12 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Blocks**: WMOM-20261021-04、-05、-06、-07
 - **完成紀錄（2026-10-21）**:
   - 目錄 314 筆（T1 207 / A 62 / I 24 / T2 21），其中 306 筆併入手冊原因 / 處置 / 每小時重啟上限 / 頁碼；手冊 Appendix C 用 pdfplumber 解析表格（p.104 為 14 欄寬版面、其餘 6 欄，跨頁續行併回上一筆）。xlsx 與手冊等級不一致的 5 筆（283、363-366）以 xlsx 為準並記 `manual_level`
-  - 11 個情境改碼（舊 → 新）：bearing_wear 262/240/241 → 262/240；generator_overspeed 41/27 → 351/27；converter_cooling_fault 32/21 → 420/421/437/21；transformer_overheat 350/351 → 417/444；pitch_imbalance 43/311 → 335/336；yaw_sensor_drift 223 → 233；blade_icing 42/236 → 236；grid_voltage_sag 30/24 → 481/483/485/21；nacelle_cooling_failure 256/273/258 → 273/256；stator / hydraulic 不變
+  - 11 個情境改碼（舊 → 新）：bearing_wear 262/240/241 → 262/240；generator_overspeed 41/27 → 351/320（對齊物理層軟體 26.5 / 硬體 28.5 rpm 兩道保護）；converter_cooling_fault 32/21 → 420/421/432/437/21；transformer_overheat 350/351 → 417/444；pitch_imbalance 43/311 → 335/336；yaw_sensor_drift 223 → 233；blade_icing 42/236 → 236；grid_voltage_sag 30/24 → 481/21；nacelle_cooling_failure 256/273/258 → 273/256；stator 不變；hydraulic 碼不變、260 門檻 0.3 → 0.4（對齊 180 bar）
   - 門檻慣例：A 級 < `auto_trip_severity`；T1/T2 == `auto_trip_severity`（跳機碼只在跳機當下出現）
   - 連帶同步：`modules/knowledge/data/baseline_corpus_z72.json` 9 個 chunk 的碼與文字、`FieldPage.tsx` 一鍵告警碼（31「齒輪箱高溫」對直驅 Z72 不成立，改 21/262/260/335）
   - 測試：`tests/test_alarm_codes.py`（含裝了 openpyxl + pdfplumber 時的來源漂移偵測）、`modules/monitoring/tests/test_fault_alarm_codes.py`（含語料一致性）；舊碼還原後 46 項失敗（mutation-verified）
-  - 未做（留給後續 phase）：物理層自有跳機（overspeed / cut-out / grid）仍只寫 `shutdown_cause` 字串、未對應事件碼 → Phase 1b / 2
+  - code-reviewer subagent review：0 must-fix；5 should-fix 已處理（3 個情境換更貼切的碼、液壓門檻對齊物理量；builder 加 sanity guard / 重複碼偵測 / workbook close、空值統一為 None、修 PDF 斷字；設計文件補門檻慣例與已知限制；FieldPage chip 同時帶入真實等級）；「警報對齊物理訊號量級」與「T1 走正常停機」併入 -03
+  - 已知限制見 `docs/product/EPIC-DS_realistic_data_source.md` §6.1
 
 ### WMOM-20261021-03 — Phase 1b：警報與時間戳擬真（溫度門檻、狀態跳動、UTC）
 
@@ -1268,7 +1269,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Priority**: high
 - **Estimate**: 1-1.5 天
 - **Owner**: -
-- **Description**: (1) `TurbineSpec` 宣告的溫度 / 壓力 alarm·trip 門檻（`turbine_physics.py:66-79`）從未使用，接上並對應真實警報碼；(2) 故障持續期間狀態在 7↔3 間跳動（`scada_registry.py:426-427`），改為真實 PLC 行為（跳機後 latched、依每小時重啟次數限制）；(3) monitoring 全面使用 naive local `datetime.now()`，改為 UTC tz-aware（knowledge `AlertEvent` 已要求 tz-aware）。
+- **Description**: (1) `TurbineSpec` 宣告的溫度 / 壓力 alarm·trip 門檻（`turbine_physics.py:66-79`）從未使用，接上並對應真實警報碼；(2) 故障持續期間狀態在 7↔3 間跳動（`scada_registry.py:426-427`），改為真實 PLC 行為（跳機後 latched、依每小時重啟次數限制，上限可用目錄 `max_per_hour`）；(3) monitoring 全面使用 naive local `datetime.now()`，改為 UTC tz-aware（knowledge `AlertEvent` 已要求 tz-aware）；(4) **警報改由物理訊號越過真實判定條件觸發**，取代單純看 severity（設計文件 §6.1：葉片偏差 1°/3°/8°、風向標差 15°、超速 26.5/28.5 rpm、偏航煞車 180/150 bar；`grid_voltage_sag` 需補電壓訊號）；(5) T1 跳機改走正常伺服停機、T2 才走緊急變槳（目前 `engine.py` 一律 `cmd_emergency_stop`）。
 - **Deliverable**: `turbine_physics.py`、`scada_registry.py`、`modules/monitoring/server/storage.py` 時間戳處理 + 測試
 - **Depends on**: WMOM-20261021-02
 
@@ -1279,7 +1280,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Priority**: high
 - **Estimate**: 2 天
 - **Owner**: -
-- **Description**: (1) 每個故障情境補 metadata：根因、元件、預期警報序列、手冊 Appendix C 條目、建議處置；(2) `generate_bulk` 目前不跑 `_detect_sim_events`，情境內沒有警報 / 跳機 / 狀態事件——讓 bulk 路徑也產生事件；(3) `history_events` 加 `session_id`（目前靠時間窗比對）；(4) ground truth 隨情境落庫，且與可觀測事件分離（盲測）。
+- **Description**: (1) 每個故障情境補 metadata：根因、元件、預期警報序列、手冊 Appendix C 條目、建議處置（變頻器 400-700 碼手冊只寫「See [ABB]」，需標註）；(2) `generate_bulk` 目前不跑 `_detect_sim_events`，情境內沒有警報 / 跳機 / 狀態事件——讓 bulk 路徑也產生事件；(3) `history_events` 加 `session_id`（目前靠時間窗比對）；(4) ground truth 隨情境落庫，且與可觀測事件分離（盲測）；(5) 警報事件的 title / payload 帶事件碼與等級，T1/T2 不再一律稱為「alarm threshold reached」。
 - **Deliverable**: `fault_engine.py` metadata、`engine.py` bulk 事件、`storage.py` schema migration、`routers/scenarios.py` + 測試
 - **Depends on**: WMOM-20261021-02
 

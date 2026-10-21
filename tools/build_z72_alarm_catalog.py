@@ -42,6 +42,9 @@ MANUAL_FIRST_PAGE = 104
 MANUAL_LAST_PAGE = 130
 SCHEMA_VERSION = 1
 VALID_LEVELS = ("A", "T1", "T2", "I")
+# 版面 / 套件變動時的 sanity guard：解析結果明顯變少就中止，不要寫出一份手冊欄位全空的 JSON
+MIN_XLSX_EVENTS = 300
+MIN_MANUAL_EVENTS = 300
 
 
 class XlsxEvent(TypedDict):
@@ -65,11 +68,23 @@ class ManualEvent(TypedDict):
     manual_page: int
 
 
+class CatalogBuildError(RuntimeError):
+    """來源解析結果不合理（筆數過少、重複事件碼、未知等級）。"""
+
+
 def _clean(value: object) -> str:
-    """把儲存格內容正規化成單行字串。"""
+    """把儲存格內容正規化成單行字串，並修掉 PDF 換行造成的斷字（`re- configure`）。"""
     if value is None:
         return ""
-    return re.sub(r"\s+", " ", str(value)).strip()
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return re.sub(r"(?<=[a-z])- (?=[a-z])", "-", text)
+
+
+def _check_unique(codes: List[int], source: str) -> None:
+    """同一來源內事件碼不可重複。"""
+    dups = sorted(c for c in set(codes) if codes.count(c) > 1)
+    if dups:
+        raise CatalogBuildError(f"{source} 有重複事件碼：{dups}")
 
 
 def read_xlsx_events(path: Path = XLSX_PATH) -> List[XlsxEvent]:
@@ -84,22 +99,25 @@ def read_xlsx_events(path: Path = XLSX_PATH) -> List[XlsxEvent]:
     import openpyxl  # build-time only
 
     wb = openpyxl.load_workbook(path, read_only=True)
-    ws = wb[XLSX_SHEET]
     events: List[XlsxEvent] = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        tag, level, code, text = row[0], row[1], row[2], row[3]
-        if code is None:
-            continue
-        tag_str = _clean(tag)
-        events.append(
-            XlsxEvent(
-                code=int(code),
-                level=_clean(level),
-                text=_clean(text),
-                # I 類事件在 xlsx 的 tag 欄是備註文字（「這幾個的TAG我還沒找到」），不是 tag
-                plc_tag=tag_str if tag_str.startswith("Z72PLC__") else None,
+    try:
+        ws = wb[XLSX_SHEET]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            tag, level, code, text = row[0], row[1], row[2], row[3]
+            if code is None:
+                continue
+            tag_str = _clean(tag)
+            events.append(
+                XlsxEvent(
+                    code=int(code),
+                    level=_clean(level),
+                    text=_clean(text),
+                    # I 類事件在 xlsx 的 tag 欄是備註文字（「這幾個的TAG我還沒找到」），不是 tag
+                    plc_tag=tag_str if tag_str.startswith("Z72PLC__") else None,
+                )
             )
-        )
+    finally:
+        wb.close()  # read_only 模式不 close 會在 Windows 鎖住 xlsx
     return sorted(events, key=lambda e: e["code"])
 
 
@@ -126,10 +144,14 @@ def read_manual_events(path: Path = PDF_PATH) -> List[ManualEvent]:
 
     Returns:
         依 code 排序的事件清單。
+
+    Raises:
+        CatalogBuildError: 出現無法辨識的表格列（欄數不是 6 / 14，或不是事件列也不是續行）。
     """
     import pdfplumber  # build-time only
 
     events: List[ManualEvent] = []
+    unrecognized: List[str] = []
     with pdfplumber.open(path) as pdf:
         for page_no in range(MANUAL_FIRST_PAGE, MANUAL_LAST_PAGE + 1):
             page = pdf.pages[page_no - 1]
@@ -137,6 +159,7 @@ def read_manual_events(path: Path = PDF_PATH) -> List[ManualEvent]:
                 for raw in table:
                     cells = _manual_row_cells(raw)
                     if cells is None:
+                        unrecognized.append(f"p.{page_no} {len(raw)} 欄：{raw}")
                         continue
                     ev_id, message, meaning, rect, level, max_hr = cells
                     if re.fullmatch(r"\d{3}", ev_id):
@@ -151,8 +174,10 @@ def read_manual_events(path: Path = PDF_PATH) -> List[ManualEvent]:
                                 manual_page=page_no,
                             )
                         )
-                    elif not ev_id and events and not level:
-                        # 續行：只補文字欄（表頭列也會落到這裡，但表頭只出現在第一筆之前）
+                    elif not ev_id and not events:
+                        continue  # p.104 第一筆事件之前的表頭列
+                    elif not ev_id and not level:
+                        # 續行：只補文字欄
                         last = events[-1]
                         if message:
                             last["text"] = f"{last['text']} {message}".strip()
@@ -160,6 +185,10 @@ def read_manual_events(path: Path = PDF_PATH) -> List[ManualEvent]:
                             last["cause"] = f"{last['cause']} {meaning}".strip()
                         if rect:
                             last["rectification"] = f"{last['rectification']} {rect}".strip()
+                    else:
+                        unrecognized.append(f"p.{page_no}：{cells}")
+    if unrecognized:
+        raise CatalogBuildError("手冊 Appendix C 有無法辨識的表格列：\n" + "\n".join(unrecognized))
     return sorted(events, key=lambda e: e["code"])
 
 
@@ -190,7 +219,7 @@ def build_catalog(xlsx_events: List[XlsxEvent], manual_events: List[ManualEvent]
             "level": x["level"],
             "text": x["text"],
             "plc_tag": x["plc_tag"],
-            "cause": m["cause"] if m else None,
+            "cause": (m["cause"] or None) if m else None,
             "rectification": (m["rectification"] or None) if m else None,
             "max_per_hour": m["max_per_hour"] if m else None,
             "manual_page": m["manual_page"] if m else None,
@@ -216,8 +245,30 @@ def build_catalog(xlsx_events: List[XlsxEvent], manual_events: List[ManualEvent]
     }
 
 
-def _render(catalog: Dict[str, object]) -> str:
+def render_catalog(catalog: Dict[str, object]) -> str:
+    """把目錄 dict 序列化成 commit 用的 JSON 文字。"""
     return json.dumps(catalog, ensure_ascii=False, indent=1) + "\n"
+
+
+def validate_sources(xlsx_events: List[XlsxEvent], manual_events: List[ManualEvent]) -> None:
+    """來源 sanity guard。
+
+    Args:
+        xlsx_events: xlsx 事件。
+        manual_events: 手冊事件。
+
+    Raises:
+        CatalogBuildError: 筆數過少、事件碼重複或出現未知等級。
+    """
+    if len(xlsx_events) < MIN_XLSX_EVENTS:
+        raise CatalogBuildError(f"xlsx 只解析出 {len(xlsx_events)} 筆（預期 ≥ {MIN_XLSX_EVENTS}）")
+    if len(manual_events) < MIN_MANUAL_EVENTS:
+        raise CatalogBuildError(f"手冊只解析出 {len(manual_events)} 筆（預期 ≥ {MIN_MANUAL_EVENTS}）")
+    _check_unique([x["code"] for x in xlsx_events], "xlsx")
+    _check_unique([m["code"] for m in manual_events], "手冊")
+    bad_levels = [x["code"] for x in xlsx_events if x["level"] not in VALID_LEVELS]
+    if bad_levels:
+        raise CatalogBuildError(f"xlsx 有未知等級的 code：{bad_levels}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -226,15 +277,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--check", action="store_true", help="只比對既有 JSON，不寫檔")
     args = parser.parse_args(argv)
 
-    xlsx_events = read_xlsx_events()
-    manual_events = read_manual_events()
-    bad_levels = [x["code"] for x in xlsx_events if x["level"] not in VALID_LEVELS]
-    if bad_levels:
-        print(f"[ERROR] xlsx 有未知等級的 code：{bad_levels}", file=sys.stderr)
+    try:
+        xlsx_events = read_xlsx_events()
+        manual_events = read_manual_events()
+        validate_sources(xlsx_events, manual_events)
+    except CatalogBuildError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return 1
 
     catalog = build_catalog(xlsx_events, manual_events)
-    rendered = _render(catalog)
+    rendered = render_catalog(catalog)
     events = catalog["events"]
     assert isinstance(events, list)
     with_manual = sum(1 for e in events if e["manual_page"] is not None)

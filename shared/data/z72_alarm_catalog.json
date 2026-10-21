@@ -179,7 +179,7 @@
    "text": "Parameter configuration fault",
    "plc_tag": "Z72PLC__ActiveTrip2",
    "cause": "A parameter has been set to a value that disables protective functions",
-   "rectification": "Check parameter ranges, and re- configure",
+   "rectification": "Check parameter ranges, and re-configure",
    "max_per_hour": 1,
    "manual_page": 105
   },
@@ -1018,7 +1018,7 @@
    "level": "A",
    "text": "Spare",
    "plc_tag": "Z72PLC__ActiveAlarm",
-   "cause": "",
+   "cause": null,
    "rectification": null,
    "max_per_hour": null,
    "manual_page": 112

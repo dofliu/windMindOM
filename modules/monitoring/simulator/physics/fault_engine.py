@@ -91,8 +91,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         id="generator_overspeed",
         name_en="Generator Overspeed",
         name_zh="發電機超速",
-        description_en="Control system failure allowing rotor/generator overspeed (Z72 Event 351/027)",
-        description_zh="控制系統失效導致發電機超速（Z72事件351/027）",
+        description_en="Control system failure allowing rotor/generator overspeed (Z72 Event 351/320)",
+        description_zh="控制系統失效導致發電機超速（Z72事件351/320）",
         affected_tags={
             "WROT_RotSpd": {"max_offset": 5.0, "curve": "exponential"},
             "WGEN_GnSpd": {"max_offset": 5.0, "curve": "exponential"},
@@ -100,9 +100,10 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WNAC_VibMsNacYDir": {"max_offset": 10.0, "curve": "exponential"},
         },
         alarm_codes=[
-            # 351：變槳控制無法把轉速壓回正常範圍；027：發電機頻率量得轉速 > 28.0 rpm
+            # 對齊物理層兩道保護（TurbineSpec.overspeed_software_rpm 26.5 / overspeed_hardware_rpm 28.5）：
+            # 351 變槳控制壓不住轉速；控制失效時轉速續升，觸發外部 Jaquet 硬體超速電驛 320（緊急變槳）
             {"type": "T1", "code": 351, "threshold": 0.6, "desc": "Software overspeed"},
-            {"type": "T1", "code": 27, "threshold": 0.6, "desc": "Generator overspeed"},
+            {"type": "T2", "code": 320, "threshold": 0.6, "desc": "Hardware overspeed or watchdog timeout"},
         ],
         auto_trip_severity=0.6,
     ),
@@ -125,6 +126,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             # 手冊：021 會與 400-700 範圍的變頻器跳機碼一起出現
             {"type": "A", "code": 420, "threshold": 0.3, "desc": "Cooling water temperature high"},
             {"type": "A", "code": 421, "threshold": 0.5, "desc": "Converter cabinet temperature high"},
+            # 物理層模擬 O-ring 劣化洩漏（coolant_leak_lph）→ 靜水壓下降
+            {"type": "A", "code": 432, "threshold": 0.6, "desc": "Static water pressure L"},
             {"type": "T1", "code": 437, "threshold": 0.85, "desc": "Cooling water temperature very high"},
             {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
         ],
@@ -221,7 +224,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WYAW_CabWup": {"max_offset": 0.8, "curve": "linear"},             # slight cable drift
         },
         alarm_codes=[
-            {"type": "A", "code": 260, "threshold": 0.3, "desc": "Yaw brake pressure low"},
+            # 物理層壓力 = 210 − 80·severity bar；260 手冊門檻 < 180 bar → severity ≥ 0.375
+            {"type": "A", "code": 260, "threshold": 0.4, "desc": "Yaw brake pressure low"},
             {"type": "A", "code": 261, "threshold": 0.5, "desc": "Yaw brake oil leakage detected"},
             {"type": "T1", "code": 228, "threshold": 0.85, "desc": "Yaw brake pressure very low"},
         ],
@@ -261,10 +265,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WCNV_CnvGnFrq": {"max_offset": -0.5, "curve": "linear"},
         },
         alarm_codes=[
-            # 三相欠壓由 ABB 變頻器 ARU 偵測，PLC 同時收到變頻器的跳機要求（021）
+            # 欠壓由 ABB 變頻器 ARU 偵測，PLC 同時收到變頻器的跳機要求（021）
             {"type": "T1", "code": 481, "threshold": 0.85, "desc": "Undervoltage ARU phase R-S low"},
-            {"type": "T1", "code": 483, "threshold": 0.85, "desc": "Undervoltage ARU phase S-T low"},
-            {"type": "T1", "code": 485, "threshold": 0.85, "desc": "Undervoltage ARU phase T-R low"},
             {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
         ],
     ),
