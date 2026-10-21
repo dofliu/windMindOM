@@ -13,14 +13,19 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 11 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 134 |
+| done | 135 |
 | **total** | **149** |
 
-最後更新：2026-10-21 深夜（**WMOM-20261021-11 done**：風場時區——`FarmConfig.timezone`（預設 Asia/Taipei、`farms.db` 新欄、API 驗證）、
+最後更新：2026-10-21 深夜（**WMOM-20261021-04 done**（EPIC-DS Phase 2）：故障情境標準答案 metadata（元件 / 根因 / 類別 / 難度 /
+key signals / 建議處置，手冊條目由警報目錄組出、See [ABB] 標記）；批次路徑產生可觀測事件（PLC 事件 + 狀態轉換，模擬時間戳）；
+`history_events.session_id`（情境事件以 session 隔離）；標準答案存 `scenario_ground_truth` 表、`GET /api/scenarios/{id}/ground-truth`（主管），
+與可觀測事件分離（`storage.is_observable_event`）。逐條解析 header 核實：open 11 / in_progress 1 / deferred 2 / done 135 = 149。
+詳見 `work-logs/2026-10/2026-10-21-ground-truth-scenario-events.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-11 done**：風場時區——`FarmConfig.timezone`（預設 Asia/Taipei、`farms.db` 新欄、API 驗證）、
 broker 以目前風場時區建立模擬器、`wind_model` 以 `to_site_naive` 取風場當地時刻；同一組 UTC 時刻在任何伺服器時區下輸出逐位元相同；
 情境 session 記下 `site_timezone`；-10 / -11 code review 修正（移動平均窗精確化、I201 每停機週期一次、reset 保留平均風速；
 clone / 資料集產生帶風場時區、`tzdata`、無效時區 fallback）。逐條解析 header 核實：open 12 / in_progress 1 / deferred 2 / done 134 = 149。
@@ -1361,13 +1366,23 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-04 — Phase 2：標準答案（ground truth）+ 情境路徑事件
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 2 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: (1) 每個故障情境補 metadata：根因、元件、預期警報序列、手冊 Appendix C 條目、建議處置（變頻器 400-700 碼手冊只寫「See [ABB]」，需標註）；(2) `generate_bulk` 目前不跑 `_detect_sim_events`，情境內沒有警報 / 跳機 / 狀態事件——讓 bulk 路徑也產生事件；(3) `history_events` 加 `session_id`（目前靠時間窗比對）；(4) ground truth 隨情境落庫，且與可觀測事件分離（盲測）；(5) 警報事件的 title / payload 帶事件碼與等級，T1/T2 不再一律稱為「alarm threshold reached」。
 - **Deliverable**: `fault_engine.py` metadata、`engine.py` bulk 事件、`storage.py` schema migration、`routers/scenarios.py` + 測試
+- **完成紀錄**:
+  - **(1) metadata**：`FaultScenario` 加 `component`、`root_cause_zh/en`、`category`（yaw_sensor_drift＝sensor_fault）、`origin`（blade_icing＝environmental、grid_voltage_sag＝external_grid）、`difficulty`、`key_signals`、`expected_actions_zh/en`；預期警報序列沿用 `alarm_codes`（A 在 T 前，測試擋）；手冊條目由警報目錄組出（頁碼、原因、處置），「See [ABB]」標 `see_abb`、case 標 `manual_coverage`。key signals 依探測選定並有物理測試（偏離健康 > 3σ 且 > 2 %）；探測發現風向標漂移的訊號在風向標 2（偏航依漂移的風向標 1 追風）
+  - **(2) bulk 事件**：`generate_bulk(on_events=...)` 每個物理子步收集 PLC 事件（時刻依機組 `_sim_time` 回推）與 `WTUR_TurSt` 轉換（含停機原因）；批次前清掉 Live 殘留佇列；收集不改讀值（固定起點兩次生成逐位元相同）。`DataBroker.record_bulk_events` 與 Live 共用格式（`_plc_event_fields` / `_state_transition_fields`），一次 commit；測試計畫也記事件與跳機標記
+  - **(3) `session_id`**：`history_events` 補欄 + 索引（舊 DB 自動補、舊列 NULL）；`record_event` 預設 Live session；情境 config `events_session_isolated: true` → 調閱 / 摘要依 session（`eventsByTimeWindow` false），舊情境退回時間窗；掛載 FAULT 重算只撈 `source="scenario"`；刪情境一併刪事件與標準答案
+  - **(4) ground truth**：`simulator/ground_truth.py::GroundTruthRecorder`（onset / 首次預期警報 / 跳機、實際出現的預期碼與其他碼、取代、`healthy_turbines`）→ `scenario_ground_truth` 表 → `GET /api/scenarios/{id}/ground-truth`（主管）；可觀測事件判定 `storage.is_observable_event`（排除情境 / 測試計畫標記、`fault_lifecycle`、payload 帶故障 ID 者），整合測試檢查可觀測事件不含任何故障 ID
+  - **(5)** 已於 -03-b 達成（PLC 事件 title `Trip: T_240 …`、payload 帶 `code` / `level`），未改格式
+  - **實測**：14 機、6 h、stress_test 前 8 個故障 → 62 筆事件，生成時間與不收事件相同（77.6 s vs 81.6 s）；hydraulic_leak `260 → 261 → 228`、超速 / 結冰 / 葉片 / 風向標首次警報＝跳機
+  - **測試**：`test_fault_ground_truth.py`（42）、`test_bulk_events.py`（18）、`test_scenario_endpoints.py` +8、`test_monitoring_routers_auth.py` +3、`test_fault_threshold_reach.py` +11；mutation 16 項皆被抓到；健康輸出逐位元不變、`data_quality_analysis.py` 20 / 0
+  - 設計與已知限制見設計文件 §6.7
+- **未做**：Live 路徑沒有標準答案（`Automatic fault trip` / `fault_lifecycle` 帶故障 ID，操作端展示用，不是盲測資料源）；測試計畫不產生標準答案；健康 / nuisance case（-08）；`farms.py::generate_dataset` 不記事件（-05）；情境 config 的 `fault_schedule` 寫明故障，-05 manifest 不得帶出
 - **Depends on**: WMOM-20261021-02
 
 ### WMOM-20261021-05 — Phase 3a：① 檔案——情境資料包匯出
@@ -1493,7 +1508,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 1b | ~~WMOM-20261021-03~~ ✅ | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → ~~-03-c UTC 時間戳~~ ✅ | 🔵 |
 | 1b+ | ~~WMOM-20261021-10~~ ✅ | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
 | 1b+ | ~~WMOM-20261021-11~~ ✅ | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
-| 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
+| 2 | ~~WMOM-20261021-04~~ ✅ | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
 | 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
