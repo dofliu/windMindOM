@@ -18,6 +18,7 @@ from simulator.physics import TurbinePhysicsModel, FaultEngine
 from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPlanStep
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
+from simulator.time_utils import iso_utc, utc_now
 
 
 def _zero_non_finite(scada: Dict[str, float]) -> List[str]:
@@ -316,15 +317,17 @@ class WindFarmSimulator:
         time_scale=1: real-time (1 physics second per wall second)
         time_scale=60: 60 physics seconds per wall second (1 min/s)
         time_scale=3600: 1 hour of simulation per wall second
+
+        模擬時間一律 tz-aware UTC（WMOM-20261021-03-c）。
         """
-        sim_time = datetime.now()
+        sim_time = utc_now()
 
         while self._running:
             try:
                 ts = self.wind_model.time_scale
                 if ts <= 1.0:
                     # Real-time mode: 1 step per wall-clock second
-                    sim_time = datetime.now()
+                    sim_time = utc_now()
                     readings = self._run_one_step(sim_time, time_step)
                     for cb in self._callbacks:
                         try:
@@ -421,7 +424,7 @@ class WindFarmSimulator:
             Total number of readings generated
         """
         total_steps = int(duration_hours * 3600 / time_step)
-        sim_time = datetime.now()
+        sim_time = utc_now()
         total_readings = 0
         report_interval = max(1, total_steps // 100)  # report every 1%
 
@@ -488,9 +491,12 @@ class WindFarmSimulator:
     def _scada_to_output(tid: str, timestamp: datetime,
                          scada: Dict[str, float],
                          wind_speed: float, wind_direction: float) -> Dict:
-        """Convert flat SCADA dict to the nested output format expected by data_broker."""
+        """Convert flat SCADA dict to the nested output format expected by data_broker.
+
+        ``timestamp`` 以固定格式的 UTC ISO 字串輸出（naive 值視為本地時間，WMOM-20261021-03-c）。
+        """
         return {
-            'timestamp': timestamp.isoformat(),
+            'timestamp': iso_utc(timestamp),
             'turbine_id': tid,
             'operational_state': _tur_state_to_str(int(scada.get("WTUR_TurSt", 1))),
             'wind_speed': wind_speed,

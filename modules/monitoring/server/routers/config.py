@@ -6,6 +6,7 @@ from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
 from simulator.physics.fault_engine import FAULT_SCENARIOS, TestPlanStep
+from simulator.time_utils import iso_utc
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -372,7 +373,7 @@ async def generate_bulk(body: dict):
         # 注入時間戳早於本 step 的首筆 reading（on_inject 在物理子步推進「前」觸發），
         # 故 offset=0 的事件會落在首筆 reading 前一個 time_step。把注入時間也納入 sim_window
         # 下界，否則調閱時 `timestamp >= sim_start` 會把「情境一開始就注入」的故障事件排除掉。
-        inj_ts = sim_time.isoformat()
+        inj_ts = iso_utc(sim_time)
         if sim_window["start"] is None or inj_ts < sim_window["start"]:
             sim_window["start"] = inj_ts
         b.record_event(
@@ -381,7 +382,7 @@ async def generate_bulk(body: dict):
             title=f"Scenario fault: {fstep.scenario_id} on {fstep.turbine_id}",
             turbine_id=fstep.turbine_id,
             detail=fstep.description or f"Scheduled {fstep.scenario_id} @ {fstep.offset_seconds / 3600:.1f}h",
-            timestamp=sim_time.isoformat(),
+            timestamp=iso_utc(sim_time),
             payload={
                 "scenarioId": fstep.scenario_id,
                 "turbineId": fstep.turbine_id,
@@ -402,7 +403,7 @@ async def generate_bulk(body: dict):
             title=f"Scenario fault trip: {fault_scenario_id} on {turbine_id} (event {trip_code})",
             turbine_id=turbine_id,
             detail=f"{fault_scenario_id} tripped {turbine_id} via PLC event {trip_code}",
-            timestamp=sim_time.isoformat(),
+            timestamp=iso_utc(sim_time),
             payload={
                 "kind": "trip",
                 "scenarioId": fault_scenario_id,

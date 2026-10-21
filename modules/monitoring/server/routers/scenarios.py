@@ -27,6 +27,7 @@ from modules.auth.roles import Role
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
 from simulator.physics.fault_engine import FAULT_SCENARIOS
+from simulator.time_utils import parse_iso, to_utc, utc_now
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 logger = logging.getLogger(__name__)
@@ -397,14 +398,17 @@ async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
 # ScenarioMountContext 掛載時可重用同一套 TurbineReading/FarmStatus 型別與畫面元件。
 
 def _parse_scenario_timestamp(ts_raw: object) -> datetime:
-    """情境 DB row / 事件的 ISO timestamp 字串 → ``datetime``；缺值/格式錯誤回退 ``now()``
-    （比照既有 ``data_broker._sim_output_to_reading`` 的防禦寫法）。"""
+    """情境 DB row / 事件的 ISO timestamp 字串 → tz-aware UTC ``datetime``；缺值/格式錯誤回退
+    現在時刻（比照既有 ``data_broker._sim_output_to_reading`` 的防禦寫法）。
+
+    一律回傳 tz-aware，避免 naive 與 aware 混比時 ``TypeError``（舊版 naive 字串視為本地時間，
+    WMOM-20261021-03-c）。"""
     if isinstance(ts_raw, str):
         try:
-            return datetime.fromisoformat(ts_raw)
+            return parse_iso(ts_raw)
         except ValueError:
-            return datetime.now()
-    return ts_raw if isinstance(ts_raw, datetime) else datetime.now()
+            return utc_now()
+    return to_utc(ts_raw) if isinstance(ts_raw, datetime) else utc_now()
 
 
 def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set[str]:
@@ -435,11 +439,12 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
 
     Args:
         fault_events: ``history_events`` 查詢結果（含已解析的 ``payload`` dict）。
-        as_of: 評估時刻（通常是該機組最後一筆 reading 的 timestamp）。
+        as_of: 評估時刻（通常是該機組最後一筆 reading 的 timestamp）；naive 值視為本地時間。
 
     Returns:
         已 trip 的 turbine_id 集合。
     """
+    as_of = to_utc(as_of)  # 事件時間一律解析成 tz-aware；naive 的 as_of 依同一慣例視為本地時間
     latest_injection: Dict[tuple, Dict[str, object]] = {}
     trip_times: Dict[tuple, List[datetime]] = {}
     for event in fault_events:
@@ -592,7 +597,7 @@ def _scenario_latest_readings(scenario: dict) -> List[TurbineReading]:
 def _aggregate_scenario_farm_status(turbines: List[TurbineReading]) -> FarmStatus:
     """風場層 KPI 彙整——與 ``data_broker.DataBroker.get_farm_status`` 相同的彙整邏輯（按 status
     計數 + sum powerOutput + avg windSpeed），套用在情境的「每機組最後一筆讀數」清單之上。"""
-    now = datetime.now()
+    now = utc_now()
     if not turbines:
         return FarmStatus(
             totalTurbines=0, operatingCount=0, idleCount=0,

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from modules.auth.dependencies import require_authenticated
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import timedelta
 from server.models import TurbineReading, FarmStatus
+from simulator.time_utils import iso_utc, utc_now
 
 router = APIRouter(prefix="/api/turbines", tags=["turbines"])
 
@@ -100,9 +101,9 @@ async def farm_trend(
 
     # Longer ranges: query SQLite with downsampling
     storage = broker.storage
-    now = datetime.now()
-    start = (now - timedelta(seconds=seconds)).isoformat()
-    end = now.isoformat()
+    now = utc_now()
+    start = iso_utc(now - timedelta(seconds=seconds))
+    end = iso_utc(now)
 
     conn = storage._get_conn()
     bucket_seconds = max(seconds // points, 1)
@@ -115,7 +116,7 @@ async def farm_trend(
         FROM turbine_data
         WHERE timestamp >= ? AND timestamp <= ?
         GROUP BY
-            CAST(strftime('%%s', timestamp) AS INTEGER) / ?
+            CAST(strftime('%s', timestamp) AS INTEGER) / ?
         ORDER BY bucket_time ASC
         LIMIT ?
     """, (start, end, bucket_seconds, points)).fetchall()

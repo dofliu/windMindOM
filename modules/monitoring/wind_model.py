@@ -14,12 +14,18 @@ Supports:
   - Manual override with configurable transition ramp
   - Predefined profiles (calm, moderate, rated, storm, etc.)
   - Accelerated time (time_scale > 1 for bulk data generation)
+
+Time of day / month (diurnal and seasonal layers) are read in the server's local time: the
+simulator passes tz-aware UTC timestamps (WMOM-20261021-03-c), which every getter converts with
+``to_local_naive`` so the cycles stay where they were when timestamps were naive local time.
 """
 
 import math
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
+
+from simulator.time_utils import to_local_naive, to_utc, utc_now
 
 
 # ─── Seasonal wind parameters (typical coastal/onshore site) ─────────
@@ -130,7 +136,7 @@ class WindEnvironmentModel:
         """Set manual wind conditions with smooth transition."""
         if wind_speed is not None and self._override_wind_speed != wind_speed:
             # Start transition ramp from current conditions
-            self._transition_from = self._override_wind_speed or self._get_auto_wind(datetime.now())
+            self._transition_from = self._override_wind_speed or self._get_auto_wind(utc_now())
             self._transition_to = wind_speed
             self._transition_start = self._elapsed_real
 
@@ -183,12 +189,12 @@ class WindEnvironmentModel:
 
         if profile in ('ramp_up', 'ramp_down'):
             self._active_profile = profile
-            self._profile_start_time = datetime.now()
+            self._profile_start_time = utc_now()
             self._override_wind_direction = 270.0
             self._override_ambient_temp = 25.0
             self.turbulence_intensity = 0.12
             # Start transition
-            current = self._override_wind_speed or self._get_auto_wind(datetime.now())
+            current = self._override_wind_speed or self._get_auto_wind(utc_now())
             self._transition_from = current
             self._transition_to = 18.0 if profile == 'ramp_up' else 3.0
             self._transition_start = self._elapsed_real
@@ -217,6 +223,8 @@ class WindEnvironmentModel:
 
     def get_wind_speed(self, timestamp: datetime) -> float:
         """Get wind speed at given timestamp (includes all layers)."""
+        ts_utc = to_utc(timestamp)  # ramp profile 經過時間用 UTC 相減（_profile_start_time 是 UTC）
+        timestamp = to_local_naive(timestamp)
         self._elapsed_real += 1.0  # approximate
 
         # Check for active transition ramp
@@ -233,7 +241,7 @@ class WindEnvironmentModel:
             to_val = self._transition_to if self._transition_to is not None else self._get_auto_wind(timestamp)
             base = from_val + (to_val - from_val) * smooth
         elif self._active_profile in ('ramp_up', 'ramp_down') and self._profile_start_time:
-            elapsed = (timestamp - self._profile_start_time).total_seconds()
+            elapsed = (ts_utc - self._profile_start_time).total_seconds()
             if self._active_profile == 'ramp_up':
                 base = 3.0 + min(15.0, elapsed / 120.0 * 15.0)
             else:
@@ -247,6 +255,7 @@ class WindEnvironmentModel:
 
     def _get_auto_wind(self, timestamp: datetime) -> float:
         """Multi-layer automatic wind speed model."""
+        timestamp = to_local_naive(timestamp)
         month = timestamp.month
         hour = timestamp.hour + timestamp.minute / 60.0
 
@@ -272,6 +281,7 @@ class WindEnvironmentModel:
         return max(0.5, base)
 
     def get_wind_direction(self, timestamp: datetime) -> float:
+        timestamp = to_local_naive(timestamp)
         if self._override_wind_direction is not None:
             return (self._override_wind_direction + self._rng.normal(0, 3)) % 360
 
@@ -285,6 +295,7 @@ class WindEnvironmentModel:
                 self._rng.normal(0, 2.0)) % 360
 
     def get_ambient_temp(self, timestamp: datetime) -> float:
+        timestamp = to_local_naive(timestamp)
         if self._override_ambient_temp is not None:
             return self._override_ambient_temp + self._rng.normal(0, 0.3)
 
@@ -335,6 +346,7 @@ class WindEnvironmentModel:
         Uses the weather model's current state (no side effects) so this can be
         called multiple times per step without advancing RNG state.
         """
+        timestamp = to_local_naive(timestamp)
         if self._override_wind_speed is not None or self._active_profile is not None:
             return 0.0
 
@@ -386,6 +398,7 @@ class WindEnvironmentModel:
         Offshore wind sites sit in the marine boundary layer where RH is high
         year-round and peaks during rainy season and overnight.
         """
+        timestamp = to_local_naive(timestamp)
         if self._override_ambient_temp is not None:
             # During manual override we keep humidity stable to avoid surprising
             # coolant behavior during demos; still add a little sensor noise.

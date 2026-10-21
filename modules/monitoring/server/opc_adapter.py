@@ -8,8 +8,9 @@ Requires: OpenOPC2 + Graybox.OPC.DAWrapper (Windows only, 32-bit Python)
 """
 
 import threading
-from datetime import datetime
 from typing import Dict, List, Optional, Callable
+
+from simulator.time_utils import iso_utc
 
 from server.models import DataSourceConfig
 
@@ -164,7 +165,6 @@ class OPCDAAdapter:
         for idx in tag_map["turbine_range"]:
             prefix = tag_map["turbine_prefix"].format(idx)
             turbine_id = f"WT{idx:03d}"
-            now = datetime.now()
 
             # Build tag list
             tags_to_read = []
@@ -193,7 +193,7 @@ class OPCDAAdapter:
             # Convert to simulator-compatible output format
             power_kw = scada.get('WTUR_TotPwrAt', 0)
             reading = {
-                'timestamp': now.isoformat(),
+                'timestamp': iso_utc(),  # UTC（WMOM-20261021-03-c）
                 'turbine_id': turbine_id,
                 'operational_state': self._map_opc_status(scada.get('WTUR_TurSt', 0)),
                 'wind_speed': scada.get('WMET_WSpeedNac', 0),

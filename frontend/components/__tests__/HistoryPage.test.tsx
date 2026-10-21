@@ -302,6 +302,23 @@ describe('HistoryPage — 歷史資料表', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
+  it('時間欄以本地時間格式顯示，不直接印後端的 UTC 字串（WMOM-20261021-03-c）', async () => {
+    const utcTs = '2026-06-05T10:00:05.000000+00:00';
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string | URL) => {
+      if (String(url).includes('/history')) {
+        return Promise.resolve(jsonResponse(makeHistoryPayload({
+          data: [{ timestamp: utcTs, scada: { WROT_RotSpd: 12.34 } }],
+          events: [],
+        })));
+      }
+      return base(url);
+    });
+    await renderHistory();
+    expect(screen.queryByText(utcTs)).not.toBeInTheDocument();
+    expect(screen.getByText(new Date(utcTs).toLocaleString())).toBeInTheDocument();
+  });
+
   it('表頭預設顯示 startup 標籤（i18n 空 → 原始 tag）', async () => {
     await renderHistory();
     for (const tag of STARTUP_TAGS) {

@@ -10,7 +10,7 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -29,6 +29,36 @@ FARMS_DIR = DATA_DIR / "farms"
 
 LEGACY_DB_NAME = "wind_farm_data.db"
 
+
+
+# 時間戳（WMOM-20261021-03-c）：與 simulator/time_utils.py 的 iso_utc 同格式。本檔不匯入 time_utils——
+# farm_registry 也會以套件模式（modules.monitoring.server.farm_registry）被 cost / shared 匯入，
+# 那時 simulator 不在 sys.path 上。
+def _utc_now_text() -> str:
+    """現在時刻的 UTC ISO 字串（``...ffffff+00:00``）。
+
+    Returns:
+        ISO 字串。
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _to_utc_text(value: Optional[str]) -> Optional[str]:
+    """舊版時間戳字串 → UTC ISO 字串；naive 視為伺服器本地時間，無法解析者原樣回傳。
+
+    Args:
+        value: ISO 字串或 None。
+
+    Returns:
+        UTC ISO 字串（``...ffffff+00:00``）；None / 空字串 / 無法解析時原樣回傳。
+    """
+    if not value:
+        return value
+    text = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
+    try:
+        return datetime.fromisoformat(text).astimezone(timezone.utc).isoformat(timespec="microseconds")
+    except ValueError:
+        return value
 
 @dataclass
 class FarmConfig:
@@ -120,6 +150,17 @@ class FarmRegistry:
         except sqlite3.OperationalError:
             # 欄位已存在（另一 process 先 ALTER 過 / 重啟）— 視為 already-migrated
             pass
+        # WMOM-20261021-03-c：舊版 created_at / last_active_at 是 naive 本地時間，一次性轉 UTC，
+        # 否則 list_farms 的 ORDER BY last_active_at（字串排序）會把新舊兩種格式混排錯
+        if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+            for farm_id, created_at, last_active_at in conn.execute(
+                "SELECT farm_id, created_at, last_active_at FROM farms"
+            ).fetchall():
+                conn.execute(
+                    "UPDATE farms SET created_at = ?, last_active_at = ? WHERE farm_id = ?",
+                    (_to_utc_text(created_at), _to_utc_text(last_active_at), farm_id),
+                )
+            conn.execute("PRAGMA user_version = 1")
         conn.commit()
         conn.close()
 
@@ -138,7 +179,7 @@ class FarmRegistry:
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
 
-        now = datetime.now().isoformat()
+        now = _utc_now_text()
         conn = self._get_conn()
         conn.execute("""
             INSERT INTO farms (farm_id, name, turbine_count,
@@ -247,7 +288,7 @@ class FarmRegistry:
         farm = self.get_farm(farm_id)
         if not farm:
             return False
-        now = datetime.now().isoformat()
+        now = _utc_now_text()
         conn = self._get_conn()
         conn.execute("UPDATE farms SET is_active = 0 WHERE is_active = 1")
         conn.execute(

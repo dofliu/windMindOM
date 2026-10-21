@@ -18,6 +18,7 @@ from server.farm_registry import FarmRegistry
 from simulator.engine import WindFarmSimulator
 from simulator.physics.plc_protection import PlcEvent
 from simulator.physics.turbine_physics import TurbinePhysicsModel
+from simulator.time_utils import iso_utc, parse_iso, to_utc, utc_now
 
 if TYPE_CHECKING:
     from server.opc_adapter import OPCDAAdapter
@@ -54,11 +55,13 @@ def _sim_output_to_reading(output: Dict, history_points: Optional[List[Dict]] = 
     ts = output.get('timestamp')
     if isinstance(ts, str):
         try:
-            ts = datetime.fromisoformat(ts)
+            ts = parse_iso(ts)
         except ValueError:
-            ts = datetime.now()
-    elif ts is None:
-        ts = datetime.now()
+            ts = utc_now()
+    elif isinstance(ts, datetime):
+        ts = to_utc(ts)
+    else:
+        ts = utc_now()
 
     # Build mini history for frontend chart
     history = None
@@ -69,7 +72,7 @@ def _sim_output_to_reading(output: Dict, history_points: Optional[List[Dict]] = 
             ht = h.get('timestamp')
             if isinstance(ht, str):
                 try:
-                    ht_dt = datetime.fromisoformat(ht)
+                    ht_dt = parse_iso(ht)
                     ht_ms = int(ht_dt.timestamp() * 1000)
                 except ValueError:
                     ht_ms = 0
@@ -700,7 +703,7 @@ class DataBroker:
         Args:
             timestamp: 事件發生時刻（ISO）。批次生成的排定故障須傳「模擬時間」而非
                 wall-clock——否則事件標記會落在真實時間、與資料的模擬時間窗對不上
-                （WMOM-20260718-03）。預設 None → storage 落地為 ``datetime.now()``。
+                （WMOM-20260718-03）。預設 None → storage 落地為現在時刻（UTC）。
         """
         self.storage.record_event(
             event_type=event_type,
@@ -771,7 +774,7 @@ class DataBroker:
                     tripped = [f for f in active_faults if f.get("tripped")]
                     tripped_faults = [f.get("scenario_id") for f in tripped]
                     trip_codes = [f.get("trip_code") for f in tripped if f.get("trip_code") is not None]
-                    event_ref = f"fault_trip:{turbine_id}:{datetime.now().isoformat()}"
+                    event_ref = f"fault_trip:{turbine_id}:{iso_utc()}"
                     self.record_event(
                         event_type="fault",
                         source="simulator",
@@ -941,11 +944,11 @@ class DataBroker:
         if not isinstance(ts, str):
             return None
         try:
-            reading_time = datetime.fromisoformat(ts)
+            reading_time = parse_iso(ts)
         except ValueError:
             return None
         lag_s = max(0.0, float(model._sim_time) - event.sim_time)
-        return (reading_time - timedelta(seconds=lag_s)).isoformat()
+        return iso_utc(reading_time - timedelta(seconds=lag_s))
 
     def _record_plc_event(self, turbine_id: str, event: PlcEvent, timestamp: Optional[str] = None) -> None:
         """把一筆 PLC 事件寫進 history_events（event_type="fault"，source="plc"）。
@@ -1021,7 +1024,7 @@ class DataBroker:
             if current_state == 7 or (isinstance(shutdown_cause, str) and
                                        ("fault" in shutdown_cause or "plc:" in shutdown_cause
                                         or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
-                event_ref = f"stop:{turbine_id}:{current_state}:{datetime.now().isoformat()}"
+                event_ref = f"stop:{turbine_id}:{current_state}:{iso_utc()}"
                 self._trigger_snapshot(turbine_id, event_ref)
 
             self.record_event(
@@ -1072,7 +1075,7 @@ class DataBroker:
     def get_farm_status(self) -> FarmStatus:
         """Aggregate current turbine states into a farm-level status summary."""
         turbines = self.get_all_turbines()
-        now = datetime.now()
+        now = utc_now()
         if not turbines:
             return FarmStatus(
                 totalTurbines=0, operatingCount=0, idleCount=0,

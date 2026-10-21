@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -27,7 +27,7 @@ from server.farm_registry import FarmRegistry
 from server.storage import Storage
 from simulator.engine import WindFarmSimulator
 
-T0 = datetime(2026, 1, 1, 0, 0, 0)
+T0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 DT = 5.0
 
 
@@ -57,7 +57,7 @@ def test_plc_event_is_recorded_with_code_and_simulation_timestamp(broker: DataBr
 
     (event,) = _plc_events(broker)
     assert event["event_type"] == "fault"
-    assert event["timestamp"] == (T0 + timedelta(seconds=3 * DT - 10.0)).isoformat()
+    assert event["timestamp"] == (T0 + timedelta(seconds=3 * DT - 10.0)).isoformat(timespec="microseconds")
     payload = event["payload"]
     assert (payload["kind"], payload["code"], payload["level"], payload["origin"]) == (
         "trip", 351, "T1", "protection")

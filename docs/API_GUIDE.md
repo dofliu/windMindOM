@@ -192,8 +192,8 @@ Query stored history from SQLite.
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001/history", params={
     "limit": 500,
-    # "start": "2026-04-12T00:00:00",
-    # "end": "2026-04-12T12:00:00",
+    # "start": "2026-04-12T00:00:00Z",   # UTC; a string without an offset is server-local time
+    # "end": "2026-04-12T12:00:00Z",
 })
 data = r.json()
 readings = data['data']    # List of history records with scada_json
@@ -323,6 +323,12 @@ Set grid conditions.
 requests.post("http://localhost:8100/api/config/grid", json={"profile": "low_freq"})
 # Profiles: nominal, low_freq, high_freq, undervoltage, overvoltage, weak_grid, recovery, auto
 ```
+
+> **Timestamps are UTC (WMOM-20261021-03-c).** Stored and returned timestamp strings are
+> `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`; Pydantic `datetime` fields (e.g. `TurbineReading.timestamp`)
+> serialize as `...Z`. Query parameters such as `start` / `end` accept any ISO 8601 string — `Z` or
+> another offset is converted to UTC; a string without an offset is read as the server's local time
+> (the pre-UTC behaviour). Databases written before this change are converted once on startup.
 
 #### POST `/api/faults/inject`
 
