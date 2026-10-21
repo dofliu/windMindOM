@@ -1,0 +1,189 @@
+{
+ "contract_version": "1.0",
+ "kind": "scenario_ground_truth",
+ "scenario_id": 6,
+ "scenario_name": "干擾：風向標漂移（感測器故障）+ 葉片角不平衡，陣風、健康機組也有事件",
+ "turbine_model": "Z72",
+ "site_timezone": "Asia/Taipei",
+ "sim_start": "2026-03-16T07:00:10.000000Z",
+ "sim_end": "2026-03-16T13:00:00.000000Z",
+ "generated_at": "2026-10-21T17:28:23.510441Z",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004",
+  "WT005"
+ ],
+ "healthy_turbines": [
+  "WT001",
+  "WT002",
+  "WT004"
+ ],
+ "cases": [
+  {
+   "case_id": "C001",
+   "turbine_id": "WT003",
+   "category": "sensor_fault",
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "yaw_sensor_drift",
+   "fault_name_en": "Yaw Sensor Drift (Subtle)",
+   "fault_name_zh": "偏航感測器漂移（細微）",
+   "component": "wind_vane_1",
+   "root_cause": "風向標 1 校準漂移（感測器故障）：偏航依偏移的風向追風，風向標 1 讀值看似正常，真實的偏航誤差出現在風向標 2 讀值；偏航誤差造成功率損失與塔架側向負載上升，兩風向標差異超過 15° 時 PLC 跳機（233）。",
+   "root_cause_en": "Wind vane 1 calibration drift (sensor fault): the turbine yaws to the drifted reading, so vane 1 looks normal while the true misalignment shows on vane 2; the misalignment costs power and raises tower side-side loads, and the PLC trips once the vanes differ by more than 15° (233).",
+   "expected_alarm_codes": [
+    233
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 233,
+     "level": "T1",
+     "text": "Wind vane 1-2 discrepancy"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 233,
+     "event_id": "T_233",
+     "level": "T1",
+     "text": "Wind vane 1-2 discrepancy",
+     "page": 109,
+     "cause": "Filtered values (T=25s) of wind vane 1 and wind vane 2 differ by more than 15˚ while 10 min. avg. wind speed > 4.5 m/s",
+     "rectification": "Check wind vanes. Is one of the vanes bent ?",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查兩支風向標（是否彎曲、鬆動、校準偏移）（手冊）",
+    "比對兩支風向標讀值找出漂移的一支並重新校準",
+    "校準後確認偏航誤差與功率曲線恢復"
+   ],
+   "expected_actions_en": [
+    "Check both wind vanes (bent, loose, or out of calibration) (manual).",
+    "Compare the two vane readings to find the drifting one and recalibrate it.",
+    "After calibration, verify the yaw error and power curve recover."
+   ],
+   "key_signals": [
+    "WYAW_YwVn2AlgnAvg5s",
+    "WLOD_TwrSsMom"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-03-16T07:15:00.000000Z",
+   "first_alarm_ts": "2026-03-16T07:30:20.000000Z",
+   "first_alarm_code": 233,
+   "trip_ts": "2026-03-16T07:30:20.000000Z",
+   "trip_code": 233,
+   "observed_alarm_codes": [
+    233
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 900.0,
+    "severity_rate": 0.001,
+    "initial_severity": 0.0
+   },
+   "final_severity": 0.92,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C002",
+   "turbine_id": "WT005",
+   "category": "real_fault",
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "pitch_imbalance",
+   "fault_name_en": "Blade Pitch Imbalance (Subtle)",
+   "fault_name_zh": "葉片旋角不平衡（細微）",
+   "component": "pitch_system_blade_1",
+   "root_cause": "1 號葉片變槳角度校準漂移：三葉片不同步造成 1P 振動與少量功率損失，跳機前沒有任何警報；葉片角度差超過 1° 持續 5 秒時 PLC 以葉片同步差異跳機（335 / 336）。",
+   "root_cause_en": "Blade 1 pitch-angle calibration drift: the blades lose synchronisation, causing 1P vibration and a small power loss with no alarm before the trip; once the angle difference exceeds 1° for 5 s the PLC trips on blade discrepancy (335 / 336).",
+   "expected_alarm_codes": [
+    335,
+    336
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 335,
+     "level": "T2",
+     "text": "Discrepancy blade 1-2"
+    },
+    {
+     "code": 336,
+     "level": "T2",
+     "text": "Discrepancy blade 1-3"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 335,
+     "event_id": "T_335",
+     "level": "T2",
+     "text": "Discrepancy blade 1-2",
+     "page": 117,
+     "cause": "The synchronisation between blades 1 and 2 is lost, resulting in unbalance of the rotor (instantly > 8 deg, during 3 sec. > 3 deg or during 5 sec. > 1 deg)",
+     "rectification": "Are pitch drives 1 and 2 OK ? Check pitch bearing blades 1 and 2 for smooth adjustment. Is greasing OK ? Are there significant differences in current of the blades on screen Zoom/Rotor/Pitch drive inverters ? Is the I2t protection of blade 1 or blade 2 activated frequently ?",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 336,
+     "event_id": "T_336",
+     "level": "T2",
+     "text": "Discrepancy blade 1-3",
+     "page": 117,
+     "cause": "The synchronisation between blades 1 and 3 is lost, resulting in unbalance of the rotor. (instantly > 8 deg, during 3 sec. > 3 deg or during 5 sec. > 1 deg)",
+     "rectification": "Are pitch drives 1 and 3 OK ? Is I2t protection blade 1 active ? Check pitch bearing blades 1 and 3 for smooth adjustment. Is greasing OK ? Are there significant differences in current of the blades on screen Zoom/Rotor/Pitch drive inverters ? Is the I2t protection of blade 1 or blade 3 activated frequently ?",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查 1 號葉片變槳驅動與角度量測（編碼器 / 校準）（手冊：pitch drives OK?）",
+    "檢查變槳軸承是否卡滯（手冊）",
+    "重新校準葉片角度後確認三葉片同步"
+   ],
+   "expected_actions_en": [
+    "Check the blade 1 pitch drive and angle measurement (encoder / calibration) (manual: are the pitch drives OK?).",
+    "Check the pitch bearing for stiffness (manual).",
+    "Recalibrate the blade angle and verify all three blades are synchronised."
+   ],
+   "key_signals": [
+    "WROT_PtAngValBl1",
+    "WNAC_VibMsNacXDir",
+    "WVIB_Band1pX",
+    "WVIB_Band1pY"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-03-16T08:30:00.000000Z",
+   "first_alarm_ts": "2026-03-16T08:45:55.000000Z",
+   "first_alarm_code": 336,
+   "trip_ts": "2026-03-16T08:45:55.000000Z",
+   "trip_code": 336,
+   "observed_alarm_codes": [
+    336
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 5400.0,
+    "severity_rate": 0.001,
+    "initial_severity": 0.0
+   },
+   "final_severity": 0.955,
+   "superseded": false,
+   "pre_existing": false
+  }
+ ],
+ "unattributed_events": [],
+ "pack_id": "z72-starter-03"
+}

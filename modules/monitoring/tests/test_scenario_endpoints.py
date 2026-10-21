@@ -804,7 +804,7 @@ def test_scenario_ground_truth_records_onset_trip_and_answer(broker):
     gt = asyncio.run(scenarios_ep.get_scenario_ground_truth(sid))
     config = broker.storage.get_scenario(sid)["config"]
 
-    assert gt["contract_version"] == "0.1" and gt["scenario_id"] == sid
+    assert gt["contract_version"] == "1.0" and gt["scenario_id"] == sid
     assert gt["scenario_name"] == "考題：超速" and gt["site_timezone"] == "Asia/Taipei"
     assert (gt["sim_start"], gt["sim_end"]) == (config["sim_start"], config["sim_end"])
     assert gt["healthy_turbines"] == ["WT002", "WT003"]

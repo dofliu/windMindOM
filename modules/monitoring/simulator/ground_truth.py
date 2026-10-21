@@ -8,8 +8,8 @@
    ``unattributed_events``（例：健康機組的偶發跳機、切出風速 I201、故障連帶的其他碼）
 3. 故障造成的 PLC 跳機（``on_fault_tripped``）→ ``trip_ts`` / ``trip_code``
 
-產出的 dict 對齊設計文件 §5.1 ``ground_truth.json``（介面合約 v0.1），存進 ``scenario_ground_truth``
-表，與可觀測的讀值 / 事件分開（盲測）。根因、元件、處置等答案欄位來自 ``FaultScenario`` 的 metadata；
+產出的 dict 即介面合約 v1 的 ``ground_truth.json``（``docs/integration/rag_assistant_data_contract_v1.md``），
+存進 ``scenario_ground_truth`` 表，與可觀測的讀值 / 事件分開（盲測）。根因、元件、處置等答案欄位來自 ``FaultScenario`` 的 metadata；
 手冊條目來自 Z72 警報目錄（``shared/alarm_codes.py``）——Z72 手冊對變頻器 / 變壓器事件只寫
 「See [ABB]」，這類條目標 ``see_abb`` 並在 case 的 ``manual_coverage`` 註明。
 """
@@ -27,8 +27,9 @@ from .time_utils import iso_utc
 
 from shared.alarm_codes import get_alarm  # noqa: E402
 
-# 介面合約版本（設計文件 §5，v0 草案；Phase 3 定稿為 v1）
-CONTRACT_VERSION = "0.1"
+# 介面合約版本：v1 定稿見 docs/integration/rag_assistant_data_contract_v1.md（WMOM-20261021-09）。
+# 加欄位升次版本（1.x），改名 / 刪欄位 / 改語意升主版本
+CONTRACT_VERSION = "1.0"
 MANUAL_DOC = "Z72 User Manual"
 MANUAL_SECTION = "Appendix C"
 _ABB_MARKER = "See [ABB]"

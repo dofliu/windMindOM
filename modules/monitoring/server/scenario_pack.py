@@ -32,6 +32,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import warnings
@@ -131,6 +132,7 @@ _ARROW_TYPES: Dict[str, pa.DataType] = {
     "UINT16": pa.uint16(),
     "BOOL": pa.bool_(),
 }
+_PACK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 _READ_BATCH_ROWS = 5000
 _ROW_GROUP_ROWS = 50_000
 _TS_TYPE = pa.timestamp("us", tz="UTC")
@@ -356,6 +358,8 @@ def ground_truth_for_pack(ground_truth: Dict[str, JsonValue], pack_id: str) -> D
         return iso_z(value) if isinstance(value, str) and value else value
 
     out = json.loads(json.dumps(ground_truth))
+    # -04 起存的答案格式就是 v1（v1 只定稿、補了學生端輸出與評分定義），舊的 "0.1" 標籤跟著資料包換成目前版本
+    out["contract_version"] = CONTRACT_VERSION
     out["pack_id"] = pack_id
     for key in ("sim_start", "sim_end", "generated_at"):
         out[key] = z(out.get(key))
@@ -757,7 +761,7 @@ def _write_pack_files(storage: Storage, scenario: Dict[str, JsonValue], scenario
 
 
 def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, include_ground_truth: bool = False,
-                         max_rows: Optional[int] = None) -> Dict[str, JsonValue]:
+                         max_rows: Optional[int] = None, pack_id: Optional[str] = None) -> Dict[str, JsonValue]:
     """把情境匯出成資料包目錄。
 
     先寫到同層的暫存目錄，全部成功才搬進 ``out_dir``（manifest 最後搬）：中途失敗不會留下半套資料包，
@@ -770,20 +774,22 @@ def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, i
         include_ground_truth: 是否附 ``ground_truth.json``（評分端版本）；學生 / 受測端的版本不要附。
             盲測版會刪掉 ``out_dir`` 裡舊的答案檔。
         max_rows: raw 筆數上限（HTTP 端點用；None＝不限）。
+        pack_id: 自訂資料包 ID（例：starter kit 的 ``z72-starter-01``）；None＝``pack_id_for(scenario_id)``。
 
     Returns:
         manifest（也寫在 ``out_dir/manifest.json``）。
 
     Raises:
         ScenarioPackError: 情境不能匯出（``out_dir`` 不受影響）。
+        ValueError: ``pack_id`` 格式不對（小寫英數與 ``-``，3–63 字）。
     """
+    pack_id = _checked_pack_id(pack_id, scenario_id)
     scenario = _load_exportable_scenario(storage, scenario_id, max_rows)
     ground_truth: Optional[Dict[str, JsonValue]] = None
     if include_ground_truth:
         ground_truth = storage.get_ground_truth(scenario_id)
         if ground_truth is None:
             raise ScenarioPackError(f"Scenario {scenario_id} has no ground truth")
-    pack_id = pack_id_for(scenario_id)
     out_dir = Path(out_dir)
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.staging-", dir=out_dir.parent))
@@ -798,6 +804,42 @@ def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, i
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return manifest
+
+
+def _checked_pack_id(pack_id: Optional[str], scenario_id: int) -> str:
+    if pack_id is None:
+        return pack_id_for(scenario_id)
+    if not _PACK_ID_RE.match(pack_id):
+        raise ValueError(f"Invalid pack_id {pack_id!r}: use 3-63 lowercase letters, digits and '-'")
+    return pack_id
+
+
+def export_ground_truth(storage: Storage, scenario_id: int, path: Path, *,
+                        pack_id: Optional[str] = None) -> Dict[str, JsonValue]:
+    """只匯出標準答案（資料包版本的 ``ground_truth.json``），放在資料包之外。
+
+    starter kit 用：範例資料包本身是盲測版，答案另放一個目錄，學生跑完自己的助手再拿來評分。
+
+    Args:
+        storage: 情境所在的 storage。
+        scenario_id: 情境 session id。
+        path: 輸出檔路徑。
+        pack_id: 與資料包相同的 ID；None＝``pack_id_for(scenario_id)``。
+
+    Returns:
+        寫出的標準答案。
+
+    Raises:
+        ScenarioPackError: 情境沒有標準答案（404）。
+    """
+    pack_id = _checked_pack_id(pack_id, scenario_id)
+    ground_truth = storage.get_ground_truth(scenario_id)
+    if ground_truth is None:
+        raise ScenarioPackError(f"Scenario {scenario_id} has no ground truth", status_code=404)
+    out = ground_truth_for_pack(ground_truth, pack_id)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    _write_json(Path(path), out)
+    return out
 
 
 def write_pack_zip(pack_dir: Path, zip_path: Path, include_ground_truth: bool) -> None:
