@@ -693,6 +693,58 @@ DEC-20260720-01 原文把 PR C 定義為「broker 新增『情境檢視』來源
 
 ---
 
+## DEC-20261021-01 — 暫停商業時程與真實現場介接；主線改為「擬真資料源」，供外部 RAG 即時維修助手（學生專題）驗證
+
+**日期**：2026-10-21　**狀態**：accepted　**Decision maker**：劉老師
+**取代**：ROADMAP v0.8.1 Month 6（PoC + 第一筆合約）與「2026-Q4 第一個運維廠商客戶」目標；`docs/product/PRODUCT_VISION.md` 的商業時程部分保留為歷史，不再作為排程依據
+
+### Context
+
+2026-10-20 session 盤點專案時發現：工程面 M1–M4 已 100%、M5 ~75%，但 M6（10 月）只有 25%，剩下項目（現場部署、Z72 OPC tunnel、PostgreSQL、培訓、首份真實月報、簽約）全部依賴客戶或現場，且客戶接觸（WMOM-20260503-05）自 5 月以來沒有實際進展。
+
+劉老師 2026-10-21 定調：
+
+1. 雖然一開始想走產品路線，但改為**先把功能完備再說**，商業時程不再需要。
+2. **實際接真實風場或 OPC 目前無法實現，暫緩**。
+3. 新目標：讓系統產生**相對真實的資料**，餵給**另一個外部系統**——一個 **RAG 即時維修助手**——作為它驗證 RAG 功能的資料來源。該外部系統**尚未建立，交由學生專題完成**。
+4. 輸出管道要三種都有：**檔案、串流、模仿 tag 的 OPC UA server**。
+
+同一次盤點也查清了物理層與警報層的現況（細節見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md) §3）：物理涵蓋面廣但精度淺、未曾與真實資料比對；更關鍵的是，模擬器的 24 個警報碼有多個與真實 Z72 清單（`docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx`，314 筆）不符，情境模式不產生警報事件，也沒有任何標準答案可供評分。
+
+### Considered Options
+
+- **A. 維持 M6 商業路線**：劉老師已否決。
+- **B. 轉向高保真物理**（BEM、Kaimal/Mann 風場、閉迴路控制器、氣彈 FEM）：RAG 助手看到的是警報 + 狀態 + SCADA 趨勢，這些精進幾乎不改變它看到的東西，投入大、對目標貢獻小。
+- **C.（採用）以「RAG 驗證」定義擬真**：警報與真實 Z72 一致 + 標準答案與可觀測資料分離 + 三條輸出管道；物理只修會改變特徵訊號的部分。
+
+### Decision
+
+選 **C**：
+
+1. **商業時程暫停**：ROADMAP Month 6 的 PoC / 合約 / 培訓 / 首份真實月報（M6-1/2/3/5/6）與 WMOM-20260503-05（客戶接觸）、WMOM-20260509-F6（PostgreSQL row-lock）標為 **deferred**，不設恢復日期。M6-4（auth/RBAC）已完成部分保留。ROADMAP 剩餘工作不再按月排程。
+2. **立 EPIC-DS「擬真資料源」為主線**，設計見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)，issue 為 WMOM-20261021-02 ~ -09。
+3. **擬真優先序**：真實 Z72 警報目錄（xlsx + 手冊 Appendix C）為唯一 source of truth → 標準答案（ground truth）→ 可觀測資料像真實 SCADA（真實 tag 名、UTC、10-min stats）→ 警報行為（連鎖、重啟限制）→ 難度與多樣性 → 物理（僅限改變特徵訊號者）。
+4. **三條輸出管道由同一份凍結情境驅動**：① 情境資料包檔案、② WebSocket 回放串流、③ 模仿 Bachmann Z72 tag 的 OPC UA server。可觀測資料不含答案（盲測），`ground_truth.json` 只給評分端。
+5. **外部系統由學生專題建立**；windMindOM 負責提供資料、版本化的介面合約（v0 草案已寫在設計文件 §5）與範例資料包，**不實作 RAG 助手本身**。
+6. **範圍限定 Z72**：其他機型待 `update_spec` 補完前不列入資料源；高保真物理維持在 ISSUES.md parking lot。
+
+### Rationale
+
+- 對 RAG 驗證，最致命的不是物理精度，而是「警報碼對不上手冊」——那會讓 RAG 答對反被判錯，整個驗證失真；而這也是成本最低、最該先修的地方。
+- 真實風場資料最大的缺點是沒有答案卷；模擬器知道每筆異常的根因，標準答案是它作為驗證資料源最獨特的價值，必須在可觀測資料之外獨立保存。
+- 三條管道共用同一份凍結情境（延續 DEC-20260720-01「情境＝凍結資料集」），可重現、可回放，學生端可先用檔案離線開發，再接串流 / OPC UA 做即時版。
+- OPC UA 節點路徑對齊真實 Bachmann 讀取腳本，學生寫的介接層將來換成真實 PLC 時不必重寫，也替暫緩的真實現場介接保留了銜接點。
+
+### Consequences
+
+- 新增 [`docs/product/EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)（設計 + 介面合約 v0 + 分階段計畫）。
+- `ISSUES.md`：新增 EPIC-DS 與 WMOM-20261021-01 ~ -09；EPIC-M6 標 deferred；WMOM-20260503-05、WMOM-20260509-F6 改 deferred；統計表新增 deferred 欄並更正既有計數。
+- `docs/product/ROADMAP.md`、`STATUS.yaml`、`CLAUDE.md` §10/§15、`TODO.md` 同步更新方向。
+- OPC UA server 需新增 `asyncua` 依賴（legacy `modules/monitoring/opcua_interface.py` 用的 `opcua` 套件不在 requirements 且已停止維護）。
+- 若日後恢復商業路線，本 EPIC 的產出（真實警報目錄、擬真資料、OPC UA 介面）可直接作為 demo 與現場介接的基礎，不會白做。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

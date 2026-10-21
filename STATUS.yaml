@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-10-06"  # **2026-10-06 WMOM-20260505-25-c done**：振動 tab 新增「軸承 / 齒輪診斷」區塊（BPFO/BPFI 頻率+振幅、GMF、邊帶，純前端、零後端改動）；frontend vitest 1497→1499（main 實測 baseline 1497）、backend 1305 不變。前次：**WMOM-20260505-25-b done**：`TurbineDetail`
+last_updated: "2026-10-21"  # **2026-10-21 方向調整 DEC-20261021-01**：商業時程（M6 PoC / 合約）與真實風場 / OPC 介接暫緩，主線改為 **EPIC-DS 擬真資料源**（模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手〔學生專題〕驗證；設計見 `docs/product/EPIC-DS_realistic_data_source.md`）。同日 **WMOM-20261021-02 done**（Phase 1a）：Z72 真實警報目錄 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C 306 筆原因/處置/重啟上限）+ `shared/alarm_codes.py`；11 個故障情境改用真實碼（原 24 碼中多個與真實不符）；backend 1305→1438 passed / 7 skipped / 1 xfailed、frontend vitest 1500 不變。前次：**2026-10-06 WMOM-20260505-25-c done**：振動 tab 新增「軸承 / 齒輪診斷」區塊（BPFO/BPFI 頻率+振幅、GMF、邊帶，純前端、零後端改動）；frontend vitest 1497→1499（main 實測 baseline 1497）、backend 1305 不變。前次：**WMOM-20260505-25-b done**：`TurbineDetail`
   # 新增「振動頻譜」tab（5 頻帶 RMS X/Y + 警報 badge、crest/kurtosis/overall 警報，
   # 純前端消費既有 `WVIB_*` scadaTags，零後端改動）；frontend vitest 1492→1497
   # （+5），backend 1305 不變。Part C（BearingDiagPanel）待下個 session。前次：
@@ -767,8 +767,8 @@ outputs:
   - paper
   - presentation
 description: "Operations & Maintenance platform for offshore wind farm service providers. Five modules — monitoring, workflow, cost, reporting, knowledge — with simulator-first demo path."
-description_zh: "離岸風場運維廠商工具：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢。從 digiWindTurbine（物理模擬器 + SCADA 平台）商業化升級而來，目標 2026-Q4 第一個運維廠商客戶 PoC + 第一筆合約（NT$2-4M）。"
-key_metrics: "5 modules / 6-month roadmap / Z72 first-customer reference"
+description_zh: "離岸風場運維廠商工具：監控 + 庫存派工 + 成本計算 + 報表 + 警報手冊查詢。從 digiWindTurbine（物理模擬器 + SCADA 平台）升級而來。2026-10-21 起商業時程暫停（DEC-20261021-01），先把功能完備；現行主線為 EPIC-DS 擬真資料源，供外部 RAG 即時維修助手（學生專題）驗證。"
+key_metrics: "5 modules / EPIC-DS 擬真資料源 / Z72 reference model"
 
 # ──────────────────────────────────────────────
 # windMindOM 額外欄位（v0.8.1 baseline）
@@ -808,19 +808,31 @@ milestones:
   M6:
     name: "第一個運維廠商 PoC + 第一筆合約"
     target_month: "2026-10"
-    status: in_progress
+    status: deferred  # 2026-10-21 DEC-20261021-01：商業時程與真實現場介接暫緩；M6-4 auth 已完成部分保留
     progress: 25  # auth 後端全面完成 + live/OPC 後端硬化收尾（唯一硬阻塞已清除，WMOM-20260720-04/-08）；前端 authFetch cutover 前置作業已完成（WMOM-20260925-01，hooks/ 層缺口已修，cutover 檢查表已重新勾選）；剩 footprint / HTTPS 部署 / PostgreSQL row-lock / 客戶接觸；本次（WMOM-20260925-05）完成的定檢計畫 UI 屬 M5/UX polish，非 M6 critical path，不影響此百分比
+  EPIC-DS:
+    name: "擬真資料源（供外部 RAG 即時維修助手驗證）"
+    target_month: null  # 不設日期（DEC-20261021-01）
+    status: in_progress
+    design: "docs/product/EPIC-DS_realistic_data_source.md"
+    progress: 15  # Phase 1a（WMOM-20261021-02 真實警報目錄 + 情境改真實碼）done；剩 1b / 2 / 3a-3d / 4（WMOM-20261021-03~-09）
 
 issue_stats:
-  # 2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
+  # 2026-10-21 重新逐條解析 ISSUES.md `### WMOM-` header 核實（舊表少算 -25-b/-25-c 兩筆：
+  # 實際 done 126 / open 7 / in_progress 2 = 135），再套用本次變動：WMOM-20260503-05、
+  # WMOM-20260509-F6 → deferred；新增 WMOM-20261021-01/-02（done）+ -03~-09（open 7）。
+  open: 13  # 6 舊 + 7 新（EPIC-DS -03~-09）
+  # 前次：2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
   # 更新自上次核實過的準確底數（open 7/in_progress 2/done 121/total 130）。
-  open: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
-  in_progress: 2  # WMOM-20260503-05（客戶接觸持續整月）+ WMOM-20260504-12（待劉老師
-                  # 24h 記憶體驗收後 close）
+  # open 舊值: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
+  in_progress: 1  # WMOM-20260504-12（待劉老師 24h 記憶體驗收後 close）；
+                  # WMOM-20260503-05 改 deferred
   blocked: 0
-  done: 124  # +1 WMOM-20260505-26-a（2026-10-06）；前次 +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
+  deferred: 2  # WMOM-20260503-05（客戶接觸）、WMOM-20260509-F6（PostgreSQL row-lock）— DEC-20261021-01
+  done: 128  # 實際 126 + WMOM-20261021-01/-02
+  # done 舊值: 124  # +1 WMOM-20260505-26-a（2026-10-06）；前次 +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
              # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
-  # total 133（7+2+124=133，與 ISSUES.md `### WMOM-` header 數一致）
+  # total 144（13+1+0+2+128=144，與 ISSUES.md `### WMOM-` header 數一致）
 
 inherited_baseline:
   source: digiWindTurbine

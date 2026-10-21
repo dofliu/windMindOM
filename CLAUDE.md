@@ -133,11 +133,11 @@ WMOM = WindMindOM 縮寫。
 > 進度以 [`STATUS.yaml`](STATUS.yaml) 為準；本節為快照，更新時請同步。
 
 - **產品版本**：v0.8.1（2026-05-02 baseline）
-- **Milestone**：**M1–M4 done**（monitoring 既有 + cost + workflow + reporting 皆 100%）；**M5（Knowledge/RAG + 現場 mobile UI）進行中 ~75%**；M6（PoC + 第一筆合約）auth 全面完成（JWT + RBAC + 全 router 授權 + 前端真登入，#108-#122）
-- **2026-07-20 情境模式深化 arc**（實測驅動）：DB-lock 根治（WMOM-20260720-01, #142）→ **DEC-20260720-01 情境＝凍結資料集**（設定依來源 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：**A0** 情境摘要端點 `GET /api/scenarios/{id}/summary`（#148 merged）+ **A1** 同情境內比較視圖（faulted vs healthy，PR #150 in review）
-- **下次工作**：#150（A1）收尾合併 → **A2 跨情境比較**（相對時間對齊）或 **PR C**（檢視情境掛載 app，需先寫 broker 子設計）；並行 WMOM-20260720-04（含併入的 -08 生命週期硬化）+ WMOM-20260716-06（footprint CPU-torch pin）+ M5 收尾 + M6 部署前置；見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) 與 [`ISSUES.md`](ISSUES.md) open 項目
-- **第一個客戶目標**：Z72 機型運維廠商 / 2026 Q4 / NT$2-4M 合約
-- **測試**：backend 情境層 +（A0 storage 聚合/端點、-07 run_loop、-01 DB-lock）；frontend 957 passed（+A1 比較視圖/純函式）。以各 module `tests/` 為準
+- **方向（2026-10-21 DEC-20261021-01）**：商業時程（M6 PoC / 合約 / 客戶接觸）與真實風場 / OPC 介接**暫緩**，先把功能完備。**現行主線 = EPIC-DS 擬真資料源**：模擬器產生附標準答案（ground truth）的擬真 Z72 運轉資料，經 ① 檔案 ② WebSocket 串流 ③ 模仿 Bachmann tag 的 OPC UA server 餵給外部 **RAG 即時維修助手**（學生專題建立，windMindOM 不實作）做驗證。設計與介面合約 v0：[`docs/product/EPIC-DS_realistic_data_source.md`](docs/product/EPIC-DS_realistic_data_source.md)
+- **Milestone**：M1–M4 done；M5 ~75%（剩客戶手冊 / 一年警報 csv，隨 M6 暫緩）；M6 deferred（auth 全面完成部分保留）；**EPIC-DS Phase 1a done**（WMOM-20261021-02：Z72 真實警報目錄 `shared/alarm_codes.py` + 11 故障情境改用真實碼）
+- **警報碼守則**：模擬器、語料、前端用到的 Z72 警報碼一律以 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C）為準，不自創碼或描述；`tests/test_alarm_codes.py`、`modules/monitoring/tests/test_fault_alarm_codes.py` 會擋
+- **下次工作**：EPIC-DS 依序 1b（WMOM-20261021-03 溫度門檻 / 狀態跳動 / UTC）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
+- **測試**：backend 1438 passed / 7 skipped / 1 xfailed；frontend vitest 1500 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
@@ -177,7 +177,7 @@ WMOM = WindMindOM 縮寫。
 
 ## 15. 小提醒
 
-- **第一個客戶定 Z72** — 設計時先以 Z72 為 reference
+- **參考機型定 Z72** — 設計時先以 Z72 為 reference；EPIC-DS 資料源只支援 Z72（手冊與真實警報清單都是 Z72）
 - **Simulator-first** — 任何功能都要能在純 simulator 模式下 demo（無實場是 sales killer feature）
 - **RAG 走「研究端策略檔 + 預計算向量檔」** — windMindOM 內只負責載入 + query，不重新 embed
 - **z72_etech 取材選 A** — dev team 自己讀程式產出 design notes（M3-M4 排定）

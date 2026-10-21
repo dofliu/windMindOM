@@ -1,8 +1,13 @@
 # windMindOM Roadmap v0.8.1 — 6 個月路線圖
 
 > 版本：v0.8.1（2026-05-02）
-> 目標：2026-Q4 第一個運維廠商客戶 PoC + 第一筆合約
-> 節奏：一日一項重要工作，**一月一 module**
+> 目標：~~2026-Q4 第一個運維廠商客戶 PoC + 第一筆合約~~ → **2026-10-21 起暫停商業時程（DEC-20261021-01）**
+> 節奏：一日一項重要工作，~~一月一 module~~（剩餘工作不再按月排程）
+
+> ⚠️ **2026-10-21 方向調整（[DEC-20261021-01](decision_log.md)）**：商業時程（Month 6 PoC / 合約 / 培訓 / 首份真實月報）與真實風場 / OPC 介接**暫緩**，先把功能完備。
+> 新主線為 **EPIC-DS「擬真資料源」**：模擬器產生附標準答案的擬真 Z72 運轉資料，經 **檔案 / 串流 / 模仿 tag 的 OPC UA server** 餵給外部的 RAG 即時維修助手（學生專題）做驗證。
+> 設計與分階段計畫見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)、本檔末「現行主線」一節。
+> Month 1–6 各節保留為歷史紀錄。
 
 ---
 
@@ -149,7 +154,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ---
 
-## Month 6（2026-10）— 第一個 PoC + 第一筆合約
+## Month 6（2026-10）— 第一個 PoC + 第一筆合約（⏸️ deferred，DEC-20261021-01）
 
 ### 主要交付
 
@@ -201,7 +206,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 進度檢視 dashboard
 
-> 狀態快照（2026-07-20）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+> 狀態快照（2026-10-21 更新表格；以下敘述為 2026-07-20 歷史快照）：實際執行進度領先原訂月曆——M2–M5 提前於 6–7 月推進。以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
 >
 > **2026-07-20 情境模式深化 arc**（實測驅動，跨 M5/monitoring）：DB-lock 根治（#142）→ **DEC-20260720-01 情境＝凍結資料集**（設定 gate #146 + 產生情境不自由跑 #147）→ **DEC-20260720-02 情境比較分析 epic**（B→A0→C 與 A1/A2 並進）：A0 摘要端點 #148 merged、A1 同情境內比較 PR #150 in review。詳見 [`decision_log.md`](decision_log.md) DEC-20260720-01/-02 與 [`ISSUES.md`](../../ISSUES.md) WMOM-20260720-*。
 
@@ -211,10 +216,30 @@ Month 1 結束時，要能對 friendly 客戶說：
 | 2 (2026-06) | Cost | K13 demo 跑通 + LCOE dashboard | ✅ done |
 | 3 (2026-07) | Workflow Part 1 | Work Order + Approval 跑通 | ✅ done |
 | 4 (2026-08) | Workflow Part 2 + Reporting | Inventory + 月報 PDF | ✅ done |
-| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~75%) |
-| 6 (2026-10) | PoC + 合約 | 第一筆收入（M6-4 auth 全面完成） | 🟡 in_progress (~20%) |
+| 5 (2026-09) | Knowledge / RAG | 警報 → 30 秒 RAG | 🟡 in_progress (~75%；剩客戶手冊 / 一年警報 csv，隨 M6 暫緩) |
+| 6 (2026-10) | PoC + 合約 | 第一筆收入（M6-4 auth 全面完成） | ⏸️ deferred（DEC-20261021-01；M6-4 auth 已完成部分保留） |
+| — | **EPIC-DS 擬真資料源** | 三條管道可餵外部 RAG 助手 + 學生 starter kit | 🟢 現行主線（2026-10-21 起） |
 
 每月最後一個 session 更新本表 + work-log + STATUS.yaml。
+
+---
+
+## 現行主線（2026-10-21 起）— EPIC-DS 擬真資料源
+
+> 依 [DEC-20261021-01](decision_log.md)；詳細設計、介面合約 v0 見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)。不設日期，依序推進。
+
+| Phase | Issue | 交付 |
+|---|---|---|
+| 1a | WMOM-20261021-02 | Z72 真實警報目錄（xlsx 314 筆 + 手冊 Appendix C）→ `shared/alarm_codes.py`；11 個故障情境改用真實碼 |
+| 1b | WMOM-20261021-03 | 接上溫度門檻、修 7↔3 狀態跳動、UTC tz-aware 時間戳 |
+| 2 | WMOM-20261021-04 | 故障情境標準答案 metadata + 情境（bulk）路徑產生事件 + `session_id` |
+| 3a | WMOM-20261021-05 | ① 檔案：情境資料包匯出（含 10-min stats） |
+| 3d | WMOM-20261021-09 | 學生專題 starter kit：介面合約 v1 + 範例資料包 |
+| 3b | WMOM-20261021-06 | ② 串流：凍結情境 WebSocket 回放（含事件通道） |
+| 3c | WMOM-20261021-07 | ③ OPC UA server：模仿 Bachmann Z72 tag |
+| 4 | WMOM-20261021-08 | 難度與多樣性：警報連鎖、感測器故障、多重故障、誤報、負樣本、早期徵兆 |
+
+Done criteria：學生端只靠介面合約 + 範例資料包，就能用三條管道任一條取得資料並以 `ground_truth.json` 評分。
 
 ---
 
