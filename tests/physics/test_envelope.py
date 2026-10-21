@@ -3,25 +3,28 @@
 驗證控制邏輯與保護動作 — 風機在不同工況下必須遵守設計邊界：
 
     1. TestCutInBehavior         ──  V < cut_in：power ≈ 0、rotor 漸停
-    2. TestCutOutBehavior        ──  V > cut_out：30 s 內進 stop、power 歸零
+    2. TestCutOutBehavior        ──  10 分鐘平均 > 25 或 5 秒平均 > 35 m/s → 正常停機、power 歸零；
+                                    平均 < 20 m/s 才重啟；瞬間陣風不停機（手冊事件 201，WMOM-20261021-10）
     3. TestEmergencyStopDecay    ──  emergency 後 rotor 5 s 內降 ≥ 50%
     4. TestPitchActuatorLimit    ──  正常運轉 pitch rate ≤ 10 °/s
     5. TestYawRateLimit          ──  yaw rate ≤ 0.5 °/s（Z72 OEM）
     6. TestRotorOverspeedMargin  ──  rotor never > rated × 1.2 + software 保護觸發
     7. TestGeneratorSlip         ──  direct-drive slip < 5%
 
-容差來自 Z72 OEM manual（cut_in=3, cut_out=25, overspeed=26.5/28.5 RPM）。
+容差來自 Z72 OEM manual（cut_in=3, cut_out=25 / 10 min avg、35 / 5 s avg、cut-back-in 20, overspeed=26.5/28.5 RPM）。
 """
 
 from __future__ import annotations
 
 import math
+from typing import List, Tuple
 
 import numpy as np
 import pytest
 
 from simulator.physics.drivetrain_model import DrivetrainModel, DrivetrainSpec
-from simulator.physics.turbine_physics import TurbinePhysicsModel, TurbineSpec
+from simulator.physics.power_curve import PowerCurveModel
+from simulator.physics.turbine_physics import TurbinePhysicsModel, TurbineSpec, _RollingMean
 from simulator.physics.yaw_model import YawModel
 
 
@@ -88,44 +91,157 @@ class TestCutInBehavior:
 
 
 # ════════════════════════════════════════════════════════════════════════
-# 2. Cut-out Behavior  ──  V > cut_out：30 s 內進 stop state
+# 2. Cut-out Behavior  ──  手冊事件 201：平均風速判定、正常停機、20 m/s 回切
 # ════════════════════════════════════════════════════════════════════════
 
+STOP_FAMILY = (STATE_NORMAL_STOP, STATE_SHUTDOWN)
+
+
+def _run(m: TurbinePhysicsModel, V: float, seconds: int) -> List[Tuple[int, float]]:
+    """以固定風速推進，回傳每秒的 (state, power)。"""
+    out = []
+    for _ in range(seconds):
+        tags = m.step(wind_speed=V, wind_direction=180.0, ambient_temp=15.0, dt=1.0)
+        out.append((m.tur_state, tags["WTUR_TotPwrAt"]))
+    return out
+
+
 class TestCutOutBehavior:
-    """V > cut_out：自動跳閘保護動作。"""
+    """切出風速依手冊事件 201：V wind 10 min avg > 25 或 5 s avg > 35 m/s；回切 10 min avg < 20 m/s。"""
 
-    def test_cut_out_triggers_emergency_stop(self):
-        """從 production 狀態升風到 27 m/s（>cut_out=25）→ 30 s 內 rotor 歸零。"""
+    def test_sustained_wind_above_cut_out_stops_on_10min_average(self):
+        """從 10 m/s 升到 27 m/s：10 分鐘平均跨過 25 前持續發電，跨過後正常停機（不是緊急停機）。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
-        rotor_initial = m.rotor_speed
-        assert rotor_initial > 5.0  # 確認 spin-up 成功
+        early = _run(m, 27.0, 400)                     # 平均 = (10·200 + 27·400) / 600 ≈ 21.3
+        assert {st for st, _ in early} == {STATE_PRODUCTION}
+        assert min(p for _, p in early[-60:]) > 0.5 * m.spec.rated_power_kw
+        later = _run(m, 27.0, 200)
+        states = [st for st, _ in later]
+        assert STATE_NORMAL_STOP in states and STATE_EMERGENCY_STOP not in states
+        assert m.get_control_status()["shutdown_cause"] == "cut_out"
+        assert m.tur_state in STOP_FAMILY
+        assert m.rotor_speed < 1.0
 
-        # 大風 30 s
-        for _ in range(30):
-            m.step(wind_speed=27.0, wind_direction=180.0,
-                   ambient_temp=15.0, dt=1.0)
-
-        # 必須在 stop / restart 狀態
-        assert m.tur_state in (STATE_EMERGENCY_STOP, STATE_NORMAL_STOP,
-                                STATE_RESTART_WAIT, STATE_SHUTDOWN), (
-            f"30 s 後 state={m.tur_state}，未進入 stop family"
-        )
-        assert m.rotor_speed < 1.0, (
-            f"30 s 後 rotor 仍={m.rotor_speed:.2f} RPM"
-        )
-
-    def test_power_zero_above_cut_out(self):
-        """穩定後在 30 m/s（極端強風）下 30 s 平均 |P| < 1% rated。"""
+    def test_power_zero_after_storm_stop(self):
+        """暴風停機後（30 m/s 持續）30 s 平均 |P| < 1% rated。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
-        powers = []
-        for _ in range(60):
-            tags = m.step(wind_speed=30.0, wind_direction=180.0,
-                          ambient_temp=15.0, dt=1.0)
-            powers.append(tags["WTUR_TotPwrAt"])
-        avg_power = float(np.mean(powers[-30:]))
+        run = _run(m, 30.0, 660)
+        avg_power = float(np.mean([p for _, p in run[-30:]]))
         assert abs(avg_power) < 0.01 * m.spec.rated_power_kw, (
-            f"V=30 m/s 30s 平均 P̄={avg_power:.2f} kW > 1% rated"
+            f"V=30 m/s 停機後 30s 平均 P̄={avg_power:.2f} kW > 1% rated"
         )
+
+    def test_5s_average_above_gust_limit_stops_quickly(self):
+        """5 秒平均 > 35 m/s：不必等 10 分鐘平均，數秒內要求停機。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        run = _run(m, 37.0, 10)
+        assert STATE_NORMAL_STOP in [st for st, _ in run]
+
+    @pytest.mark.parametrize("rebuilt", [False, True], ids=["init", "update_spec"])
+    def test_brief_gusts_above_cut_out_do_not_stop_or_zero_power(self, rebuilt):
+        """平均風速 < 25 時，幾秒 28 m/s 的陣風不停機、功率也不因瞬間風速 > 25 歸零。
+        update_spec（每次載入風場都走）重建的氣動模型同樣不在 25 m/s 設閘門。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        if rebuilt:
+            m.update_spec(TurbineSpec())
+        _run(m, 20.0, 300)
+        samples = []
+        for cycle in range(20):
+            samples += _run(m, 28.0 if cycle % 2 == 0 else 20.0, 3)
+        assert {st for st, _ in samples} == {STATE_PRODUCTION}
+        gust_powers = [p for i, (_, p) in enumerate(samples) if (i // 3) % 2 == 0]
+        assert min(gust_powers) > 0.5 * m.spec.rated_power_kw
+
+    def test_brief_gusts_above_cut_out_do_not_block_start_up(self):
+        """開機後平均風速 < 25：幾秒 28 m/s 的陣風不讓啟動程序中斷（不再看瞬間風速上限），也不會因
+        10 分鐘平均尚未累積滿、第一個陣風樣本就被當成平均值而進暴風停機。"""
+        m = TurbinePhysicsModel(seed=1)
+        states = []
+        for cycle in range(100):
+            states += [st for st, _ in _run(m, 28.0 if cycle % 2 == 0 else 20.0, 3)]
+        assert STATE_PRODUCTION in states
+
+    def test_brief_gust_shorter_than_5s_does_not_trip_gust_rule(self):
+        """3 秒 40 m/s 的陣風：5 秒平均 (3·40 + 2·10) / 5 = 28 < 35，不停機。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        run = _run(m, 40.0, 3) + _run(m, 10.0, 10)
+        assert {st for st, _ in run} == {STATE_PRODUCTION}
+
+    def test_single_gust_sample_at_cold_start_does_not_stop(self):
+        """開機第一個樣本就是 40 m/s：5 秒窗未滿不判定，之後 10 m/s 正常啟動發電。"""
+        m = TurbinePhysicsModel(seed=1)
+        states = [st for st, _ in _run(m, 40.0, 1) + _run(m, 10.0, 300)]
+        assert STATE_PRODUCTION in states
+
+    def test_gust_stop_before_10min_window_full_holds_until_valid_average(self):
+        """開機後 10 分鐘內被 5 秒平均停機：10 分鐘平均未滿窗前不解除，滿窗且 < 20 m/s 後才重啟。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=100)
+        _run(m, 40.0, 6)
+        before_full = _run(m, 10.0, 480)               # 累計 586 s：10 分鐘窗尚未滿
+        assert STATE_PRODUCTION not in [st for st, _ in before_full]
+        after_full = _run(m, 10.0, 300)
+        assert STATE_PRODUCTION in [st for st, _ in after_full]
+
+    def test_storm_does_not_overwrite_operator_stop_cause(self):
+        """操作員停機與暴風旗標同一步成立：停機原因維持 operator、不記 I201。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        _run(m, 40.0, 4)                               # 5 秒平均 (10 + 4·40) / 5 = 34：旗標尚未成立
+        m.plc.drain_events()
+        m.cmd_stop()
+        _run(m, 40.0, 10)                              # 第一步：5 秒平均 40 → 旗標成立，與操作員停機同步
+        assert m.get_control_status()["shutdown_cause"] == "operator"
+        assert [e.code for e in m.plc.drain_events() if e.code == 201] == []
+
+    @pytest.mark.parametrize("action", ["update_spec", "reset"])
+    def test_storm_stop_survives_update_spec_and_reset(self, action):
+        """暴風停機中改設定（update_spec）或 reset（例：維護清除故障）不得清掉暴風旗標而在暴風中重啟。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        _run(m, 28.0, 700)
+        assert m.tur_state in STOP_FAMILY
+        if action == "update_spec":
+            m.update_spec(TurbineSpec())
+        else:
+            m.reset()
+        states = [st for st, _ in _run(m, 28.0, 60)]
+        assert not set(states) & {STATE_STANDBY, STATE_PRE_PRODUCTION, STATE_START_PRODUCTION,
+                                  STATE_PRODUCTION}
+
+    def test_restart_only_after_10min_average_below_cut_back_in(self):
+        """暴風停機後：平均風速仍 > 20 m/s 不重啟；降到 15 m/s、平均 < 20 後才重啟發電。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        _run(m, 28.0, 700)
+        assert m.tur_state in STOP_FAMILY
+        held = _run(m, 22.0, 900)                      # 平均最終 ≈ 22 > 20：持續停機
+        assert STATE_PRODUCTION not in [st for st, _ in held]
+        resumed = _run(m, 15.0, 900)                   # 平均約 7 分鐘後 < 20 → 重啟
+        assert STATE_PRODUCTION in [st for st, _ in resumed]
+
+
+@pytest.mark.parametrize("dt", [1.0, 5.0, 0.5, 3.3, 700.0])
+def test_rolling_mean_covers_exactly_the_last_window(dt):
+    """_RollingMean 等於最近 window 秒的時間加權平均（暴力計算對照），任何 dt 皆然。"""
+    rng = np.random.default_rng(3)
+    window = 600.0
+    rolling = _RollingMean(window)
+    history: List[Tuple[float, float, float]] = []    # (start, end, value)
+    t = 0.0
+    for _ in range(400):
+        value = float(rng.uniform(0.0, 40.0))
+        history.append((t, t + dt, value))
+        t += dt
+        got = rolling.add(value, dt)
+        lo = max(0.0, t - window)
+        weights = [(max(0.0, min(end, t) - max(start, lo)), v) for start, end, v in history]
+        expected = sum(w * v for w, v in weights) / sum(w for w, _ in weights)
+        assert got == pytest.approx(expected, rel=1e-9, abs=1e-9)
+    assert rolling.is_full is (t >= window)
+
+
+def test_default_power_curve_table_does_not_drop_to_zero_above_cut_out():
+    """預設功率曲線表（起動同步爬升、Cp 模型無輸出時的 fallback）在 > 25 m/s 不歸零：
+    切出是控制器依平均風速的決定，不是查表（WMOM-20261021-10 code review）。"""
+    curve = PowerCurveModel(rated_power_kw=2000.0, cut_out=math.inf)
+    assert [curve.get_power(v) for v in (25.0, 25.5, 30.0, 34.9)] == [2000.0] * 4
 
 
 # ════════════════════════════════════════════════════════════════════════

@@ -38,7 +38,15 @@ Status: implemented
 
 Included:
 - Region 2 / Region 3 power behavior
-- cut-in / rated / cut-out handling
+- cut-in / rated handling; cut-out is the controller's decision (state machine, below) — the
+  aero model computes extraction for whatever wind the rotor sees while producing
+- cut-out per Z72 manual event 201 (WMOM-20261021-10): normal stop when the 10-min average wind
+  exceeds 25 m/s or the 5-s average exceeds 35 m/s; restart only after the 10-min average drops
+  below 20 m/s. Each average is judged only once its window is full (no 10-min average in the first
+  10 min after the model starts). The averages are time-weighted over exactly the last window for any
+  dt; `reset()` / `update_spec()` keep them and the storm-stop flag (wind history is environmental, so
+  a maintenance reset during a storm does not restart the turbine). Brief gusts above 25 m/s neither
+  stop the turbine nor zero its power (the default power curve no longer drops to 0 kW above 25 m/s)
 - rotor inertia via first-order response
 - rated-speed holding behavior
 
@@ -138,6 +146,13 @@ Current realism level:
 - Good first-stage farm-wide wind realism.
 - Enough to make nearby turbines non-identical.
 
+Time of day / season (`wind_model.py`, WMOM-20261021-11): the diurnal and seasonal layers read the
+wind farm's local time (`FarmConfig.timezone`, IANA name, default `Asia/Taipei`), converted from the
+UTC simulation time. The same UTC instant gives the same weather on any server, so generated data
+is reproducible across machines (previously the cycles followed the server's local time zone).
+The live and dataset-generation simulators both use the active farm's zone; `localtime` is rejected
+and an invalid stored name falls back to the default with a warning.
+
 ### 1.8 Fault-to-Physics Coupling
 Files:
 - `simulator/physics/fault_engine.py`
@@ -216,8 +231,7 @@ Verified:
 
 Known limitations:
 - physics-layer protection stops keep their own stop mode (software overspeed 351 is T1 in the
-  manual but still an emergency stop; cut-out also an emergency stop)
-- cut-out uses instantaneous wind, not the manual's 10-min / 5-s averages (WMOM-20261021-10)
+  manual but still an emergency stop); cut-out is a normal stop on averaged wind since WMOM-20261021-10
 
 ### 1.9 Grid Model and Grid-Side Response
 Files:

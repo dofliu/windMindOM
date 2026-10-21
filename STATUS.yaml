@@ -3,7 +3,7 @@ name_zh: 風心智運維平台
 category: wind_energy
 progress: 100
 status: active
-last_updated: "2026-10-21"  # **2026-10-21 深夜 WMOM-20261021-03-c done（母 -03 done）**：monitoring 時間戳全面改 UTC tz-aware（`simulator/time_utils.py`：固定格式 `...ffffff+00:00`、naive＝伺服器本地時間；寫入一律 UTC；storage 邊界正規化查詢範圍，順帶修好前端 UTC 查詢範圍對本地時間 DB 偏移的既有 bug；既有 DB 開檔一次性轉 UTC，PRAGMA user_version；風況日夜循環仍以本地時間計；依 code review：轉換保留微秒、分批 commit、farms.db 同步轉換、farm-trend 分桶 bug、新增 WMOM-20261021-11 風場時區）；backend 1521→1539 passed、frontend vitest 1501→1502。前次：**2026-10-21 晚 WMOM-20261021-03-b done**：PLC 保護層（`simulator/physics/plc_protection.py`）——警報 / 跳機改由製程訊號越過 TurbineSpec 真實設定值觸發（遲滯、延時、葉片三段、風向標 25 s 濾波、判定窗），T1 正常停機 / T2 緊急變槳，跳機鎖存 + max_per_hour 自動重啟上限 + 復位事件 008，物理層保護停機補事件碼；FaultEngine 移除 severity 門檻、改由 PLC 跳機轉 tripped，maintenance_lock 取代每步緊急停機（修 7↔3）；健康 111 tag 逐位元不變、data quality 20/0 不變；backend 1471→1521 passed（含 code review 補測）；新增 WMOM-20261021-10（切出風速平均判定）。前次：**2026-10-21 下午 WMOM-20261021-03-a done**：故障物理校正到真實 Z72 保護設定值（修 extra_heat dict union 覆蓋 bug；冷卻劣化改提高熱阻；11 情境重新校正；+5 真實 Bachmann tag 111→116、健康輸出逐位元不變；TurbineSpec 保護設定值 manual/assumed；tests/physics/test_fault_threshold_reach.py 36 項）；backend 1435→1471 passed、data quality 20/0 不變；-03 拆 -03-a/b/c。前次：**2026-10-21 方向調整 DEC-20261021-01**：商業時程（M6 PoC / 合約）與真實風場 / OPC 介接暫緩，主線改為 **EPIC-DS 擬真資料源**（模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手〔學生專題〕驗證；設計見 `docs/product/EPIC-DS_realistic_data_source.md`）。同日 **WMOM-20261021-02 done**（Phase 1a）：Z72 真實警報目錄 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C 306 筆原因/處置/重啟上限）+ `shared/alarm_codes.py`；11 個故障情境改用真實碼（原 24 碼中多個與真實不符）；backend 1305→1435 passed / 7 skipped / 1 xfailed、frontend vitest 1500→1501。前次：**2026-10-06 WMOM-20260505-25-c done**：振動 tab 新增「軸承 / 齒輪診斷」區塊（BPFO/BPFI 頻率+振幅、GMF、邊帶，純前端、零後端改動）；frontend vitest 1497→1499（main 實測 baseline 1497）、backend 1305 不變。前次：**WMOM-20260505-25-b done**：`TurbineDetail`
+last_updated: "2026-10-21"  # **2026-10-21 深夜 -10 / -11 code review 修正**：移動平均窗精確化（dt 不整除窗長時不再偏短）、I201 改為每停機週期一次、reset / update_spec 保留平均風速與暴風旗標（維護 reset 不會在暴風中重啟）、預設功率曲線表拿掉 > 25 m/s 歸零點；clone / 資料集產生帶風場時區、Live 與資料集 session 記 site_timezone、requirements 加 tzdata、無效時區 fallback、update_farm 先驗證再寫、拒絕 localtime；健康輸出逐位元不變、data quality 20/0；backend 1551→1574 passed。前次：**2026-10-21 深夜 WMOM-20261021-11 done**：風場時區（FarmConfig.timezone 預設 Asia/Taipei、farms.db 新欄、API 驗證；broker 以目前風場時區建立模擬器；wind_model 以 to_site_naive 取風場當地時刻；同一組 UTC 時刻在任何伺服器時區下輸出逐位元相同；情境 session 記 site_timezone）；data quality 20/0；backend 1543→1551 passed。前次：**2026-10-21 深夜 WMOM-20261021-10 done**：切出風速改依手冊事件 201（10 分鐘平均 > 25 或 5 秒平均 > 35 m/s 正常停機、10 分鐘平均 < 20 才重啟、平均累積滿窗才判定、氣動模型不再於瞬間 > 25 m/s 歸零）；16 m/s / TI 0.18 發電時間 31.5 % → 99.8 %；健康輸出逐位元不變、data quality 20/0；backend 1539→1543 passed。前次：**2026-10-21 深夜 WMOM-20261021-03-c done（母 -03 done）**：monitoring 時間戳全面改 UTC tz-aware（`simulator/time_utils.py`：固定格式 `...ffffff+00:00`、naive＝伺服器本地時間；寫入一律 UTC；storage 邊界正規化查詢範圍，順帶修好前端 UTC 查詢範圍對本地時間 DB 偏移的既有 bug；既有 DB 開檔一次性轉 UTC，PRAGMA user_version；風況日夜循環仍以本地時間計；依 code review：轉換保留微秒、分批 commit、farms.db 同步轉換、farm-trend 分桶 bug、新增 WMOM-20261021-11 風場時區）；backend 1521→1539 passed、frontend vitest 1501→1502。前次：**2026-10-21 晚 WMOM-20261021-03-b done**：PLC 保護層（`simulator/physics/plc_protection.py`）——警報 / 跳機改由製程訊號越過 TurbineSpec 真實設定值觸發（遲滯、延時、葉片三段、風向標 25 s 濾波、判定窗），T1 正常停機 / T2 緊急變槳，跳機鎖存 + max_per_hour 自動重啟上限 + 復位事件 008，物理層保護停機補事件碼；FaultEngine 移除 severity 門檻、改由 PLC 跳機轉 tripped，maintenance_lock 取代每步緊急停機（修 7↔3）；健康 111 tag 逐位元不變、data quality 20/0 不變；backend 1471→1521 passed（含 code review 補測）；新增 WMOM-20261021-10（切出風速平均判定）。前次：**2026-10-21 下午 WMOM-20261021-03-a done**：故障物理校正到真實 Z72 保護設定值（修 extra_heat dict union 覆蓋 bug；冷卻劣化改提高熱阻；11 情境重新校正；+5 真實 Bachmann tag 111→116、健康輸出逐位元不變；TurbineSpec 保護設定值 manual/assumed；tests/physics/test_fault_threshold_reach.py 36 項）；backend 1435→1471 passed、data quality 20/0 不變；-03 拆 -03-a/b/c。前次：**2026-10-21 方向調整 DEC-20261021-01**：商業時程（M6 PoC / 合約）與真實風場 / OPC 介接暫緩，主線改為 **EPIC-DS 擬真資料源**（模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手〔學生專題〕驗證；設計見 `docs/product/EPIC-DS_realistic_data_source.md`）。同日 **WMOM-20261021-02 done**（Phase 1a）：Z72 真實警報目錄 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C 306 筆原因/處置/重啟上限）+ `shared/alarm_codes.py`；11 個故障情境改用真實碼（原 24 碼中多個與真實不符）；backend 1305→1435 passed / 7 skipped / 1 xfailed、frontend vitest 1500→1501。前次：**2026-10-06 WMOM-20260505-25-c done**：振動 tab 新增「軸承 / 齒輪診斷」區塊（BPFO/BPFI 頻率+振幅、GMF、邊帶，純前端、零後端改動）；frontend vitest 1497→1499（main 實測 baseline 1497）、backend 1305 不變。前次：**WMOM-20260505-25-b done**：`TurbineDetail`
   # 新增「振動頻譜」tab（5 頻帶 RMS X/Y + 警報 badge、crest/kurtosis/overall 警報，
   # 純前端消費既有 `WVIB_*` scadaTags，零後端改動）；frontend vitest 1492→1497
   # （+5），backend 1305 不變。Part C（BearingDiagPanel）待下個 session。前次：
@@ -815,13 +815,15 @@ milestones:
     target_month: null  # 不設日期（DEC-20261021-01）
     status: in_progress
     design: "docs/product/EPIC-DS_realistic_data_source.md"
-    progress: 35  # Phase 1a（-02）+ 1b（-03-a 故障物理校正、-03-b PLC 保護層、-03-c UTC 時間戳）done；剩 -10 切出風速 / 2 / 3a-3d / 4
+    progress: 40  # Phase 1a（-02）+ 1b（-03-a/-b/-c）+ 1b+（-10 切出風速、-11 風場時區）done；剩 2 / 3a-3d / 4
 
 issue_stats:
   # 2026-10-21 重新逐條解析 ISSUES.md `### WMOM-` header 核實（舊表少算 -25-b/-25-c 兩筆：
   # 實際 done 126 / open 7 / in_progress 2 = 135），再套用本次變動：WMOM-20260503-05、
   # WMOM-20260509-F6 → deferred；新增 WMOM-20261021-01/-02（done）+ -03~-09（open 7）。
-  open: 14  # 6 舊 + EPIC-DS（-04~-09 共 6 + -10 + -11）；-03-c done、新增 -11 風場時區（2026-10-21 深夜）
+  open: 12  # 6 舊 + EPIC-DS（-04~-09 共 6）；-11 done（2026-10-21 深夜）
+  # open 前值: 13  # 6 舊 + EPIC-DS（-04~-09 共 6 + -11）；-10 done（2026-10-21 深夜）
+  # open 前值: 14  # 6 舊 + EPIC-DS（-04~-09 共 6 + -10 + -11）；-03-c done、新增 -11 風場時區（2026-10-21 深夜）
   # open 前值: 14  # 6 舊 + EPIC-DS（-04~-09 共 6 + -03-c + -10）；-03-b done（2026-10-21 晚）、新增 -10
   # open 前值: 14  # 6 舊 + EPIC-DS（-04~-09 共 6 + -03-b、-03-c）；-03 母 issue 改 in_progress
   # 前次：2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
@@ -831,10 +833,10 @@ issue_stats:
                   # WMOM-20260503-05 改 deferred
   blocked: 0
   deferred: 2  # WMOM-20260503-05（客戶接觸）、WMOM-20260509-F6（PostgreSQL row-lock）— DEC-20261021-01
-  done: 132  # 實際 126 + WMOM-20261021-01/-02/-03/-03-a/-03-b/-03-c
+  done: 134  # 實際 126 + WMOM-20261021-01/-02/-03/-03-a/-03-b/-03-c/-10/-11
   # done 舊值: 124  # +1 WMOM-20260505-26-a（2026-10-06）；前次 +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
              # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
-  # total 149（14+1+0+2+132=149，與 ISSUES.md `### WMOM-` header 數一致，2026-10-21 深夜逐條解析核實）
+  # total 149（12+1+0+2+134=149，與 ISSUES.md `### WMOM-` header 數一致，2026-10-21 深夜逐條解析核實）
 
 inherited_baseline:
   source: digiWindTurbine

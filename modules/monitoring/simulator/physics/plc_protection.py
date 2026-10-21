@@ -67,8 +67,6 @@ _CONVERTER_TRIP_REQUEST = 21  # T1: Turbine trip request from converter（伴隨
 _OPERATOR_RESET_CODE = 8     # I: Operator reset
 # 物理層保護停機可能補上的跳機碼（超速、ARU 欠壓 / 過壓、電網頻率、變頻器跳機要求）
 PROTECTION_TRIP_CODES: Tuple[int, ...] = (351, 320, 475, 481, 482, 489, _CONVERTER_TRIP_REQUEST)
-# I 類事件（切出風速）去重間隔：暴風時物理層會反覆要求停機，避免洗版
-_INFO_EVENT_MIN_INTERVAL_S = 600.0
 # 延時比較的浮點容差（子步 dt 累加誤差）
 _DELAY_EPS_S = 1e-6
 # 電網保護停機依量測電壓分類（p.u.）：< 0.81 對齊物理層嚴重欠壓限值 → 482；< 0.90 → 481；
@@ -237,7 +235,8 @@ class PlcProtection:
         # 每個事件碼最近一次成立的規則（同碼多規則時，事件的 value / setpoint 取實際成立者）
         self._trigger_rule: Dict[int, ProtectionRule] = {}
         self._protection_latched: Dict[int, float] = {}
-        self._last_info_time: Dict[int, float] = {}
+        # 本停機週期已記過切出風速事件（I201）；機組再次起動時清除（WMOM-20261021-10）
+        self._cut_out_noted = False
         self._events: Deque[PlcEvent] = deque(maxlen=_EVENT_QUEUE_MAX)
         self._last_trip_codes: Tuple[int, ...] = ()
         self._pending_trip_codes: List[int] = []
@@ -426,9 +425,10 @@ class PlcProtection:
         if not self.enabled:
             return []
         if cause == "cut_out":
-            last = self._last_info_time.get(_CUT_OUT_CODE)
-            if last is None or sim_time - last >= _INFO_EVENT_MIN_INTERVAL_S:
-                self._last_info_time[_CUT_OUT_CODE] = sim_time
+            # 每個停機週期記一次（與其他保護停機同一套週期語意），不用時間窗去重——時間窗會把
+            # 600 s 內真實的第二次暴風停機吞掉
+            if not self._cut_out_noted:
+                self._cut_out_noted = True
                 self._emit(sim_time, "info", _CUT_OUT_CODE, None, None, source="protection")
             return []
         codes = self._protection_codes(cause)
@@ -469,6 +469,7 @@ class PlcProtection:
         Args:
             sim_time: 機組模擬時間（秒）。
         """
+        self._cut_out_noted = False
         for code in list(self._protection_latched):
             del self._protection_latched[code]
             self._emit(sim_time, "trip_cleared", code, None, None, source="protection")

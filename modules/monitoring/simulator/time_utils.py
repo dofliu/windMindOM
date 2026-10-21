@@ -8,7 +8,10 @@
   ``.`` 與數字，同一秒內的字典序會顛倒）。SQLite 的 ``strftime('%s', ...)`` 認得 ``+00:00`` 後綴。
 - **naive 輸入視為伺服器本地時間**：本次之前 monitoring 一律寫 naive 的 ``datetime.now()``（伺服器
   本地時間），既有 DB 列、API 呼叫端傳入的 naive 字串都依此解讀再轉 UTC（Python ``astimezone()``
-  對 naive 值的預設語意）。
+  對 naive 值的預設語意）。**例外**：``to_site_naive``（物理輸入取風場當地時刻）把 naive 值視為
+  已是風場牆鐘時間、原樣回傳（WMOM-20261021-11）。
+- **風場時區**：需要「當地時刻」的物理輸入（日夜 / 季節循環）一律用 ``to_site_naive(ts, site_tz)``，
+  不依伺服器時區——同一個 UTC 時刻在任何機器上得到同一個風場當地時刻。
 
 本模組放在 ``simulator/``（最底層）：simulator 與 server 都能匯入；server 以
 ``from simulator.time_utils import ...``（sys.path 注入模式）或相對匯入（套件模式）取得。
@@ -17,10 +20,13 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UTC = timezone.utc
+# 風場時區預設值（Z72 參考風場在台灣海峽；WMOM-20261021-11）
+DEFAULT_SITE_TIMEZONE = "Asia/Taipei"
 # URL query 未編碼的 "+00:00" 會被解成空格（"...05:00:00 00:00"）：視為 "+"
 _SPACE_OFFSET = re.compile(r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?) (\d{2}:\d{2})$")
 
@@ -46,18 +52,42 @@ def to_utc(dt: datetime) -> datetime:
     return dt.astimezone(UTC)
 
 
-def to_local_naive(dt: datetime) -> datetime:
-    """轉成伺服器本地時間的 naive ``datetime``（需要「當地時刻」的物理輸入用，例：日夜 / 季節循環）。
+def site_timezone(name: str) -> tzinfo:
+    """IANA 時區名稱 → ``tzinfo``（風場時區，WMOM-20261021-11）。
 
     Args:
-        dt: 任意 ``datetime``；naive 值原樣回傳（已是本地時間）。
+        name: IANA 時區名稱（例 ``Asia/Taipei``、``UTC``）。
 
     Returns:
-        naive 本地時間 ``datetime``。
+        ``ZoneInfo``。
+
+    Raises:
+        ValueError: 不是有效的 IANA 時區名稱（或本機缺 tz 資料庫；Windows 需 ``tzdata`` 套件），
+            或是 ``localtime``（＝伺服器時區，失去可重現性）。
+    """
+    if name == "localtime":
+        raise ValueError("時區 'localtime' 是伺服器時區；請用 IANA 名稱（例 Asia/Taipei）")
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"未知的時區：{name!r}") from exc
+
+
+def to_site_naive(dt: datetime, site_tz: tzinfo) -> datetime:
+    """轉成風場當地時間的 naive ``datetime``（需要「當地時刻」的物理輸入用，例：日夜 / 季節循環）。
+
+    與伺服器所在時區無關：同一個 UTC 時刻在任何機器上都得到同一個風場當地時刻，資料可重現。
+
+    Args:
+        dt: tz-aware 時刻；naive 值視為已是風場當地牆鐘時間、原樣回傳（舊呼叫端與測試以牆鐘時間呼叫）。
+        site_tz: 風場時區（``site_timezone`` 的結果）。
+
+    Returns:
+        naive 風場當地時間 ``datetime``。
     """
     if dt.tzinfo is None:
         return dt
-    return dt.astimezone().replace(tzinfo=None)
+    return dt.astimezone(site_tz).replace(tzinfo=None)
 
 
 def iso_utc(dt: Optional[datetime] = None) -> str:

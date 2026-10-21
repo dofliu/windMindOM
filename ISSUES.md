@@ -13,14 +13,23 @@
 
 | Status | Count |
 |--------|------|
-| open | 14 |
+| open | 12 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 132 |
+| done | 134 |
 | **total** | **149** |
 
-最後更新：2026-10-21 深夜（**WMOM-20261021-03-c done → 母 issue -03 done**：monitoring 時間戳全面改 UTC tz-aware——新增
+最後更新：2026-10-21 深夜（**WMOM-20261021-11 done**：風場時區——`FarmConfig.timezone`（預設 Asia/Taipei、`farms.db` 新欄、API 驗證）、
+broker 以目前風場時區建立模擬器、`wind_model` 以 `to_site_naive` 取風場當地時刻；同一組 UTC 時刻在任何伺服器時區下輸出逐位元相同；
+情境 session 記下 `site_timezone`；-10 / -11 code review 修正（移動平均窗精確化、I201 每停機週期一次、reset 保留平均風速；
+clone / 資料集產生帶風場時區、`tzdata`、無效時區 fallback）。逐條解析 header 核實：open 12 / in_progress 1 / deferred 2 / done 134 = 149。
+詳見 `work-logs/2026-10/2026-10-21-farm-timezone.md`、`2026-10-21-cut-out-averaging.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-10 done**：切出風速改依手冊事件 201——10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s
+正常停機、10 分鐘平均 < 20 m/s 才重啟（平均累積滿窗長才判定）、氣動模型不再於瞬間風速 > 25 m/s 歸零；16 m/s / TI 0.18
+發電時間 31.5 % → 99.8 %、I201 事件 7 → 0。逐條解析 header 核實：open 13 / in_progress 1 / deferred 2 / done 133 = 149。
+詳見 `work-logs/2026-10/2026-10-21-cut-out-averaging.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-03-c done → 母 issue -03 done**：monitoring 時間戳全面改 UTC tz-aware——新增
 `simulator/time_utils.py`（固定格式 `...ffffff+00:00`、naive 視為伺服器本地時間）、寫入一律 UTC、storage 邊界正規化查詢範圍、
 既有 DB 開檔一次性把 naive 本地時間轉 UTC（`PRAGMA user_version`）、風況日夜循環仍以本地時間計；依 code review 新增
 `WMOM-20261021-11`（風場時區設定，+1 筆）。逐條解析 header 核實：open 14 / in_progress 1 / deferred 2 / done 132 = 149。詳見 `work-logs/2026-10/2026-10-21-utc-timestamps.md`）。
@@ -1316,7 +1325,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **完成紀錄**:
   - **新模組** `modules/monitoring/simulator/physics/plc_protection.py`：`PlcProtection`（每台機組一個，`TurbinePhysicsModel.plc`）以 `TurbineSpec` 設定值判定**製程值**（感測器模型之前——感測器雜訊 / 漂移 / 卡值對保護判定太大，健康機組會約兩天一次葉片同步 T2 誤跳；感測器故障跳機留給 -08 以標註方式建模）。規則：主軸承 262/240、定子 264/244、機艙 273/256、變壓器 417/444、冷卻水 420/437(+021)、變頻器機櫃 421/438(+021)、靜水壓 432（只在發電時）、偏航煞車 260/228（煞車施加 90 s 後）、油封 261、風向標 233（25 s 濾波 + 10 分鐘風速 > 4.5）、葉片 335/336/337（瞬間 8° / 3 s 3° / 5 s 1°，穩定發電 60 s 後）、振動 236；遲滯 + 嚴格延時
   - **跳機語意**：A 級 raised / cleared 不停機；T1 → 正常伺服停機（TurSt 9）、T2 → 緊急變槳（7）；鎖存到條件解除，一小時內次數 ≤ 目錄 `max_per_hour` 自動解除，超過 `restart_blocked` 需復位；`cmd_reset` → `operator_reset`（事件 008）；已排定的緊急停機不被正常停機要求降級
-  - **物理層保護停機補事件碼**：超速 351/320、LVRT band 1-2 → 481+021、band ≥ 3 → 482+021、HVRT → 475+021、`grid_protection`/`grid_trip` 依電壓 → 481/482/475/489(+021)、切出風速 → I 201（600 s 去重）
+  - **物理層保護停機補事件碼**：超速 351/320、LVRT band 1-2 → 481+021、band ≥ 3 → 482+021、HVRT → 475+021、`grid_protection`/`grid_trip` 依電壓 → 481/482/475/489(+021)、切出風速 → I 201（600 s 去重；-10 起改為每個停機週期一次）
   - **`FaultEngine`**：移除 24 個 severity `threshold`，`alarm_codes` 改為情境預期碼（ground truth metadata）；新增 `mark_tripped` / `trip_code`；引擎在 PLC 以預期 T 碼跳機時轉 tripped，tripped 期間設 `model.maintenance_lock` 阻擋重啟（取代每步 `cmd_emergency_stop`）→ **7↔3 擺盪已修**；「復位不等於修好」不變量保留（`test_reset_keeps_fault.py` 改寫 + 新增無 7↔3 測試）
   - **broker / 情境**：即時路徑 `drain_events()` 記 `source="plc"` 事件（payload 含 kind/code/level/plcTag/eventId/value/setpoint），移除 severity「Fault alarm threshold reached」事件；情境排程記 `kind="trip"` 事件，`/api/scenarios` 依 trip 事件判斷已跳機（舊 session 沿用 severity 公式）
   - blade_icing 移除「葉片 1 變槳 bias 2°×嚴重度」（會讓結冰情境以葉片同步 T2 跳機，與預期碼 236 不符）
@@ -1419,24 +1428,46 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-10 — 切出風速改用平均風速判定（手冊事件 201）
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 0.5-1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: 物理層 `_update_state` 以**瞬間**有效風速判定切出（> 25 m/s 或 > 25.5 m/s 即要求停機），且走緊急停機；手冊事件 201（I 類）的條件是 10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s，暴風停機屬正常停機。高紊流、高風速時機組會因瞬間陣風反覆切出、重啟，產生大量 I201 事件與不真實的發電中斷（-03-b 實作時觀察到，I201 已以 600 s 去重）。改為 10 分鐘 / 5 秒平均判定、正常停機，並設定回切（restart）風速遲滯；需確認 `data_quality_analysis.py` 與既有功率曲線測試不退化。
 - **Deliverable**: `turbine_physics.py` 切出邏輯 + 測試
+- **完成紀錄**:
+  - **規則**（`TurbineSpec` 新增 `cut_out_avg_window_s` 600 / `cut_out_gust_speed` 35 / `cut_out_gust_window_s` 5 / `cut_back_in_speed` 20，皆依手冊）：10 分鐘平均 > 25 或 5 秒平均 > 35 m/s → 暴風停機旗標成立、**正常停機**（原為瞬間 > 25 m/s 緊急停機）；10 分鐘平均 < 20 m/s 才解除。時間加權移動平均（`_RollingMean`），**累積滿一個窗長才判定**——否則開機時第一個陣風樣本就等於 10 分鐘平均，平均風速 20-25 m/s 時會永遠停在暴風停機（實作時發現，已有測試守住）
+  - 啟動條件 `wind_ok` 不再看瞬間風速上限；暴風停機旗標期間不可啟動 / 重啟
+  - **氣動模型**：`PowerCurveModel` 的 `cut_out` 改為 `math.inf`——切出是控制器的決定，運轉中 > 25 m/s 的陣風不再讓功率瞬間歸零（探測：25-35 m/s 維持額定轉速 22.5 rpm、額定功率、槳距約 30°，無超速）
+  - **實測**（1 機 2 h）：16 m/s / TI 0.18 發電時間 31.5 % → 99.8 %、切出 1 → 0、I201 7 → 0；22-27 m/s 各 1 次切出、I201 12 → 1
+  - **測試**：`tests/physics/test_envelope.py` 的切出測試改寫為 6 項（10 分鐘平均跨過 25 才停機且為正常停機、停機後功率歸零、5 秒平均 > 35 快速停機、短暫陣風不停機也不歸零、短暫陣風不阻擋啟動、20 m/s 回切遲滯）；mutation：放回瞬間上限 / 拿掉滿窗判定 / 拿掉 20 m/s 遲滯 / 氣動閘門放回 25 / 改回緊急停機 / 拿掉陣風規則，各有測試失敗
+  - 健康機組既有 111 tag 輸出逐位元不變；`data_quality_analysis.py` 20 / 0；backend 1539 → 1543
+  - 設計與已知限制見設計文件 §6.5
+  - **code-reviewer review**（Needs revision → 已處理）：3 should-fix 皆修——(1) `_RollingMean` 剔除最舊樣本時整筆丟，dt 不整除窗長時平均窗偏短 → 最舊樣本只剔除超出的部分，任何 dt 都恰好涵蓋最近一個窗長；(2) I201 以 600 s 時間窗去重會吞掉 600 s 內真實的第二次暴風停機 → 改為每個停機週期一次（與其他保護停機同語意，機組再次起動時重計）；(3) `reset()` / `update_spec()` 清空平均值，暴風停機中的機組被維護 reset 後會立刻在暴風中重啟 → 保留平均值與旗標（風速歷史是環境量），只有窗長改變才重建。nice-to-have：預設功率曲線表拿掉 25.5 / 26 m/s → 0 kW 的尾端點（查表只在起動爬升 / Cp 無輸出時當 fallback，末端改夾在額定）。其餘記為已知限制（§6.5）：批次 dt 5 s 的陣風規則較敏感、冷啟動前 10 分鐘的暴風發電、判定風速含個體差與故障 `wind_scale`、前端 `noPowerReason` 仍以瞬間 > 25 m/s 顯示切出
+  - review 修正後測試：`TestCutOutBehavior` 6 → 13 項 + `_RollingMean` 參數化 5 項 + 功率曲線表 1 項、`test_plc_protection.py` +1（每週期一次）；每項修正都以 mutation 驗證（放回舊行為 → 測試失敗）
+- **未做**：高風速時陣風模型偏強（`wind_field.py` 自然陣風頻率與振幅隨風速放大，22-24 m/s 時 5 秒平均約 7 分鐘內越過 35 m/s）——切出規則照手冊，陣風校準留給 -08 / Phase 5；判定用自由流有效風速而非機艙風速計讀值
 - **Depends on**: WMOM-20261021-03-b
 
 ### WMOM-20261021-11 — 風場時區設定：日夜 / 季節循環改用風場所在時區
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 0.5-1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: -03-c 起時間戳一律 UTC，但 `wind_model.py` 的日夜 / 季節循環仍以「伺服器本地時區」取 hour / month（`to_local_naive`），同一情境在 UTC 的 CI 與 UTC+8 的開發機上相位差 8 小時，資料包（-05）不可重現。改為 farm 層級的時區設定（Z72 參考風場預設 `Asia/Taipei`，`zoneinfo`），模擬器依風場時區換算；需確認 `data_quality_analysis.py` 與既有物理測試不退化（CI 是 UTC，改成固定 Asia/Taipei 後日夜相位會移動）。
 - **Deliverable**: farm 設定欄位、`wind_model.py` 換算、測試
+- **完成紀錄**:
+  - `simulator/time_utils.py`：`DEFAULT_SITE_TIMEZONE`（Asia/Taipei）、`site_timezone(name)`（`zoneinfo`，無效名稱 raise `ValueError`）、`to_site_naive(ts, tz)` 取代 `to_local_naive`（aware → 風場當地牆鐘；naive 視為已是風場牆鐘）
+  - `wind_model.py`：`WindEnvironmentModel(site_timezone_name=...)` / `set_site_timezone`，6 個讀 hour / month 的 getter 改 `to_site_naive`；`WindFarmSimulator(site_timezone=...)`
+  - `FarmConfig.timezone`：`farms.db` 新欄（既有風場以 ALTER 補預設 Asia/Taipei）；`create_farm` / `update_farm` 驗證，`POST /api/farms`、`PATCH /api/farms/{id}` 無效名稱回 400
+  - broker 以目前風場的時區建立模擬器（`_active_farm_timezone`）；情境 session 的 `config.site_timezone` 記下所用時區（-05 manifest 用）
+  - **可重現**：同一組 UTC 時刻在 UTC / Asia/Taipei / America/New_York 伺服器時區下風況逐位元相同；模擬器全部 SCADA tag 在 UTC 與 Asia/Taipei 下逐位元相同
+  - **行為改變**：伺服器時區不是 Asia/Taipei 的機器（CI、Docker）日夜相位移動 +8 小時；健康機組物理輸出（不經風況模型）逐位元不變；`data_quality_analysis.py` 20 / 0；既有測試全過（只改 -03-c 的風況測試名稱與敘述）
+  - **測試**：`test_farm_timezone.py`（8）、`test_scenario_endpoints.py` 加 `site_timezone` 斷言；mutation：改回伺服器本地 / broker 不帶風場時區 / 建立不驗證 / 情境不記時區，各有測試失敗
+  - **code-reviewer review**（Needs revision → 已處理）：1 must-fix——`clone_farm` 沒帶時區，複製的風場變回預設 → 帶 `source.timezone`；should-fix——資料集產生（`POST /api/farms/{id}/datasets/generate`）的暫存模擬器沒用風場時區 → 帶入並記進 session config；`requirements.txt` 加 `tzdata`（Windows 與精簡容器沒有系統 tz 資料）；`farms.db` 存了本機無效的名稱時 broker 印警告退回預設（不讓模擬起不來）；`update_farm` 改為先驗證全部欄位再開連線（中途 raise 不留未提交交易、`finally` 關連線）、ALTER 只吞「duplicate column」；`localtime`（＝伺服器時區）與非字串拒絕；Live session 也記 `site_timezone`；`time_utils` 模組說明補 `to_site_naive` 的 naive 語意。記為已知限制（§6.6）：`PATCH` 時區要重啟模擬才生效、起點仍是 `utc_now()`（內容可重產還需固定起始時刻，-05）、DST 依民用時間
+  - review 修正後測試：`test_farm_timezone.py` 8 → 17（`to_site_naive`、跨月邊界、`localtime`、clone、驗證失敗不留鎖也不寫入其他欄位、API 預設 / 非字串 400 / PATCH 成功、資料集產生、切換風場、無效時區 fallback）；mutation 8 項皆被抓到
+- **未做**：前端建立風場表單未加時區欄位（API 預設 Asia/Taipei，需要時再加）
 - **Depends on**: WMOM-20261021-03-c
 - **Blocks**: WMOM-20261021-05（資料包可重現）
 
@@ -1460,8 +1491,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 0 | ~~WMOM-20261021-01~~ ✅ | 方向調整文件（DEC + 設計 + ROADMAP/STATUS/CLAUDE.md 同步） | 🔵 |
 | 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
 | 1b | ~~WMOM-20261021-03~~ ✅ | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → ~~-03-c UTC 時間戳~~ ✅ | 🔵 |
-| 1b+ | WMOM-20261021-10 | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
-| 1b+ | WMOM-20261021-11 | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
+| 1b+ | ~~WMOM-20261021-10~~ ✅ | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
+| 1b+ | ~~WMOM-20261021-11~~ ✅ | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
 | 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |

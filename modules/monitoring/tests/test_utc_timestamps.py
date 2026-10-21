@@ -4,7 +4,7 @@
 2. 模擬器輸出的 reading 時間戳是固定格式的 UTC
 3. storage：寫入一律 UTC；查詢參數正規化（前端送 ``toISOString()`` 的 ``Z`` 字串）；舊版 naive 本地
    時間的 DB 開檔時一次性轉成 UTC
-4. 風況模型的日夜 / 季節循環仍以伺服器本地時間計（換成 UTC 輸入後不位移）
+4. 風況模型的日夜 / 季節循環以風場時區計（WMOM-20261021-11；原為伺服器本地時間）
 
 本地時區相關的測試把程序時區設成 Asia/Taipei（UTC+8）——CI 是 UTC，naive 與 UTC 一樣，測不出差異。
 """
@@ -310,15 +310,16 @@ def test_farm_trend_long_range_groups_rows_into_time_buckets(tmp_path: Path,
     assert result["count"] == 3
 
 
-# ── 風況模型：日夜循環仍用本地時間 ─────────────────────────────────────────
+# ── 風況模型：日夜循環用風場時區（WMOM-20261021-11）───────────────────────────
 
 
 @pytest.mark.parametrize("getter", [
     "get_wind_speed", "get_wind_direction", "get_ambient_temp", "get_ambient_humidity",
     "get_atmospheric_stability",
 ])
-def test_wind_model_diurnal_cycle_keeps_server_local_time(getter: str, taipei_tz: None) -> None:
-    """同一瞬間以 UTC（06:00Z）與台北本地 naive（14:00）輸入，結果相同；把 06:00 當本地則不同。"""
+def test_wind_model_diurnal_cycle_uses_site_time(getter: str) -> None:
+    """日夜循環依風場時區（預設 Asia/Taipei，WMOM-20261021-11）：UTC 06:00Z 與風場牆鐘 naive 14:00
+    結果相同；把 06:00 當風場牆鐘則不同。與伺服器時區無關（見 test_farm_timezone.py）。"""
     def value(ts: datetime) -> float:
         return getattr(WindEnvironmentModel(seed=3), getter)(ts)
 

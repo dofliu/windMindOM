@@ -94,7 +94,8 @@ async def create_farm(body: dict):
 
     Required: name
     Optional: farm_id, turbine_count, preset, turbine_spec,
-              wind_profile, grid_profile, location, description
+              wind_profile, grid_profile, location, description,
+              timezone（IANA 名稱，預設 Asia/Taipei；模擬的日夜 / 季節循環依此當地時刻）
     """
     reg = _get_registry()
     name = body.get("name")
@@ -115,18 +116,22 @@ async def create_farm(body: dict):
             raise HTTPException(404, f"Unknown preset: {preset_name}. Available: {list(TURBINE_PRESETS.keys())}")
         turbine_spec = TURBINE_PRESETS[preset_name].to_dict()
 
-    farm = reg.create_farm(
-        farm_id=farm_id,
-        name=name,
-        turbine_count=turbine_count,
-        turbine_spec=turbine_spec,
-        wind_profile=body.get("wind_profile", {}),
-        grid_profile=body.get("grid_profile", {}),
-        layout=body.get("layout", {}),
-        location=body.get("location", ""),
-        description=body.get("description", ""),
-        is_offshore=bool(body.get("is_offshore", False)),
-    )
+    try:
+        farm = reg.create_farm(
+            farm_id=farm_id,
+            name=name,
+            turbine_count=turbine_count,
+            turbine_spec=turbine_spec,
+            wind_profile=body.get("wind_profile", {}),
+            grid_profile=body.get("grid_profile", {}),
+            layout=body.get("layout", {}),
+            location=body.get("location", ""),
+            description=body.get("description", ""),
+            is_offshore=bool(body.get("is_offshore", False)),
+            timezone=body.get("timezone"),
+        )
+    except ValueError as exc:  # 無效的時區名稱
+        raise HTTPException(400, str(exc))
     return {"status": "created", "farm": farm.to_dict()}
 
 
@@ -138,8 +143,14 @@ async def create_farm(body: dict):
     dependencies=[Depends(require_role(Role.SUPERVISOR))],
 )
 async def update_farm(farm_id: str, body: dict):
-    """Update farm metadata (name, description, location, turbine_spec, etc.)."""
-    farm = _get_registry().update_farm(farm_id, **body)
+    """Update farm metadata (name, description, location, turbine_spec, timezone, etc.).
+
+    時區變更在下次啟動該風場的模擬時生效。
+    """
+    try:
+        farm = _get_registry().update_farm(farm_id, **body)
+    except ValueError as exc:  # 無效的時區名稱 / is_offshore 型別
+        raise HTTPException(400, str(exc))
     if not farm:
         raise HTTPException(404, f"Farm not found: {farm_id}")
     return {"status": "updated", "farm": farm.to_dict()}
@@ -306,11 +317,15 @@ async def generate_dataset(farm_id: str, body: dict):
     base_wind = wind_cfg.get("base_speed", 10.0)
     turb_intensity = wind_cfg.get("turbulence_intensity", 0.12)
 
-    sim = WindFarmSimulator(
-        turbine_count=farm.turbine_count,
-        base_wind_speed=base_wind,
-        turbulence_intensity=turb_intensity,
-    )
+    try:
+        sim = WindFarmSimulator(
+            turbine_count=farm.turbine_count,
+            base_wind_speed=base_wind,
+            turbulence_intensity=turb_intensity,
+            site_timezone=farm.timezone,  # 日夜 / 季節循環依風場當地時刻（WMOM-20261021-11）
+        )
+    except ValueError as exc:  # 風場存的時區名稱在本機無效（例：缺 tzdata）
+        raise HTTPException(400, str(exc))
     for model in sim.turbines.values():
         model.update_spec(spec)
 
@@ -328,6 +343,7 @@ async def generate_dataset(farm_id: str, body: dict):
             "time_step": time_step,
             "wind_profile": wind_cfg,
             "fault_steps": fault_steps,
+            "site_timezone": sim.wind_model.site_timezone_name,
         },
     )
 
