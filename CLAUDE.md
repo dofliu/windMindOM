@@ -140,9 +140,9 @@ WMOM = WindMindOM 縮寫。
 - **PLC 保護層守則**：警報 / 跳機只由 `PlcProtection` 依 `TurbineSpec` 設定值判定**製程值**（感測器模型之前）送出；`FaultEngine.alarm_codes` 是情境的預期碼（ground truth），不再有 severity 門檻；故障 tripped 期間以 `model.maintenance_lock` 擋重啟，復位不等於修好（`test_reset_keeps_fault.py`）；改規則後須確認健康風場無訊號事件（`test_plc_integration.py`）
 - **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_site_naive(ts, site_tz)`——風場時區（`FarmConfig.timezone`，預設 Asia/Taipei），不是伺服器時區；它把 naive 輸入視為已是風場牆鐘時間（例外於上一條）；建模擬器要帶 `site_timezone=`（broker / 資料集產生都要）
 - **盲測守則**：故障根因 / 注入資訊只能進標準答案（`scenario_ground_truth`）；給外部 RAG 的事件一律以 `storage.is_observable_event` 過濾（白名單：PLC 事件與運轉狀態轉換，新事件來源預設不可觀測）；答案卷端點用永遠強制的 `require_roles`；新增故障情境要補 `FaultScenario` 的答案欄位（`test_fault_ground_truth.py` 會擋），`key_signals` 要真的偏離健康機組（`test_fault_threshold_reach.py`）
-- **資料包守則**：給受測端的資料只走盲測版資料包（`/pack`，不含 `ground_truth.json`）；manifest 不得帶情境名稱 / 故障排程；資料包的 tag 真實性以 `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 產生）為準
+- **資料包守則**：給受測端的資料只走盲測版資料包（`/pack`，不含 `ground_truth.json`），以檔案交付、受測端不開帳號；manifest 不得帶情境名稱 / 故障排程 / 自訂文字；資料包的 tag 真實性以 `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 產生）為準；會透露劣化程度或模型參數的模擬量加進 `scenario_pack.MODEL_INTERNAL_TAGS`，key signal 不能選它們（DEC-20261021-03，測試會擋）
 - **下次工作**：EPIC-DS 依序 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1687 passed / 7 skipped / 1 xfailed；frontend vitest 1512 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1741 passed / 7 skipped / 1 xfailed；frontend vitest 1512 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

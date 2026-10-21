@@ -22,7 +22,8 @@
 
 最後更新：2026-10-21 深夜（**WMOM-20261021-05 done**（EPIC-DS Phase 3a ① 檔案）：情境資料包匯出——`server/scenario_pack.py`
 （manifest、tag 字典〔真實 / 自創〕、警報目錄快照、raw / 10 分鐘統計 Parquet、可觀測事件 events.jsonl、評分端版另附 ground_truth.json）、
-`GET /api/scenarios/{id}/pack`（盲測）/ `/pack/full`（主管）、CLI `tools/export_scenario_pack.py`；移除壞掉的資料集端點。
+`GET /api/scenarios/{id}/pack`（盲測）/ `/pack/full`（主管）、CLI `tools/export_scenario_pack.py`；移除壞掉的資料集端點；
+code review 全修（events 欄位一致、id 順序串流、殘缺窗標記、排除 16 個模擬器內部量 DEC-20261021-03…）。
 逐條解析 header 核實：open 11 / in_progress 1 / deferred 2 / done 136 = 150。詳見 `work-logs/2026-10/2026-10-21-scenario-pack-export.md`）。
 前次最後更新：2026-10-21 深夜（**WMOM-20261021-04 done**（EPIC-DS Phase 2）：故障情境標準答案 metadata（元件 / 根因 / 類別 / 難度 /
 key signals / 建議處置，手冊條目由警報目錄組出、See [ABB] 標記）；批次路徑產生可觀測事件（PLC 事件 + 狀態轉換，模擬時間戳）；
@@ -1431,21 +1432,23 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Deliverable**: 匯出端點 / CLI、`pyarrow` 依賴、測試
 - **完成紀錄**:
   - `server/scenario_pack.py::export_scenario_pack`：
-    - **raw Parquet**：`timestamp[us, UTC]`、`turbine_id`、116 個 tag 欄；欄名＝Bachmann tag 名，型別依 PLC 資料型別；串流寫出。
-    - **10 分鐘統計**：串流逐窗計算，窗對齊 UTC 10 分鐘。類比 tag 給 avg / min / max / std（ddof 1），離散 tag 給 min / max，另有 `n_samples`。
-    - **events.jsonl**：只有可觀測事件；合約格式、`Z` 時間戳；不帶製程值 / 設定值；停機原因正規化。
-    - **tag 字典**：真實 / 自創 45 / 71。
+    - **raw Parquet**：`timestamp[us, UTC]`、`turbine_id`、100 個 tag 欄（116 個排除 16 個模擬器內部量，DEC-20261021-03）；欄名＝Bachmann tag 名，型別依 PLC 資料型別；依 id 順序串流讀寫。
+    - **10 分鐘統計**：串流逐窗計算，窗對齊 UTC 10 分鐘、左閉右開。`window_start` / `window_end`、`n_samples`、`is_partial`；類比 tag 給 avg / min / max / std（ddof 1，風向用圓統計），離散 tag 給 min / max。
+    - **events.jsonl**：只有可觀測事件；合約格式、`Z` 時間戳、每行欄位相同；不帶製程值 / 設定值；停機原因正規化。
+    - **tag 字典**：真實 / 自創 45 / 55，模擬語意不同處帶 `note`。
     - **警報目錄**：快照 314 碼。
-    - **manifest**：各檔 sha256；不帶情境名稱 / 故障排程 / 注入數。
+    - **manifest**：各檔 sha256、`stats_convention`、取樣週期由資料推得、`exporter_version`；不帶情境名稱 / 故障排程 / 注入數，`wind_profile` 只輸出已知 profile。
     - **ground_truth.json**：只在評分端版。
+    - **原子寫入**：先寫暫存目錄、manifest 最後搬；失敗不動舊資料包。
     - **拒絕匯出**：-04 之前的情境、生成未成功、沒有讀值。
-  - **端點**：`GET /api/scenarios/{id}/pack`（盲測版，登入者）、`/pack/full`（含答案，永遠需主管）。
+  - **端點**：`GET /api/scenarios/{id}/pack`（盲測版，登入者）、`/pack/full`（含答案，永遠需主管）；同時 2 個（429）、raw 200 萬筆上限（413）、暫存目錄自動清理。盲測版以檔案交付，受測端不開帳號（DEC-20261021-03）。
   - **CLI**：`tools/export_scenario_pack.py`（`--list` / `--ground-truth` / `--zip`）。
-  - `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 擷取 1811 個 tag）+ `shared/plc_tags.py`。
+  - `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 擷取 1811 個 tag）+ `shared/plc_tags.py`；`requirements-dev.txt` 加 `openpyxl`（CI 跑 xlsx 一致性測試）。
   - **移除** `POST /api/farms/{id}/datasets/generate`：永遠 0 筆、無事件 / 標準答案、前端未使用。資料集改用命名情境 + 資料包。
   - `requirements.txt` 加 `pyarrow`。
-  - **測試**：`test_scenario_pack.py`（29）、`tests/test_plc_tags.py`（3）、auth +2；mutation 16 項皆被抓到。
-  - **效能**：14 機 × 6 h 匯出 3.7 s（生成 98 s）。
+  - **code review**（Needs revision → 全修）：events 欄位不齊（polars 掉欄）、`ORDER BY timestamp` 無法串流（43 萬筆第一批 7.7 s）、殘缺窗無法分辨；另修暫存目錄清理、匯出上限、內部量洩漏、自訂風況文字、原子寫入、LF、圓統計、CLI 不轉時間戳、文件同步。
+  - **測試**：`test_scenario_pack.py`（50）、`tests/test_plc_tags.py`（3）、auth +2；mutation 16 + 24 項皆被抓到（`events_dropped` 一度存活，補測後抓到）。
+  - **效能**：43.6 萬筆 raw 匯出 32 s、峰值記憶體 220 MB，第一批不再等全表排序（原 7.7 s）；14 機 × 6 h 數秒（生成 98 s）。
   - 設計與已知限制見設計文件 §6.8。
 - **Depends on**: WMOM-20261021-04
 

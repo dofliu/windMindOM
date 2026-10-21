@@ -80,29 +80,44 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 ### 5.1 檔案：情境資料包（scenario pack）
 
+> 以下是 -05 實作的 v0.1 格式（2026-10-21）；細節與已知限制見 §6.8。
+
 ```
-{pack_id}/
-  manifest.json          # contract_version、pack_id、機型、機組清單、sim_start/sim_end（UTC）、
-                         # 原始取樣週期、seed、風況、產生器版本、各檔 sha256
-  tag_dictionary.json    # tag → 單位、說明、source: bachmann_real | synthetic
-  alarm_catalog.json     # 本包使用的 Z72 警報目錄快照（code、level、text、plc_tag、cause、recovery）
-  timeseries_raw.parquet # timestamp(UTC), turbine_id, <真實 tag 名>...
-  stats_10min.parquet    # window_start(UTC), turbine_id, <tag>_avg/_min/_max/_std
-  events.jsonl           # 可觀測事件流（不含答案）
-  ground_truth.json      # 標準答案（只給評分端）
+{pack_id}/                 # pack_id = z72-scenario-{session id 5 位數}（不帶情境名稱）
+  manifest.json            # contract_version、pack_id、turbine_model、turbines、sim_start / sim_end
+                           # （第一 / 最後一筆讀值，UTC）、sample_period_s（由資料推得）、stats_window_s、
+                           # stats_convention、duration_hours、site_timezone、wind_profile、rated_power_kw、
+                           # ground_truth_included、generator（含 exporter_version）、reproducibility、
+                           # counts、files（各檔 sha256 / bytes）、exported_at
+  tag_dictionary.json      # tag → opc_path、id、subsystem、data_type、unit、label_en / label_zh、
+                           # source: bachmann_real | synthetic、note（模擬語意與真實不同之處）
+  alarm_catalog.json       # Z72 警報目錄快照（全部 314 碼：code、event_id、level、text、plc_tag、cause、
+                           # rectification、max_per_hour、manual_page）
+  timeseries_raw.parquet   # timestamp(UTC), turbine_id, <Bachmann tag 名>×100（型別依 PLC：REAL32→float32、
+                           # SINT16→int16、UINT16→uint16、BOOL→bool；缺值為 null）
+  stats_10min.parquet      # window_start / window_end(UTC), turbine_id, n_samples, is_partial,
+                           # 類比 tag 的 _avg/_min/_max/_std、離散 tag 的 _min/_max
+  events.jsonl             # 可觀測事件流（不含答案），每行欄位相同
+  ground_truth.json        # 標準答案（只在評分端版本）
 ```
 
-`events.jsonl` 一行一事件：
+- **時間戳**：JSON 一律 `YYYY-MM-DDTHH:MM:SS.ffffffZ`；Parquet 為 `timestamp[us, tz=UTC]`。每筆讀值是該模擬步結束時的狀態。
+- **欄名**：真實 Bachmann tag 名（不含 OPC 分組前綴），例 `Z72PLC__UI_Loc_WTUR_Analogue_TotPwrAt`；`Z72PLC__UI_Mbus_Contact[2]` 這類含方括號的名稱在 SQL（duckdb 等）要加引號。
+- **不在資料包內的 tag**：16 個模擬器內部量（尾流 / 大氣模型狀態、疲勞累積損傷 / 剩餘壽命 / 疲勞警報等級、轉子不平衡力、齒面磨耗指數），見 DEC-20261021-03。
+- **10 分鐘統計**：窗對齊 UTC 整 10 分鐘，左閉右開 `[window_start, window_end)`；std ddof 1；`is_partial` = `n_samples < floor(600 / sample_period_s)`（頭尾窗與資料缺口）；風向（`WDirAbs`）的 avg 為圓平均、std 為 Yamartino，min / max 為線性值；缺值不計入，整窗無值為 null。慣例也寫在 manifest 的 `stats_convention`。
+
+`events.jsonl` 一行一事件，每行都有同一組欄位（不適用者為 `null`）：
 
 ```json
-{"ts": "2026-03-01T03:12:40Z", "turbine_id": "WT003", "event_type": "alarm_raised",
+{"ts": "2026-03-01T03:12:40.000000Z", "turbine_id": "WT003", "event_type": "alarm_raised",
  "alarm_code": 262, "alarm_level": "A", "alarm_text": "Main bearing 1 temperature high",
- "plc_tag": "Z72PLC__ActiveAlarm"}
+ "event_id": "A_262", "plc_tag": "Z72PLC__ActiveAlarm",
+ "from_state": null, "to_state": null, "from_state_name": null, "to_state_name": null, "stop_reason": null}
 ```
 
-`event_type` ∈ `alarm_raised` / `alarm_cleared` / `trip` / `reset` / `state_change` / `operator`。
+`event_type` ∈ `alarm_raised` / `alarm_cleared` / `trip` / `trip_cleared` / `restart_blocked` / `reset` / `info` / `state_change`（v0 草案的 `operator` 尚未產生）。`state_change` 帶 `from_state` / `to_state`（Bachmann TurSt 1–9）與名稱；進入停機（7 / 9）時帶 `stop_reason` ∈ `plc_trip` / `high_wind` / `low_wind` / `grid` / `overspeed` / `operator` / `null`。同一時刻的事件依發生順序（跳機在它造成的停機之前）。
 
-`ground_truth.json`：
+`ground_truth.json`（v0 範例；實際欄位更多，見 §6.7，時間戳轉成 `Z` 並加 `pack_id`）：
 
 ```json
 {"contract_version": "0.1", "pack_id": "...",
@@ -152,7 +167,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | 1b-b ✅ | WMOM-20261021-03-b | **PLC 保護層**：警報 / 跳機改由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3 狀態跳動（2026-10-21 done） |
 | 1b-c ✅ | WMOM-20261021-03-c | **UTC tz-aware 時間戳**（2026-10-21 done） |
 | 2 ✅ | WMOM-20261021-04 | **標準答案 + 情境事件**：故障情境 metadata（根因/元件/預期警報序列/手冊條目/處置）；bulk 路徑產生事件；`history_events` 加 `session_id`；ground truth 落庫（2026-10-21 done，§6.7） |
-| 3a | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；修或移除 `farms.py` 壞端點 |
+| 3a ✅ | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；移除 `farms.py` 壞端點（2026-10-21 done，§6.8） |
 | 3b | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道） |
 | 3c | WMOM-20261021-07 | **③ OPC UA server**：模仿 Bachmann tag（`asyncua`），接 3b 回放器 |
 | 3d | WMOM-20261021-09 | **學生專題 starter kit**：介面合約 v1 定稿 + 範例資料包 + 讀取範例程式 |
@@ -328,7 +343,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - **可重現**：同一組 UTC 時刻在 UTC、Asia/Taipei、America/New_York 的伺服器時區下得到逐位元相同的風況；模擬器全部 SCADA tag 輸出在 UTC 與 Asia/Taipei 下逐位元相同（`test_farm_timezone.py`）。資料包（-05）可在任何機器上重產。
 - **情境 metadata**：情境 session 的 `config.site_timezone` 記下所用時區，-05 manifest 可直接取用。
 - **行為改變**：伺服器本地時區不是 Asia/Taipei 的機器（例如 UTC 的 CI、Docker），日夜相位比改動前移動（UTC 機器上 +8 小時）；台北時區的開發機不變。`data_quality_analysis.py` 仍 20 / 0。
-- **其他 session**：Live session（broker 啟動 / 切換風場）與 `POST /api/farms/{id}/datasets/generate` 的資料集 session 同樣記 `config.site_timezone`，且都以風場時區建立模擬器；`clone` 保留來源風場的時區。
+- **其他 session**：Live session（broker 啟動 / 切換風場）同樣記 `config.site_timezone`，以風場時區建立模擬器；`clone` 保留來源風場的時區。（原本的 `POST /api/farms/{id}/datasets/generate` 已於 -05 移除，見 §6.8。）
 - **防呆**：`localtime`（＝伺服器時區，失去可重現性）、非字串、空字串一律拒絕；`farms.db` 存的名稱在本機無效時（手改 DB、換到缺 tz 資料的機器），broker 印警告並退回預設 `Asia/Taipei`，不讓模擬起不來。
 - **已知限制**：
   1. **改時區要重啟模擬才生效**：`PATCH` 只改設定；目前執行中的模擬器沿用建立時的時區，`activate` / 重啟模擬後才換。
@@ -388,11 +403,11 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 4. 健康機組只列在 `healthy_turbines`，沒有 `category: healthy` 的 case；`nuisance` / 健康負樣本 case 留給 -08（事件已列在 `unattributed_events`）。
 5. 歸屬只靠事件碼：`first_alarm_ts` 只看該故障的預期碼；兩個故障共用的碼（例：021）兩邊都記；同機組多故障時，物理耦合造成的碼可能被另一個 case 認領（例：機艙冷卻失效讓軸承升溫，262 會算進同機組 bearing_wear 的首警）。
 6. 本變更之前生成的情境沒有標準答案（404），事件也沒有 session（退回時間窗）。
-7. `routers/farms.py::generate_dataset` 仍不記事件與標準答案（-05 決定修或移除）。
+7. ~~`routers/farms.py::generate_dataset` 仍不記事件與標準答案~~ → -05 移除（它從未產出資料，§6.8）。
 8. 調閱端點仍有 1000 筆事件上限（最新在前）：很長的情境在單機歷史頁可能看不到最早的事件（-05 匯出直接讀表，不受影響）。
 9. ISSUES 原描述 (5)「T1/T2 不再一律稱為 alarm threshold reached」已於 -03-b 達成：PLC 事件 title 為 `Trip: T_240 …`、payload 帶 `code` / `level`；本次未改格式。
 10. 標準答案欄位比 §5.1 的 v0 範例多（`root_cause_en`、`origin`、`observed_alarm_codes`、`other_observed_codes`、`key_signals`、`manual_coverage`、`injection`、`simulation_notes`、`unattributed_events`…），合約 v1 於 -09 定稿。
-11. **留給 -05 的可重現性與匯出事項**：
+11. **留給 -05 的可重現性與匯出事項**（-05 處理結果見 §6.8；seed / `TurbineSpec` / 模型狀態重置仍未做）：
     - 情境 config / 標準答案沒記 seed、`TurbineSpec`、模擬器版本。
     - 批次沿用 Live 模擬器的模型狀態（未重置），「seed + manifest 可重現」目前不成立。
     - `generated_at` 是 wall-clock。
@@ -400,6 +415,42 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
     - 時間戳後綴 `+00:00` vs 合約範例 `Z`。
     - 狀態事件的停機原因是模擬器內部詞彙（例：`maintenance_lock`、`overspeed_software`），匯出時可正規化。
 12. 不帶 name 的批次與測試計畫把事件寫進 Live session（時間戳從生成當下往未來展開，與它們的讀值同一時間軸，沿用舊行為）。
+
+### 6.8 Phase 3a 情境資料包匯出（WMOM-20261021-05，2026-10-21）
+
+**格式**見 §5.1（v0.1）。匯出器 `modules/monitoring/server/scenario_pack.py::export_scenario_pack`；交付管道兩條：
+
+- **端點**：`GET /api/scenarios/{id}/pack`（盲測版，任何登入者）、`GET /api/scenarios/{id}/pack/full`（評分端版，含 `ground_truth.json`，永遠需主管）。回 zip（Parquet 直接存、JSON DEFLATE），匯出在 thread 裡做；暫存目錄在 `{tmp}/wmom-packs/`，回應送出後刪除，送出前伺服器中斷留下的目錄由下一次下載清掉（超過 1 小時）。上限：同時 2 個匯出（超過回 429）、raw 200 萬筆（超過回 413，改用 CLI）。
+- **CLI**：`tools/export_scenario_pack.py <db> [scenario_id] --out <dir> [--ground-truth] [--zip] [--list]`，開 DB 不做時間戳轉換（`migrate_timestamps=False`）。
+
+**真實 / 自創 tag**：`tools/build_z72_plc_tags.py` 從 xlsx 全部 sheet 擷取 1811 個 `Z72PLC__*` 名稱 → `shared/data/z72_plc_tags.json`，`shared/plc_tags.py::is_real_plc_tag` 判定。模擬器 116 個 tag 中 45 個真實、71 個自創；資料包排除 16 個模擬器內部量（DEC-20261021-03），留 100 欄（45 真實 + 55 自創，`source` 標明）。`WMET_WSpeedNac`（模擬的是自由流風速，真實 Z72 是機艙風速計讀值；風速計近似在 `WSpeedRaw`）與 `WMET_WDirAbs`（風場真實風向）在 tag 字典帶 `note`。
+
+**盲測**：
+- manifest 不帶情境名稱、故障排程、注入數；`wind_profile` 只輸出已知的 profile 名（出題者自訂的文字不輸出）；`pack_id` 只用 session id。
+- 事件以 `is_observable_event` 白名單過濾後轉成合約格式，不帶模擬器的製程值 / 設定值；停機原因正規化（`maintenance_lock` 等內部詞彙不輸出）。
+- manifest 的 `sim_start` 是第一筆讀值；標準答案的 `sim_start` 可能早一步（含 offset 0 的注入時刻）——manifest 刻意不跟，否則透露「第一筆讀值前發生了事」。
+- 盲測版重匯出到同一目錄時刪掉舊的答案檔；Parquet 不帶 metadata。
+- **盲測版以檔案交給受測端**，受測端不該有本系統帳號：任何登入者都看得到情境清單（含出題者的情境名稱）與 `fault_schedule`。
+
+**串流與一致性**：
+- raw 依 id 順序分批讀（批次生成的寫入順序就是時間順序；先以 `LAG` 視窗查詢確認，不是才退回 `ORDER BY timestamp`，避免 SQLite 先排序整個 session），Parquet 每 5 萬列一個 row group。
+- 10 分鐘統計逐窗計算，不保留 raw；取樣週期由資料推得（最常見的相鄰間隔），設定的 `time_step` 只當後備。
+- 先寫到同層暫存目錄，全部成功才搬進輸出目錄、manifest 最後搬：失敗不留半套，舊資料包原封不動。
+- 文字檔固定 LF，Windows 與 Linux 匯出的 sha256 相同。
+- 盲測版與評分端版的資料檔 sha256 相同（只差答案檔與 manifest）。
+
+**code review 修正**（同 PR）：events 每行欄位相同（polars 等逐行推斷 schema 不會掉 `alarm_code`）；raw 改 id 順序串流（原 `ORDER BY timestamp` 在 43 萬筆時第一批要 7.7 s）；統計加 `window_end`、`is_partial` 與 manifest 的 `stats_convention`；暫存目錄清理、匯出上限、原子寫入、LF、圓統計、排除內部量、`wind_profile` 白名單、`events_dropped` 計數、`exporter_version`。
+
+**實測**：43.6 萬筆 raw 的情境（DB 1.8 GB）：id 順序檢查 1.3 s，之後第一批立即可讀（原 `ORDER BY timestamp` 要 7.7 s 才出第一批）；整包匯出 32 s、峰值記憶體 220 MB，raw Parquet 18.8 MB、統計 0.36 MB。14 機 × 6 h（3 萬筆）約 2–4 s，生成同一情境要 98 s。
+
+**已知限制**：
+
+1. **不可重現**：manifest 的 `reproducibility.seed` 為 null——批次沿用 Live 模擬器的模型狀態、起點是 wall-clock、情境沒記 seed / `TurbineSpec`。同一份資料包可重複分發，但無法由 manifest 重產；-08 擴充難度時一併處理。
+2. **10 分鐘統計來自 10 s（或設定的）取樣**：真實 PLC 的 10 分鐘 std 由高頻取樣算出，這裡樣本少、std 偏低（Phase 5 parking lot 的「10-min std 合理化」）。
+3. **統計表在記憶體組**：每窗每 tag 16 bytes，14 機 × 30 天（1 分鐘步長也一樣，只與窗數有關）約 100 MB；年長度情境要分段匯出（未做）。HTTP 上限擋在 200 萬筆 raw 內。
+4. 合約版本仍是 `0.1`（與標準答案同一個 `CONTRACT_VERSION`）；-09 定稿 v1。`event_type` 的 `operator`（操作員動作）尚未產生——情境裡沒有操作員。
+5. 自創 tag 仍有 55 個（振動頻帶 / CMS 特徵、負載與 DEL、無功 / 視在功率、冷卻液位…）：受測端應以 `source` 區分，回答時不能假設真實 Z72 有這些 tag。
+6. 欄名含方括號（`Z72PLC__UI_Mbus_Contact[2]`），SQL 引擎要加引號。
 
 ## 7. 不做的事
 
