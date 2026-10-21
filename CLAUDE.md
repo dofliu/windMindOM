@@ -140,7 +140,7 @@ WMOM = WindMindOM 縮寫。
 - **PLC 保護層守則**：警報 / 跳機只由 `PlcProtection` 依 `TurbineSpec` 設定值判定**製程值**（感測器模型之前）送出；`FaultEngine.alarm_codes` 是情境的預期碼（ground truth），不再有 severity 門檻；故障 tripped 期間以 `model.maintenance_lock` 擋重啟，復位不等於修好（`test_reset_keeps_fault.py`）；改規則後須確認健康風場無訊號事件（`test_plc_integration.py`）
 - **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_local_naive`
 - **下次工作**：EPIC-DS 依序 1b+（-10 切出風速平均判定，小題）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1528 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1539 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

@@ -274,15 +274,22 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - 內部一律 tz-aware UTC（`utc_now()`）；模擬時間（Live、`generate_bulk`）、事件、session、工單、OPC 即時讀值都是 UTC。
 - 落庫與 API 的字串格式固定為 `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`（`iso_utc`）。SQLite 以字串字典序比較時間，長度與後綴一致才保證字典序＝時間序；不用 `Z`（`Z` 的字元碼大於 `.` 與數字，同一秒內順序會顛倒）。Pydantic 回應中的 `datetime` 欄位（`TurbineReading.timestamp`、`FarmStatus.timestamp`）序列化為 `...Z`，兩者都是 RFC 3339 UTC。
 - 外部傳入的時間字串（前端 `toISOString()` 的 `Z`、任意時區後綴）在 storage 邊界正規化；**naive 字串視為伺服器本地時間**——這是本次之前所有資料與舊 API 呼叫端的語意。
-- **既有 DB**：開檔時依 `PRAGMA user_version` 一次性把 naive 本地時間轉成 UTC（10 個時間戳欄位 + 情境 `config.sim_start/sim_end`），只轉沒有時區後綴的值、可重入；換算用本機時區，即假設 DB 在寫入它的同一時區被開啟。
+- **既有 DB**：開檔時依 `PRAGMA user_version` 一次性把 naive 本地時間轉成 UTC（10 個時間戳欄位 + 情境 `config.sim_start/sim_end`；`farms.db` 的 `created_at` / `last_active_at` 同樣處理）。只轉沒有時區後綴的值；整秒部分用 SQLite `'utc'` 修飾詞換算、小數秒原樣保留（與 Python 換算的 `sim_start` 逐微秒一致，情境時間窗邊界的事件不會被排除）；依 rowid 區段每 2 萬列一批 commit（WAL 峰值約一批大小，中斷後下次開檔接著轉），全部完成才更新版本號。換算用本機時區，啟動 log 會印出所用時區；`tools/vacuum_db.py` 以 `migrate_timestamps=False` 開檔，先清理不轉換。
 - **日夜 / 季節循環**（`wind_model.py`）仍以伺服器本地時間計：各 getter 先把 UTC 轉回本地 naive 再取 hour / month，換成 UTC 輸入後循環不位移。
 
-**順帶修好的既有 bug**：前端歷史查詢以 `toISOString()`（UTC）送範圍、DB 存本地時間，伺服器在 UTC+8 時查詢窗整整偏 8 小時；兩邊統一成 UTC 後正確。
+**順帶修好的既有 bug**：
+
+- 前端歷史查詢以 `toISOString()`（UTC）送範圍、DB 存本地時間，伺服器在 UTC+8 時查詢窗整整偏 8 小時；兩邊統一成 UTC 後正確。
+- `/api/turbines/farm-trend` 的 12 h / 1 d 範圍用 `strftime('%%s', ...)` 分桶，參數化查詢不經 `%` 格式化，SQLite 收到字面 `%%s` 回傳 `'%s'`，全部資料落進同一桶、只回 1 點；改為 `'%s'`。
+- URL query 裡未編碼的 `+00:00` 會被解成空格，`parse_iso` 把結尾的 `␣HH:MM` 視為 `+HH:MM`。
 
 **已知限制**：
 
-1. 日夜循環依「伺服器本地時區」而非「風場所在時區」：同一情境在 UTC 的 CI 與 UTC+8 的開發機上，日夜相位差 8 小時。要固定成風場時區需要 farm 層級的時區設定（目前沒有）。
+1. 日夜循環依「伺服器本地時區」而非「風場所在時區」：同一情境在 UTC 的 CI 與 UTC+8 的開發機上，日夜相位差 8 小時。要固定成風場時區需要 farm 層級的時區設定（WMOM-20261021-11，做 -05 前處理）。
 2. 資料包（-05）的對外格式可再選 `Z` 後綴（合約 v0 的範例用 `Z`）；兩者等價，匯出時統一即可。
+3. **舊 DB 換算假設「在寫入它的同一時區開啟」**：例如把 Windows（台北）寫的 DB 掛進 UTC 的 Docker 容器啟動，會整整偏 8 小時且不報錯（啟動 log 會印出換算用的時區）。有 DST 的時區在空窗 / 重複的那一小時可能差 1 小時（台灣無 DST）。
+4. **轉換只跑一次**：`user_version` 升為 1 後若退回舊版執行、再升回新版，退回期間寫入的 naive 列不會再被轉換。
+5. **legacy 獨立腳本不在範圍**：`modules/monitoring/main.py`、`dashboard.py`、`scada_system.py`、`turbine_model.py` 是 digiWT 的獨立腳本，不寫入 storage、不被 server 匯入，仍用 naive 本地時間。
 
 ## 7. 不做的事
 

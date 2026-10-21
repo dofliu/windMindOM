@@ -192,8 +192,8 @@ Query stored history from SQLite.
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001/history", params={
     "limit": 500,
-    # "start": "2026-04-12T00:00:00",
-    # "end": "2026-04-12T12:00:00",
+    # "start": "2026-04-12T00:00:00Z",   # UTC; a string without an offset is server-local time
+    # "end": "2026-04-12T12:00:00Z",
 })
 data = r.json()
 readings = data['data']    # List of history records with scada_json

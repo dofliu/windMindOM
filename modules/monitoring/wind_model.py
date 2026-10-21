@@ -25,7 +25,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
 
-from simulator.time_utils import to_local_naive
+from simulator.time_utils import to_local_naive, to_utc, utc_now
 
 
 # ─── Seasonal wind parameters (typical coastal/onshore site) ─────────
@@ -136,7 +136,7 @@ class WindEnvironmentModel:
         """Set manual wind conditions with smooth transition."""
         if wind_speed is not None and self._override_wind_speed != wind_speed:
             # Start transition ramp from current conditions
-            self._transition_from = self._override_wind_speed or self._get_auto_wind(datetime.now())
+            self._transition_from = self._override_wind_speed or self._get_auto_wind(utc_now())
             self._transition_to = wind_speed
             self._transition_start = self._elapsed_real
 
@@ -189,12 +189,12 @@ class WindEnvironmentModel:
 
         if profile in ('ramp_up', 'ramp_down'):
             self._active_profile = profile
-            self._profile_start_time = datetime.now()
+            self._profile_start_time = utc_now()
             self._override_wind_direction = 270.0
             self._override_ambient_temp = 25.0
             self.turbulence_intensity = 0.12
             # Start transition
-            current = self._override_wind_speed or self._get_auto_wind(datetime.now())
+            current = self._override_wind_speed or self._get_auto_wind(utc_now())
             self._transition_from = current
             self._transition_to = 18.0 if profile == 'ramp_up' else 3.0
             self._transition_start = self._elapsed_real
@@ -223,6 +223,7 @@ class WindEnvironmentModel:
 
     def get_wind_speed(self, timestamp: datetime) -> float:
         """Get wind speed at given timestamp (includes all layers)."""
+        ts_utc = to_utc(timestamp)  # ramp profile 經過時間用 UTC 相減（_profile_start_time 是 UTC）
         timestamp = to_local_naive(timestamp)
         self._elapsed_real += 1.0  # approximate
 
@@ -240,7 +241,7 @@ class WindEnvironmentModel:
             to_val = self._transition_to if self._transition_to is not None else self._get_auto_wind(timestamp)
             base = from_val + (to_val - from_val) * smooth
         elif self._active_profile in ('ramp_up', 'ramp_down') and self._profile_start_time:
-            elapsed = (timestamp - self._profile_start_time).total_seconds()
+            elapsed = (ts_utc - self._profile_start_time).total_seconds()
             if self._active_profile == 'ramp_up':
                 base = 3.0 + min(15.0, elapsed / 120.0 * 15.0)
             else:

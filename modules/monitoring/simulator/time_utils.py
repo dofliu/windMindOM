@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
 UTC = timezone.utc
+# URL query 未編碼的 "+00:00" 會被解成空格（"...05:00:00 00:00"）：視為 "+"
+_SPACE_OFFSET = re.compile(r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?) (\d{2}:\d{2})$")
 
 
 def utc_now() -> datetime:
@@ -72,6 +75,8 @@ def iso_utc(dt: Optional[datetime] = None) -> str:
 def parse_iso(value: str) -> datetime:
     """解析 ISO 時間字串為 tz-aware UTC；接受 ``Z`` 後綴、任意時區後綴與 naive（視為本地時間）。
 
+    URL query 裡未編碼的 ``+00:00`` 會變成空格（``...05:00:00 00:00``），也視為 ``+``。
+
     Args:
         value: ISO 8601 字串。
 
@@ -84,6 +89,8 @@ def parse_iso(value: str) -> datetime:
     text = value.strip()
     if text.endswith(("Z", "z")):
         text = text[:-1] + "+00:00"
+    else:
+        text = _SPACE_OFFSET.sub(r"\1+\2", text)
     return to_utc(datetime.fromisoformat(text))
 
 

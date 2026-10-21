@@ -42,10 +42,19 @@ _TIMESTAMP_COLUMNS = (
 )
 # sessions.config_json 內的時間戳鍵（情境的模擬時間窗）
 _SESSION_CONFIG_TIME_KEYS = ("sim_start", "sim_end")
+# 舊 DB 轉換的每批列數（依 rowid 區段）：每批 commit，WAL 峰值約為一批的大小而非整個 DB
+_MIGRATION_BATCH_ROWS = 20_000
 
 
 def _naive_ts_sql(column: str) -> str:
-    """SQL 條件：欄位是可解析、但沒有時區後綴的 naive 時間字串（舊版本地時間）。"""
+    """SQL 條件：欄位是可解析、但沒有時區後綴的 naive 時間字串（舊版本地時間）。
+
+    Args:
+        column: 欄位名稱。
+
+    Returns:
+        可放進 ``WHERE`` 的 SQL 條件。
+    """
     return (
         f"{column} IS NOT NULL AND {column} != '' "
         f"AND substr({column}, -1) NOT IN ('Z', 'z') "
@@ -55,13 +64,34 @@ def _naive_ts_sql(column: str) -> str:
 
 
 def _local_to_utc_sql(column: str) -> str:
-    """SQL 運算式：naive 本地時間字串 → ``iso_utc`` 格式（SQLite 的 'utc' 修飾詞以本機時區換算；
-    ``%f`` 只到毫秒，補三個 0 成微秒位數）。"""
-    return f"strftime('%Y-%m-%dT%H:%M:%f', {column}, 'utc') || '000+00:00'"
+    """SQL 運算式：naive 本地時間字串 → ``iso_utc`` 格式。
+
+    整秒部分用 SQLite 'utc' 修飾詞以本機時區換算；小數秒原字串保留並補到 6 位——不用 ``%f``（只到
+    毫秒且會四捨五入），否則與 Python ``normalize_iso``（情境 ``sim_start``）的結果差幾百微秒，
+    落在情境時間窗邊界的事件會被查詢排除。
+
+    Args:
+        column: 欄位名稱。
+
+    Returns:
+        SQL 運算式。
+    """
+    return (
+        f"strftime('%Y-%m-%dT%H:%M:%S', substr({column}, 1, 19), 'utc') || "
+        f"substr(CASE WHEN substr({column}, 20, 1) = '.' THEN substr({column}, 20) ELSE '.' END "
+        f"|| '000000', 1, 7) || '+00:00'"
+    )
 
 
 def _reading_timestamp(reading: dict) -> str:
-    """reading 的時間戳 → ``iso_utc`` 格式；缺值用現在時刻。"""
+    """reading 的時間戳 → ``iso_utc`` 格式；缺值用現在時刻。
+
+    Args:
+        reading: 模擬器 / OPC adapter 的 reading（``timestamp`` 可為字串或 ``datetime``）。
+
+    Returns:
+        ``iso_utc`` 格式字串。
+    """
     ts = reading.get('timestamp')
     if isinstance(ts, datetime):
         return iso_utc(ts)
@@ -81,9 +111,17 @@ class Storage:
       - sessions:            tracks simulation/data source configs
     """
 
-    def __init__(self, db_path: str = str(DB_PATH)):
+    def __init__(self, db_path: str = str(DB_PATH), migrate_timestamps: bool = True):
+        """開啟（必要時建立）DB。
+
+        Args:
+            db_path: SQLite 檔路徑。
+            migrate_timestamps: 開檔時把舊版 naive 本地時間轉成 UTC（WMOM-20261021-03-c）。維護工具
+                （例：``tools/vacuum_db.py`` 先清理再壓縮）可傳 False，避免先改寫即將刪掉的列。
+        """
         self._db_path = db_path
         self._local = threading.local()
+        self._migrate_timestamps = migrate_timestamps
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -285,16 +323,18 @@ class Storage:
         ])
 
         conn.commit()
-        self._migrate_timestamps_to_utc(conn)
+        if self._migrate_timestamps:
+            self._migrate_timestamps_to_utc(conn)
         conn.close()
 
     @staticmethod
     def _migrate_timestamps_to_utc(conn: sqlite3.Connection) -> None:
         """舊 DB（naive 本地時間）→ UTC 時間戳，一次性（WMOM-20261021-03-c）。
 
-        只轉換沒有時區後綴的值，可重入：中途中斷時版本號不會更新，下次開檔接著轉剩下的列。
-        新建的空 DB 直接標成新版本。換算用本機時區（SQLite 'utc' 修飾詞 / Python ``astimezone``），
-        即假設 DB 在寫入它的同一時區被開啟。
+        只轉換沒有時區後綴的值，依 rowid 區段分批、每批 commit：中斷後下次開檔接著轉剩下的列，
+        全部完成才把 ``PRAGMA user_version`` 設成新版本。新建的空 DB 直接標成新版本。換算用本機
+        時區（SQLite 'utc' 修飾詞 / Python ``astimezone``），即假設 DB 在寫入它的同一時區被開啟。
+        就地改寫、不可逆：大 DB 建議先備份。
 
         Args:
             conn: 已開啟的連線（本方法會 commit）。
@@ -303,10 +343,24 @@ class Storage:
         if version >= TIMESTAMP_SCHEMA_VERSION:
             return
         converted = 0
+        announced = False
         for table, column in _TIMESTAMP_COLUMNS:
-            converted += conn.execute(
-                f"UPDATE {table} SET {column} = {_local_to_utc_sql(column)} WHERE {_naive_ts_sql(column)}"
-            ).rowcount
+            naive = _naive_ts_sql(column)
+            if conn.execute(f"SELECT 1 FROM {table} WHERE {naive} LIMIT 1").fetchone() is None:
+                continue
+            if not announced:
+                tz_name = datetime.now().astimezone().tzname()
+                print(f"[Storage] 舊版時間戳（naive 本地時間，以本機時區 {tz_name} 換算）轉為 UTC，"
+                      f"一次性就地改寫（WMOM-20261021-03-c）……")
+                announced = True
+            max_rowid = conn.execute(f"SELECT MAX(rowid) FROM {table}").fetchone()[0] or 0
+            for low in range(0, max_rowid, _MIGRATION_BATCH_ROWS):
+                converted += conn.execute(
+                    f"UPDATE {table} SET {column} = {_local_to_utc_sql(column)} "
+                    f"WHERE rowid > ? AND rowid <= ? AND {naive}",
+                    (low, low + _MIGRATION_BATCH_ROWS),
+                ).rowcount
+                conn.commit()
         for row in conn.execute("SELECT id, config_json FROM sessions WHERE config_json IS NOT NULL").fetchall():
             try:
                 cfg = json.loads(row[1])
@@ -328,7 +382,7 @@ class Storage:
         conn.execute(f"PRAGMA user_version = {TIMESTAMP_SCHEMA_VERSION}")
         conn.commit()
         if converted:
-            print(f"[Storage] 時間戳轉為 UTC：{converted} 個欄位值（舊版 naive 本地時間，WMOM-20261021-03-c）")
+            print(f"[Storage] 時間戳轉為 UTC 完成：{converted} 個欄位值")
 
     def _migrate_columns(self, conn, table: str, columns: list):
         """Add missing columns to existing tables."""

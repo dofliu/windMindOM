@@ -151,7 +151,10 @@ def run(db_path: Path, *, do_cleanup: bool, dry_run: bool,
             print("  [dry-run] skip")
         else:
             from server.storage import Storage  # type: ignore
-            s = Storage(db_path=str(db_path))
+            # 不做舊版時間戳轉 UTC（WMOM-20261021-03-c）：救火時先別改寫即將刪掉的列；舊 DB 的
+            # naive 本地時間與 UTC 截止時間比較會差時區位移（保留期多 / 少幾小時），可接受。
+            # 下次伺服器開檔時再轉換（壓縮後的 DB 更小、更快）。
+            s = Storage(db_path=str(db_path), migrate_timestamps=False)
             res = s.run_cleanup(snapshots_retention_days=effective_snap_retention)
             print(f"  removed: raw={res['deleted_raw']:,}  1m={res['deleted_1m']:,}  "
                   f"snapshots={res['deleted_snapshots']:,}")

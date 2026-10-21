@@ -116,7 +116,7 @@ async def farm_trend(
         FROM turbine_data
         WHERE timestamp >= ? AND timestamp <= ?
         GROUP BY
-            CAST(strftime('%%s', timestamp) AS INTEGER) / ?
+            CAST(strftime('%s', timestamp) AS INTEGER) / ?
         ORDER BY bucket_time ASC
         LIMIT ?
     """, (start, end, bucket_seconds, points)).fetchall()
