@@ -110,6 +110,17 @@ _TAGS: List[ScadaTag] = [
     ScadaTag("WCNV_CnvDClVtg", "WCNV.Z72PLC__UI_Loc_WCNV_Analogue_CnvDClVtg",
              "WCNV", "REAL32", "V", "Converter DC Link Voltage", "變頻器直流電壓",
              0, 1200),
+    # WMOM-20261021-03a：變頻器電網側三相電壓（真實 Bachmann tag，ARU 欠壓事件 481-486 的量測來源）。
+    # 單位對齊現場 SCADA 對照表（「公元」sheet：kV、相電壓 V_A_N / V_B_N / V_C_N）。
+    ScadaTag("WCNV_VtgMsCnvGd1", "WCNV.Z72PLC__UI_Loc_WCNV_Analogue_VtgMsCnvGd1",
+             "WCNV", "REAL32", "kV", "Converter Grid Voltage L1-N", "變頻器電網側相電壓 L1",
+             0, 5),
+    ScadaTag("WCNV_VtgMsCnvGd2", "WCNV.Z72PLC__UI_Loc_WCNV_Analogue_VtgMsCnvGd2",
+             "WCNV", "REAL32", "kV", "Converter Grid Voltage L2-N", "變頻器電網側相電壓 L2",
+             0, 5),
+    ScadaTag("WCNV_VtgMsCnvGd3", "WCNV.Z72PLC__UI_Loc_WCNV_Analogue_VtgMsCnvGd3",
+             "WCNV", "REAL32", "kV", "Converter Grid Voltage L3-N", "變頻器電網側相電壓 L3",
+             0, 5),
     ScadaTag("WCNV_CnvGdPwrAt", "WCNV.Z72PLC__UI_Loc_WCNV_Analogue_CnvGdPwrAt",
              "WCNV", "REAL32", "kW", "Converter Grid Active Power", "變頻器電網實功率",
              -500, 5500, "HldReg[267]"),
@@ -218,9 +229,18 @@ _TAGS: List[ScadaTag] = [
     ScadaTag("WYAW_YwVn1AlgnAvg5s", "WYAW.Z72PLC__UI_Loc_WYAW_Analogue_YwVn1AlgnAvg5s",
              "WYAW", "REAL32", "deg", "Yaw Alignment Vn1 (5s avg)", "轉向Vn1誤差(5秒平均)",
              -180, 180, "HldReg[243]"),
+    # WMOM-20261021-03a：風向標 2（真實 Bachmann tag，風向標 1-2 差異事件 233 的比對對象；
+    #   PLC 實際用 25 s 濾波值 YwVn1/2AlgnAvg25s 判定，本模擬只輸出 5 s 版本，濾波由 -03-b 的 PLC 層處理）
+    ScadaTag("WYAW_YwVn2AlgnAvg5s", "WYAW.Z72PLC__UI_Loc_WYAW_Analogue_YwVn2AlgnAvg5s",
+             "WYAW", "REAL32", "deg", "Yaw Alignment Vn2 (5s avg)", "轉向Vn2誤差(5秒平均)",
+             -180, 180),
     ScadaTag("WYAW_YwBrkHyPrs", "WYAW.Z72PLC__UI_Loc_WYAW_Analogue_YwBrkHyPrs",
              "WYAW", "REAL32", "bar", "Yaw Brake Hydraulic Pressure", "轉向剎車液壓壓力",
              0, 250, "HldReg[247]"),
+    # WMOM-20261021-03a：偏航煞車油封洩漏偵測（真實 Bachmann state tag，事件 261：洩漏偵測線 > 3 bar）
+    ScadaTag("WYAW_YwBrkSealsLeak", "WYAW.Z72PLC__UI_Loc_WYAW_State_YwBrkSealsLeak",
+             "WYAW", "BOOL", "", "Yaw Brake Seals Leak", "轉向剎車油封洩漏",
+             0, 1),
     ScadaTag("WYAW_CabWup", "WYAW.Z72PLC__UI_Loc_WYAW_Analogue_CabWup",
              "WYAW", "REAL32", "turns", "Cable Windup", "纜線防絞(圈數)",
              -5, 5, "HldReg[246]"),

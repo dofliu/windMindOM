@@ -13,14 +13,17 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
-| in_progress | 1 |
+| open | 14 |
+| in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 128 |
-| **total** | **144** |
+| done | 129 |
+| **total** | **147** |
 
-最後更新：2026-10-21（**方向調整 DEC-20261021-01 + EPIC-DS 立案**：商業時程與真實現場介接暫緩，
+最後更新：2026-10-21 下午（**WMOM-20261021-03-a done**：故障物理校正到真實 Z72 保護設定值——修 `extra_heat` dict union 覆蓋 bug、
+冷卻劣化改為提高熱阻、重新校正 11 個情境、新增 5 個真實 Bachmann tag（111 → 116，健康輸出逐位元不變）、`TurbineSpec` 新增
+保護設定值；-03 拆為 -03-a/-b/-c（+3 筆），-03 改 in_progress。詳見 `work-logs/2026-10/2026-10-21-fault-physics-calibration.md`）。
+前次最後更新：2026-10-21（**方向調整 DEC-20261021-01 + EPIC-DS 立案**：商業時程與真實現場介接暫緩，
 `WMOM-20260503-05`、`WMOM-20260509-F6` → deferred（新增 deferred 狀態）；主線改為 EPIC-DS
 擬真資料源（`WMOM-20261021-01`~`-09`，見下方 📌 2026-10-21 區塊與「🎯 未來大目標」）。
 **WMOM-20261021-02 done**：Z72 真實警報目錄（xlsx 314 筆 + 手冊 Appendix C）+ 11 個故障情境改用真實碼。
@@ -1264,14 +1267,54 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-03 — Phase 1b：警報與時間戳擬真（溫度門檻、狀態跳動、UTC）
 
-- **Status**: open
+- **Status**: in_progress（2026-10-21 拆成 -03-a / -03-b / -03-c；-03-a done）
 - **Milestone**: EPIC-DS
 - **Priority**: high
-- **Estimate**: 1-1.5 天
+- **Estimate**: 3-4 天（原估 1-1.5 天；2026-10-21 實測發現多數故障物理碰不到真實門檻，需先校正）
+- **拆分（2026-10-21）**：實測 3 h 掃描顯示多數故障的物理訊號離真實門檻很遠（bearing_wear 滿嚴重度軸承只到 44 °C、門檻 85/95；converter_cooling 冷卻水溫反而下降；grid_voltage_sag 電壓完全不變），警報不能直接改成由訊號觸發。依序：-03-a 故障物理校正 → -03-b PLC 保護層（訊號觸發 + T1/T2 停機 + 鎖存與重啟上限 + 修 7↔3）→ -03-c UTC 時間戳。
 - **Owner**: -
 - **Description**: (1) `TurbineSpec` 宣告的溫度 / 壓力 alarm·trip 門檻（`turbine_physics.py:66-79`）從未使用，接上並對應真實警報碼；(2) 故障持續期間狀態在 7↔3 間跳動（`scada_registry.py:426-427`），改為真實 PLC 行為（跳機後 latched、依每小時重啟次數限制，上限可用目錄 `max_per_hour`）；(3) monitoring 全面使用 naive local `datetime.now()`，改為 UTC tz-aware（knowledge `AlertEvent` 已要求 tz-aware）；(4) **警報改由物理訊號越過真實判定條件觸發**，取代單純看 severity（設計文件 §6.1：葉片偏差 1°/3°/8°、風向標差 15°、超速 26.5/28.5 rpm、偏航煞車 180/150 bar；`grid_voltage_sag` 需補電壓訊號）；(5) T1 跳機改走正常伺服停機、T2 才走緊急變槳（目前 `engine.py` 一律 `cmd_emergency_stop`）。
 - **Deliverable**: `turbine_physics.py`、`scada_registry.py`、`modules/monitoring/server/storage.py` 時間戳處理 + 測試
 - **Depends on**: WMOM-20261021-02
+
+### WMOM-20261021-03-a — 故障物理校正到真實 Z72 保護設定值
+
+- **Status**: done（2026-10-21）
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 1 天
+- **Owner**: Claude session 2026-10-21
+- **Description**: 讓每個故障情境的量測訊號在物理上真的能越過其跳機事件的真實設定值，作為 -03-b 改成訊號觸發的前提。
+- **完成紀錄**:
+  - **修 bug**：`turbine_physics.py` 組 `extra_heat` 用 dict union，右邊（傳動 / 煞車 / 變頻器熱）覆蓋了故障熱的 `bearing` / `nacelle` / `converter` 鍵 → bearing_wear、nacelle_cooling_failure、converter 類故障從未發熱
+  - **熱模型語意修正**：冷卻劣化原本只拉長時間常數、不改穩態溫度；`ThermalSystem.step(cooling_degradation=…)` 改為同時提高受影響節點熱阻（water / cabinet / transformer / nacelle / bearing / stator）
+  - **重新校正**：bearing（潤滑劣化熱阻 + 30 kW 摩擦熱）、stator（絕緣熱阻 + 40 kW）、transformer（30 kW、冷卻 floor 0.30）、nacelle（通風 floor 0.25、22 kW）、converter 洩漏係數 0.8 → 12（洩漏率 = 12 × 嚴重度 L/h，數小時後靜水壓降）、pitch 偏差 3.0 → 1.25°（跳機延後到後期）、vane 1 漂移 12 → 18°、icing 轉速 bias −1.5 → −0.3（不再卡在啟動）、grid sag 端電壓下陷 11 % + 5 % 擺盪
+  - **新增 5 個真實 Bachmann tag**（111 → 116）：`WYAW_YwVn2AlgnAvg5s`（風向標 2，233 比對對象）、`WCNV_VtgMsCnvGd1/2/3`（變頻器電網側電壓，481 量測）、`WYAW_YwBrkSealsLeak`（油封洩漏偵測，261）；新類比 tag 用獨立 `_aux_rng`，**健康機組既有 111 tag 輸出逐位元不變**（3 工況 × 90 樣本 0 差異）
+  - **`TurbineSpec` 新增保護設定值**：每個標 manual（手冊 Appendix C）或 assumed（手冊只寫 See [ABB]，取高於健康機組 37 °C 最熱日的最大值）；`yaw_pressure_alarm` 170 → 180（對齊手冊 260 的 < 180 bar），兩個 git 追蹤的 farm `config.json` 同步更新
+  - **code-reviewer review**：1 must-fix（assumed 設定值原本只對 30 °C 安全，天氣模型最熱 37 °C 會誤報 → 改 46 / 51-56 / 62-67 並把健康測試擴到 37 °C）+ 7 should-fix 已處理（洩漏偵測用 spec 值、farm config、`VtgMsCnvGd` 改 kV 相電壓對齊現場 SCADA、`YwBrkSealsLeak` 改 BOOL、電壓驟降實際走 LVRT band 1、風向標漂移改為「控制器跟隨風向標 1」的一致語意、補 RNG 隔離與熱阻倍率守門測試）
+  - **測試** `tests/physics/test_fault_threshold_reach.py`（36 項）：健康機組 30 / 37 °C × 9/14/20 m/s 不越設定值；14 m/s 滿嚴重度越過跳機設定值；嚴重度 0.5 尚未到；定子故障低負載不到警報；新感測器只用 `_aux_rng`；熱阻倍率邊界。mutation：把合併 bug 放回 → 2 項失敗
+  - 驗證：backend 1471 passed / 7 skipped / 1 xfailed；`examples/data_quality_analysis.py` 20 項通過 / 0 待改善（與 main 一致）
+- **未做（-03-b）**：警報 / 跳機仍由 `FaultEngine` severity 觸發；物理訊號與事件時點目前只在高負載下大致一致
+
+### WMOM-20261021-03-b — PLC 保護層：警報 / 跳機改由物理訊號觸發
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 2 天
+- **Owner**: -
+- **Description**: 新增 PLC 保護層，以 `TurbineSpec` 設定值（-03-a）對量測訊號做判定（含遲滯、延時：葉片差 5 s / 3 s / 瞬間——健康機組紊流下瞬間差異可達 1.16°，不可看瞬間值；風向標 25 s 濾波 + 10 分鐘風速條件；電網欠壓對應物理層 `ride_through:lvrt_*` / `grid_*` 跳機原因），注意事項見設計文件 §6.2，送出真實事件碼；T1 走正常伺服停機、T2 走緊急變槳；跳機鎖存，條件解除後依目錄 `max_per_hour` 自動重啟，超過則需復位；故障機組維持「復位不等於修好」的既有不變量（WMOM-20260719-01），但改用重啟封鎖取代每步 `cmd_emergency_stop`（修 7↔3 擺盪）；物理層自有跳機（overspeed / cut-out / grid）對應事件碼；`FaultEngine.alarm_codes` 改為情境的預期碼 metadata；broker 事件改記 PLC 事件碼。
+- **Depends on**: WMOM-20261021-03-a
+
+### WMOM-20261021-03-c — monitoring 時間戳改 UTC tz-aware
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: -
+- **Description**: monitoring 全面使用 naive local `datetime.now()`；改為 UTC tz-aware（storage 寫入 / 讀取、事件、情境 sim time），knowledge `AlertEvent` 已要求 tz-aware。需處理既有 SQLite 資料的相容讀取。
+- **Depends on**: WMOM-20261021-03-a
 
 ### WMOM-20261021-04 — Phase 2：標準答案（ground truth）+ 情境路徑事件
 
@@ -1359,7 +1402,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 |---|---|---|---|
 | 0 | ~~WMOM-20261021-01~~ ✅ | 方向調整文件（DEC + 設計 + ROADMAP/STATUS/CLAUDE.md 同步） | 🔵 |
 | 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
-| 1b | WMOM-20261021-03 | 溫度門檻接線、7↔3 狀態跳動、UTC tz-aware 時間戳 | 🔵 |
+| 1b | WMOM-20261021-03 | 拆三段：~~-03-a 故障物理校正~~ ✅ → -03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）→ -03-c UTC 時間戳 | 🔵 |
 | 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |

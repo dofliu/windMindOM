@@ -74,11 +74,37 @@ class TurbineSpec:
     outside_temp_low: float = -25.0
     outside_temp_high: float = 45.0
 
-    # Z72 yaw thresholds
-    yaw_pressure_trip: float = 150.0     # bar, very low
-    yaw_pressure_alarm: float = 170.0    # bar, low
+    # Z72 yaw thresholds (manual Appendix C: 260 < 180 bar = nominal −10 %, 228 < 150 bar = −25 %;
+    # the manual's nominal is 200 bar, this model's healthy pressure is 210 bar)
+    yaw_pressure_trip: float = 150.0     # bar, very low (event 228)
+    yaw_pressure_alarm: float = 180.0    # bar, low (event 260)
     yaw_pressure_normal: float = 210.0   # bar, high friction
+    yaw_leak_detector_alarm_bar: float = 3.0  # event 261: leakage detector > 3 bar
     cable_twist_limit: float = 2.5       # turns
+
+    # Z72 PLC protection setpoints for the remaining scenario events (WMOM-20261021-03a).
+    # "manual" = stated in the Z72 user manual Appendix C; "assumed" = the manual only
+    # says "See [ABB]" (converter / transformer) or gives no number, so the value is a
+    # simulator assumption chosen above this model's healthy maximum on the hottest day
+    # the weather model produces (37 °C ambient, rated load). Manual setpoints are kept
+    # as-is even where a healthy turbine reaches them on such a day (nacelle cabinet
+    # 50 °C, event 256) — the real machine trips there too. Non-Z72 presets inherit
+    # these Z72 values (EPIC-DS data source is Z72-only).
+    generator_overspeed_rpm: float = 28.0         # manual, event 027
+    blade_discrepancy_5s_deg: float = 1.0         # manual, events 335-337 (> 1° for 5 s)
+    blade_discrepancy_3s_deg: float = 3.0         # manual (> 3° for 3 s)
+    blade_discrepancy_instant_deg: float = 8.0    # manual (> 8° instantly)
+    vane_discrepancy_deg: float = 15.0            # manual, event 233 (25 s filtered vanes)
+    vane_discrepancy_min_wind: float = 4.5        # manual (10 min avg wind > 4.5 m/s)
+    nacelle_air_alarm: float = 46.0               # assumed, event 273 (WNAC_NacTmp)
+    transformer_alarm: float = 80.0               # assumed, event 417 (WGDC_TrfCoreTmp)
+    transformer_trip: float = 90.0                # assumed, event 444
+    cooling_water_alarm: float = 51.0             # assumed, event 420 (WCNV_IGCTWtrTmp)
+    cooling_water_trip: float = 56.0              # assumed, event 437
+    converter_cabinet_alarm: float = 62.0         # assumed, event 421 (WCNV_CnvCabinTmp)
+    converter_cabinet_trip: float = 67.0          # assumed, event 438
+    cooling_static_pressure_low_bar: float = 2.5  # assumed, event 432 (WCNV_IGCTWtrPres1, producing)
+    tower_vibration_trip_mm_s: float = 7.0        # assumed, event 236 (WNAC_VibMsNac X/Y)
 
     # Z72 grid (60Hz system)
     grid_frequency_nominal: float = 60.0
@@ -147,6 +173,12 @@ class TurbinePhysicsModel:
         self.spec = spec or TurbineSpec()
         self._rng = np.random.RandomState(seed)
         _seed = seed or 0
+        # Separate stream for sensors added after the physics baseline was calibrated
+        # (vane 2, converter grid voltages): drawing them from self._rng would shift
+        # every existing tag's noise sequence (WMOM-20261021-03a).
+        self._aux_rng = np.random.RandomState(None if seed is None else (seed + 104729) % (2 ** 32))
+        self._vane2_bias = self._aux_rng.uniform(-2.0, 2.0)
+        self._cnv_grid_phase_scale = [1.0 + self._aux_rng.normal(0.0, 0.004) for _ in range(3)]
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -363,6 +395,9 @@ class TurbinePhysicsModel:
         self._sim_time += dt
         self._update_grid_reference(dt, grid_frequency_ref, grid_voltage_ref)
         fault_physics = self._get_fault_physics()
+        # grid_voltage_sag: depress the local terminal voltage before derate / ride-through
+        # evaluation (_grid_voltage_ref is re-assigned every step, so this never compounds).
+        self._grid_voltage_ref *= fault_physics["grid_voltage_scale"]
         effective_wind_speed = max(
             0.0,
             wind_speed * fault_physics["wind_scale"] * self._individuality["wind_sensor_scale"]
@@ -597,7 +632,18 @@ class TurbinePhysicsModel:
             cnv_dc_vtg = 0.0
 
         yaw_out = self.yaw.step(wind_direction, is_producing, dt)
-        yaw_out["yaw_error"] += fault_physics["yaw_error_bias"] + self._individuality["yaw_sensor_bias"]
+        # The yaw controller follows wind vane 1. A drifting vane 1 (yaw_sensor_drift)
+        # therefore turns the nacelle until vane 1 reads ~0: the rotor is physically
+        # misaligned by −drift, vane 1 still shows only the controller residual, and
+        # vane 2 shows the true misalignment. Yaw slippage (hydraulic_leak) is a real
+        # misalignment seen by both vanes. yaw_out["yaw_error"] keeps feeding fatigue,
+        # yaw skew and wake steering with the physical misalignment (+ the per-turbine
+        # vane 1 mounting bias, as before).
+        vane1_drift = fault_physics["vane1_drift_deg"]
+        physical_misalignment = yaw_out["yaw_error"] + fault_physics["yaw_error_bias"] - vane1_drift
+        vane2_error = physical_misalignment + self._vane2_bias
+        yaw_out["yaw_error"] = physical_misalignment + self._individuality["yaw_sensor_bias"]
+        vane1_reading = yaw_out["yaw_error"] + vane1_drift
         yaw_out["brake_pressure"] += fault_physics["yaw_brake_bias"]
 
         # Coolant leak from converter_cooling_fault (#75)
@@ -619,23 +665,33 @@ class TurbinePhysicsModel:
         main_brg_heat = self.drivetrain.main_bearing_heat_kw
         gbx_brg_heat = self.drivetrain.gearbox_bearing_heat_kw
 
+        # Fault heat and drivetrain / brake / converter heat are ADDED per node.
+        # (Previously a dict union let the right-hand operand overwrite the fault
+        # heat for "bearing" / "nacelle" / "converter", so bearing_wear,
+        # nacelle_cooling_failure and converter faults never heated anything —
+        # WMOM-20261021-03a.)
+        extra_heat = {
+            key: value * self._individuality["thermal_scale"]
+            for key, value in fault_physics["extra_heat"].items()
+        }
+        for key, value in {
+            "bearing": main_brg_heat + gbx_brg_heat * 0.6,
+            "rotor": brake_heat_kw * 0.30,
+            "hub": brake_heat_kw * 0.24,
+            "nacelle": brake_heat_kw * 0.10 + gbx_brg_heat * 0.4,
+            "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr),
+        }.items():
+            extra_heat[key] = extra_heat.get(key, 0.0) + value
+
         temps = self.thermal.step(
             gen_power_kw, cnv_gd_pwr, self.rotor_speed,
             ambient_temp, s.generator_efficiency, dt,
             wind_speed=effective_wind_speed,
             tur_state=self.tur_state,
             sync_progress=self._sync_progress,
-            extra_heat={
-                key: value * self._individuality["thermal_scale"]
-                for key, value in fault_physics["extra_heat"].items()
-            } | {
-                "bearing": main_brg_heat + gbx_brg_heat * 0.6,
-                "rotor": brake_heat_kw * 0.30,
-                "hub": brake_heat_kw * 0.24,
-                "nacelle": brake_heat_kw * 0.10 + gbx_brg_heat * 0.4,
-                "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr),
-            },
+            extra_heat=extra_heat,
             cooling_bias=cooling_bias,
+            cooling_degradation=fault_physics["cooling_bias"],
         )
 
         vib_x, vib_y = self.vibration.step(
@@ -777,6 +833,8 @@ class TurbinePhysicsModel:
         vane_bias_deg = max(-8.0, min(8.0, vane_bias_deg))
         nac_vane_raw = (wind_direction + vane_bias_deg) % 360.0
 
+        grid_ln_kv = self._grid_voltage_ref / math.sqrt(3.0) / 1000.0
+
         output: Dict[str, float] = {
             "WTUR_TurSt": float(self.tur_state),
             "WTUR_TotPwrAt": round(cnv_gd_pwr, 2),
@@ -798,6 +856,12 @@ class TurbinePhysicsModel:
             "WROT_SrvcBrkAct": float(brake_active),
             "WCNV_CnvCabinTmp": temps["cnv_cabinet"],
             "WCNV_CnvDClVtg": round(cnv_dc_vtg, 2),
+            # Grid-side phase-to-neutral voltage (kV) measured by the converter, as on the
+            # real site SCADA (V_A_N / V_B_N / V_C_N); present whenever the turbine is
+            # grid-connected, independent of production.
+            "WCNV_VtgMsCnvGd1": round(grid_ln_kv * self._cnv_grid_phase_scale[0], 4),
+            "WCNV_VtgMsCnvGd2": round(grid_ln_kv * self._cnv_grid_phase_scale[1], 4),
+            "WCNV_VtgMsCnvGd3": round(grid_ln_kv * self._cnv_grid_phase_scale[2], 4),
             "WCNV_CnvGdPwrAt": round(cnv_gd_pwr, 2),
             "WCNV_CnvGnFrq": round(gen_freq, 3),
             "WCNV_CnvGnPwr": round(cnv_gn_pwr, 2),
@@ -824,8 +888,10 @@ class TurbinePhysicsModel:
             "WNAC_NacCabTmp": temps["nac_cabinet"],
             "WNAC_VibMsNacXDir": round(vib_x, 3),
             "WNAC_VibMsNacYDir": round(vib_y, 3),
-            "WYAW_YwVn1AlgnAvg5s": round(yaw_out["yaw_error"], 2),
+            "WYAW_YwVn1AlgnAvg5s": round(vane1_reading, 2),
+            "WYAW_YwVn2AlgnAvg5s": round(vane2_error, 2),
             "WYAW_YwBrkHyPrs": round(max(0, yaw_out["brake_pressure"]), 2),
+            "WYAW_YwBrkSealsLeak": 1.0 if fault_physics["yaw_leak_detector_bar"] > s.yaw_leak_detector_alarm_bar else 0.0,
             "WYAW_CabWup": round(yaw_out["cable_windup"], 2),
             "WSRV_SrvOn": 1.0 if self.service_mode else 0.0,
             # WMOM-20260505-26-a：映射既有真實狀態——operator_stop 由 cmd_stop()/
@@ -1316,12 +1382,18 @@ class TurbinePhysicsModel:
             return "normal"
         return None
 
+    # Sensors whose noise comes from self._aux_rng (see __init__)
+    _AUX_SENSOR_TAGS = frozenset({
+        "WYAW_YwVn2AlgnAvg5s",
+        "WCNV_VtgMsCnvGd1", "WCNV_VtgMsCnvGd2", "WCNV_VtgMsCnvGd3",
+    })
+
     def _apply_sensor_model(self, output: Dict[str, float]) -> Dict[str, float]:
         # Tags that should not be filtered through the sensor model
         _integer_tags = {"WTUR_TurSt", "WCNV_CnvMode", "WCNV_RtBand",
                          "WROT_RotLckd", "WROT_SrvcBrkAct", "WROT_LckngPnPos",
                          "WSRV_SrvOn", "WSRV_ManualOverride", "WSRV_LockoutState",
-                         "MBUS_Contact2",
+                         "MBUS_Contact2", "WYAW_YwBrkSealsLeak",
                          # Vibration alarm levels (discrete integers)
                          "WVIB_Alarm1p", "WVIB_Alarm3p", "WVIB_AlarmGear",
                          "WVIB_AlarmHf", "WVIB_AlarmBb",
@@ -1337,6 +1409,7 @@ class TurbinePhysicsModel:
                              "WLOD_RulHours"}
         sensorized: Dict[str, float] = {}
         for tag, value in output.items():
+            rng = self._aux_rng if tag in self._AUX_SENSOR_TAGS else self._rng
             if tag in _integer_tags:
                 # round(inf/nan) → OverflowError；非有限值歸零（WMOM-20260718-10）。
                 sensorized[tag] = round(value) if math.isfinite(value) else 0
@@ -1346,14 +1419,14 @@ class TurbinePhysicsModel:
                 continue
             cfg = self._get_sensor_config(tag)
             if cfg["drift"] > 0.0:
-                self._sensor_bias[tag] = self._sensor_bias.get(tag, 0.0) + self._rng.normal(0.0, cfg["drift"])
+                self._sensor_bias[tag] = self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["drift"])
                 self._sensor_bias[tag] = max(-cfg["bias_limit"], min(cfg["bias_limit"], self._sensor_bias[tag]))
-            if self._sim_time >= self._sensor_stuck_until.get(tag, 0.0) and self._rng.uniform() < cfg["stuck_prob"]:
-                self._sensor_stuck_until[tag] = self._sim_time + self._rng.uniform(6.0, 20.0)
+            if self._sim_time >= self._sensor_stuck_until.get(tag, 0.0) and rng.uniform() < cfg["stuck_prob"]:
+                self._sensor_stuck_until[tag] = self._sim_time + rng.uniform(6.0, 20.0)
             if self._sim_time < self._sensor_stuck_until.get(tag, 0.0) and tag in self._sensor_last:
                 sensorized[tag] = self._sensor_last[tag]
                 continue
-            measured = value + self._sensor_bias.get(tag, 0.0) + self._rng.normal(0.0, cfg["noise"])
+            measured = value + self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["noise"])
             # 上游物理若發散成 inf/nan，下一行 round() 會拋 OverflowError 弄垮整個 step()
             # （這正是「生成情境」500 + 前端誤報 CORS 的根因）。非有限值直接歸零並繼續
             # （引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
@@ -1390,6 +1463,8 @@ class TurbinePhysicsModel:
             return {"noise": 0.12, "drift": 0.0015, "bias_limit": 1.0, "resolution": 0.1, "stuck_prob": 0.00012, "min": -40.0, "max": 180.0}
         if "Spd" in tag or "Frq" in tag:
             return {"noise": 0.04, "drift": 0.0008, "bias_limit": 0.25, "resolution": 0.01, "stuck_prob": 0.0001, "min": 0.0, "max": 5000.0}
+        if tag.startswith("WCNV_VtgMsCnvGd"):  # kV phase-to-neutral
+            return {"noise": 0.002, "drift": 0.00002, "bias_limit": 0.01, "resolution": 0.0001, "stuck_prob": 0.00005, "min": 0.0, "max": 5.0}
         if "Vtg" in tag:
             return {"noise": 1.5, "drift": 0.01, "bias_limit": 6.0, "resolution": 0.1, "stuck_prob": 0.00005, "min": 0.0, "max": 5000.0}
         if "Cur" in tag:
@@ -1416,6 +1491,7 @@ class TurbinePhysicsModel:
             "rotor_speed_bias": 0.0,
             "blade1_pitch_bias": 0.0,
             "yaw_error_bias": 0.0,
+            "vane1_drift_deg": 0.0,
             "yaw_brake_bias": 0.0,
             "vibration_x": 0.0,
             "vibration_y": 0.0,
@@ -1426,14 +1502,23 @@ class TurbinePhysicsModel:
                 "bearing": 0.0,
                 "nacelle": 0.0,
             },
+            # Heat-path condition per thermal node (1.0 = healthy, <1.0 = degraded).
+            # Lowers the response rate AND raises the steady-state temperature
+            # (thermal resistance ↑, see ThermalSystem.step cooling_degradation).
             "cooling_bias": {
                 "nacelle": 1.0,
                 "exposed": 1.0,
                 "cabinet": 1.0,
                 "water": 1.0,
                 "transformer": 1.0,
+                "bearing": 1.0,
+                "stator": 1.0,
             },
             "coolant_leak_lph": 0.0,
+            # Local grid voltage at the turbine terminals (p.u. multiplier)
+            "grid_voltage_scale": 1.0,
+            # Yaw brake leakage-detector line pressure (bar); Z72 event 261 at > 3 bar
+            "yaw_leak_detector_bar": 0.0,
         }
 
         # Operating condition factors for load-dependent fault coupling.
@@ -1448,12 +1533,17 @@ class TurbinePhysicsModel:
             scenario_id = fault.get("scenario_id")
 
             # ── bearing_wear ─────────────────────────────────────────
-            # Bearing friction generates heat proportional to speed.
+            # Bearing friction generates heat proportional to speed, and the
+            # starved / contaminated lubricant film conducts heat away worse
+            # (bearing thermal resistance ↑). Calibrated so that near rated load
+            # the bearing crosses the Z72 alarm (85 °C, event 262) and trip
+            # (95 °C, event 240) setpoints at high severity (WMOM-20261021-03a).
             # Vibration increases with both speed and load.
             if scenario_id == "bearing_wear":
                 speed_coupling = 0.3 + 0.7 * speed_ratio
                 load_coupling = 0.4 + 0.6 * load_factor
-                fault_physics["extra_heat"]["bearing"] += 18.0 * severity * speed_coupling
+                fault_physics["extra_heat"]["bearing"] += 30.0 * severity * speed_coupling
+                fault_physics["cooling_bias"]["bearing"] *= max(0.25, 1.0 - 0.75 * severity)
                 fault_physics["extra_heat"]["generator"] += 6.0 * severity * load_coupling
                 fault_physics["vibration_x"] += 1.5 * severity * speed_coupling
                 fault_physics["vibration_y"] += 1.2 * severity * speed_coupling
@@ -1470,25 +1560,30 @@ class TurbinePhysicsModel:
             # Cooling degradation. Heat accumulates faster at high power.
             elif scenario_id == "converter_cooling_fault":
                 fault_physics["extra_heat"]["converter"] += 16.0 * severity * (0.3 + 0.7 * power_ratio)
-                fault_physics["cooling_bias"]["water"] *= max(0.25, 1.0 - 0.70 * severity)
+                fault_physics["cooling_bias"]["water"] *= max(0.20, 1.0 - 0.80 * severity)
                 fault_physics["cooling_bias"]["cabinet"] *= max(0.55, 1.0 - 0.35 * severity)
                 fault_physics["power_scale"] *= max(0.82, 1.0 - 0.08 * severity)
-                # O-ring degradation causes coolant leak proportional to severity
-                fault_physics["coolant_leak_lph"] += 0.8 * severity
+                # O-ring degradation causes coolant leak proportional to severity.
+                # Fast enough that over hours the level falls below ~70 % → pump
+                # cavitation → static pressure drop (Z72 event 432) (WMOM-20261021-03a).
+                fault_physics["coolant_leak_lph"] += 12.0 * severity
 
             # ── transformer_overheat ─────────────────────────────────
             # Transformer losses scale with power squared (I²R).
             elif scenario_id == "transformer_overheat":
                 power_sq = power_ratio ** 2
-                fault_physics["extra_heat"]["transformer"] += 18.0 * severity * (0.2 + 0.8 * power_sq)
-                fault_physics["cooling_bias"]["transformer"] *= max(0.45, 1.0 - 0.40 * severity)
+                fault_physics["extra_heat"]["transformer"] += 30.0 * severity * (0.2 + 0.8 * power_sq)
+                fault_physics["cooling_bias"]["transformer"] *= max(0.30, 1.0 - 0.55 * severity)
                 fault_physics["extra_heat"]["nacelle"] += 2.5 * severity * (0.3 + 0.7 * power_ratio)
 
             # ── pitch_imbalance ──────────────────────────────────────
             # Blade 1 calibration drift. Causes 1P vibration (speed-dependent)
             # and aerodynamic power loss (wind-dependent).
+            # Measured blade-1 angle deviates ~1.25° at full severity: the Z72 PLC
+            # discrepancy trip (> 1° for 5 s, events 335/336) is only reached late,
+            # keeping the fault subtle for most of its development (WMOM-20261021-03a).
             elif scenario_id == "pitch_imbalance":
-                fault_physics["blade1_pitch_bias"] += 3.0 * severity
+                fault_physics["blade1_pitch_bias"] += 1.25 * severity
                 fault_physics["power_scale"] *= max(0.88, 1.0 - 0.04 * severity * load_factor)
                 fault_physics["vibration_x"] += 1.5 * severity * speed_ratio
                 fault_physics["vibration_y"] += 0.8 * severity * speed_ratio
@@ -1497,18 +1592,25 @@ class TurbinePhysicsModel:
             # ── yaw_sensor_drift ─────────────────────────────────────
             # Position sensor drifts. Power loss from misalignment is
             # proportional to cos(yaw_error) — more loss at higher wind.
+            # Wind vane 1 drifts up to 18°; vane 2 stays true, so the PLC's
+            # vane 1-2 discrepancy check (> 15°, event 233) trips late (WMOM-20261021-03a).
             elif scenario_id == "yaw_sensor_drift":
-                yaw_deg = 12.0 * severity
-                fault_physics["yaw_error_bias"] += yaw_deg
+                yaw_deg = 18.0 * severity
+                fault_physics["vane1_drift_deg"] += yaw_deg
                 cos_loss = math.cos(math.radians(min(30.0, abs(yaw_deg))))
                 fault_physics["wind_scale"] *= max(0.75, cos_loss)
 
             # ── stator_winding_degradation ───────────────────────────
             # Insulation resistance decreases. Extra I²R losses at load.
             # Temperature-vs-power slope changes — key ML feature.
+            # Degraded insulation also conducts winding heat worse (stator thermal
+            # resistance ↑), so near rated load the stator crosses the Z72 alarm
+            # (140 °C, event 264) and trip (150 °C, event 244) setpoints at high
+            # severity, while at low load it stays well below (WMOM-20261021-03a).
             elif scenario_id == "stator_winding_degradation":
                 power_sq = power_ratio ** 2
-                fault_physics["extra_heat"]["generator"] += 20.0 * severity * (0.15 + 0.85 * power_sq)
+                fault_physics["extra_heat"]["generator"] += 40.0 * severity * (0.15 + 0.85 * power_sq)
+                fault_physics["cooling_bias"]["stator"] *= max(0.25, 1.0 - 0.70 * severity)
                 # Slight current increase from reduced insulation efficiency
                 fault_physics["power_scale"] *= max(0.92, 1.0 - 0.03 * severity * power_ratio)
 
@@ -1517,6 +1619,9 @@ class TurbinePhysicsModel:
             # Yaw error variance increases with load (thrust force).
             elif scenario_id == "hydraulic_leak":
                 fault_physics["yaw_brake_bias"] -= 80.0 * severity
+                # Oil escaping past the brake seals pressurises the leakage-detector
+                # line (Z72 event 261 at > 3 bar, WYAW_YwBrkSealsLeak).
+                fault_physics["yaw_leak_detector_bar"] += 6.0 * severity
                 # Under load, thrust causes yaw slippage
                 slip_amplitude = 5.0 * severity * load_factor
                 fault_physics["yaw_error_bias"] += slip_amplitude * math.sin(self._sim_time * 0.08)
@@ -1525,17 +1630,30 @@ class TurbinePhysicsModel:
             # Aerodynamic imbalance. Power loss and asymmetric vibration.
             # Effect is independent of load (ice doesn't care about power)
             # but vibration couples with rotation speed.
+            # Rotor-speed loss kept small so the iced rotor keeps producing (a larger
+            # bias stalled it in start-up); the mass imbalance drives nacelle
+            # acceleration up to the Z72 tower-acceleration trip (event 236) at
+            # high severity (WMOM-20261021-03a).
             elif scenario_id == "blade_icing":
                 fault_physics["power_scale"] *= max(0.60, 1.0 - 0.25 * severity)
-                fault_physics["rotor_speed_bias"] -= 1.5 * severity
-                fault_physics["vibration_x"] += 4.0 * severity * speed_ratio
-                fault_physics["vibration_y"] += 6.0 * severity * speed_ratio  # asymmetric
+                fault_physics["rotor_speed_bias"] -= 0.3 * severity
+                fault_physics["vibration_x"] += 6.0 * severity * speed_ratio
+                fault_physics["vibration_y"] += 9.0 * severity * speed_ratio  # asymmetric
                 fault_physics["blade1_pitch_bias"] += 2.0 * severity
 
             # ── grid_voltage_sag ─────────────────────────────────────
             # Converter stress from grid fluctuations.
             # Switching losses increase, especially at high power.
+            # The local grid voltage sags (mean depth 11 % at full severity) with a
+            # slow ~60 s oscillation. From about severity 0.7 the existing LVRT logic
+            # (ElectricalModel band 1: < 0.90 p.u. held too long) trips the turbine
+            # ("ride_through:lvrt_band1"); deeper sags hit the grid-protection limits
+            # (< 0.87 p.u. normal, < 0.81 p.u. emergency). The lower voltage also
+            # engages the existing voltage derate, so power falls well before the trip
+            # (WMOM-20261021-03a).
             elif scenario_id == "grid_voltage_sag":
+                sag = 0.11 * severity + 0.05 * severity * math.sin(self._sim_time * math.tau / 60.0)
+                fault_physics["grid_voltage_scale"] *= max(0.5, 1.0 - sag)
                 fault_physics["extra_heat"]["converter"] += 8.0 * severity * (0.3 + 0.7 * power_ratio)
                 fault_physics["power_scale"] *= max(0.80, 1.0 - 0.10 * severity * power_ratio)
                 fault_physics["cooling_bias"]["cabinet"] *= max(0.75, 1.0 - 0.15 * severity)
@@ -1545,9 +1663,9 @@ class TurbinePhysicsModel:
             # Heat accumulation is proportional to power dissipation.
             elif scenario_id == "nacelle_cooling_failure":
                 heat_scale = 0.25 + 0.75 * power_ratio
-                fault_physics["cooling_bias"]["nacelle"] *= max(0.30, 1.0 - 0.55 * severity)
-                fault_physics["cooling_bias"]["cabinet"] *= max(0.40, 1.0 - 0.45 * severity)
-                fault_physics["extra_heat"]["nacelle"] += 15.0 * severity * heat_scale
+                fault_physics["cooling_bias"]["nacelle"] *= max(0.25, 1.0 - 0.65 * severity)
+                fault_physics["cooling_bias"]["cabinet"] *= max(0.60, 1.0 - 0.25 * severity)
+                fault_physics["extra_heat"]["nacelle"] += 22.0 * severity * heat_scale
                 fault_physics["extra_heat"]["generator"] += 8.0 * severity * heat_scale
                 fault_physics["extra_heat"]["converter"] += 6.0 * severity * heat_scale
                 fault_physics["extra_heat"]["bearing"] += 4.0 * severity * heat_scale
