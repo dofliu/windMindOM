@@ -8,7 +8,10 @@
   ``.`` 與數字，同一秒內的字典序會顛倒）。SQLite 的 ``strftime('%s', ...)`` 認得 ``+00:00`` 後綴。
 - **naive 輸入視為伺服器本地時間**：本次之前 monitoring 一律寫 naive 的 ``datetime.now()``（伺服器
   本地時間），既有 DB 列、API 呼叫端傳入的 naive 字串都依此解讀再轉 UTC（Python ``astimezone()``
-  對 naive 值的預設語意）。
+  對 naive 值的預設語意）。**例外**：``to_site_naive``（物理輸入取風場當地時刻）把 naive 值視為
+  已是風場牆鐘時間、原樣回傳（WMOM-20261021-11）。
+- **風場時區**：需要「當地時刻」的物理輸入（日夜 / 季節循環）一律用 ``to_site_naive(ts, site_tz)``，
+  不依伺服器時區——同一個 UTC 時刻在任何機器上得到同一個風場當地時刻。
 
 本模組放在 ``simulator/``（最底層）：simulator 與 server 都能匯入；server 以
 ``from simulator.time_utils import ...``（sys.path 注入模式）或相對匯入（套件模式）取得。
@@ -59,8 +62,11 @@ def site_timezone(name: str) -> tzinfo:
         ``ZoneInfo``。
 
     Raises:
-        ValueError: 不是有效的 IANA 時區名稱（或本機缺 tz 資料庫；Windows 需 ``tzdata`` 套件）。
+        ValueError: 不是有效的 IANA 時區名稱（或本機缺 tz 資料庫；Windows 需 ``tzdata`` 套件），
+            或是 ``localtime``（＝伺服器時區，失去可重現性）。
     """
+    if name == "localtime":
+        raise ValueError("時區 'localtime' 是伺服器時區；請用 IANA 名稱（例 Asia/Taipei）")
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError) as exc:

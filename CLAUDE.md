@@ -138,9 +138,9 @@ WMOM = WindMindOM 縮寫。
 - **警報碼守則**：模擬器、語料、前端用到的 Z72 警報碼一律以 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C）為準，不自創碼或描述；`tests/test_alarm_codes.py`、`modules/monitoring/tests/test_fault_alarm_codes.py` 會擋
 - **物理改動守則補充**：新增感測器 / tag 的隨機數一律走 `TurbinePhysicsModel._aux_rng`，不可動主 `_rng` 序列（否則所有已校準的健康輸出都會位移）
 - **PLC 保護層守則**：警報 / 跳機只由 `PlcProtection` 依 `TurbineSpec` 設定值判定**製程值**（感測器模型之前）送出；`FaultEngine.alarm_codes` 是情境的預期碼（ground truth），不再有 severity 門檻；故障 tripped 期間以 `model.maintenance_lock` 擋重啟，復位不等於修好（`test_reset_keeps_fault.py`）；改規則後須確認健康風場無訊號事件（`test_plc_integration.py`）
-- **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_site_naive(ts, site_tz)`——風場時區（`FarmConfig.timezone`，預設 Asia/Taipei），不是伺服器時區
+- **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_site_naive(ts, site_tz)`——風場時區（`FarmConfig.timezone`，預設 Asia/Taipei），不是伺服器時區；它把 naive 輸入視為已是風場牆鐘時間（例外於上一條）；建模擬器要帶 `site_timezone=`（broker / 資料集產生都要）
 - **下次工作**：EPIC-DS 依序 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1551 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1574 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

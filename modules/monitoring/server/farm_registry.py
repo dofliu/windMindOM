@@ -10,10 +10,10 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
     from .sqlite_utils import open_sqlite
@@ -32,15 +32,16 @@ LEGACY_DB_NAME = "wind_farm_data.db"
 
 
 
-# 時間戳（WMOM-20261021-03-c）：與 simulator/time_utils.py 的 iso_utc 同格式。本檔不匯入 time_utils——
-# farm_registry 也會以套件模式（modules.monitoring.server.farm_registry）被 cost / shared 匯入，
-# 那時 simulator 不在 sys.path 上。
+# 本檔不匯入 simulator/time_utils.py——farm_registry 也會以套件模式（modules.monitoring.server.
+# farm_registry）被 cost / shared 匯入，那時 simulator 不在 sys.path 上；下列時間 / 時區 helper 與
+# time_utils 同格式、同預設值。
+
 # 風場時區預設值，同 simulator/time_utils.py 的 DEFAULT_SITE_TIMEZONE（WMOM-20261021-11）
 DEFAULT_FARM_TIMEZONE = "Asia/Taipei"
 
 
 def _validate_timezone(name: object) -> str:
-    """確認是有效的 IANA 時區名稱。
+    """確認是有效的 IANA 時區名稱（風場時區，WMOM-20261021-11）。
 
     Args:
         name: 時區名稱。
@@ -49,10 +50,12 @@ def _validate_timezone(name: object) -> str:
         原名稱。
 
     Raises:
-        ValueError: 不是字串或不是有效的時區名稱。
+        ValueError: 不是非空字串、是 ``localtime``（等於伺服器時區，失去可重現性）或不是有效的時區名稱。
     """
     if not isinstance(name, str) or not name:
         raise ValueError(f"timezone must be a non-empty IANA name, got {name!r}")
+    if name == "localtime":
+        raise ValueError("timezone 'localtime' is the server's zone; use an IANA name such as Asia/Taipei")
     try:
         ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -60,13 +63,14 @@ def _validate_timezone(name: object) -> str:
     return name
 
 
+# 時間戳（WMOM-20261021-03-c）：與 simulator/time_utils.py 的 iso_utc 同格式
 def _utc_now_text() -> str:
     """現在時刻的 UTC ISO 字串（``...ffffff+00:00``）。
 
     Returns:
         ISO 字串。
     """
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(dt_timezone.utc).isoformat(timespec="microseconds")
 
 
 def _to_utc_text(value: Optional[str]) -> Optional[str]:
@@ -82,7 +86,7 @@ def _to_utc_text(value: Optional[str]) -> Optional[str]:
         return value
     text = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
     try:
-        return datetime.fromisoformat(text).astimezone(timezone.utc).isoformat(timespec="microseconds")
+        return datetime.fromisoformat(text).astimezone(dt_timezone.utc).isoformat(timespec="microseconds")
     except ValueError:
         return value
 
@@ -184,8 +188,9 @@ class FarmRegistry:
             conn.execute(
                 f"ALTER TABLE farms ADD COLUMN timezone TEXT NOT NULL DEFAULT '{DEFAULT_FARM_TIMEZONE}'"
             )
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc):  # 只吞「欄位已存在」，鎖定 / 唯讀等錯誤照拋
+                raise
         # WMOM-20261021-03-c：舊版 created_at / last_active_at 是 naive 本地時間，一次性轉 UTC，
         # 否則 list_farms 的 ORDER BY last_active_at（字串排序）會把新舊兩種格式混排錯
         if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
@@ -211,12 +216,12 @@ class FarmRegistry:
                     location: str = "",
                     description: str = "",
                     is_offshore: bool = False,
-                    timezone: str = "") -> FarmConfig:
+                    timezone: Optional[str] = None) -> FarmConfig:
         """Create a new wind farm project with its own database directory.
 
-        ``timezone``：風場 IANA 時區（空字串＝預設 Asia/Taipei）；無效名稱 raise ``ValueError``。
+        ``timezone``：風場 IANA 時區（None / 空字串＝預設 Asia/Taipei）；無效名稱 raise ``ValueError``。
         """
-        timezone = _validate_timezone(timezone or DEFAULT_FARM_TIMEZONE)
+        timezone = _validate_timezone(DEFAULT_FARM_TIMEZONE if timezone in (None, "") else timezone)
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
 
@@ -268,7 +273,15 @@ class FarmRegistry:
         if not farm:
             return None
 
-        conn = self._get_conn()
+        # 先驗證全部欄位再開連線：中途 raise 不會留下未提交的交易與未關閉的連線
+        if kwargs.get("is_offshore") is not None and not isinstance(kwargs["is_offshore"], bool):
+            # code review fix（MUST-FIX #3）：嚴格 bool 型別 — 拒絕字串 / 數字等
+            # ambiguous 值，避免 ``bool("DROP TABLE") == True`` 之類 silent corruption。
+            # caller（router）負責把 JSON 的 true/false 轉成 Python bool。
+            raise ValueError(f"is_offshore must be bool, got {type(kwargs['is_offshore']).__name__}")
+        if kwargs.get("timezone") is not None:
+            _validate_timezone(kwargs["timezone"])
+
         field_map = {
             "name": "name",
             "location": "location",
@@ -280,27 +293,21 @@ class FarmRegistry:
             "is_offshore": "is_offshore",
             "timezone": "timezone",
         }
-        for key, val in kwargs.items():
-            col = field_map.get(key)
-            if col and val is not None:
-                if col.endswith("_json"):
-                    db_val: object = json.dumps(val)
-                elif col == "is_offshore":
-                    # code review fix（MUST-FIX #3）：嚴格 bool 型別 — 拒絕字串 / 數字等
-                    # ambiguous 值，避免 ``bool("DROP TABLE") == True`` 之類 silent corruption。
-                    # caller（router）負責把 JSON 的 true/false 轉成 Python bool。
-                    if not isinstance(val, bool):
-                        raise ValueError(
-                            f"is_offshore must be bool, got {type(val).__name__}"
-                        )
-                    db_val = 1 if val else 0
-                elif col == "timezone":
-                    db_val = _validate_timezone(val)
-                else:
-                    db_val = val
-                conn.execute(f"UPDATE farms SET {col} = ? WHERE farm_id = ?", (db_val, farm_id))
-        conn.commit()
-        conn.close()
+        conn = self._get_conn()
+        try:
+            for key, val in kwargs.items():
+                col = field_map.get(key)
+                if col and val is not None:
+                    if col.endswith("_json"):
+                        db_val: object = json.dumps(val)
+                    elif col == "is_offshore":
+                        db_val = 1 if val else 0
+                    else:
+                        db_val = val
+                    conn.execute(f"UPDATE farms SET {col} = ? WHERE farm_id = ?", (db_val, farm_id))
+            conn.commit()
+        finally:
+            conn.close()
 
         self._save_config_json(farm_id)
         return self.get_farm(farm_id)
@@ -371,6 +378,7 @@ class FarmRegistry:
             location=source.location,
             description=f"Cloned from {source_farm_id}",
             is_offshore=source.is_offshore,
+            timezone=source.timezone,
         )
 
         if include_data:

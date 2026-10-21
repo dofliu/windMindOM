@@ -128,7 +128,7 @@ async def create_farm(body: dict):
             location=body.get("location", ""),
             description=body.get("description", ""),
             is_offshore=bool(body.get("is_offshore", False)),
-            timezone=body.get("timezone", ""),
+            timezone=body.get("timezone"),
         )
     except ValueError as exc:  # 無效的時區名稱
         raise HTTPException(400, str(exc))
@@ -317,11 +317,15 @@ async def generate_dataset(farm_id: str, body: dict):
     base_wind = wind_cfg.get("base_speed", 10.0)
     turb_intensity = wind_cfg.get("turbulence_intensity", 0.12)
 
-    sim = WindFarmSimulator(
-        turbine_count=farm.turbine_count,
-        base_wind_speed=base_wind,
-        turbulence_intensity=turb_intensity,
-    )
+    try:
+        sim = WindFarmSimulator(
+            turbine_count=farm.turbine_count,
+            base_wind_speed=base_wind,
+            turbulence_intensity=turb_intensity,
+            site_timezone=farm.timezone,  # 日夜 / 季節循環依風場當地時刻（WMOM-20261021-11）
+        )
+    except ValueError as exc:  # 風場存的時區名稱在本機無效（例：缺 tzdata）
+        raise HTTPException(400, str(exc))
     for model in sim.turbines.values():
         model.update_spec(spec)
 
@@ -339,6 +343,7 @@ async def generate_dataset(farm_id: str, body: dict):
             "time_step": time_step,
             "wind_profile": wind_cfg,
             "fault_steps": fault_steps,
+            "site_timezone": sim.wind_model.site_timezone_name,
         },
     )
 

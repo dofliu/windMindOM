@@ -46,22 +46,38 @@
 
 伺服器時區不是 Asia/Taipei 的機器（UTC 的 CI、Docker）日夜相位比改動前移動 +8 小時；台北時區的開發機不變。健康機組物理輸出（`TurbinePhysicsModel` 直接驅動、不經風況模型）不受影響。
 
-### 2.5 卡住或延後的事
+### 2.5 Code review（code-reviewer subagent）
+
+結論 Needs revision：1 must-fix、數項 should-fix / nice-to-have。處理如下：
+
+- **must-fix：`clone_farm` 沒帶時區**——複製出來的風場變回預設 Asia/Taipei。改為帶 `source.timezone`。
+- **should-fix 已修**：
+  - 資料集產生（`POST /api/farms/{id}/datasets/generate`）另建暫存模擬器，沒帶風場時區 → 帶入，並在 session config 記 `site_timezone`；Live session（broker 啟動 / 切換風場）也記。
+  - `requirements.txt` 加 `tzdata`：Windows 與精簡容器沒有系統 tz 資料庫（我原本以為 workflow 模組已帶進來，其實 requirements 沒列）。
+  - `farms.db` 存了本機無效的時區（手改 DB、換到缺 tz 資料的機器）時，`WindFarmSimulator` 會 raise、整個模擬起不來 → broker 印警告退回預設；資料集產生回 400。
+  - `update_farm`：原本邊寫邊驗證，時區無效時前面欄位已寫進未提交的交易、連線沒關（同程序其他連線寫入會卡 `database is locked`）→ 先驗證全部欄位再開連線，`finally` 關連線；`ALTER TABLE` 只吞「duplicate column」。
+  - `time_utils` 模組說明仍寫「naive＝伺服器本地時間」，沒提 `to_site_naive` 的例外 → 補上（CLAUDE.md 時間戳守則同步）。
+- **nice-to-have 已修**：`localtime`（＝伺服器時區，失去可重現性；Linux 上 `ZoneInfo("localtime")` 是合法的）、非字串（`0`、`False`、list）拒絕；API 建立時 `timezone` 缺省改傳 None。
+- **記為已知限制**（設計文件 §6.6）：`PATCH` 時區要重啟模擬才生效；Live / 資料集起點是 `utc_now()`，固定的是相位不是內容（-05 要固定起始時刻）；DST 依民用時間。
+- 測試：`test_farm_timezone.py` 8 → 17——`to_site_naive` 單元、跨月邊界（`2026-06-30T20:00Z` 在台北是 7/1，季節層取 7 月）、`localtime`、clone、驗證失敗不留鎖也不寫入其他欄位、API 預設 / 非字串 400 / PATCH 成功、資料集產生用風場時區、切換風場重建模擬器、無效時區 fallback。mutation 8 項（拿掉 clone 時區 / 資料集時區 / broker 驗證 / 兩處 session 記錄 / 兩處 `localtime` 檢查 / 非字串檢查）皆被抓到。
+- review 修正後（含 -10 的 review 修正）：backend 全套 1551 → **1574 passed** / 7 skipped / 1 xfailed；健康機組輸出逐位元不變；`data_quality_analysis.py` 20 / 0。
+
+### 2.6 卡住或延後的事
 
 - 前端建立風場表單沒有時區欄位（API 預設 Asia/Taipei；有非台灣風場需求時再加）。
-- Windows 上 `zoneinfo` 需要 `tzdata` 套件（workflow 模組已依賴，既有環境可用；未新增 requirements）。
 
 ## 3. 產出清單
 
 ### 新增檔案
 
-- `modules/monitoring/tests/test_farm_timezone.py`（8）
+- `modules/monitoring/tests/test_farm_timezone.py`（8，review 後 17）
 - 本 work-log
 
 ### 修改檔案
 
 - `modules/monitoring/simulator/time_utils.py`、`simulator/engine.py`、`wind_model.py`
 - `modules/monitoring/server/farm_registry.py`、`data_broker.py`、`routers/farms.py`、`routers/config.py`
+- `requirements.txt`（`tzdata`，review）
 - `modules/monitoring/tests/test_utc_timestamps.py`、`test_scenario_endpoints.py`
 - 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§6.4 標記已解、新增 §6.6）、`docs/physics_model_status.md`（1.7）、`docs/API_GUIDE.md`、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`（時間戳守則）、`TODO.md`
 

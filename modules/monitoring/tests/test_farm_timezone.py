@@ -6,7 +6,8 @@
 1. 同一個 UTC 時刻在任何伺服器時區下得到同一個風況（可重現）
 2. 風況模型、模擬器依設定的時區換算；無效時區名稱 raise
 3. 風場設定 ``timezone`` 欄：預設值、建立 / 更新時驗證、舊 DB 自動補欄
-4. broker 以目前風場的時區建立模擬器；情境 session 記下所用時區
+4. broker 以目前風場的時區建立模擬器（切換風場、批次資料集同樣）；session config 記下所用時區
+5. code review 補強：跨月邊界、clone、``localtime``、非字串、存了無效時區時 fallback
 """
 
 from __future__ import annotations
@@ -35,7 +36,8 @@ from server.farm_registry import DEFAULT_FARM_TIMEZONE, FarmRegistry
 from server.models import DataSourceConfig, DataSourceMode
 from server.routers import farms as farms_ep
 from simulator.engine import WindFarmSimulator
-from simulator.time_utils import DEFAULT_SITE_TIMEZONE
+from server.storage import Storage
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive
 from wind_model import WindEnvironmentModel
 
 T0 = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
@@ -167,5 +169,118 @@ def test_broker_creates_simulator_with_active_farm_timezone(tmp_path: Path) -> N
     try:
         assert broker.simulator is not None
         assert broker.simulator.wind_model.site_timezone_name == "Europe/Berlin"
+    finally:
+        broker.stop()
+
+
+# ── code review 補強 ─────────────────────────────────────────────────────────
+
+
+def test_to_site_naive_converts_aware_and_keeps_naive_wall_clock() -> None:
+    taipei = site_timezone("Asia/Taipei")
+    assert to_site_naive(datetime(2026, 6, 30, 20, 0, tzinfo=timezone.utc), taipei) == datetime(2026, 7, 1, 4, 0)
+    assert to_site_naive(datetime(2026, 7, 1, 4, 0), taipei) == datetime(2026, 7, 1, 4, 0)
+
+
+def test_seasonal_layers_use_the_site_month_across_a_month_boundary() -> None:
+    aware = datetime(2026, 6, 30, 20, 0, tzinfo=timezone.utc)            # 台北 7/1 04:00
+    site_wall_clock = datetime(2026, 7, 1, 4, 0)
+    for getter in ("get_ambient_temp", "get_ambient_humidity", "get_wind_direction"):
+        assert getattr(WindEnvironmentModel(seed=5), getter)(aware) == \
+            getattr(WindEnvironmentModel(seed=5), getter)(site_wall_clock), getter
+    # UTC 風場在同一時刻還是 6 月
+    assert WindEnvironmentModel(seed=5, site_timezone_name="UTC").get_ambient_temp(aware) == \
+        WindEnvironmentModel(seed=5).get_ambient_temp(datetime(2026, 6, 30, 20, 0))
+
+
+def test_localtime_is_rejected_because_it_is_the_server_zone(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        site_timezone("localtime")
+    with pytest.raises(ValueError):
+        FarmRegistry(data_dir=tmp_path).create_farm("a", "A", timezone="localtime")
+
+
+def test_clone_keeps_the_source_farm_timezone(tmp_path: Path) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("berlin", "Berlin", timezone="Europe/Berlin")
+    assert registry.clone_farm("berlin", "berlin2", "Berlin 2").timezone == "Europe/Berlin"
+
+
+def test_failed_timezone_update_leaves_the_database_writable(tmp_path: Path) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("a", "A")
+    with pytest.raises(ValueError):
+        registry.update_farm("a", name="Renamed", timezone="Not/AZone")
+    assert registry.get_farm("a").name == "A"                           # 先驗證：其他欄位也沒寫入
+    conn = sqlite3.connect(str(tmp_path / "farms.db"), timeout=0)          # 不等鎖：殘留交易會立刻失敗
+    try:
+        conn.execute("UPDATE farms SET description = 'x' WHERE farm_id = 'a'")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_farms_api_timezone_defaults_rejects_non_strings_and_patches(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    monkeypatch.setattr(farms_ep, "_get_registry", lambda: registry)
+    created = asyncio.run(farms_ep.create_farm({"name": "Default", "farm_id": "default_tz"}))
+    assert created["farm"]["timezone"] == DEFAULT_FARM_TIMEZONE
+    for bad in (0, False, ["Asia/Taipei"]):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(farms_ep.create_farm({"name": "Bad", "farm_id": f"bad_{bad!s}", "timezone": bad}))
+        assert exc.value.status_code == 400
+    patched = asyncio.run(farms_ep.update_farm("default_tz", {"timezone": "America/New_York"}))
+    assert patched["farm"]["timezone"] == "America/New_York"
+    assert registry.get_farm("default_tz").timezone == "America/New_York"
+
+
+def test_dataset_generation_uses_the_farm_timezone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("berlin", "Berlin", turbine_count=1, timezone="Europe/Berlin")
+    monkeypatch.setattr(farms_ep, "_get_registry", lambda: registry)
+    seen: List[str] = []
+    real_init = WindFarmSimulator.__init__
+
+    def spy_init(self: WindFarmSimulator, *args: object, **kwargs: object) -> None:
+        real_init(self, *args, **kwargs)  # type: ignore[arg-type]  # 原樣轉交
+        seen.append(self.wind_model.site_timezone_name)
+
+    monkeypatch.setattr(WindFarmSimulator, "__init__", spy_init)
+    result = asyncio.run(farms_ep.generate_dataset("berlin", {"duration_hours": 0.01, "time_step": 10.0}))
+    assert seen == ["Europe/Berlin"]
+    sessions = Storage(db_path=str(registry.get_farm_db_path("berlin"))).get_sessions()
+    assert [s["config"]["site_timezone"] for s in sessions if s["id"] == result["session_id"]] == ["Europe/Berlin"]
+
+
+def test_switch_farm_rebuilds_the_simulator_with_the_new_timezone(tmp_path: Path) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("taipei", "Taipei")
+    registry.create_farm("berlin", "Berlin", timezone="Europe/Berlin")
+    registry.set_active_farm("taipei")
+    broker = DataBroker(farm_registry=registry)
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    try:
+        assert broker.simulator.wind_model.site_timezone_name == "Asia/Taipei"
+        assert broker.switch_farm("berlin")
+        assert broker.simulator.wind_model.site_timezone_name == "Europe/Berlin"
+        live = [s for s in broker.storage.get_sessions() if s["id"] == broker._session_id]
+        assert [s["config"]["site_timezone"] for s in live] == ["Europe/Berlin"]
+    finally:
+        broker.stop()
+
+
+def test_broker_falls_back_to_default_for_an_invalid_stored_timezone(tmp_path: Path) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("broken", "Broken")
+    conn = sqlite3.connect(str(tmp_path / "farms.db"))
+    conn.execute("UPDATE farms SET timezone = 'Not/AZone' WHERE farm_id = 'broken'")  # 手改 DB / 缺 tzdata
+    conn.commit()
+    conn.close()
+    registry.set_active_farm("broken")
+    broker = DataBroker(farm_registry=registry)
+    broker.start(DataSourceConfig(mode=DataSourceMode.SIMULATION), run_loop=False)
+    try:
+        assert broker.simulator.wind_model.site_timezone_name == DEFAULT_SITE_TIMEZONE
     finally:
         broker.stop()
