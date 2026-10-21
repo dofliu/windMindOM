@@ -38,7 +38,12 @@ Status: implemented
 
 Included:
 - Region 2 / Region 3 power behavior
-- cut-in / rated / cut-out handling
+- cut-in / rated handling; cut-out is the controller's decision (state machine, below) — the
+  aero model computes extraction for whatever wind the rotor sees while producing
+- cut-out per Z72 manual event 201 (WMOM-20261021-10): normal stop when the 10-min average wind
+  exceeds 25 m/s or the 5-s average exceeds 35 m/s; restart only after the 10-min average drops
+  below 20 m/s. Each average is judged only once its window is full (no 10-min average in the first
+  10 min after start / reset). Brief gusts above 25 m/s neither stop the turbine nor zero its power
 - rotor inertia via first-order response
 - rated-speed holding behavior
 
@@ -216,8 +221,7 @@ Verified:
 
 Known limitations:
 - physics-layer protection stops keep their own stop mode (software overspeed 351 is T1 in the
-  manual but still an emergency stop; cut-out also an emergency stop)
-- cut-out uses instantaneous wind, not the manual's 10-min / 5-s averages (WMOM-20261021-10)
+  manual but still an emergency stop); cut-out is a normal stop on averaged wind since WMOM-20261021-10
 
 ### 1.9 Grid Model and Grid-Side Response
 Files:

@@ -134,13 +134,13 @@ WMOM = WindMindOM 縮寫。
 
 - **產品版本**：v0.8.1（2026-05-02 baseline）
 - **方向（2026-10-21 DEC-20261021-01）**：商業時程（M6 PoC / 合約 / 客戶接觸）與真實風場 / OPC 介接**暫緩**，先把功能完備。**現行主線 = EPIC-DS 擬真資料源**：模擬器產生附標準答案（ground truth）的擬真 Z72 運轉資料，經 ① 檔案 ② WebSocket 串流 ③ 模仿 Bachmann tag 的 OPC UA server 餵給外部 **RAG 即時維修助手**（學生專題建立，windMindOM 不實作）做驗證。設計與介面合約 v0：[`docs/product/EPIC-DS_realistic_data_source.md`](docs/product/EPIC-DS_realistic_data_source.md)
-- **Milestone**：M1–M4 done；M5 ~75%（剩客戶手冊 / 一年警報 csv，隨 M6 暫緩）；M6 deferred（auth 全面完成部分保留）；**EPIC-DS Phase 1a done**（WMOM-20261021-02：Z72 真實警報目錄 `shared/alarm_codes.py` + 11 故障情境改用真實碼）；**Phase 1b-a done**（WMOM-20261021-03-a：故障物理校正到真實保護設定值，`TurbineSpec` 設定值、+5 真實 tag 111→116）；**Phase 1b-b done**（WMOM-20261021-03-b：PLC 保護層 `simulator/physics/plc_protection.py`，警報 / 跳機由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3）；**Phase 1b-c done**（WMOM-20261021-03-c：monitoring 時間戳全面 UTC tz-aware，既有 DB 開檔一次性轉換）
+- **Milestone**：M1–M4 done；M5 ~75%（剩客戶手冊 / 一年警報 csv，隨 M6 暫緩）；M6 deferred（auth 全面完成部分保留）；**EPIC-DS Phase 1a done**（WMOM-20261021-02：Z72 真實警報目錄 `shared/alarm_codes.py` + 11 故障情境改用真實碼）；**Phase 1b-a done**（WMOM-20261021-03-a：故障物理校正到真實保護設定值，`TurbineSpec` 設定值、+5 真實 tag 111→116）；**Phase 1b-b done**（WMOM-20261021-03-b：PLC 保護層 `simulator/physics/plc_protection.py`，警報 / 跳機由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3）；**Phase 1b-c done**（WMOM-20261021-03-c：monitoring 時間戳全面 UTC tz-aware，既有 DB 開檔一次性轉換）；**-10 done**（切出風速依手冊事件 201：10 分鐘 / 5 秒平均判定、正常停機、20 m/s 回切）
 - **警報碼守則**：模擬器、語料、前端用到的 Z72 警報碼一律以 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C）為準，不自創碼或描述；`tests/test_alarm_codes.py`、`modules/monitoring/tests/test_fault_alarm_codes.py` 會擋
 - **物理改動守則補充**：新增感測器 / tag 的隨機數一律走 `TurbinePhysicsModel._aux_rng`，不可動主 `_rng` 序列（否則所有已校準的健康輸出都會位移）
 - **PLC 保護層守則**：警報 / 跳機只由 `PlcProtection` 依 `TurbineSpec` 設定值判定**製程值**（感測器模型之前）送出；`FaultEngine.alarm_codes` 是情境的預期碼（ground truth），不再有 severity 門檻；故障 tripped 期間以 `model.maintenance_lock` 擋重啟，復位不等於修好（`test_reset_keeps_fault.py`）；改規則後須確認健康風場無訊號事件（`test_plc_integration.py`）
 - **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_local_naive`
-- **下次工作**：EPIC-DS 依序 1b+（-10 切出風速平均判定，小題）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1539 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
+- **下次工作**：EPIC-DS 依序 1b+（-11 風場時區，-05 前要做）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
+- **測試**：backend 1543 passed / 7 skipped / 1 xfailed；frontend vitest 1502 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
