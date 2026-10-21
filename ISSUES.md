@@ -13,13 +13,20 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
-| in_progress | 2 |
+| open | 13 |
+| in_progress | 1 |
 | blocked | 0 |
-| done | 124 |
-| **total** | **133** |
+| deferred | 2 |
+| done | 128 |
+| **total** | **144** |
 
-最後更新：2026-10-06（**WMOM-20260505-26-a 完成**——劉老師 2026-10-06 核准降低版提案後實作：
+最後更新：2026-10-21（**方向調整 DEC-20261021-01 + EPIC-DS 立案**：商業時程與真實現場介接暫緩，
+`WMOM-20260503-05`、`WMOM-20260509-F6` → deferred（新增 deferred 狀態）；主線改為 EPIC-DS
+擬真資料源（`WMOM-20261021-01`~`-09`，見下方 📌 2026-10-21 區塊與「🎯 未來大目標」）。
+**WMOM-20261021-02 done**：Z72 真實警報目錄（xlsx 314 筆 + 手冊 Appendix C）+ 11 個故障情境改用真實碼。
+本次逐條解析 `### WMOM-` header 重新核實計數：舊表少算 `-25-b`/`-25-c` 兩筆（實際 done 126 / open 7 /
+in_progress 2 = 135），已一併更正。詳見 `work-logs/2026-10/2026-10-21-epic-ds-direction-and-alarm-catalog.md`）。
+前次最後更新：2026-10-06（**WMOM-20260505-26-a 完成**——劉老師 2026-10-06 核准降低版提案後實作：
 `scada_registry.py` 新增 `WSRV_ManualOverride`（映射既有 `operator_stop`）/
 `WSRV_LockoutState`（映射既有 `tur_state==7`）兩個 SCADA tag，SCADA tag 109→111；
 新增 10 測（含引擎層故障跳機路徑），mutation-verified；data quality 20 通過/0 待改善
@@ -1211,11 +1218,153 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     daemon）/ M6 部署前置（HTTPS 配置，需先定部署目標/憑證策略）。
 - **Reference**: work-logs/2026-09/2026-09-23-scenario-compare-a2-part4-diff.md
 
-## 🎯 未來大目標（M5 / M6 epics）
+## 📌 2026-10-21 session 新增 issue（方向調整：EPIC-DS 擬真資料源）
 
+> 依 DEC-20261021-01。設計文件：[`docs/product/EPIC-DS_realistic_data_source.md`](docs/product/EPIC-DS_realistic_data_source.md)。
+
+### WMOM-20261021-01 — 方向調整：暫停商業時程，立 EPIC-DS 擬真資料源
+
+- **Status**: done（2026-10-21）
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 0.5 天
+- **Owner**: Claude session 2026-10-21（劉老師定調）
+- **Description**: 劉老師 2026-10-21 定調：商業時程不再需要、先把功能完備；真實風場 / OPC 暫緩；主線改為產生擬真資料餵給外部 RAG 即時維修助手（學生專題）驗證，輸出管道要檔案、串流、模仿 tag 的 OPC UA server 三種。本 issue 只做文件與追蹤檔同步。
+- **Deliverable**:
+  - `docs/product/decision_log.md` DEC-20261021-01
+  - `docs/product/EPIC-DS_realistic_data_source.md`（現況盤點 + 架構 + 介面合約 v0 + 分階段計畫）
+  - `docs/product/ROADMAP.md`、`STATUS.yaml`、`CLAUDE.md` §10/§15、`TODO.md` 同步
+  - 本檔：EPIC-DS、WMOM-20261021-02 ~ -09；WMOM-20260503-05、WMOM-20260509-F6 → deferred
+- **Reference**: `work-logs/2026-10/2026-10-21-epic-ds-direction-and-alarm-catalog.md`
+
+### WMOM-20261021-02 — Phase 1a：Z72 真實警報目錄 + 故障情境改用真實碼
+
+- **Status**: done（2026-10-21）
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 1 天
+- **Owner**: Claude session 2026-10-21
+- **Description**: 模擬器的 24 個警報碼散在 `fault_engine.py` 的 11 個 `FAULT_SCENARIOS`，多個與真實 Z72 清單不符（350/351/311/30/32/241 意義不同、41/42/43 不存在、223/256/273 等級錯）。以 `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx`「警告訊息列表」314 筆為唯一 source of truth，建立共用警報目錄，並把 11 個情境的 `alarm_codes` 改成真實碼（等級、文字一併對齊）。手冊 Appendix C 的原因 / 處置提示 / 每小時重啟次數若能可靠解析就併入，否則留給 Phase 2。
+- **Deliverable**:
+  - `tools/build_z72_alarm_catalog.py`（xlsx → JSON，build-time 才需要 openpyxl）
+  - `shared/data/z72_alarm_catalog.json`
+  - `shared/alarm_codes.py`（型別化查詢 API）
+  - `modules/monitoring/simulator/physics/fault_engine.py`（11 情境改真實碼）
+  - 測試：目錄完整性、情境警報碼全部存在於目錄且等級一致
+- **Depends on**: WMOM-20261021-01
+- **Blocks**: WMOM-20261021-04、-05、-06、-07
+- **完成紀錄（2026-10-21）**:
+  - 目錄 314 筆（T1 207 / A 62 / I 24 / T2 21），其中 306 筆併入手冊原因 / 處置 / 每小時重啟上限 / 頁碼；手冊 Appendix C 用 pdfplumber 解析表格（p.104 為 14 欄寬版面、其餘 6 欄，跨頁續行併回上一筆）。xlsx 與手冊等級不一致的 5 筆（283、363-366）以 xlsx 為準並記 `manual_level`
+  - 11 個情境改碼（舊 → 新）：bearing_wear 262/240/241 → 262/240；generator_overspeed 41/27 → 351/27；converter_cooling_fault 32/21 → 420/421/437/21；transformer_overheat 350/351 → 417/444；pitch_imbalance 43/311 → 335/336；yaw_sensor_drift 223 → 233；blade_icing 42/236 → 236；grid_voltage_sag 30/24 → 481/483/485/21；nacelle_cooling_failure 256/273/258 → 273/256；stator / hydraulic 不變
+  - 門檻慣例：A 級 < `auto_trip_severity`；T1/T2 == `auto_trip_severity`（跳機碼只在跳機當下出現）
+  - 連帶同步：`modules/knowledge/data/baseline_corpus_z72.json` 9 個 chunk 的碼與文字、`FieldPage.tsx` 一鍵告警碼（31「齒輪箱高溫」對直驅 Z72 不成立，改 21/262/260/335）
+  - 測試：`tests/test_alarm_codes.py`（含裝了 openpyxl + pdfplumber 時的來源漂移偵測）、`modules/monitoring/tests/test_fault_alarm_codes.py`（含語料一致性）；舊碼還原後 46 項失敗（mutation-verified）
+  - 未做（留給後續 phase）：物理層自有跳機（overspeed / cut-out / grid）仍只寫 `shutdown_cause` 字串、未對應事件碼 → Phase 1b / 2
+
+### WMOM-20261021-03 — Phase 1b：警報與時間戳擬真（溫度門檻、狀態跳動、UTC）
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 1-1.5 天
+- **Owner**: -
+- **Description**: (1) `TurbineSpec` 宣告的溫度 / 壓力 alarm·trip 門檻（`turbine_physics.py:66-79`）從未使用，接上並對應真實警報碼；(2) 故障持續期間狀態在 7↔3 間跳動（`scada_registry.py:426-427`），改為真實 PLC 行為（跳機後 latched、依每小時重啟次數限制）；(3) monitoring 全面使用 naive local `datetime.now()`，改為 UTC tz-aware（knowledge `AlertEvent` 已要求 tz-aware）。
+- **Deliverable**: `turbine_physics.py`、`scada_registry.py`、`modules/monitoring/server/storage.py` 時間戳處理 + 測試
+- **Depends on**: WMOM-20261021-02
+
+### WMOM-20261021-04 — Phase 2：標準答案（ground truth）+ 情境路徑事件
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 2 天
+- **Owner**: -
+- **Description**: (1) 每個故障情境補 metadata：根因、元件、預期警報序列、手冊 Appendix C 條目、建議處置；(2) `generate_bulk` 目前不跑 `_detect_sim_events`，情境內沒有警報 / 跳機 / 狀態事件——讓 bulk 路徑也產生事件；(3) `history_events` 加 `session_id`（目前靠時間窗比對）；(4) ground truth 隨情境落庫，且與可觀測事件分離（盲測）。
+- **Deliverable**: `fault_engine.py` metadata、`engine.py` bulk 事件、`storage.py` schema migration、`routers/scenarios.py` + 測試
+- **Depends on**: WMOM-20261021-02
+
+### WMOM-20261021-05 — Phase 3a：① 檔案——情境資料包匯出
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 1.5-2 天
+- **Owner**: -
+- **Description**: 依設計文件 §5.1 匯出 scenario pack（manifest、tag 字典、警報目錄快照、raw Parquet、10-min avg/min/max/std、events.jsonl、ground_truth.json）。現有 10-min 聚合只有約 9 欄且依 wall-clock 觸發，情境資料不會被聚合——匯出時直接從 raw 計算。順帶處理 `routers/farms.py::generate_dataset`（檢查 `sim._running` 導致產出 0 筆）：修好或移除。
+- **Deliverable**: 匯出端點 / CLI、`pyarrow` 依賴、測試
+- **Depends on**: WMOM-20261021-04
+
+### WMOM-20261021-06 — Phase 3b：② 串流——凍結情境 WebSocket 回放
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 1.5 天
+- **Owner**: -
+- **Description**: 新增可依 speed（1x / 加速）回放凍結情境的回放器，與 `ws://{host}/ws/replay/{scenario_id}` 端點；訊息含 reading / event / control 三型（設計文件 §5.2），不推送 ground truth。回放器同時供 Phase 3c OPC UA server 使用。
+- **Deliverable**: 回放器模組、WS 端點、測試
+- **Depends on**: WMOM-20261021-04
+
+### WMOM-20261021-07 — Phase 3c：③ OPC UA server——模仿 Bachmann Z72 tag
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 2 天
+- **Owner**: -
+- **Description**: 以 `asyncua` 實作 OPC UA server，節點路徑對齊真實讀取腳本 `shared/plc_clients/bachmann/opc_data_reader.py`（`Z72.H{n}.{group}.Z72PLC__UI_Loc_*`、`Z72PLC__ActiveAlarm[0..9]`、`ActiveTrip1/2[0..9]`），資料來自 3b 回放器或 live 模擬。legacy `modules/monitoring/opcua_interface.py`（`opcua` 套件、11 個通用變數、未接線）不沿用。
+- **Deliverable**: OPC UA server 模組、啟動設定、用 `asyncua` client 讀回的整合測試
+- **Depends on**: WMOM-20261021-06
+
+### WMOM-20261021-08 — Phase 4：情境難度與多樣性
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 3-5 天（可拆）
+- **Owner**: -
+- **Description**: 讓資料能真正考驗 RAG：警報連鎖（A → T1 → 跳機）與每小時重啟限制、感測器故障（卡值 / 漂移，標記為 `sensor_fault`）vs 真故障、多重故障並發、誤報（`nuisance`）、健康負樣本、警報觸發前的早期徵兆案例；故障庫往 Z72 常見事件擴充（目前 11 種、真實清單 314 筆）。另修 `gearbox_overheat` / `pitch_motor_fault` / `yaw_misalignment` 三個有物理但不能注入的 alias。
+- **Deliverable**: 依子項拆 PR
+- **Depends on**: WMOM-20261021-04
+
+### WMOM-20261021-09 — Phase 3d：學生專題 starter kit（介面合約 v1 + 範例資料包）
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 1 天
+- **Owner**: -
+- **Description**: 學生專題要開發外部 RAG 維修助手，需要穩定的介面合約與可直接拿來用的資料。把設計文件 §5 的 v0 草案定稿為 v1（獨立文件），附 2-3 個範例資料包（含簡單 / 中等 / 有干擾的案例）與讀取範例程式（Python：讀 Parquet + events.jsonl、對 ground truth 打分）。
+- **Deliverable**: `docs/integration/rag_assistant_data_contract_v1.md`、範例資料包、`examples/` 讀取與評分範例
+- **Decision needed**: 合約 v1 定稿前請劉老師確認欄位（尤其 ground truth 的評分欄位）
+- **Depends on**: WMOM-20261021-05
+
+---
+
+## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
+
+> **2026-10-21 起現行主線為 EPIC-DS**（DEC-20261021-01）；EPIC-M6 deferred。
 > M1-M4 已 100%。以下是接下來的「大局目標」拆解，給 session 規劃用。
 > 詳細月度交付見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) Month 5 / Month 6。
 > 標 🔵 = autonomous-friendly（無設計歧義可自動接）；🟡 = 需劉老師決策 / 素材 / 現場。
+
+### EPIC-DS — 擬真資料源，供外部 RAG 即時維修助手驗證（2026-10-21 起現行主線）
+
+> 依 DEC-20261021-01；設計與介面合約 v0 見 [`docs/product/EPIC-DS_realistic_data_source.md`](docs/product/EPIC-DS_realistic_data_source.md)。
+> 目標：模擬器產生附標準答案的擬真 Z72 運轉資料，經 ① 檔案 ② 串流 ③ 模仿 tag 的 OPC UA server 餵給外部 RAG 維修助手（學生專題）。
+> Done criteria：學生端只靠介面合約 + 範例資料包，就能用任一條管道取得資料並以 `ground_truth.json` 評分。
+
+| Phase | Issue | 內容 | 類型 |
+|---|---|---|---|
+| 0 | ~~WMOM-20261021-01~~ ✅ | 方向調整文件（DEC + 設計 + ROADMAP/STATUS/CLAUDE.md 同步） | 🔵 |
+| 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
+| 1b | WMOM-20261021-03 | 溫度門檻接線、7↔3 狀態跳動、UTC tz-aware 時間戳 | 🔵 |
+| 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
+| 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
+| 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
+| 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
+| 3d | WMOM-20261021-09 | 學生專題 starter kit（合約 v1 + 範例資料包） | 🟡 合約定稿需劉老師確認 |
+| 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本） | 🔵 |
 
 ### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）
 
@@ -1231,7 +1380,9 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | M5-5 | **`/field/` mobile-first frontend**：~~知識檢索查詢（Part A）~~ ✅ done（WMOM-20260603-03）/ ~~alert detail with RAG（Part B-1）~~ ✅ done（WMOM-20260603-04）/ ~~my work orders · completion（Part B-2）~~ ✅ done（WMOM-20260608-02，2026-09-26 稽核更正：本行過期未同步） | 🔵 | 現場工程師 persona、PMF 關鍵——**至此全數完成** |
 | M5-6 | ~~**Alert → RAG auto query**：警報事件觸發即 retrieve，前端顯示 top-3 chunks~~ ✅ done（WMOM-20260603-01，FastAPI knowledge router 3 endpoints） | 🔵 | 串 M5-1 + monitoring 告警 |
 
-### EPIC-M6 — 第一個運維廠商 PoC + 第一筆合約（2026-10）
+### EPIC-M6 — 第一個運維廠商 PoC + 第一筆合約（2026-10）— ⏸️ deferred（DEC-20261021-01）
+
+> 2026-10-21 起暫緩：商業時程暫停、真實現場 / OPC 介接暫緩。M6-4（auth/RBAC）已完成部分保留；其餘子目標不排期。
 
 > Done criteria：客戶老闆說「下個月續用」+ 現場工程師 80% 警報走 RAG + 第一份月報沒被業主退件 + 收到合約金。
 
@@ -1246,7 +1397,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### 跨 milestone 持續工作
 
-- **WMOM-20260503-05** — Friendly 客戶接觸（infrastructure done，待劉老師 cold email + 約 demo）🟡
+- ~~**WMOM-20260503-05** — Friendly 客戶接觸（infrastructure done，待劉老師 cold email + 約 demo）🟡~~ ⏸️ deferred（DEC-20261021-01）
 - **測試覆蓋持續擴大**：component render 測試（需 jsdom setupFiles）、E2E lifecycle 強化 🔵
 - **物理模型強化**（學術深度，非商業 must-have）：WMOM-20260505-23~28 🔵
 
@@ -2025,7 +2176,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20260503-05 — Friendly 客戶接觸名單
 
-- **Status**: in_progress（infrastructure done 2026-05-04；contact 持續整月）
+- **Status**: deferred（2026-10-21 DEC-20261021-01：商業時程暫停；原狀態 in_progress，infrastructure done 2026-05-04）
 - **Milestone**: M1
 - **Priority**: medium
 - **Estimate**: 0.5 工作天（infrastructure）+ 持續整月（contact）
@@ -3858,7 +4009,7 @@ Depends on: WMOM-20260509-03；Blocks: WMOM-20260509-08
 
 ### WMOM-20260509-F6 — PostgreSQL row-lock integration test
 
-- **Status**: open（🟡 需劉老師決策，範圍已於 2026-09-23 重新調查並更正，見下方）
+- **Status**: deferred（2026-10-21 DEC-20261021-01：真實現場部署暫緩；原狀態 open 🟡 需劉老師決策，範圍已於 2026-09-23 重新調查並更正，見下方）
 - **Milestone**: M6（生產部署前）
 - **Priority**: medium
 - **Estimate**: ~~0.5 工作天~~ → **更正：多天，且前提是先拍板架構決策**（見下方調查結果）

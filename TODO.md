@@ -16,7 +16,15 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-10-06（**WMOM-20260505-25-c 完成**：振動 tab 軸承/齒輪診斷區塊，Part C 已做完；`-25` 剩 RUL 觸發時間軸。前次：**WMOM-20260505-26-a 完成**：SCADA 新增 `WSRV_ManualOverride`/
+最後更新：2026-10-21（**方向調整 DEC-20261021-01**：商業時程與真實風場 / OPC 暫緩；**現行主線 EPIC-DS 擬真資料源**——
+模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手（學生專題）。
+設計：`docs/product/EPIC-DS_realistic_data_source.md`。**WMOM-20261021-02（Phase 1a）已完成**：Z72 真實警報目錄 + 情境改真實碼。
+**下個 session 起依此挑題**：
+- ▶️ `WMOM-20261021-03`（Phase 1b）：接上 `TurbineSpec` 溫度門檻、修 7↔3 狀態跳動、時間戳改 UTC tz-aware
+- ▶️ 之後依序：`-04`（標準答案 + 情境事件）→ `-05`（資料包匯出）→ `-09`（學生 starter kit）→ `-06`（WS 回放）→ `-07`（OPC UA server）→ `-08`（難度與多樣性）
+- ⏸️ `WMOM-20260503-05`（客戶接觸）、`WMOM-20260509-F6`（PG row-lock）、M6 現場項目：deferred，不要再排
+
+前次最後更新：2026-10-06（**WMOM-20260505-25-c 完成**：振動 tab 軸承/齒輪診斷區塊，Part C 已做完；`-25` 剩 RUL 觸發時間軸。前次：**WMOM-20260505-26-a 完成**：SCADA 新增 `WSRV_ManualOverride`/
 `WSRV_LockoutState`）。**劉老師 2026-10-06 回覆，下個 session 起依此挑題**：
 - ✅ `WMOM-20260505-25` Part B（振動頻譜 tab）已完成（`-25-b`，2026-10-06）；Part C（`BearingDiagPanel`：BPFO/BPFI + GMF sideband）已核准 → **下個 session 優先認領 Part C**
 - 🏠 HTTPS 部署配置：劉老師本機自測，**移出 autonomous 佇列**
