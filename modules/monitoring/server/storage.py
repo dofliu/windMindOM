@@ -1158,8 +1158,52 @@ class Storage:
             result.append(d)
         return result
 
+    def count_session_readings(self, session_id: int) -> int:
+        """某 session 的 raw 讀值筆數（走 session 索引，不讀 ``scada_json``）。
+
+        Args:
+            session_id: session id。
+
+        Returns:
+            筆數。
+        """
+        conn = self._get_conn()
+        row = conn.execute("SELECT COUNT(*) FROM turbine_data WHERE session_id = ?", (session_id,)).fetchone()
+        return int(row[0])
+
+    def session_readings_in_id_order(self, session_id: int) -> bool:
+        """某 session 的寫入順序（id）是否已經是時間、機組順序。
+
+        批次生成逐步寫入，id 順序就是時間順序；只讀 ``timestamp`` / ``turbine_id``，不碰 ``scada_json``。
+
+        Args:
+            session_id: session id。
+
+        Returns:
+            True＝依 id 讀出來就已依時間、機組排序。
+        """
+        conn = self._get_conn()
+        # 時間戳固定格式（time_utils.iso_utc），字串比較即時間比較
+        row = conn.execute(
+            """
+            SELECT 1 FROM (
+                SELECT timestamp, turbine_id,
+                       LAG(timestamp) OVER w AS prev_ts, LAG(turbine_id) OVER w AS prev_tid
+                FROM turbine_data WHERE session_id = ?
+                WINDOW w AS (ORDER BY id)
+            )
+            WHERE timestamp < prev_ts OR (timestamp = prev_ts AND turbine_id < prev_tid)
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return row is None
+
     def iter_session_readings(self, session_id: int, batch_size: int = 5000) -> Iterator[List[sqlite3.Row]]:
         """依時間、機組排序，分批取某 session 的 raw 讀值（情境資料包匯出用，WMOM-20261021-05）。
+
+        寫入順序已是時間順序時（批次生成都是）依 id 讀：沿 session 索引直接串流，第一批馬上出來；
+        否則才 ``ORDER BY timestamp``——SQLite 要先把整個 session 排序（暫存 B-tree）才吐第一列。
 
         Args:
             session_id: session id。
@@ -1169,9 +1213,9 @@ class Storage:
             每批 ``(timestamp, turbine_id, scada_json)`` 列。
         """
         conn = self._get_conn()
+        order = "id" if self.session_readings_in_id_order(session_id) else "timestamp, turbine_id, id"
         cursor = conn.execute(
-            "SELECT timestamp, turbine_id, scada_json FROM turbine_data WHERE session_id = ? "
-            "ORDER BY timestamp, turbine_id, id",
+            f"SELECT timestamp, turbine_id, scada_json FROM turbine_data WHERE session_id = ? ORDER BY {order}",
             (session_id,),
         )
         while True:

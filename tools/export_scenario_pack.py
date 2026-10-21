@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import zipfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,8 +30,8 @@ for _path in (REPO_ROOT, MONITORING_ROOT):
 from server.scenario_pack import (  # noqa: E402
     ScenarioPackError,
     export_scenario_pack,
-    pack_file_names,
     pack_id_for,
+    write_pack_zip,
 )
 from server.storage import Storage  # noqa: E402
 
@@ -58,7 +57,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.db.exists():
         print(f"找不到 DB：{args.db}", file=sys.stderr)
         return 2
-    storage = Storage(db_path=str(args.db))
+    # 匯出只讀：不在開檔時順便改寫舊版時間戳（WMOM-20261021-03-c 的一次性轉換留給伺服器做）
+    storage = Storage(db_path=str(args.db), migrate_timestamps=False)
     if args.list:
         for scenario in storage.list_scenarios(limit=1000):
             config = scenario.get("config") or {}
@@ -78,13 +78,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"無法匯出：{exc}", file=sys.stderr)
         return 1
     counts = manifest["counts"]
-    print(f"資料包 {pack_dir}：raw {counts['raw_rows']} 列、10 分鐘統計 {counts['stats_rows']} 列、"
-          f"事件 {counts['events']} 筆、{'含' if args.ground_truth else '不含'}標準答案")
+    print(f"資料包 {pack_dir}：raw {counts['raw_rows']} 列、10 分鐘統計 {counts['stats_rows']} 列"
+          f"（殘缺窗 {counts['partial_windows']}）、事件 {counts['events']} 筆、"
+          f"{'含' if args.ground_truth else '不含'}標準答案")
     if args.zip:
         zip_path = args.out / f"{pack_id}{'-full' if args.ground_truth else ''}.zip"
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for name in pack_file_names(args.ground_truth):
-                archive.write(pack_dir / name, arcname=f"{pack_id}/{name}")
+        write_pack_zip(pack_dir, zip_path, args.ground_truth)
         print(f"zip：{zip_path}")
     return 0
 
