@@ -1,6 +1,7 @@
 # Physics Model Status
 
-Last updated: 2026-05-01 (Glauert yaw-skew correction on NTF + WVTF, #125)
+Last updated: 2026-10-21 (fault physics calibrated to real Z72 protection setpoints, WMOM-20261021-03a)
+Previous: 2026-05-01 (Glauert yaw-skew correction on NTF + WVTF, #125)
 
 This document tracks the current completion status of the wind turbine physics models.
 It is intended to be the single reference for:
@@ -77,10 +78,16 @@ Included:
 - heat soak between nearby components
 - fault heat injection
 - brake heat and drivetrain loss heat coupling
+- fault-induced heat-path degradation (WMOM-20261021-03a): `ThermalSystem.step(cooling_degradation=…)`
+  raises the thermal resistance of the affected node (water / cabinet / transformer / nacelle /
+  bearing / stator), so a failed fan, pump, radiator, starved bearing or degraded insulation runs
+  hotter at steady state. Previously cooling loss only lengthened the time constant, so steady
+  temperatures never rose.
 
 Current realism level:
 - Good SCADA trend realism.
 - Temperatures now behave like thermal systems instead of following power directly.
+- Healthy outputs are unchanged by the 2026-10-21 calibration (verified bit-identical).
 
 ### 1.5 Vibration Model
 File: `simulator/physics/vibration_model.py`
@@ -139,14 +146,31 @@ Files:
 Status: implemented
 
 Included:
-- 7 fault scenarios
+- 11 fault scenarios (+3 legacy aliases not injectable)
 - gradual severity progression
-- physical influence on heat, vibration, pitch, yaw, speed, power, and cooling
+- physical influence on heat, vibration, pitch, yaw, speed, power, cooling and grid voltage
 - emergency stop interaction for tripping faults
+- calibrated to real Z72 protection setpoints (WMOM-20261021-03a): at high load (14 m/s, 25 °C)
+  every scenario's measured signal crosses its trip event's setpoint at full severity but not at
+  severity 0.5; a healthy turbine on a 30 °C day stays inside every setpoint
+  (`tests/physics/test_fault_threshold_reach.py`). Setpoints live on `TurbineSpec`, each marked
+  "manual" (Z72 user manual Appendix C) or "assumed" (manual only says "See [ABB]").
+
+Fixed in WMOM-20261021-03a:
+- `extra_heat` was merged with a dict union whose right operand overwrote the fault heat for
+  `bearing` / `nacelle` / `converter` — bearing_wear, nacelle_cooling_failure and converter faults
+  never heated anything.
+- grid_voltage_sag had no voltage effect; it now depresses the local terminal voltage and the
+  existing ride-through protection trips on sustained undervoltage.
+- yaw_sensor_drift now biases vane 1 only; vane 2 (`WYAW_YwVn2AlgnAvg5s`) stays true, giving the
+  PLC its vane 1-2 discrepancy signal.
+- blade_icing no longer stalls the rotor in start-up at moderate severity.
 
 Current realism level:
 - Good enough for diagnostics demos and trend analysis.
 - Faults are no longer only output-tag offsets.
+- Alarm / trip events are still raised by `FaultEngine` severity thresholds, not by these
+  signals; switching to a signal-driven PLC protection layer is WMOM-20261021-03-b.
 
 ### 1.9 Grid Model and Grid-Side Response
 Files:

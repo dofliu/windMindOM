@@ -147,7 +147,9 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | Phase | Issue | 內容 |
 |---|---|---|
 | 1a ✅ | WMOM-20261021-02 | **Z72 真實警報目錄**：xlsx 314 筆 → `shared/alarm_codes.py`（+ 手冊 Appendix C 原因/處置/重啟次數）；11 個故障情境改用真實碼（2026-10-21 done） |
-| 1b | WMOM-20261021-03 | **警報與時間戳擬真**：接上 `TurbineSpec` 溫度門檻、修 7↔3 狀態跳動、時間戳改 UTC tz-aware |
+| 1b-a ✅ | WMOM-20261021-03-a | **故障物理校正**：各情境量測訊號在物理上能越過真實保護設定值（2026-10-21 done） |
+| 1b-b | WMOM-20261021-03-b | **PLC 保護層**：警報 / 跳機改由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3 狀態跳動 |
+| 1b-c | WMOM-20261021-03-c | **UTC tz-aware 時間戳** |
 | 2 | WMOM-20261021-04 | **標準答案 + 情境事件**：故障情境 metadata（根因/元件/預期警報序列/手冊條目/處置）；bulk 路徑產生事件；`history_events` 加 `session_id`；ground truth 落庫 |
 | 3a | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；修或移除 `farms.py` 壞端點 |
 | 3b | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道） |
@@ -166,16 +168,32 @@ A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip
 
 **已知限制（留給 Phase 1b / 2）**：
 
-1. **警報由 severity 觸發，不是由物理訊號越過真實門檻觸發**。以下情境的物理量級與真實判定條件不一致：
-   - `pitch_imbalance`：葉片偏差 = 3°·severity；真實 335/336 在持續 5 秒 > 1° 就跳機（約 severity 0.33），模擬器到 0.90 才跳
-   - `yaw_sensor_drift`：風向標偏差 = 12°·severity，最大仍低於 233 的 15° 判定
-   - `generator_overspeed`：351 / 320 應分別在轉速越過 26.5 / 28.5 rpm 時觸發
-   - `grid_voltage_sag`：物理層只有變頻器發熱與降載，沒有電壓下降訊號，卻送出 ARU 欠壓碼
-   - `hydraulic_leak` 已把 260 門檻對齊 180 bar（severity 0.4）；228（< 150 bar）對應 severity 0.75，但仍在 auto-trip 0.85 才跳
+1. **警報由 severity 觸發，不是由物理訊號越過真實門檻觸發**。-03-a（2026-10-21）已讓物理訊號在高負載下真的越過設定值（§6.2），但事件仍由 `FaultEngine` 的 severity 門檻送出，低負載或快速升高時兩者時點會不一致；改成訊號觸發是 -03-b。
 2. **5 個情境在跳機前沒有任何警報**（pitch_imbalance、yaw_sensor_drift、generator_overspeed、blade_icing、grid_voltage_sag）。這符合真實 Z72 事件清單（沒有對應的 A 級警報），但 ground truth 的 `first_alarm_ts` 會等於 `trip_ts`，「早期徵兆」評分只能靠 SCADA 趨勢。
 3. **跳機一律走 emergency stop**（`simulator/engine.py` 對 tripped fault 呼叫 `cmd_emergency_stop`），但 T1 定義為正常伺服停機、T2 才是緊急變槳。
 4. **變頻器事件（400-700）手冊只寫「See [ABB]」**：只靠 Z72 手冊的 RAG 查不到細節，ground truth 應標註預期答案僅能指向 ABB 手冊。
 5. 物理層自有跳機（overspeed / cut-out / grid / ride-through）只寫 `shutdown_cause` 字串，沒有事件碼。
+
+### 6.2 Phase 1b-a 故障物理校正結果（2026-10-21）
+
+保護設定值在 `TurbineSpec`（manual = 手冊 Appendix C；assumed = 手冊只寫「See [ABB]」，取高於健康機組炎熱天最大值）。
+下表為 14 m/s、25 °C、3 h 定嚴重度的量測值（`tests/physics/test_fault_threshold_reach.py` 鎖住「滿嚴重度越過、0.5 未到、健康 30 °C 不越」）：
+
+| 情境 | 訊號 | 設定值（事件） | 嚴重度 0.6 | 0.8 | 1.0 |
+|---|---|---|---|---|---|
+| bearing_wear | `WGEN_GnBrgTmp1` | 85 A262 / 95 T240（manual） | 68 | 89 | 135 |
+| stator_winding_degradation | `WGEN_GnStaTmp1` | 140 A264 / 150 T244（manual） | 102 | 132 | 180 |
+| nacelle_cooling_failure | `WNAC_NacTmp` / `WNAC_NacCabTmp` | 40 A273（assumed）/ 50 T256（manual） | 37 / 44 | 42 / 49 | 49 / 57 |
+| transformer_overheat | `WGDC_TrfCoreTmp` | 80 A417 / 90 T444（assumed） | 67 | 83 | 107 |
+| converter_cooling_fault | `WCNV_IGCTWtrTmp` | 46 A420 / 52 T437（assumed） | 43 | 50 | 63 |
+| hydraulic_leak | `WYAW_YwBrkHyPrs` | 180 A260 / 150 T228（manual） | 162 | 146 | 130 |
+| yaw_sensor_drift | 風向標 1−2 差 | 15° T233（manual） | 10.9 | 14.5 | 18.1 |
+| pitch_imbalance | 葉片角度差 | 1° / 5 s T335（manual） | 0.9 | 1.2 | 1.4 |
+| blade_icing | 機艙振動 max(X, Y) | 7 mm/s T236（assumed） | 6.0 | 7.4 | 8.7 |
+| grid_voltage_sag | `WCNV_VtgMsCnvGd1` | < 0.87 p.u. 跳機（ride-through） | 正常 | 跳機（約 0.7 起） | 跳機 |
+| generator_overspeed | `WROT_RotSpd` | 26.5 rpm（manual，物理層軟體超速停機） | 約 0.45 起停機 | — | — |
+
+負載相依：同樣滿嚴重度，9 m/s 時 stator 只到 97 °C、不會警報；generator_overspeed 也不會超速。
 
 ## 7. 不做的事
 

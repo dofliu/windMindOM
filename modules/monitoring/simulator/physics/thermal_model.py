@@ -24,9 +24,23 @@ class ThermalElement:
         self.C_th = time_constant / thermal_resistance
         self.temperature = initial_temp
 
-    def step(self, heat_input_kw: float, ambient_temp: float, dt: float, cooling_factor: float = 1.0) -> float:
-        """Advance one timestep. Higher cooling_factor means faster response to ambient."""
-        target = ambient_temp + heat_input_kw * self.R_th
+    def step(self, heat_input_kw: float, ambient_temp: float, dt: float,
+             cooling_factor: float = 1.0, resistance_scale: float = 1.0) -> float:
+        """Advance one timestep.
+
+        Args:
+            heat_input_kw: Heat input (kW).
+            ambient_temp: Environment temperature of this node (°C).
+            dt: Timestep (s).
+            cooling_factor: Higher means faster response to ambient (time-constant effect).
+            resistance_scale: Multiplier on thermal resistance. Degraded cooling (fan / pump /
+                radiator failure) raises it above 1.0, which raises the steady-state temperature
+                (WMOM-20261021-03a). Healthy operation uses 1.0.
+
+        Returns:
+            Node temperature (°C).
+        """
+        target = ambient_temp + heat_input_kw * self.R_th * max(1.0, resistance_scale)
         effective_tau = max(1.0, self.tau / max(0.25, cooling_factor))
         alpha = 1.0 - math.exp(-dt / effective_tau)
         self.temperature += (target - self.temperature) * alpha
@@ -110,10 +124,24 @@ class ThermalSystem:
         sync_progress: float = 0.0,
         extra_heat: Dict[str, float] | None = None,
         cooling_bias: Dict[str, float] | None = None,
+        cooling_degradation: Dict[str, float] | None = None,
     ) -> Dict[str, float]:
-        """Advance all thermal models by one timestep."""
+        """Advance all thermal models by one timestep.
+
+        ``cooling_bias`` (healthy cooling-system output × fault degradation) shapes the
+        response time constant. ``cooling_degradation`` carries only the fault-induced
+        heat-path loss (1.0 = healthy, <1.0 = degraded) and raises the affected nodes'
+        thermal resistance, so a failed fan / pump / radiator, a starved bearing or
+        degraded winding insulation makes the component run hotter at steady state,
+        not merely respond slower. Keys: water, cabinet, transformer, nacelle,
+        bearing, stator.
+        """
         extra_heat = extra_heat or {}
         cooling_bias = cooling_bias or {}
+        degradation = cooling_degradation or {}
+
+        def r_scale(key: str) -> float:
+            return 1.0 / max(0.2, min(1.0, degradation.get(key, 1.0)))
         is_running = tur_state == 6
         is_starting = tur_state in (4, 5, 8)
         is_stopping = tur_state in (7, 9)
@@ -156,6 +184,7 @@ class ThermalSystem:
             stator_env,
             dt,
             cooling_factor=0.85 + exposed_cooling * 0.25,
+            resistance_scale=r_scale("stator"),
         )
         gen_air_t = self.gen_air.step(
             heat_gen * 0.30 + max(0.0, gen_sta_t - ambient_temp) * 0.08,
@@ -168,6 +197,7 @@ class ThermalSystem:
             bearing_env,
             dt,
             cooling_factor=0.8 + exposed_cooling * 0.35,
+            resistance_scale=r_scale("bearing"),
         )
 
         cnv_cab_t = self.cnv_cabinet.step(
@@ -175,12 +205,14 @@ class ThermalSystem:
             cabinet_env,
             dt,
             cooling_factor=cabinet_cooling,
+            resistance_scale=r_scale("cabinet"),
         )
         cnv_wtr_t = self.cnv_water.step(
             heat_cnv * 0.70,
             ambient_temp,
             dt,
             cooling_factor=water_cooling + airflow / 18.0,
+            resistance_scale=r_scale("water"),
         )
 
         trf_t = self.transformer.step(
@@ -188,6 +220,7 @@ class ThermalSystem:
             ambient_temp,
             dt,
             cooling_factor=transformer_cooling,
+            resistance_scale=r_scale("transformer"),
         )
 
         nac_t = self.nacelle.step(
@@ -195,12 +228,14 @@ class ThermalSystem:
             ambient_temp,
             dt,
             cooling_factor=nacelle_cooling,
+            resistance_scale=r_scale("nacelle"),
         )
         nac_cab_t = self.nac_cabinet.step(
             heat_cnv * 0.10 + max(0.0, cnv_cab_t - nac_t) * 0.05,
             nac_t,
             dt,
             cooling_factor=cabinet_cooling,
+            resistance_scale=r_scale("cabinet"),
         )
 
         rot_t = self.rotor.step(

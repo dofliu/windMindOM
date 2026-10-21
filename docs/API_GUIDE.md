@@ -53,18 +53,18 @@ Open in browser: `http://localhost:8100/docs` (Swagger UI)
 
 ## SCADA Tag System
 
-The simulator outputs **111 SCADA tags** per turbine, organized by subsystem:
+The simulator outputs **116 SCADA tags** per turbine, organized by subsystem:
 
 | Subsystem | Tag Count | Description |
 |-----------|-----------|-------------|
 | WTUR | 2 | Turbine state & total power |
 | WGEN | 7 | Generator (power, speed, voltage, current, temps) |
 | WROT | 10 | Rotor / pitch (RPM, blade angles, temps, brake, imbalance force) |
-| WCNV | 16 | Converter (DC voltage, frequency, reactive power, ride-through, IGCT cooling) |
+| WCNV | 19 | Converter (DC voltage, grid-side phase voltages, frequency, reactive power, ride-through, IGCT cooling) |
 | WGDC | 1 | Transformer temperature |
 | WMET | 14 | Meteorological (wind speed/direction, ambient temp, humidity, wake effects, turbulence, shear, atmospheric stability, air density, pressure, raw anemometer reading) |
 | WNAC | 4 | Nacelle (temps, vibration X/Y) |
-| WYAW | 3 | Yaw (alignment error, brake pressure, cable windup) |
+| WYAW | 5 | Yaw (vane 1 / vane 2 alignment error, brake pressure, brake seals leak, cable windup) |
 | WVIB | 30 | Vibration spectral (5 bands x 2 directions + crest/kurtosis + alarm flags/thresholds + bearing/gear fault frequencies + sidebands) |
 | WLOD | 16 | Structural load & fatigue (tower fore-aft/side-side & blade flapwise/edgewise moments, DEL, cumulative damage, production hours, RUL, alarms) |
 | WCOL | 2 | Coolant level & alarm |
@@ -157,7 +157,7 @@ Single turbine (e.g., `WT001` to `WT014`).
 ```python
 r = requests.get("http://localhost:8100/api/turbines/WT001")
 t = r.json()
-scada = t['scadaTags']  # dict of 111 tag_id -> float
+scada = t['scadaTags']  # dict of 116 tag_id -> float
 print(f"Tower load = {scada['WLOD_TwrFaMom']:.1f} kNm")
 ```
 
