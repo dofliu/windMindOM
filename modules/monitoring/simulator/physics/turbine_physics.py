@@ -941,7 +941,7 @@ class TurbinePhysicsModel:
         else:
             self._wind_ready_timer = 0.0
 
-        # Z72: Software overspeed protection (Event 041 / 027)
+        # Z72: Software overspeed protection (Event 351) / hardware overspeed relay (Event 320)
         if self.rotor_speed > s.overspeed_software_rpm and st not in (7,):
             self._request_stop("emergency", "overspeed_software")
         if self.rotor_speed > s.overspeed_hardware_rpm and st not in (7,):

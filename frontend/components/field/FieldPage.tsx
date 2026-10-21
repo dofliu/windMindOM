@@ -38,15 +38,14 @@ type FieldMode = 'query' | 'alert' | 'orders';
 /**
  * 常用 Z72 告警碼 — 現場一鍵帶入。
  *
- * ⚠️ placeholder：以下碼為 baseline 示範值，**待用 `docs/__Z72UserManual.pdf` +
- * `docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx` 核實**（M5-4 灌真手冊 + 警報 csv 後
- * 應以實際資料取代，避免一鍵帶入後查無結果造成 false confidence）。
+ * 皆為真實 Z72 事件碼（`shared/data/z72_alarm_catalog.json`，WMOM-20261021-02），
+ * 且都是模擬器故障情境會送出、baseline 語料有對應處置的碼。Z72 為直驅機型，沒有齒輪箱。
  */
 const COMMON_ALARM_CODES: Array<{ code: number; labelZh: string; labelEn: string }> = [
-  { code: 21, labelZh: '變頻器跳機', labelEn: 'Converter trip' },
-  { code: 31, labelZh: '齒輪箱高溫', labelEn: 'Gearbox over-temp' },
-  { code: 42, labelZh: '偏航異常', labelEn: 'Yaw fault' },
-  { code: 53, labelZh: '變槳故障', labelEn: 'Pitch fault' },
+  { code: 21, labelZh: '變頻器跳機要求', labelEn: 'Converter trip request' },
+  { code: 262, labelZh: '主軸承溫度高', labelEn: 'Main bearing temp high' },
+  { code: 260, labelZh: '偏航煞車壓力低', labelEn: 'Yaw brake pressure low' },
+  { code: 335, labelZh: '葉片同步差異', labelEn: 'Blade discrepancy' },
 ];
 
 /** 告警等級選項（對齊 schemas.AlarmLevel：A 警示 / T1 一級跳機 / T2 二級跳機）。 */

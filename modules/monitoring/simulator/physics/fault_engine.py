@@ -7,8 +7,15 @@ Design principles:
 3. Severity increases over time → triggers alarm thresholds → trip
 4. Historical trend data is analyzable for health assessment
 
-Based on alarm codes from: docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx
-Sheet: "警告訊息列表"
+Alarm codes are real Z72 events from docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx
+(sheet "警告訊息列表"), compiled into shared/data/z72_alarm_catalog.json by
+tools/build_z72_alarm_catalog.py (WMOM-20261021-02). Each alarm's ``type`` / ``desc``
+must equal the catalog's level / text (enforced by test_fault_alarm_codes.py).
+
+Alarm threshold convention:
+- A (alarm, turbine keeps running): threshold < auto_trip_severity
+- T1 / T2 (trip): threshold == auto_trip_severity — the trip code is raised at the
+  moment the turbine trips, never while it is still producing
 
 Usage:
     engine = FaultEngine()
@@ -49,7 +56,7 @@ class FaultScenario:
     description_en: str
     description_zh: str
     affected_tags: Dict[str, Dict]  # tag_id → {max_offset, curve}
-    alarm_codes: List[Dict]         # [{type: "T1"|"T2"|"A", code: int, threshold: float}]
+    alarm_codes: List[Dict]         # [{type: "T1"|"T2"|"A", code: int, threshold: float, desc: str}]
     auto_trip_severity: float = 0.85  # severity at which turbine trips
 
 
@@ -75,9 +82,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnAirTmp1": {"max_offset": 10.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 262, "threshold": 0.4, "desc": "Main bearing 1 temperature high (85°C)"},
-            {"type": "T1", "code": 240, "threshold": 0.7, "desc": "Bearing 1 temperature very high (95°C)"},
-            {"type": "T1", "code": 241, "threshold": 0.85, "desc": "Bearing failure trip"},
+            {"type": "A", "code": 262, "threshold": 0.4, "desc": "Main bearing 1 temperature high"},
+            {"type": "T1", "code": 240, "threshold": 0.85, "desc": "Bearing 1 temperature very high"},
         ],
     ),
 
@@ -85,8 +91,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         id="generator_overspeed",
         name_en="Generator Overspeed",
         name_zh="發電機超速",
-        description_en="Control system failure allowing rotor/generator overspeed (Z72 Event 027/041)",
-        description_zh="控制系統失效導致發電機超速（Z72事件027/041）",
+        description_en="Control system failure allowing rotor/generator overspeed (Z72 Event 351/027)",
+        description_zh="控制系統失效導致發電機超速（Z72事件351/027）",
         affected_tags={
             "WROT_RotSpd": {"max_offset": 5.0, "curve": "exponential"},
             "WGEN_GnSpd": {"max_offset": 5.0, "curve": "exponential"},
@@ -94,8 +100,9 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WNAC_VibMsNacYDir": {"max_offset": 10.0, "curve": "exponential"},
         },
         alarm_codes=[
-            {"type": "T1", "code": 41, "threshold": 0.4, "desc": "Rotor speed very high"},
-            {"type": "T1", "code": 27, "threshold": 0.5, "desc": "Generator overspeed (28.5 RPM)"},
+            # 351：變槳控制無法把轉速壓回正常範圍；027：發電機頻率量得轉速 > 28.0 rpm
+            {"type": "T1", "code": 351, "threshold": 0.6, "desc": "Software overspeed"},
+            {"type": "T1", "code": 27, "threshold": 0.6, "desc": "Generator overspeed"},
         ],
         auto_trip_severity=0.6,
     ),
@@ -115,8 +122,11 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WTUR_TotPwrAt": {"max_offset": -300.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 32, "threshold": 0.3, "desc": "Converter cooling warning"},
-            {"type": "T1", "code": 21, "threshold": 0.8, "desc": "Turbine trip request from converter"},
+            # 手冊：021 會與 400-700 範圍的變頻器跳機碼一起出現
+            {"type": "A", "code": 420, "threshold": 0.3, "desc": "Cooling water temperature high"},
+            {"type": "A", "code": 421, "threshold": 0.5, "desc": "Converter cabinet temperature high"},
+            {"type": "T1", "code": 437, "threshold": 0.85, "desc": "Cooling water temperature very high"},
+            {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
         ],
     ),
 
@@ -131,8 +141,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WNAC_NacTmp": {"max_offset": 5.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 350, "threshold": 0.4, "desc": "Transformer temp high"},
-            {"type": "T2", "code": 351, "threshold": 0.75, "desc": "Transformer temp very high"},
+            {"type": "A", "code": 417, "threshold": 0.4, "desc": "Transformer temperature high"},
+            {"type": "T1", "code": 444, "threshold": 0.85, "desc": "Transformer temperature very high"},
         ],
     ),
 
@@ -155,8 +165,10 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnBrgTmp1": {"max_offset": 3.0, "curve": "linear"},           # slight bearing heat
         },
         alarm_codes=[
-            {"type": "A", "code": 43, "threshold": 0.6, "desc": "Pitch angle error blade 1"},
-            {"type": "T1", "code": 311, "threshold": 0.85, "desc": "Pitch system fault blade 1"},
+            # Z72 沒有變槳角度偏差的 A 級警報：細微漂移在跳機前沒有任何警報，
+            # 只能靠 1P 振動 / 功率交叉分析提早發現；跳機時兩組葉片同步差異同時觸發
+            {"type": "T2", "code": 335, "threshold": 0.90, "desc": "Discrepancy blade 1-2"},
+            {"type": "T2", "code": 336, "threshold": 0.90, "desc": "Discrepancy blade 1-3"},
         ],
         auto_trip_severity=0.90,  # takes longer to trip
     ),
@@ -173,7 +185,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnPwrMs": {"max_offset": -200.0, "curve": "quadratic"},
         },
         alarm_codes=[
-            {"type": "A", "code": 223, "threshold": 0.7, "desc": "Yaw timeout"},
+            # 漂移的是風向標 1（WYAW_YwVn1AlgnAvg5s）；PLC 以風向標 1-2 差異偵測
+            {"type": "T1", "code": 233, "threshold": 0.95, "desc": "Wind vane 1-2 discrepancy"},
         ],
         auto_trip_severity=0.95,
     ),
@@ -190,8 +203,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnCurMs": {"max_offset": 15.0, "curve": "linear"},           # slight current increase
         },
         alarm_codes=[
-            {"type": "A", "code": 264, "threshold": 0.5, "desc": "Generator stator temperature 1 high (140°C)"},
-            {"type": "T1", "code": 244, "threshold": 0.8, "desc": "Generator stator temperature 1 very high (150°C)"},
+            {"type": "A", "code": 264, "threshold": 0.5, "desc": "Generator stator temperature 1 high"},
+            {"type": "T1", "code": 244, "threshold": 0.85, "desc": "Generator stator temperature 1 very high"},
         ],
         auto_trip_severity=0.85,
     ),
@@ -208,9 +221,9 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WYAW_CabWup": {"max_offset": 0.8, "curve": "linear"},             # slight cable drift
         },
         alarm_codes=[
-            {"type": "A", "code": 260, "threshold": 0.3, "desc": "Yaw brake pressure low (170 bar)"},
+            {"type": "A", "code": 260, "threshold": 0.3, "desc": "Yaw brake pressure low"},
             {"type": "A", "code": 261, "threshold": 0.5, "desc": "Yaw brake oil leakage detected"},
-            {"type": "T1", "code": 228, "threshold": 0.8, "desc": "Yaw brake pressure very low (150 bar)"},
+            {"type": "T1", "code": 228, "threshold": 0.85, "desc": "Yaw brake pressure very low"},
         ],
     ),
 
@@ -230,8 +243,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WROT_PtAngValBl3": {"max_offset": 0.3, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 42, "threshold": 0.3, "desc": "Pitch control output limited"},
-            {"type": "T1", "code": 236, "threshold": 0.8, "desc": "Tower vibration very high"},
+            # Z72 沒有結冰偵測碼：結冰只會以塔架加速度過高跳機呈現
+            {"type": "T1", "code": 236, "threshold": 0.85, "desc": "Tower acceleration very high"},
         ],
     ),
 
@@ -248,8 +261,11 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WCNV_CnvGnFrq": {"max_offset": -0.5, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 30, "threshold": 0.4, "desc": "Grid voltage deviation"},
-            {"type": "T1", "code": 24, "threshold": 0.85, "desc": "Grid circuit breaker open"},
+            # 三相欠壓由 ABB 變頻器 ARU 偵測，PLC 同時收到變頻器的跳機要求（021）
+            {"type": "T1", "code": 481, "threshold": 0.85, "desc": "Undervoltage ARU phase R-S low"},
+            {"type": "T1", "code": 483, "threshold": 0.85, "desc": "Undervoltage ARU phase S-T low"},
+            {"type": "T1", "code": 485, "threshold": 0.85, "desc": "Undervoltage ARU phase T-R low"},
+            {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
         ],
     ),
 
@@ -272,9 +288,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WCNV_IGCTWtrTmp": {"max_offset": 5.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 256, "threshold": 0.4, "desc": "Nacelle cabinet temperature outside range"},
-            {"type": "T1", "code": 273, "threshold": 0.7, "desc": "Nacelle temperature very high (50°C)"},
-            {"type": "T1", "code": 258, "threshold": 0.9, "desc": "Nacelle smoke detected"},
+            {"type": "A", "code": 273, "threshold": 0.4, "desc": "Nacelle temperature range exceeded"},
+            {"type": "T1", "code": 256, "threshold": 0.85, "desc": "Nacelle cabinet temperature outside range"},
         ],
     ),
 }
