@@ -32,7 +32,8 @@ from simulator.physics.plc_protection import PlcProtection
 class _RollingMean:
     """固定時間窗的移動平均（PLC 的「10 分鐘平均」「5 秒平均」）。
 
-    樣本依各自的 dt 加權；窗內累積時間超過窗長時丟掉最舊的樣本。dt ≥ 窗長時只剩最新一個樣本。
+    每個樣本代表它之前 dt 秒的值，依 dt 加權；窗內累積時間超過窗長時，丟掉最舊的樣本、最後一個
+    只丟超出的部分，使平均恰好涵蓋最近的 ``window_s`` 秒（任何 dt 皆然；dt ≥ 窗長時等於最新樣本）。
     """
 
     def __init__(self, window_s: float) -> None:
@@ -63,6 +64,13 @@ class _RollingMean:
             old_dt, old_value = self._samples.popleft()
             self._weighted_sum -= old_value * old_dt
             self._duration -= old_dt
+        excess = self._duration - self.window_s
+        if excess > 0:
+            # 最舊的樣本只有後段還在窗內：縮短它的 dt
+            old_dt, old_value = self._samples[0]
+            self._samples[0] = (old_dt - excess, old_value)
+            self._weighted_sum -= old_value * excess
+            self._duration = self.window_s
         return self._weighted_sum / self._duration if self._duration > 0 else value
 
     @property
@@ -421,7 +429,11 @@ class TurbinePhysicsModel:
         plc_enabled = self.plc.enabled
         self.plc = PlcProtection(spec)
         self.plc.enabled = plc_enabled
-        self._reset_wind_averages()
+        # 平均風速與暴風停機旗標保留（改設定不是重啟機組）；只有窗長改了才重建該平均
+        if self._wind_avg_10min.window_s != spec.cut_out_avg_window_s:
+            self._wind_avg_10min = _RollingMean(spec.cut_out_avg_window_s)
+        if self._wind_avg_gust.window_s != spec.cut_out_gust_window_s:
+            self._wind_avg_gust = _RollingMean(spec.cut_out_gust_window_s)
 
     def step(self, wind_speed: float, wind_direction: float,
              ambient_temp: float = 25.0, dt: float = 1.0,
@@ -1061,7 +1073,7 @@ class TurbinePhysicsModel:
         return len(self._restart_timestamps) >= self.spec.max_restarts_per_hour
 
     def _reset_wind_averages(self) -> None:
-        """清空切出判定用的平均風速與暴風停機旗標。"""
+        """建立空的切出判定用平均風速，暴風停機旗標歸零（只在建構時）。"""
         self._wind_avg_10min = _RollingMean(self.spec.cut_out_avg_window_s)
         self._wind_avg_gust = _RollingMean(self.spec.cut_out_gust_window_s)
         self._storm_stop = False
@@ -1343,7 +1355,11 @@ class TurbinePhysicsModel:
         }
 
     def reset(self):
-        """Full reset of turbine physics state to initial idle conditions."""
+        """Full reset of turbine physics state to initial idle conditions.
+
+        切出判定用的平均風速與暴風停機旗標不清除（WMOM-20261021-10）：風速歷史是環境量、不是機組
+        狀態——否則暴風停機中的機組 reset（例：維護清除故障）後會立刻在暴風中重啟。
+        """
         self.tur_state = 1
         self.rotor_speed = 0.0
         self.pitch_angle = self.spec.pitch_vane  # Z72: vane position (86°)
@@ -1372,7 +1388,6 @@ class TurbinePhysicsModel:
         self._drivetrain_twist = 0.0
         self._state_timer = 0.0
         self._wind_ready_timer = 0.0
-        self._reset_wind_averages()
         self._restart_wait_timer = 0.0
         self._restart_block_timer = 0.0
         self._stop_requested = False

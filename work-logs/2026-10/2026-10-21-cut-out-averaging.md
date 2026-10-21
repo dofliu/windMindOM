@@ -29,7 +29,7 @@
 - `_update_storm_stop`：10 分鐘平均 > 25 或 5 秒平均 > 35 → 暴風停機旗標；10 分鐘平均 < 20 才解除。
 - 暴風停機旗標成立且機組在 4 / 5 / 6 / 8 → 正常停機（cause `cut_out`，已有停機要求時不改寫）；`wind_ok` 不再看瞬間上限，改為「不在暴風停機中」。
 - `PowerCurveModel` 的 `cut_out` 改傳 `math.inf`（`__init__` 與 `update_spec` 兩處）。
-- `reset()` / `update_spec()` 清空平均值與旗標。
+- `reset()` / `update_spec()` 清空平均值與旗標（code review 後改為保留，見 2.8）。
 
 ### 2.4 途中發現：開機時第一個陣風樣本＝10 分鐘平均
 
@@ -54,7 +54,22 @@
 - `examples/data_quality_analysis.py`：20 通過 / 0 待改善
 - backend 全套：1539 → **1543 passed** / 7 skipped / 1 xfailed
 
-### 2.7 卡住或延後的事
+### 2.7 Code review（code-reviewer subagent）→ 見 2.8
+
+### 2.8 Code review 處理
+
+結論 Needs revision：0 must-fix、4 should-fix、5 nice-to-have。
+
+- **S1 移動平均窗偏短**：剔除最舊樣本時整筆丟，dt 不整除窗長（例 dt = 3.3 s）時平均涵蓋的時間短於窗長。改為最舊樣本只剔除超出的部分（縮短它的 dt），任何 dt 都恰好涵蓋最近一個窗長；補參數化測試（dt 1 / 5 / 0.5 / 3.3 / 700 s，與暴力計算比對）。
+- **S2 I201 時間窗去重吞事件**：600 s 內真實的第二次暴風停機（停機 → 10 分鐘平均 < 20 → 重啟 → 又切出）不會記事件。改為每個停機週期一次（`_cut_out_noted`，機組再次起動時清除），與其他保護停機同語意。
+- **S3 reset 清空平均值**：暴風停機中的機組被維護 reset（例：清故障）後，平均值歸零、旗標解除，前 10 分鐘只剩 5 秒平均保護 → 在 24 m/s 的暴風中立刻重啟。風速歷史是環境量、不是機組狀態：`reset()` 不再清，`update_spec()` 只在窗長改變時重建該平均。
+- **S4 批次 dt 5 s 的陣風規則較敏感**：5 秒平均在 dt = 5 s 時就是單一樣本；記為已知限制（設計文件 §6.5）。
+- **N2 預設功率曲線尾端**：`(25.5, 0)`、`(26.0, 0)` 兩點與「切出由控制器決定」矛盾 → 拿掉（`np.interp` 末端夾在 2000 kW）。查表只在起動同步爬升與 Cp 模型無輸出時當 fallback（發電中走 Cp 模型，> 25 m/s 是 Region 3），所以影響限於起動中遇到 > 25.5 m/s 陣風時的爬升功率；補一項查表測試（mutation 放回尾端 → 失敗；放回前沒有任何測試抓得到）。
+- **N3 前端 `noPowerReason`**、**N4 冷啟動前 10 分鐘暴風發電**、**N5 判定風速含個體差與故障 `wind_scale`**：記為已知限制（§6.5）。
+- 測試：`TestCutOutBehavior` 6 → 13 項（新增：不到 5 秒的陣風不觸發陣風規則、冷啟動單一陣風樣本不停機、滿窗前的陣風停機要等有效的 10 分鐘平均才解除、暴風不改寫操作員停機原因、暴風旗標撐過 `update_spec` / `reset`、`update_spec` 重建的氣動模型同樣不在 25 m/s 設閘門）、`_RollingMean` 參數化 5 項、功率曲線表 1 項、`test_plc_protection.py` +1（每停機週期一次）。mutation（逐一放回 review 前的行為）：整筆剔除 / reset 清平均 / update_spec 清平均 / 起動時不重置 I201 週期旗標 / 曲線尾端放回，各有測試失敗。途中有 mutant 一開始沒被抓到（操作員停機路徑），測試改為暴風旗標與 `cmd_stop` 在同一步成立後才抓到。
+- 健康機組輸出逐位元不變（與 review 前相同）；`data_quality_analysis.py` 20 / 0；backend 全套（與 -11 的 review 修正一起）1574 passed / 7 skipped / 1 xfailed。
+
+### 2.9 卡住或延後的事
 
 - **高風速時陣風模型偏強**：`wind_field.py` 自然陣風事件頻率與振幅都隨平均風速放大（22 m/s 時約每 3 分鐘一次、振幅最大 4 × V / 12 ≈ 7 m/s），疊加農場與單機兩層紊流，22-24 m/s、TI 0.12-0.15 時約 7 分鐘內就越過 5 秒平均 35 m/s。切出規則照手冊；陣風的高風速校準留給 -08 / Phase 5（不在本 issue 範圍）。
 - 判定用自由流有效風速而非機艙風速計讀值（`WMET_WSpeedRaw`）。
@@ -67,8 +82,8 @@
 
 ### 修改檔案
 
-- `modules/monitoring/simulator/physics/turbine_physics.py`
-- `tests/physics/test_envelope.py`
+- `modules/monitoring/simulator/physics/turbine_physics.py`、`plc_protection.py`、`power_curve.py`（review）
+- `tests/physics/test_envelope.py`、`modules/monitoring/tests/test_plc_protection.py`（review）
 - 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§6.3 限制標記已解、新增 §6.5）、`docs/physics_model_status.md`、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`、`TODO.md`
 
 ### 動了狀態的 issue

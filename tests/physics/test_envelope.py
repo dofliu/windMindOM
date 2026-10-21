@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import math
+from typing import List, Tuple
 
 import numpy as np
 import pytest
 
 from simulator.physics.drivetrain_model import DrivetrainModel, DrivetrainSpec
-from simulator.physics.turbine_physics import TurbinePhysicsModel, TurbineSpec
+from simulator.physics.power_curve import PowerCurveModel
+from simulator.physics.turbine_physics import TurbinePhysicsModel, TurbineSpec, _RollingMean
 from simulator.physics.yaw_model import YawModel
 
 
@@ -95,7 +97,7 @@ class TestCutInBehavior:
 STOP_FAMILY = (STATE_NORMAL_STOP, STATE_SHUTDOWN)
 
 
-def _run(m: TurbinePhysicsModel, V: float, seconds: int) -> list:
+def _run(m: TurbinePhysicsModel, V: float, seconds: int) -> List[Tuple[int, float]]:
     """以固定風速推進，回傳每秒的 (state, power)。"""
     out = []
     for _ in range(seconds):
@@ -135,9 +137,13 @@ class TestCutOutBehavior:
         run = _run(m, 37.0, 10)
         assert STATE_NORMAL_STOP in [st for st, _ in run]
 
-    def test_brief_gusts_above_cut_out_do_not_stop_or_zero_power(self):
-        """平均風速 < 25 時，幾秒 28 m/s 的陣風不停機、功率也不因瞬間風速 > 25 歸零。"""
+    @pytest.mark.parametrize("rebuilt", [False, True], ids=["init", "update_spec"])
+    def test_brief_gusts_above_cut_out_do_not_stop_or_zero_power(self, rebuilt):
+        """平均風速 < 25 時，幾秒 28 m/s 的陣風不停機、功率也不因瞬間風速 > 25 歸零。
+        update_spec（每次載入風場都走）重建的氣動模型同樣不在 25 m/s 設閘門。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        if rebuilt:
+            m.update_spec(TurbineSpec())
         _run(m, 20.0, 300)
         samples = []
         for cycle in range(20):
@@ -155,6 +161,51 @@ class TestCutOutBehavior:
             states += [st for st, _ in _run(m, 28.0 if cycle % 2 == 0 else 20.0, 3)]
         assert STATE_PRODUCTION in states
 
+    def test_brief_gust_shorter_than_5s_does_not_trip_gust_rule(self):
+        """3 秒 40 m/s 的陣風：5 秒平均 (3·40 + 2·10) / 5 = 28 < 35，不停機。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        run = _run(m, 40.0, 3) + _run(m, 10.0, 10)
+        assert {st for st, _ in run} == {STATE_PRODUCTION}
+
+    def test_single_gust_sample_at_cold_start_does_not_stop(self):
+        """開機第一個樣本就是 40 m/s：5 秒窗未滿不判定，之後 10 m/s 正常啟動發電。"""
+        m = TurbinePhysicsModel(seed=1)
+        states = [st for st, _ in _run(m, 40.0, 1) + _run(m, 10.0, 300)]
+        assert STATE_PRODUCTION in states
+
+    def test_gust_stop_before_10min_window_full_holds_until_valid_average(self):
+        """開機後 10 分鐘內被 5 秒平均停機：10 分鐘平均未滿窗前不解除，滿窗且 < 20 m/s 後才重啟。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=100)
+        _run(m, 40.0, 6)
+        before_full = _run(m, 10.0, 480)               # 累計 586 s：10 分鐘窗尚未滿
+        assert STATE_PRODUCTION not in [st for st, _ in before_full]
+        after_full = _run(m, 10.0, 300)
+        assert STATE_PRODUCTION in [st for st, _ in after_full]
+
+    def test_storm_does_not_overwrite_operator_stop_cause(self):
+        """操作員停機與暴風旗標同一步成立：停機原因維持 operator、不記 I201。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        _run(m, 40.0, 4)                               # 5 秒平均 (10 + 4·40) / 5 = 34：旗標尚未成立
+        m.plc.drain_events()
+        m.cmd_stop()
+        _run(m, 40.0, 10)                              # 第一步：5 秒平均 40 → 旗標成立，與操作員停機同步
+        assert m.get_control_status()["shutdown_cause"] == "operator"
+        assert [e.code for e in m.plc.drain_events() if e.code == 201] == []
+
+    @pytest.mark.parametrize("action", ["update_spec", "reset"])
+    def test_storm_stop_survives_update_spec_and_reset(self, action):
+        """暴風停機中改設定（update_spec）或 reset（例：維護清除故障）不得清掉暴風旗標而在暴風中重啟。"""
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        _run(m, 28.0, 700)
+        assert m.tur_state in STOP_FAMILY
+        if action == "update_spec":
+            m.update_spec(TurbineSpec())
+        else:
+            m.reset()
+        states = [st for st, _ in _run(m, 28.0, 60)]
+        assert not set(states) & {STATE_STANDBY, STATE_PRE_PRODUCTION, STATE_START_PRODUCTION,
+                                  STATE_PRODUCTION}
+
     def test_restart_only_after_10min_average_below_cut_back_in(self):
         """暴風停機後：平均風速仍 > 20 m/s 不重啟；降到 15 m/s、平均 < 20 後才重啟發電。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
@@ -164,6 +215,33 @@ class TestCutOutBehavior:
         assert STATE_PRODUCTION not in [st for st, _ in held]
         resumed = _run(m, 15.0, 900)                   # 平均約 7 分鐘後 < 20 → 重啟
         assert STATE_PRODUCTION in [st for st, _ in resumed]
+
+
+@pytest.mark.parametrize("dt", [1.0, 5.0, 0.5, 3.3, 700.0])
+def test_rolling_mean_covers_exactly_the_last_window(dt):
+    """_RollingMean 等於最近 window 秒的時間加權平均（暴力計算對照），任何 dt 皆然。"""
+    rng = np.random.default_rng(3)
+    window = 600.0
+    rolling = _RollingMean(window)
+    history: List[Tuple[float, float, float]] = []    # (start, end, value)
+    t = 0.0
+    for _ in range(400):
+        value = float(rng.uniform(0.0, 40.0))
+        history.append((t, t + dt, value))
+        t += dt
+        got = rolling.add(value, dt)
+        lo = max(0.0, t - window)
+        weights = [(max(0.0, min(end, t) - max(start, lo)), v) for start, end, v in history]
+        expected = sum(w * v for w, v in weights) / sum(w for w, _ in weights)
+        assert got == pytest.approx(expected, rel=1e-9, abs=1e-9)
+    assert rolling.is_full is (t >= window)
+
+
+def test_default_power_curve_table_does_not_drop_to_zero_above_cut_out():
+    """預設功率曲線表（起動同步爬升、Cp 模型無輸出時的 fallback）在 > 25 m/s 不歸零：
+    切出是控制器依平均風速的決定，不是查表（WMOM-20261021-10 code review）。"""
+    curve = PowerCurveModel(rated_power_kw=2000.0, cut_out=math.inf)
+    assert [curve.get_power(v) for v in (25.0, 25.5, 30.0, 34.9)] == [2000.0] * 4
 
 
 # ════════════════════════════════════════════════════════════════════════

@@ -292,6 +292,16 @@ def test_cut_out_is_an_information_event() -> None:
     assert (event.kind, event.code, event.level) == ("info", 201, "I")
 
 
+def test_cut_out_is_noted_once_per_stop_cycle() -> None:
+    """同一停機週期只記一次 I201；機組再次起動後的第二次暴風停機（即使 600 s 內）要再記。"""
+    d = Driver()
+    d.plc.note_protection_stop("cut_out", 100.0)
+    d.plc.note_protection_stop("cut_out", 101.0)
+    d.plc.on_restart(300.0)
+    d.plc.note_protection_stop("cut_out", 400.0)
+    assert [(e.code, e.sim_time) for e in d.plc.drain_events() if e.code == 201] == [(201, 100.0), (201, 400.0)]
+
+
 def test_disabled_plc_is_silent() -> None:
     d = Driver()
     d.plc.enabled = False
