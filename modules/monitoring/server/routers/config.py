@@ -388,6 +388,26 @@ async def generate_bulk(body: dict):
                 "offsetSeconds": fstep.offset_seconds,
                 "severityRate": fstep.severity_rate,
                 "initialSeverity": fstep.initial_severity,
+                # 本情境的跳機由 PLC 判定並另存 trip 事件（on_trip）；情境掛載據此判定 FAULT，
+                # 不再用嚴重度公式近似（WMOM-20261021-03-b）
+                "tripEvents": True,
+            },
+        )
+
+    def on_trip(turbine_id: str, fault_scenario_id: str, trip_code: int, sim_time: datetime) -> None:
+        """PLC 以故障預期碼跳機 → 記一筆 trip 事件（模擬時間戳），供情境掛載判定 FAULT 狀態。"""
+        b.record_event(
+            event_type="fault",
+            source="scenario",
+            title=f"Scenario fault trip: {fault_scenario_id} on {turbine_id} (event {trip_code})",
+            turbine_id=turbine_id,
+            detail=f"{fault_scenario_id} tripped {turbine_id} via PLC event {trip_code}",
+            timestamp=sim_time.isoformat(),
+            payload={
+                "kind": "trip",
+                "scenarioId": fault_scenario_id,
+                "turbineId": turbine_id,
+                "tripCode": trip_code,
             },
         )
 
@@ -408,6 +428,7 @@ async def generate_bulk(body: dict):
                 callback=store_cb,
                 fault_schedule=schedule or None,
                 on_fault_injected=on_inject if schedule else None,
+                on_fault_tripped=on_trip if schedule else None,
             )
             # Run downsampling after bulk generation
             b.storage.run_downsampling()

@@ -56,6 +56,9 @@ def _vib(o: Sample) -> float:
 def _run(fault_id: str | None, severity: float, wind: float, ambient: float) -> Tuple[Tuple[Sample, ...], str]:
     """跑 3 h，回傳最後 5 分鐘的 samples 與結束時的 shutdown cause。"""
     model = TurbinePhysicsModel(seed=7)
+    # 量測物理訊號能否到達設定值：關閉 PLC 保護，否則一越過就跳機（PLC 行為另見
+    # modules/monitoring/tests/test_plc_integration.py，WMOM-20261021-03-b）
+    model.plc.enabled = False
     if fault_id is not None:
         model.active_faults = [{"scenario_id": fault_id, "severity": severity}]
     steps = int(HOURS * 3600 / DT)

@@ -25,6 +25,7 @@ from simulator.physics.cooling_model import CoolingSystem, CoolingSpec
 from simulator.physics.electrical_model import ElectricalModel, ElectricalSpec
 from simulator.physics.vibration_spectral import SpectralVibrationModel
 from simulator.physics.fatigue_model import FatigueModel, FatigueSpec
+from simulator.physics.plc_protection import PlcProtection
 
 
 @dataclass
@@ -276,6 +277,14 @@ class TurbinePhysicsModel:
             rotor_diameter=self.spec.rotor_diameter,
         )
 
+        # Z72 PLC protection layer (WMOM-20261021-03-b): judges the sensorized signals
+        # against TurbineSpec setpoints, raises real Z72 event codes and trips the turbine.
+        self.plc = PlcProtection(self.spec)
+        # Set by the engine while a fault on this turbine has caused a PLC trip: the
+        # turbine stays down until maintenance clears the fault (reset ≠ repair,
+        # WMOM-20260719-01) — a restart inhibit, not repeated emergency stops.
+        self.maintenance_lock = False
+
         self.tur_state = 1
         self.rotor_speed = 0.0
         self.pitch_angle = self.spec.pitch_vane  # Z72: vane position (86°)
@@ -357,6 +366,9 @@ class TurbinePhysicsModel:
         else:
             dt_spec = DrivetrainSpec.for_direct_drive()
         self.drivetrain = DrivetrainModel(spec=dt_spec, individuality=self._individuality)
+        plc_enabled = self.plc.enabled
+        self.plc = PlcProtection(spec)
+        self.plc.enabled = plc_enabled
 
     def step(self, wind_speed: float, wind_direction: float,
              ambient_temp: float = 25.0, dt: float = 1.0,
@@ -974,7 +986,20 @@ class TurbinePhysicsModel:
         # with operating-condition coupling. This ensures ML models must
         # learn physically grounded fault signatures.
 
-        return self._apply_sensor_model(output)
+        sensorized = self._apply_sensor_model(output)
+
+        # The PLC judges the process values (pre sensor model): the sensor model's noise /
+        # drift / stuck values are SCADA-acquisition artefacts tuned for trend realism and
+        # too large for protection logic (see plc_protection docstring). T1 = normal servo
+        # stop, T2 = emergency pitch (_request_stop never downgrades a pending emergency).
+        for code, level in self.plc.evaluate(output, self._sim_time, dt, producing=self.tur_state == 6,
+                                             yawing=bool(yaw_out.get("is_yawing", 0.0))):
+            self._request_stop("emergency" if level == "T2" else "normal", f"plc:{code}")
+        return sensorized
+
+    def _restart_inhibited(self) -> bool:
+        """PLC 跳機鎖存（含封鎖）或維修鎖期間不可啟動。"""
+        return self.maintenance_lock or self.plc.restart_inhibited
 
     def _max_restarts_exceeded(self) -> bool:
         """Z72: Check if max restarts per hour has been exceeded."""
@@ -1015,6 +1040,11 @@ class TurbinePhysicsModel:
 
         if self.operator_stop or self.service_mode:
             self._request_stop("normal", "operator")
+        # 已有停機要求（例：PLC 剛以 T1 跳機）時不再要求，否則同模式的要求會把 shutdown_cause
+        # 從 "plc:<碼>" 蓋成內部機制名稱
+        if self.maintenance_lock and st in (4, 5, 6, 8) and not self._stop_requested:
+            self._request_stop("normal", "maintenance_lock")
+        inhibit = self._restart_inhibited()
         if wind_speed > s.cut_out_speed + 0.5:
             self._request_stop("emergency", "cut_out")
 
@@ -1022,7 +1052,7 @@ class TurbinePhysicsModel:
             self._enter_state(9 if self._stop_mode == "normal" else 7)
             st = self.tur_state
 
-        if self.operator_start_pending and st in (1, 2, 3) and wind_ok and self._restart_block_timer <= 0.0:
+        if self.operator_start_pending and st in (1, 2, 3) and wind_ok and self._restart_block_timer <= 0.0 and not inhibit:
             if not self._max_restarts_exceeded():
                 self.operator_start_pending = False
                 self._restart_timestamps.append(self._sim_time)
@@ -1031,13 +1061,13 @@ class TurbinePhysicsModel:
 
         if st == 1:
             self._sync_progress = 0.0
-            if wind_ok and not self._max_restarts_exceeded():
+            if wind_ok and not self._max_restarts_exceeded() and not inhibit:
                 self._enter_state(2)
         elif st == 2:
             if not wind_ok:
                 self._enter_state(1)
-            elif self._max_restarts_exceeded():
-                pass  # Z72: stay in standby if max restarts exceeded
+            elif self._max_restarts_exceeded() or inhibit:
+                pass  # Z72: stay in standby if max restarts exceeded / PLC trip latched
             elif not self.operator_stop and self._wind_ready_timer >= 10.0 + self._individuality["start_delay_offset"] and self._restart_block_timer <= 0.0:
                 self._restart_timestamps.append(self._sim_time)
                 self._enter_state(4)
@@ -1051,7 +1081,8 @@ class TurbinePhysicsModel:
             if self._max_restarts_exceeded():
                 # Z72: max restarts exceeded → go to Shutdown (state 1)
                 self._enter_state(1)
-            elif self._restart_wait_timer >= restart_delay and wind_ok and not self.operator_stop and not self.service_mode and self._restart_block_timer <= 0.0:
+            elif (self._restart_wait_timer >= restart_delay and wind_ok and not self.operator_stop
+                  and not self.service_mode and self._restart_block_timer <= 0.0 and not inhibit):
                 self._enter_state(2)
         elif st == 4:
             # Z72 Pre-Production: converter to standby, yaw to auto
@@ -1079,7 +1110,7 @@ class TurbinePhysicsModel:
                 self._stop_requested = False
                 self._enter_state(3)
         elif st == 8:
-            if wind_ok and self._restart_block_timer <= 0.0 and not self._max_restarts_exceeded():
+            if wind_ok and self._restart_block_timer <= 0.0 and not self._max_restarts_exceeded() and not inhibit:
                 self._restart_timestamps.append(self._sim_time)
                 self._enter_state(4)
             else:
@@ -1180,6 +1211,7 @@ class TurbinePhysicsModel:
         被移除——那些故障需經維護中心（``/api/faults/clear``）才會解除。因此若故障仍
         active 且 tripped，引擎每步會再次 emergency-stop 本機組，復位無法讓帶病機組恢復發電。
         """
+        self.plc.operator_reset(self._sim_time)
         self.operator_stop = False
         self.service_mode = False
         self.operator_start_pending = False
@@ -1281,6 +1313,8 @@ class TurbinePhysicsModel:
         self.drivetrain.reset()
         self.cooling.reset()
         self.electrical.reset()
+        self.plc.reset()
+        self.maintenance_lock = False
 
     def _enter_state(self, state: int):
         self.tur_state = state
@@ -1296,13 +1330,24 @@ class TurbinePhysicsModel:
             self._sync_progress = 0.0
         elif state == 6:
             self._sync_progress = 1.0
+        if state in (4, 6, 8):
+            self.plc.on_restart(self._sim_time)
         if state in (7, 9):
             self._restart_block_timer = max(self._restart_block_timer, 20.0 if state == 7 else 10.0)
 
     def _request_stop(self, mode: str, cause: Optional[str] = None):
+        cause = cause or mode
+        if self._stop_requested and self._stop_mode == "emergency" and mode != "emergency":
+            # A pending emergency stop is never downgraded by a later normal request
+            # (operator flag, maintenance lock, a T1 trip in the same stop cycle).
+            return
+        if not self._stop_requested or cause != self._shutdown_cause:
+            # Existing physics protections (overspeed, LVRT / grid, cut-out) get their
+            # Z72 event code; other causes are ignored by the PLC.
+            self.plc.note_protection_stop(cause, self._sim_time)
         self._stop_requested = True
         self._stop_mode = mode
-        self._shutdown_cause = cause or mode
+        self._shutdown_cause = cause
 
     def _update_grid_reference(self, dt: float, grid_frequency_ref: Optional[float] = None,
                                grid_voltage_ref: Optional[float] = None):
@@ -1639,7 +1684,9 @@ class TurbinePhysicsModel:
                 fault_physics["rotor_speed_bias"] -= 0.3 * severity
                 fault_physics["vibration_x"] += 6.0 * severity * speed_ratio
                 fault_physics["vibration_y"] += 9.0 * severity * speed_ratio  # asymmetric
-                fault_physics["blade1_pitch_bias"] += 2.0 * severity
+                # (No blade-1 pitch offset: Z72 has collective pitch, ice does not make the
+                # blades lose synchronisation — the old +2°·severity offset tripped the PLC
+                # blade-discrepancy protection, WMOM-20261021-03-b.)
 
             # ── grid_voltage_sag ─────────────────────────────────────
             # Converter stress from grid fluctuations.

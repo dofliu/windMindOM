@@ -6,11 +6,11 @@ RAG 維修助手是拿警報碼去查 Z72 手冊；模擬器送出的碼若與�
 1. 事件碼存在於 `shared/data/z72_alarm_catalog.json`
 2. ``type`` 等於目錄等級、``desc`` 等於目錄文字（不另寫自創描述）
 3. 不使用 I（資訊）類事件當故障警報
-4. 門檻慣例：A 級在跳機前出現（< auto_trip_severity）；T1 / T2 跳機碼在跳機當下出現
-   （== auto_trip_severity）——不會出現「跳機碼已觸發但機組仍在發電」的資料
-5. 每個情境至少一個跳機碼（每個情境都會在 auto_trip_severity 跳機）
+4. 每個情境至少一個跳機碼
+5. 每個預期碼都是 PLC 保護層（WMOM-20261021-03-b）真的能送出的碼——``alarm_codes`` 是
+   ground truth 的預期碼，若 PLC 送不出來，資料裡就永遠不會出現
 
-另以 FaultEngine 驗證門檻慣例在實際推進時成立。
+（WMOM-20261021-03-b 前的「嚴重度門檻慣例」測試已移除：警報 / 跳機改由 PLC 依量測值判定。）
 """
 
 from __future__ import annotations
@@ -30,7 +30,9 @@ if str(MONITORING_ROOT) not in sys.path:
 import pytest
 
 from shared.alarm_codes import find_alarm
-from simulator.physics.fault_engine import FAULT_SCENARIOS, FaultEngine, FaultScenario
+from simulator.physics.fault_engine import FAULT_SCENARIOS, FaultScenario
+from simulator.physics.plc_protection import raisable_codes
+from simulator.physics.turbine_physics import TurbineSpec
 
 SCENARIOS: List[FaultScenario] = list(FAULT_SCENARIOS.values())
 
@@ -60,36 +62,15 @@ def test_no_information_events_used_as_fault_alarms(scenario: FaultScenario, ala
 
 
 @pytest.mark.parametrize(("scenario", "alarm"), ALL_ALARMS, ids=ALL_ALARM_IDS)
-def test_threshold_convention(scenario: FaultScenario, alarm: Dict) -> None:
-    if alarm["type"] == "A":
-        assert 0.0 < alarm["threshold"] < scenario.auto_trip_severity
-    else:
-        assert alarm["threshold"] == scenario.auto_trip_severity
+def test_expected_code_can_be_raised_by_plc(scenario: FaultScenario, alarm: Dict) -> None:
+    assert alarm["code"] in raisable_codes(TurbineSpec()), (
+        f"{scenario.id} 預期碼 {alarm['code']} 沒有 PLC 規則或保護對應，資料裡永遠不會出現"
+    )
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s.id)
 def test_every_scenario_has_a_trip_code(scenario: FaultScenario) -> None:
     assert any(a["type"] in ("T1", "T2") for a in scenario.alarm_codes)
-
-
-@pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s.id)
-def test_trip_codes_raised_exactly_when_turbine_trips(scenario: FaultScenario) -> None:
-    """引擎推進：跳機前只有 A 級警報；跳機那一步才出現 T1 / T2。"""
-    engine = FaultEngine()
-    assert engine.inject(scenario.id, "WT001", severity_rate=0.01)
-    seen_trip_before_tripped = False
-    for _ in range(200):
-        engine.step(dt=1.0)
-        fault = engine.active_faults[0]
-        trip_alarms = [a for a in fault.active_alarms if a["type"] in ("T1", "T2")]
-        if fault.tripped:
-            assert trip_alarms, f"{scenario.id} 跳機時沒有任何跳機碼"
-            break
-        if trip_alarms:
-            seen_trip_before_tripped = True
-    else:
-        pytest.fail(f"{scenario.id} 在 200 步內沒有跳機")
-    assert not seen_trip_before_tripped
 
 
 def test_baseline_knowledge_corpus_uses_same_codes_as_scenarios() -> None:

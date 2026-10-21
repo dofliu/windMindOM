@@ -17,10 +17,15 @@
 | in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 129 |
-| **total** | **147** |
+| done | 130 |
+| **total** | **148** |
 
-最後更新：2026-10-21 下午（**WMOM-20261021-03-a done**：故障物理校正到真實 Z72 保護設定值——修 `extra_heat` dict union 覆蓋 bug、
+最後更新：2026-10-21 晚（**WMOM-20261021-03-b done**：PLC 保護層——警報 / 跳機改由製程訊號越過 `TurbineSpec` 真實設定值觸發
+（遲滯、延時、葉片三段、風向標 25 s 濾波、偏航煞車 / 穩定發電判定窗），T1 正常停機 / T2 緊急變槳，跳機鎖存 + 每小時
+重啟上限 + 復位（事件 008），物理層保護停機補事件碼，`FaultEngine` 改由 PLC 跳機轉 tripped 並以 `maintenance_lock` 取代每步
+緊急停機（修 7↔3）；新增 `WMOM-20261021-10`（切出風速改用平均風速，+1 筆）。逐條解析 header 核實：open 14 / in_progress 2 /
+deferred 2 / done 130 = 148。詳見 `work-logs/2026-10/2026-10-21-plc-protection-layer.md`）。
+前次最後更新：2026-10-21 下午（**WMOM-20261021-03-a done**：故障物理校正到真實 Z72 保護設定值——修 `extra_heat` dict union 覆蓋 bug、
 冷卻劣化改為提高熱阻、重新校正 11 個情境、新增 5 個真實 Bachmann tag（111 → 116，健康輸出逐位元不變）、`TurbineSpec` 新增
 保護設定值；-03 拆為 -03-a/-b/-c（+3 筆），-03 改 in_progress。詳見 `work-logs/2026-10/2026-10-21-fault-physics-calibration.md`）。
 前次最後更新：2026-10-21（**方向調整 DEC-20261021-01 + EPIC-DS 立案**：商業時程與真實現場介接暫緩，
@@ -1267,7 +1272,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-03 — Phase 1b：警報與時間戳擬真（溫度門檻、狀態跳動、UTC）
 
-- **Status**: in_progress（2026-10-21 拆成 -03-a / -03-b / -03-c；-03-a done）
+- **Status**: in_progress（2026-10-21 拆成 -03-a / -03-b / -03-c；-03-a、-03-b done，剩 -03-c）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 3-4 天（原估 1-1.5 天；2026-10-21 實測發現多數故障物理碰不到真實門檻，需先校正）
@@ -1298,12 +1303,24 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-03-b — PLC 保護層：警報 / 跳機改由物理訊號觸發
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 2 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: 新增 PLC 保護層，以 `TurbineSpec` 設定值（-03-a）對量測訊號做判定（含遲滯、延時：葉片差 5 s / 3 s / 瞬間——健康機組紊流下瞬間差異可達 1.16°，不可看瞬間值；風向標 25 s 濾波 + 10 分鐘風速條件；電網欠壓對應物理層 `ride_through:lvrt_*` / `grid_*` 跳機原因），注意事項見設計文件 §6.2，送出真實事件碼；T1 走正常伺服停機、T2 走緊急變槳；跳機鎖存，條件解除後依目錄 `max_per_hour` 自動重啟，超過則需復位；故障機組維持「復位不等於修好」的既有不變量（WMOM-20260719-01），但改用重啟封鎖取代每步 `cmd_emergency_stop`（修 7↔3 擺盪）；物理層自有跳機（overspeed / cut-out / grid）對應事件碼；`FaultEngine.alarm_codes` 改為情境的預期碼 metadata；broker 事件改記 PLC 事件碼。
+- **完成紀錄**:
+  - **新模組** `modules/monitoring/simulator/physics/plc_protection.py`：`PlcProtection`（每台機組一個，`TurbinePhysicsModel.plc`）以 `TurbineSpec` 設定值判定**製程值**（感測器模型之前——感測器雜訊 / 漂移 / 卡值對保護判定太大，健康機組會約兩天一次葉片同步 T2 誤跳；感測器故障跳機留給 -08 以標註方式建模）。規則：主軸承 262/240、定子 264/244、機艙 273/256、變壓器 417/444、冷卻水 420/437(+021)、變頻器機櫃 421/438(+021)、靜水壓 432（只在發電時）、偏航煞車 260/228（煞車施加 90 s 後）、油封 261、風向標 233（25 s 濾波 + 10 分鐘風速 > 4.5）、葉片 335/336/337（瞬間 8° / 3 s 3° / 5 s 1°，穩定發電 60 s 後）、振動 236；遲滯 + 嚴格延時
+  - **跳機語意**：A 級 raised / cleared 不停機；T1 → 正常伺服停機（TurSt 9）、T2 → 緊急變槳（7）；鎖存到條件解除，一小時內次數 ≤ 目錄 `max_per_hour` 自動解除，超過 `restart_blocked` 需復位；`cmd_reset` → `operator_reset`（事件 008）；已排定的緊急停機不被正常停機要求降級
+  - **物理層保護停機補事件碼**：超速 351/320、LVRT band 1-2 → 481+021、band ≥ 3 → 482+021、HVRT → 475+021、`grid_protection`/`grid_trip` 依電壓 → 481/482/475/489(+021)、切出風速 → I 201（600 s 去重）
+  - **`FaultEngine`**：移除 24 個 severity `threshold`，`alarm_codes` 改為情境預期碼（ground truth metadata）；新增 `mark_tripped` / `trip_code`；引擎在 PLC 以預期 T 碼跳機時轉 tripped，tripped 期間設 `model.maintenance_lock` 阻擋重啟（取代每步 `cmd_emergency_stop`）→ **7↔3 擺盪已修**；「復位不等於修好」不變量保留（`test_reset_keeps_fault.py` 改寫 + 新增無 7↔3 測試）
+  - **broker / 情境**：即時路徑 `drain_events()` 記 `source="plc"` 事件（payload 含 kind/code/level/plcTag/eventId/value/setpoint），移除 severity「Fault alarm threshold reached」事件；情境排程記 `kind="trip"` 事件，`/api/scenarios` 依 trip 事件判斷已跳機（舊 session 沿用 severity 公式）
+  - blade_icing 移除「葉片 1 變槳 bias 2°×嚴重度」（會讓結冰情境以葉片同步 T2 跳機，與預期碼 236 不符）
+  - **驗證**：健康 3 機風場 2 h 無任何訊號判定事件；11 情境滿嚴重度（15 m/s、25 °C）都以預期碼跳機、停機模式依等級；主軸承漸進故障 A262 先於 T240；健康機組既有 111 tag 輸出與 main 逐位元相同；`data_quality_analysis.py` 20 通過 / 0 待改善
+  - **測試**：`test_plc_protection.py`（40）、`test_plc_integration.py`（13）、`test_plc_event_recording.py`（2）、`test_scenario_endpoints.py` +3；改寫 `test_reset_keeps_fault.py`、`test_fault_alarm_codes.py`（門檻慣例 → 預期碼必須可由 PLC 送出）、`test_generate_bulk_fault_schedule.py`；`tests/physics` 兩個物理特性測試關閉 PLC
+  - 實測事件序列與已知限制見設計文件 §6.3
+  - **code-reviewer review**（Needs revision → 已處理）：2 must-fix——(1) 一小時內第二次跳機後只清故障不 reset 機組（`/api/faults/clear` 不帶機組、情境批次、測試計畫）會留下 `restart_blocked`，修好的機組永遠停機 → 維修鎖解除時引擎呼叫新的 `PlcProtection.maintenance_release`（清每小時計數與封鎖、保留鎖存讓殘餘條件解除時自動解除）；(2) T1 跳機的停機原因被維修鎖要求蓋成 `maintenance_lock` → 已有停機要求時不再要求，broker 認 `plc:` 前綴分類為故障停機。6 should-fix 中 5 項已修：判定窗關閉不再等於條件解除（鎖存的葉片跳機不會在減速時立刻解除、偏航中 A260 不會被清掉）、批次結束清空 PLC 佇列、事件 value / setpoint 取實際成立的規則、延時改為從第一個越限樣本起算（dt = 5 s 的 3 s 規則不再單一樣本成立）、物理層保護停機改以每次起動為一個週期記事件；另補測試（broker 記錄與時間戳、情境端點 trip 事件接線、訊號路徑復位 + 啟動、只清故障的二次跳機）。nice-to-have 中處理了 LVRT / 電網欠壓碼分界一致化（band ≥ 2 與 < 0.81 p.u. → 482）、停用 PLC 時不擋重啟、`API_GUIDE.md` 註記、部分 docstring；未處理：每小時計數時點（手冊未明，記為已知限制）、`update_spec` 與 sim 執行緒競爭（既有模式）
+- **未做**：物理層保護停機的模式未依手冊等級（351 是 T1 但仍走緊急停機）；切出風速用瞬間風速（→ WMOM-20261021-10）；批次路徑 `generate_bulk` 不收 PLC 事件（→ -04）；`faults.py` `run_test_plan` 不記 trip 事件
 - **Depends on**: WMOM-20261021-03-a
 
 ### WMOM-20261021-03-c — monitoring 時間戳改 UTC tz-aware
@@ -1383,6 +1400,17 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Decision needed**: 合約 v1 定稿前請劉老師確認欄位（尤其 ground truth 的評分欄位）
 - **Depends on**: WMOM-20261021-05
 
+### WMOM-20261021-10 — 切出風速改用平均風速判定（手冊事件 201）
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 0.5-1 天
+- **Owner**: -
+- **Description**: 物理層 `_update_state` 以**瞬間**有效風速判定切出（> 25 m/s 或 > 25.5 m/s 即要求停機），且走緊急停機；手冊事件 201（I 類）的條件是 10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s，暴風停機屬正常停機。高紊流、高風速時機組會因瞬間陣風反覆切出、重啟，產生大量 I201 事件與不真實的發電中斷（-03-b 實作時觀察到，I201 已以 600 s 去重）。改為 10 分鐘 / 5 秒平均判定、正常停機，並設定回切（restart）風速遲滯；需確認 `data_quality_analysis.py` 與既有功率曲線測試不退化。
+- **Deliverable**: `turbine_physics.py` 切出邏輯 + 測試
+- **Depends on**: WMOM-20261021-03-b
+
 ---
 
 ## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
@@ -1402,7 +1430,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 |---|---|---|---|
 | 0 | ~~WMOM-20261021-01~~ ✅ | 方向調整文件（DEC + 設計 + ROADMAP/STATUS/CLAUDE.md 同步） | 🔵 |
 | 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
-| 1b | WMOM-20261021-03 | 拆三段：~~-03-a 故障物理校正~~ ✅ → -03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）→ -03-c UTC 時間戳 | 🔵 |
+| 1b | WMOM-20261021-03 | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → -03-c UTC 時間戳 | 🔵 |
+| 1b+ | WMOM-20261021-10 | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
 | 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |

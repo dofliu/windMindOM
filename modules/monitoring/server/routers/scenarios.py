@@ -423,6 +423,11 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
     簡化：``FaultEngine.inject()`` 對同一機組同一 scenario_id 的重複注入會先移除舊實例、只留
     最新一次；這裡比照只取每個 ``(turbine_id, scenario_id)`` 組合時間最晚的注入事件。
 
+    WMOM-20261021-03-b 起跳機由 PLC 依量測訊號判定（隨負載 / 氣溫而定，不再是固定嚴重度），
+    批次生成時另存 ``payload.kind == "trip"`` 的跳機事件，注入事件帶 ``tripEvents: True``：
+    這類情境改以「注入後、``as_of`` 前有無 trip 事件」判定；舊情境（無此標記）才沿用上述
+    嚴重度公式近似。
+
     ⚠️ 繼承既有限制（見 ``get_scenario_turbine_history`` docstring）：``history_events`` 無
     ``session_id``，事件靠情境模擬時間窗（時間字串比較）撈取，短時間內連續產生的情境時間窗
     可能重疊、混入其他情境的事件——與 ``eventsByTimeWindow`` 旗標標示的既有限制一致，非本次
@@ -436,6 +441,7 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
         已 trip 的 turbine_id 集合。
     """
     latest_injection: Dict[tuple, Dict[str, object]] = {}
+    trip_times: Dict[tuple, List[datetime]] = {}
     for event in fault_events:
         if event.get("event_type") != "fault":
             continue
@@ -444,6 +450,9 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
         scenario_id = payload.get("scenarioId")
         ts_raw = event.get("timestamp")
         if not turbine_id or not scenario_id or not ts_raw:
+            continue
+        if payload.get("kind") == "trip":
+            trip_times.setdefault((turbine_id, scenario_id), []).append(_parse_scenario_timestamp(ts_raw))
             continue
         injected_at = _parse_scenario_timestamp(ts_raw)
         key = (turbine_id, scenario_id)
@@ -460,6 +469,11 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
         if not scenario:
             continue
         payload = info["payload"]
+        if payload.get("tripEvents"):
+            if any(injected_at <= t <= as_of for t in trip_times.get((turbine_id, scenario_id), [])):
+                tripped.add(turbine_id)
+            continue
+        # 舊情境（WMOM-20261021-03-b 之前生成、沒有 trip 事件）：嚴重度公式近似
         rate = payload.get("severityRate")
         rate = rate if isinstance(rate, (int, float)) and rate > 0 else 0.0002
         initial = payload.get("initialSeverity")

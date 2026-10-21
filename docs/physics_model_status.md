@@ -149,7 +149,7 @@ Included:
 - 11 fault scenarios (+3 legacy aliases not injectable)
 - gradual severity progression
 - physical influence on heat, vibration, pitch, yaw, speed, power, cooling and grid voltage
-- emergency stop interaction for tripping faults
+- PLC-driven trips: the PLC protection layer raises the trip, and the tripped fault holds a restart inhibit (`maintenance_lock`)
 - calibrated to real Z72 protection setpoints (WMOM-20261021-03a): at high load (14 m/s, 25 °C)
   every scenario's measured signal crosses its trip event's setpoint at full severity but not at
   severity 0.5; a healthy turbine at 30 °C and at the weather model's hottest 37 °C stays inside
@@ -173,8 +173,51 @@ Fixed in WMOM-20261021-03a:
 Current realism level:
 - Good enough for diagnostics demos and trend analysis.
 - Faults are no longer only output-tag offsets.
-- Alarm / trip events are still raised by `FaultEngine` severity thresholds, not by these
-  signals; switching to a signal-driven PLC protection layer is WMOM-20261021-03-b.
+- Alarm / trip events come from the PLC protection layer (WMOM-20261021-03-b, see 1.8a), not
+  from `FaultEngine` severity; a scenario's `alarm_codes` are only its expected codes.
+
+### 1.8a PLC Protection Layer
+Files:
+- `simulator/physics/plc_protection.py`
+- `simulator/physics/turbine_physics.py` (`self.plc`, `maintenance_lock`, `_restart_inhibited`)
+- `simulator/engine.py` (`_link_faults_to_plc`)
+
+Status: implemented (WMOM-20261021-03-b)
+
+Included:
+- one `PlcProtection` per turbine, evaluated at the end of every physics step on the
+  **pre-sensor process values** (the sensor model's noise / drift / stuck values are too large
+  for protection logic; sensor-fault trips are Phase 4, labeled)
+- rules from `TurbineSpec` setpoints with hysteresis and delays measured from the first crossing
+  sample (at 5 s batch sub-steps a delayed rule needs two consecutive samples); once on, a rule
+  clears only past its hysteresis — a closed judgement window does not clear it: bearing 262/240, stator
+  264/244, nacelle 273/256, transformer 417/444, cooling water 420/437(+021), converter cabinet
+  421/438(+021), static pressure 432 (producing only), yaw brake 260/228 (90 s after brakes
+  applied), seals leak 261, vane 1-2 discrepancy 233 (25 s filter, 10-min wind > 4.5 m/s), blade
+  discrepancy 335/336/337 (instant 8°, 3 s 3°, 5 s 1°; 60 s after reaching production), tower
+  vibration 236
+- T1 → normal servo stop (TurSt 9), T2 → emergency pitch (TurSt 7); a pending emergency stop is
+  never downgraded
+- trips latch until the condition clears, then auto-clear while the code's trips in the last
+  hour ≤ catalog `max_per_hour`; otherwise `restart_blocked` until operator reset (event 008)
+- physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT band 1 → 481 and
+  band ≥ 2 → 482 (+ 021), HVRT 475 + 021, grid protection by measured voltage (< 0.81 → 482,
+  < 0.90 → 481, > 1.08 → 475, else frequency 489; + 021), cut-out I 201; once per stop cycle,
+  re-coded after each start attempt
+- a fault becomes `tripped` when the PLC trips with one of the scenario's expected T codes; while
+  tripped the engine sets `maintenance_lock` (restart inhibit), which replaced the per-step
+  emergency stop that made TurSt oscillate 7↔3; when maintenance clears the fault the engine
+  clears the PLC's hourly trip count and restart block (`maintenance_release`)
+
+Verified:
+- healthy 3-turbine farm, 2 h automatic wind: no signal-judged events
+- all 11 scenarios at full severity (15 m/s, 25 °C) trip with an expected code
+- healthy legacy 111-tag outputs bit-identical to before the layer
+
+Known limitations:
+- physics-layer protection stops keep their own stop mode (software overspeed 351 is T1 in the
+  manual but still an emergency stop; cut-out also an emergency stop)
+- cut-out uses instantaneous wind, not the manual's 10-min / 5-s averages (WMOM-20261021-10)
 
 ### 1.9 Grid Model and Grid-Side Response
 Files:
