@@ -13,14 +13,18 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 11 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 135 |
+| done | 136 |
 | **total** | **150** |
 
-最後更新：2026-10-21 深夜（**WMOM-20261021-04 done**（EPIC-DS Phase 2）：故障情境標準答案 metadata（元件 / 根因 / 類別 / 難度 /
+最後更新：2026-10-21 深夜（**WMOM-20261021-05 done**（EPIC-DS Phase 3a ① 檔案）：情境資料包匯出——`server/scenario_pack.py`
+（manifest、tag 字典〔真實 / 自創〕、警報目錄快照、raw / 10 分鐘統計 Parquet、可觀測事件 events.jsonl、評分端版另附 ground_truth.json）、
+`GET /api/scenarios/{id}/pack`（盲測）/ `/pack/full`（主管）、CLI `tools/export_scenario_pack.py`；移除壞掉的資料集端點。
+逐條解析 header 核實：open 11 / in_progress 1 / deferred 2 / done 136 = 150。詳見 `work-logs/2026-10/2026-10-21-scenario-pack-export.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-04 done**（EPIC-DS Phase 2）：故障情境標準答案 metadata（元件 / 根因 / 類別 / 難度 /
 key signals / 建議處置，手冊條目由警報目錄組出、See [ABB] 標記）；批次路徑產生可觀測事件（PLC 事件 + 狀態轉換，模擬時間戳）；
 `history_events.session_id`（情境事件以 session 隔離）；標準答案存 `scenario_ground_truth` 表、`GET /api/scenarios/{id}/ground-truth`（主管），
 與可觀測事件分離（`storage.is_observable_event`）；依 code review 新增 `WMOM-20261021-12`（健康機組長時間偶發 T2 336，+1 筆）。
@@ -1418,13 +1422,31 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-05 — Phase 3a：① 檔案——情境資料包匯出
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 1.5-2 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: 依設計文件 §5.1 匯出 scenario pack（manifest、tag 字典、警報目錄快照、raw Parquet、10-min avg/min/max/std、events.jsonl、ground_truth.json）。現有 10-min 聚合只有約 9 欄且依 wall-clock 觸發，情境資料不會被聚合——匯出時直接從 raw 計算。順帶處理 `routers/farms.py::generate_dataset`（檢查 `sim._running` 導致產出 0 筆）：修好或移除。
 - **Deliverable**: 匯出端點 / CLI、`pyarrow` 依賴、測試
+- **完成紀錄**:
+  - `server/scenario_pack.py::export_scenario_pack`：
+    - **raw Parquet**：`timestamp[us, UTC]`、`turbine_id`、116 個 tag 欄；欄名＝Bachmann tag 名，型別依 PLC 資料型別；串流寫出。
+    - **10 分鐘統計**：串流逐窗計算，窗對齊 UTC 10 分鐘。類比 tag 給 avg / min / max / std（ddof 1），離散 tag 給 min / max，另有 `n_samples`。
+    - **events.jsonl**：只有可觀測事件；合約格式、`Z` 時間戳；不帶製程值 / 設定值；停機原因正規化。
+    - **tag 字典**：真實 / 自創 45 / 71。
+    - **警報目錄**：快照 314 碼。
+    - **manifest**：各檔 sha256；不帶情境名稱 / 故障排程 / 注入數。
+    - **ground_truth.json**：只在評分端版。
+    - **拒絕匯出**：-04 之前的情境、生成未成功、沒有讀值。
+  - **端點**：`GET /api/scenarios/{id}/pack`（盲測版，登入者）、`/pack/full`（含答案，永遠需主管）。
+  - **CLI**：`tools/export_scenario_pack.py`（`--list` / `--ground-truth` / `--zip`）。
+  - `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 擷取 1811 個 tag）+ `shared/plc_tags.py`。
+  - **移除** `POST /api/farms/{id}/datasets/generate`：永遠 0 筆、無事件 / 標準答案、前端未使用。資料集改用命名情境 + 資料包。
+  - `requirements.txt` 加 `pyarrow`。
+  - **測試**：`test_scenario_pack.py`（29）、`tests/test_plc_tags.py`（3）、auth +2；mutation 16 項皆被抓到。
+  - **效能**：14 機 × 6 h 匯出 3.7 s（生成 98 s）。
+  - 設計與已知限制見設計文件 §6.8。
 - **Depends on**: WMOM-20261021-04
 
 ### WMOM-20261021-06 — Phase 3b：② 串流——凍結情境 WebSocket 回放
@@ -1552,7 +1574,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 1b+ | ~~WMOM-20261021-11~~ ✅ | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
 | 1b+ | WMOM-20261021-12 | 健康機組長時間偶發葉片同步差異 T2 336（規則延時 / nuisance 定案） | 🔵 |
 | 2 | ~~WMOM-20261021-04~~ ✅ | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
-| 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
+| 3a | ~~WMOM-20261021-05~~ ✅ | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
 | 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
 | 3d | WMOM-20261021-09 | 學生專題 starter kit（合約 v1 + 範例資料包） | 🟡 合約定稿需劉老師確認 |
