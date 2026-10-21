@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import FaultInjectionRequest, FaultClearRequest
+from simulator.bulk_events import BulkEvent
 from simulator.physics.fault_engine import TEST_PLANS, TestPlanStep
 from simulator.time_utils import iso_utc
 
@@ -195,12 +196,36 @@ async def run_test_plan(plan_id: str, body: dict = {}):
             turbine_id=s.turbine_id,
             detail=s.description,
             timestamp=iso_utc(sim_time),
+            session_id=session_id,
             payload={
                 "plan_id": plan_id,
                 "scenarioId": s.scenario_id,
                 "severityRate": s.severity_rate,
             },
         )
+
+    def on_trip(turbine_id: str, fault_scenario_id: str, trip_code: int, sim_time: datetime) -> None:
+        """PLC 以故障預期碼跳機 → 記一筆 trip 標記（模擬時間戳，WMOM-20261021-04）。"""
+        b.record_event(
+            event_type="fault",
+            source="test_plan",
+            title=f"Test plan fault trip: {fault_scenario_id} on {turbine_id} (event {trip_code})",
+            turbine_id=turbine_id,
+            detail=f"{fault_scenario_id} tripped {turbine_id} via PLC event {trip_code}",
+            timestamp=iso_utc(sim_time),
+            session_id=session_id,
+            payload={
+                "plan_id": plan_id,
+                "kind": "trip",
+                "scenarioId": fault_scenario_id,
+                "turbineId": turbine_id,
+                "tripCode": trip_code,
+            },
+        )
+
+    def on_events(events: List[BulkEvent]) -> None:
+        """批次的可觀測事件（PLC 警報 / 跳機、狀態轉換，模擬時間戳）→ history_events。"""
+        b.record_bulk_events(events, session_id)
 
     # 批次全程暫停 Live 自由跑迴圈（與 config.py::generate-bulk 共用 pause_live_for_batch）：
     # 否則 Live thread 會與此批次併發 step 同一組物理模型並寫同一 SQLite → Windows 上撞
@@ -216,6 +241,8 @@ async def run_test_plan(plan_id: str, body: dict = {}):
             callback=store_cb,
             fault_schedule=steps,
             on_fault_injected=on_inject,
+            on_fault_tripped=on_trip,
+            on_events=on_events,
         )
         # Downsampling after bulk generation
         b.storage.run_downsampling()

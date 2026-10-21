@@ -11,13 +11,15 @@ storage 層由 ``test_scenario_persistence.py`` 覆蓋；本檔補 `config.gener
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional
 
 import pytest
+from fastapi import HTTPException
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
@@ -26,11 +28,16 @@ MONITORING_ROOT = PROJECT_ROOT / "modules" / "monitoring"
 if str(MONITORING_ROOT) not in sys.path:
     sys.path.insert(0, str(MONITORING_ROOT))
 
-from server.storage import Storage  # noqa: E402
+from server.data_broker import DataBroker  # noqa: E402
+from server.storage import Storage, is_observable_event  # noqa: E402
+import simulator.engine as engine_mod  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
 from server.routers import config as config_ep  # noqa: E402
 from server.routers import faults as faults_ep  # noqa: E402
 from server.routers import scenarios as scenarios_ep  # noqa: E402
+from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
+from simulator.physics.fault_engine import TestPlanStep as PlanStep  # noqa: E402  (別名：避免 pytest 收集)
+from simulator.time_utils import parse_iso  # noqa: E402
 
 
 class _FakeBroker:
@@ -51,8 +58,17 @@ class _FakeBroker:
         finally:
             self.simulator.restore_live_loop(was_running, 1.0)
 
-    def record_event(self, **kwargs) -> None:
-        self.storage.record_event(**kwargs)
+    def record_event(self, session_id: Optional[int] = None, **kwargs) -> None:
+        # 對齊真 DataBroker：session_id 缺省＝目前 Live session
+        self.storage.record_event(session_id=session_id if session_id is not None else self._session_id,
+                                  **kwargs)
+
+    # 批次事件寫入直接沿用真 DataBroker 的實作（格式與 Live 路徑共用，WMOM-20261021-04）
+    _PLC_EVENT_TITLES = DataBroker._PLC_EVENT_TITLES
+    _plc_event_fields = DataBroker._plc_event_fields
+    _state_transition_fields = DataBroker._state_transition_fields
+    _state_name = DataBroker._state_name
+    record_bulk_events = DataBroker.record_bulk_events
 
     def get_history(self, turbine_id: str, start: Optional[str] = None,
                     end: Optional[str] = None, limit: int = 1000,
@@ -60,12 +76,20 @@ class _FakeBroker:
         return self.storage.query_history(turbine_id, start, end, limit, session_id=session_id)
 
     def get_history_events(self, turbine_id: Optional[str] = None, start: Optional[str] = None,
-                           end: Optional[str] = None, limit: int = 500) -> List[dict]:
-        return self.storage.query_events(turbine_id, start, end, limit)
+                           end: Optional[str] = None, limit: int = 500,
+                           session_id: Optional[int] = None,
+                           source: Optional[str] = None) -> List[dict]:
+        return self.storage.query_events(turbine_id, start, end, limit, session_id=session_id, source=source)
+
+
+# 批次起點固定（WMOM-20261021-04 code review）：generate_bulk 從 utc_now() 起算，風況隨時刻 / 季節
+# 變化，不固定的話依賴跳機的測試會隨執行時刻時過時不過
+FIXED_BULK_START = datetime(2026, 1, 15, 3, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
 def broker(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_mod, "utc_now", lambda: FIXED_BULK_START)
     storage = Storage(db_path=str(tmp_path / "ep.db"))
     sim = WindFarmSimulator(turbine_count=3)
     sim._running = True
@@ -88,9 +112,20 @@ def test_generate_bulk_saves_scenario_with_offset0_event_in_window(broker):
 
     hist = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT002", 2000))
     assert len(hist["readings"]) > 0, "情境資料應可調閱"
-    assert hist["events_by_time_window"] is True, "應標明 events 走時間窗、非 session 隔離"
+    # WMOM-20261021-04 起事件以 session_id 隔離
+    assert hist["events_by_time_window"] is False
     fault_events = [e for e in hist["events"] if e.get("event_type") == "fault"]
-    assert fault_events, "offset=0 的故障事件應落在情境時間窗內、被調閱撈到（Must-fix #2）"
+    assert fault_events, "offset=0 的故障事件應可被調閱撈到（Must-fix #2）"
+
+    # 舊情境（沒有 events_session_isolated 標記、事件沒有 session）退回時間窗：offset=0 事件仍要在窗內
+    broker.storage.update_session_config(sid, {"events_session_isolated": None})
+    conn = broker.storage._get_conn()
+    conn.execute("UPDATE history_events SET session_id = NULL WHERE session_id = ?", (sid,))
+    conn.commit()
+    legacy = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT002", 2000))
+    assert legacy["events_by_time_window"] is True, "舊情境應標明 events 走時間窗、非 session 隔離"
+    assert [e for e in legacy["events"] if e.get("event_type") == "fault"], \
+        "offset=0 的故障事件應落在情境時間窗內（Must-fix #2）"
 
 
 def test_generate_bulk_isolates_scenario_from_live_and_ends_it(broker):
@@ -192,7 +227,7 @@ def test_scenario_summary_endpoint_reports_per_turbine_and_farm(broker):
     assert summary.status == "ok"
     assert summary.timeStepSeconds == 10.0
     assert summary.ratedPowerKw == 2000.0          # 由 session 帶出（generate_bulk 釘入）
-    assert summary.eventsByTimeWindow is True
+    assert summary.eventsByTimeWindow is False     # 事件以 session_id 隔離（WMOM-20261021-04）
     assert len(summary.turbines) == 3
     for t in summary.turbines:
         assert t.samples > 0
@@ -527,7 +562,7 @@ def test_scenario_turbines_reports_fault_for_tripped_injected_fault(broker):
     assert by_id["WT003"].status != TurbineStatus.FAULT
 
     # 端點接線（WMOM-20261021-03-b）：注入事件標 tripEvents、PLC 跳機經 on_fault_tripped 記成 trip 事件
-    events = broker.storage.query_events("WT002", limit=500)
+    events = broker.storage.query_events("WT002", limit=500, source="scenario")
     injections = [e for e in events if (e.get("payload") or {}).get("tripEvents") is True]
     trips = [e["payload"] for e in events if (e.get("payload") or {}).get("kind") == "trip"]
     assert injections, "情境排程的注入事件應標 tripEvents"
@@ -748,3 +783,170 @@ def test_plc_events_without_scenario_are_ignored_by_trip_recompute():
     events = [_new_injection("WT001", "bearing_wear", "2026-01-01T00:00:00"), plc_event]
     assert scenarios_ep._tripped_fault_turbine_ids(
         events, datetime.fromisoformat("2026-01-01T01:00:00")) == set()
+
+
+# ─── WMOM-20261021-04：情境事件 session 隔離 + 標準答案 ───────────────────────
+
+
+def _overspeed_scenario(broker) -> int:
+    """WT001 快速超速故障的情境（1 h，固定 14 m/s）；WT002 / WT003 健康。"""
+    broker.simulator.wind_model.set_override(wind_speed=14.0)  # 超速跳機依風速而定：不靠季節 / 時刻
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 1.0, "time_step": 10.0, "name": "考題：超速",
+        "fault_schedule": [{"scenario_id": "generator_overspeed", "turbine_id": "WT001",
+                            "offset_seconds": 600, "severity_rate": 0.01}],
+    }))
+    return res["scenario_id"]
+
+
+def test_scenario_ground_truth_records_onset_trip_and_answer(broker):
+    sid = _overspeed_scenario(broker)
+    gt = asyncio.run(scenarios_ep.get_scenario_ground_truth(sid))
+    config = broker.storage.get_scenario(sid)["config"]
+
+    assert gt["contract_version"] == "0.1" and gt["scenario_id"] == sid
+    assert gt["scenario_name"] == "考題：超速" and gt["site_timezone"] == "Asia/Taipei"
+    assert (gt["sim_start"], gt["sim_end"]) == (config["sim_start"], config["sim_end"])
+    assert gt["healthy_turbines"] == ["WT002", "WT003"]
+    (case,) = gt["cases"]
+    assert case["turbine_id"] == "WT001" and case["fault_id"] == "generator_overspeed"
+    assert case["component"] == "pitch_control_system" and case["category"] == "real_fault"
+    assert case["expected_alarm_codes"] == [351, 320]
+    assert case["trip_code"] in (351, 320) and case["trip_ts"] is not None
+    onset, trip = parse_iso(case["onset_ts"]), parse_iso(case["trip_ts"])
+    assert (onset - parse_iso(config["sim_start"])).total_seconds() == pytest.approx(590.0, abs=10.0)
+    assert onset < trip
+    # 超速沒有 A 級預警：首次警報＝跳機（設計文件 §6.1 限制 2）
+    assert case["first_alarm_ts"] == case["trip_ts"] and case["first_alarm_code"] == case["trip_code"]
+    assert case["trip_code"] in case["observed_alarm_codes"]
+
+    # 可觀測事件裡有同一個跳機（PLC 事件，同一時刻）
+    plc_trips = [e for e in broker.storage.query_events("WT001", session_id=sid, source="plc")
+                 if (e.get("payload") or {}).get("kind") == "trip"]
+    assert [(e["payload"]["code"], e["timestamp"]) for e in plc_trips] == [(case["trip_code"], case["trip_ts"])]
+
+
+def test_scenario_events_are_isolated_and_blind(broker):
+    sid = _overspeed_scenario(broker)
+    events = broker.storage.query_events(session_id=sid, limit=10000)
+    assert {e["source"] for e in events} == {"plc", "simulator", "scenario"}
+    assert broker.storage.query_events(session_id=broker._session_id) == [], "情境事件不得寫進 Live session"
+
+    observable = [e for e in events if is_observable_event(e)]
+    assert {e["source"] for e in observable} == {"plc", "simulator"}
+    assert any(e["event_type"] == "state" for e in observable)
+    leaks = [
+        (e["title"], fid) for e in observable for fid in FAULT_SCENARIOS
+        if fid in f"{e['title']} {e.get('detail') or ''} {json.dumps(e.get('payload'))}"
+    ]
+    assert leaks == [], "可觀測事件不得含故障 ID（盲測）"
+    # 情境詮釋資料（一般檢視者可讀）不含標準答案
+    config_text = json.dumps(broker.storage.get_scenario(sid)["config"], ensure_ascii=False)
+    assert FAULT_SCENARIOS["generator_overspeed"].root_cause_zh not in config_text
+    assert "cases" not in broker.storage.get_scenario(sid)["config"]
+
+
+def test_scenario_views_use_session_events_and_legacy_falls_back_to_time_window(broker):
+    sid = _overspeed_scenario(broker)
+    hist = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))
+    assert hist["events_by_time_window"] is False
+    assert {e["session_id"] for e in hist["events"]} == {sid}
+    summary = asyncio.run(scenarios_ep.get_scenario_summary(sid))
+    wt1 = next(t for t in summary.turbines if t.turbineId == "WT001")
+    assert summary.eventsByTimeWindow is False
+    assert wt1.faultEvents == broker.storage.count_scenario_fault_events(session_id=sid)["WT001"] > 0
+
+    # 另一個情境（WT001 也有事件）不會混進來
+    other = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.2, "time_step": 10.0, "name": "鄰居",
+        "fault_schedule": [{"scenario_id": "hydraulic_leak", "turbine_id": "WT001", "offset_seconds": 0}],
+    }))["scenario_id"]
+    assert broker.storage.query_events("WT001", session_id=other), "前置：鄰居情境在 WT001 有事件"
+    hist_again = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))
+    assert {e["session_id"] for e in hist_again["events"]} == {sid}
+
+    # 舊情境（沒有 events_session_isolated）退回時間窗
+    broker.storage.update_session_config(sid, {"events_session_isolated": None})
+    assert asyncio.run(scenarios_ep.get_scenario_summary(sid)).eventsByTimeWindow is True
+    assert asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))["events_by_time_window"] is True
+
+
+def test_mounted_scenario_fault_status_survives_many_plc_events(broker, monkeypatch):
+    """FAULT 重算只撈注入 / 跳機標記：同 session 的 PLC 事件再多也不會把較早的注入標記擠出 LIMIT。"""
+    from server.models import TurbineStatus
+    sid = _overspeed_scenario(broker)
+    broker.storage.record_events([
+        {"event_type": "fault", "source": "plc", "title": "noise", "turbine_id": "WT003",
+         "timestamp": broker.storage.get_scenario(sid)["config"]["sim_end"], "session_id": sid,
+         "payload": {"kind": "alarm_raised", "code": 262}}
+        for _ in range(1200)
+    ])
+    by_id = {r.turbineId: r for r in asyncio.run(scenarios_ep.get_scenario_turbines(sid))}
+    assert by_id["WT001"].status == TurbineStatus.FAULT
+
+
+def test_ground_truth_endpoint_404s(broker):
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(scenarios_ep.get_scenario_ground_truth(9999))
+    assert exc.value.status_code == 404
+    sid = asyncio.run(config_ep.generate_bulk({"duration_hours": 0.02, "time_step": 10.0, "name": "無故障"}))["scenario_id"]
+    healthy = asyncio.run(scenarios_ep.get_scenario_ground_truth(sid))
+    assert healthy["cases"] == [] and healthy["healthy_turbines"] == ["WT001", "WT002", "WT003"]
+    conn = broker.storage._get_conn()
+    conn.execute("DELETE FROM scenario_ground_truth WHERE session_id = ?", (sid,))  # 模擬舊情境
+    conn.commit()
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(scenarios_ep.get_scenario_ground_truth(sid))
+    assert exc.value.status_code == 404
+
+
+def test_delete_scenario_endpoint_removes_events_and_ground_truth(broker):
+    sid = _overspeed_scenario(broker)
+    assert broker.storage.query_events(session_id=sid)
+    asyncio.run(scenarios_ep.delete_scenario(sid))
+    assert broker.storage.query_events(session_id=sid) == []
+    assert broker.storage.get_ground_truth(sid) is None
+
+
+def test_unnamed_bulk_records_events_in_live_session_without_ground_truth(broker):
+    asyncio.run(config_ep.generate_bulk({"duration_hours": 0.05, "time_step": 10.0}))
+    live = broker.storage.query_events(session_id=broker._session_id, limit=1000)
+    assert any(e["event_type"] == "state" for e in live), "不帶 name 的批次也要有可觀測事件"
+    assert broker.storage.get_ground_truth(broker._session_id) is None
+
+
+def test_run_test_plan_records_plc_events_and_trip_markers(broker, monkeypatch):
+    monkeypatch.setattr(faults_ep, "get_broker", lambda: broker)
+    broker.simulator.wind_model.set_override(wind_speed=14.0)
+    monkeypatch.setitem(faults_ep.TEST_PLANS, "tiny_overspeed", {
+        "name_en": "Tiny", "name_zh": "小", "description_en": "", "description_zh": "",
+        "duration_hours": 0.5,
+        "steps": [PlanStep(0, "generator_overspeed", "WT001", 0.01)],
+    })
+    asyncio.run(faults_ep.run_test_plan("tiny_overspeed", {"time_step": 10.0}))
+    events = broker.storage.query_events("WT001", session_id=broker._session_id, limit=1000)
+    markers = [e["payload"] for e in events if e["source"] == "test_plan"]
+    assert {m.get("kind", "inject") for m in markers} == {"inject", "trip"}
+    trip_marker = next(m for m in markers if m.get("kind") == "trip")
+    plc_trips = [e["payload"]["code"] for e in events
+                 if e["source"] == "plc" and e["payload"]["kind"] == "trip"]
+    assert trip_marker["tripCode"] in plc_trips
+
+
+def test_named_scenario_without_schedule_starts_from_a_clean_fault_state(broker):
+    """code review M2：Live 殘留的故障不能帶進命名情境（否則標準答案把有故障的機組列為健康）。"""
+    broker.simulator.fault_engine.inject("bearing_wear", "WT001", initial_severity=0.9)
+    sid = asyncio.run(config_ep.generate_bulk({"duration_hours": 0.05, "time_step": 10.0, "name": "健康基準"}))["scenario_id"]
+    gt = asyncio.run(scenarios_ep.get_scenario_ground_truth(sid))
+    assert gt["cases"] == [] and gt["healthy_turbines"] == ["WT001", "WT002", "WT003"]
+    assert broker.simulator.fault_engine.active_faults == []
+
+
+def test_scenario_history_can_return_only_observable_events(broker):
+    """給盲測的外部消費端：observable_only 拿掉寫明故障的注入 / 跳機標記。"""
+    sid = _overspeed_scenario(broker)
+    full = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))["events"]
+    blind = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000, observable_only=True))["events"]
+    assert any(e["source"] == "scenario" for e in full)
+    assert blind and all(is_observable_event(e) for e in blind)
+    assert {e["source"] for e in blind} == {"plc", "simulator"}

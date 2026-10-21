@@ -132,6 +132,9 @@ def test_scheduled_fault_progresses_to_trip():
     """注入 → severity 進程 → 物理 → PLC 跳機，證明排定故障真的驅動物理（WMOM-20261021-03-b：
     跳機由 PLC 依量測值判定，不再是嚴重度門檻）。"""
     sim = _running_sim()
+    # 超速跳機依風速而定：固定 14 m/s，不靠執行當下的季節 / 時刻風況（低風時 3 分鐘內不會跳機，
+    # 測試會隨執行時刻時過時不過——WMOM-20261021-04 code review 同類問題）
+    sim.wind_model.set_override(wind_speed=14.0)
     # generator_overspeed：rate 0.05/s 很快滿嚴重度，轉速失控越過軟體超速 26.5 rpm →
     # 物理層超速保護停機 → PLC 事件 351 → 故障 tripped。
     schedule = [PlanStep(offset_seconds=0.0, scenario_id="generator_overspeed",

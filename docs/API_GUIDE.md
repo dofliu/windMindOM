@@ -373,6 +373,32 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > (with `turbineId` it also resets the turbine model; without, the engine clears the PLC's hourly
 > trip count and restart block on the next step).
 
+> **Batch scenarios: observable events and ground truth (WMOM-20261021-04).** `POST
+> /api/config/simulation/generate-bulk` (and `POST /api/faults/test-plans/{plan_id}/run`) now record the
+> batch's observable events on the simulated timeline: PLC events (`source="plc"`, same format as live)
+> and operating-state changes (`source="simulator"`, `event_type` `state` / `fault` / `grid` / `operator`).
+> History events carry a `session_id`: a named scenario's events belong to the scenario session, an
+> unnamed batch's to the live session. `GET /api/scenarios/{id}/turbines/{turbine_id}/history` and
+> `/summary` isolate events by session (`events_by_time_window` / `eventsByTimeWindow` = `false`);
+> scenarios generated earlier fall back to the simulated time window (`true`). Live event queries
+> (`/api/turbines/{id}/history`, `/api/export/events`, maintenance comparisons) exclude scenario
+> sessions. A scenario summary's per-turbine `faultEvents` counts PLC alarms raised and trips only.
+> `.../history?observable_only=true` drops everything that is not an observable event (PLC events and
+> operating-state changes). Named scenarios always start with the runtime faults cleared, and their raw
+> readings are kept until the scenario is deleted (not subject to the 3-day raw retention).
+>
+> `GET /api/scenarios/{id}/ground-truth` (supervisor; always requires a token, even when
+> `WMOM_AUTH_ENFORCE` is off) returns the scenario's answer key
+> (`ground_truth.json`, contract v0.1): one case per fault injection with `category`, `fault_id`,
+> `component`, `root_cause`, `onset_ts`, `first_alarm_ts`, `trip_ts`, `expected_alarm_codes`,
+> `observed_alarm_codes`, `manual_refs` (Z72 manual Appendix C; `see_abb` when the manual only says
+> "See [ABB]"), `expected_actions`, `key_signals` and `simulation_notes`, plus `healthy_turbines` and
+> `unattributed_events` (alarms / trips / info no case explains). It is stored apart from the events
+> (blind test): scenario injection / trip markers (`source="scenario"` / `"test_plan"`) name the fault
+> and are not observable events — exporters must filter with `storage.is_observable_event` (allow-list:
+> PLC events and operating-state changes).
+> Scenarios generated before this change have no ground truth (404).
+
 #### POST `/api/control/command`
 
 Operator commands.

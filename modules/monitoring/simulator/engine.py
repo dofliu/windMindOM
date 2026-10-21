@@ -18,6 +18,7 @@ from simulator.physics import TurbinePhysicsModel, FaultEngine
 from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPlanStep
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
+from simulator.bulk_events import STATE_CHANGE, BulkEvent
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, utc_now
 
 
@@ -398,7 +399,8 @@ class WindFarmSimulator:
                       progress_callback: Optional[Callable[[float, float], None]] = None,
                       fault_schedule: Optional[List[TestPlanStep]] = None,
                       on_fault_injected: Optional[Callable[[TestPlanStep, datetime], None]] = None,
-                      on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None) -> int:
+                      on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None,
+                      on_events: Optional[Callable[[List[BulkEvent]], None]] = None) -> int:
         """Generate bulk historical data without real-time waiting.
 
         Runs the full physics simulation at maximum speed, writing data
@@ -421,6 +423,9 @@ class WindFarmSimulator:
             on_fault_tripped: 選填。PLC 以故障的預期跳機碼使機組跳機、故障轉為 tripped 的當下，以
                 ``(turbine_id, scenario_id, trip_code, sim_time)`` 回呼，讓呼叫端把跳機寫成
                 事件（情境掛載依此判定 FAULT，WMOM-20261021-03-b）。
+            on_events: 選填。每個輸出步結束時，以本步（所有物理子步）收集到的可觀測事件回呼：
+                PLC 事件（警報 / 跳機 / 復位 / 資訊）與運轉狀態轉換，時間戳為模擬時間
+                （WMOM-20261021-04）。不給時事件照舊丟棄。收集只讀狀態、不改物理結果。
 
         Returns:
             Total number of readings generated
@@ -445,6 +450,12 @@ class WindFarmSimulator:
         self._bulk_running = True
         prev_on_fault_tripped = self._on_fault_tripped
         self._on_fault_tripped = on_fault_tripped
+        # 狀態轉換偵測的前一個 WTUR_TurSt（第一個子步只建立基準、不出事件）
+        last_states: Dict[str, int] = {}
+        if on_events is not None:
+            # 批次開始前佇列裡的 PLC 事件屬於 Live（broker 已處理或停 Live 前的殘留），不算本批
+            for model in self.turbines.values():
+                model.plc.drain_events()
         try:
             for step_i in range(total_steps):
                 if not self._bulk_running:
@@ -467,14 +478,20 @@ class WindFarmSimulator:
                     sched_idx += 1
 
                 # 以穩定子步推進物理；只有最後一子步的 readings 落地（輸出節奏＝time_step）。
+                # 事件則每個子步都收（狀態轉換可能只維持一個子步）。
                 readings: List[Dict] = []
+                step_events: List[BulkEvent] = []
                 for _ in range(n_sub):
                     sim_time += timedelta(seconds=sub_dt)
                     readings = self._run_one_step(sim_time, sub_dt)
+                    if on_events is not None:
+                        step_events.extend(self._collect_bulk_events(sim_time, readings, last_states))
                 total_readings += len(readings)
 
                 if callback:
                     callback(readings)
+                if step_events:
+                    on_events(step_events)
 
                 if progress_callback and step_i % report_interval == 0:
                     current_hours = step_i * time_step / 3600
@@ -482,12 +499,54 @@ class WindFarmSimulator:
         finally:
             self._bulk_running = False
             self._on_fault_tripped = prev_on_fault_tripped
-            # 批次路徑不收 PLC 事件（-04 之前）：丟掉佇列裡的批次事件，否則 Live 恢復後 broker
-            # 會把它們當成「剛剛發生」的事件寫入
+            # 不收事件（on_events 為 None）時丟掉佇列裡的批次事件，否則 Live 恢復後 broker 會把
+            # 它們當成「剛剛發生」的事件寫入；收事件時這裡只會是空的
             for model in self.turbines.values():
                 model.plc.drain_events()
 
         return total_readings
+
+    def _collect_bulk_events(self, sim_time: datetime, readings: List[Dict],
+                             last_states: Dict[str, int]) -> List[BulkEvent]:
+        """收集一個物理子步的可觀測事件（WMOM-20261021-04）。
+
+        PLC 事件的時刻＝本子步模擬時間往回推（事件 ``sim_time`` 與機組 ``_sim_time`` 同一時間軸，
+        與 broker Live 路徑的 ``_plc_event_timestamp`` 相同換算）；狀態轉換記在本子步時刻，排在
+        同機組的 PLC 事件之後（跳機事件先於它造成的停機狀態）。
+
+        Args:
+            sim_time: 本子步結束時的模擬時刻（tz-aware UTC）。
+            readings: 本子步各機組的輸出。
+            last_states: 各機組上一個子步的 ``WTUR_TurSt``（就地更新）。
+
+        Returns:
+            本子步的事件（依機組、PLC 事件在前）。
+        """
+        events: List[BulkEvent] = []
+        for reading in readings:
+            tid = reading["turbine_id"]
+            model = self.turbines[tid]
+            for plc_event in model.plc.drain_events():
+                lag_s = max(0.0, float(model._sim_time) - plc_event.sim_time)
+                events.append(BulkEvent(
+                    timestamp=sim_time - timedelta(seconds=lag_s),
+                    turbine_id=tid,
+                    kind=plc_event.kind,
+                    plc_event=plc_event,
+                ))
+            state = int(reading["scada"].get("WTUR_TurSt", 0) or 0)
+            previous = last_states.get(tid)
+            if previous is not None and previous != state:
+                events.append(BulkEvent(
+                    timestamp=sim_time,
+                    turbine_id=tid,
+                    kind=STATE_CHANGE,
+                    from_state=previous,
+                    to_state=state,
+                    shutdown_cause=model.get_control_status().get("shutdown_cause"),
+                ))
+            last_states[tid] = state
+        return events
 
     @staticmethod
     def _scada_to_output(tid: str, timestamp: datetime,

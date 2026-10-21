@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
+from simulator.bulk_events import BulkEvent
+from simulator.ground_truth import GroundTruthRecorder
 from simulator.physics.fault_engine import FAULT_SCENARIOS, TestPlanStep
 from simulator.time_utils import iso_utc
 
@@ -292,7 +294,7 @@ async def generate_bulk(body: dict):
     ``generate_bulk`` 同步跑在 request thread，會與 Live 背景 thread 併發呼叫同一批
     ``model.step()`` / ``fault_engine.step()``（``engine._lock`` 只保護 ``latest_data``、不含
     ``model.step()`` 本身）並同時寫同一 SQLite → Windows 上實測撞 ``database is locked``。
-    暫停期間才 ``fault_engine.clear()``（帶 ``fault_schedule`` 時求乾淨情境）＋ 生成 ＋ 收尾寫入，
+    暫停期間才 ``fault_engine.clear()``（帶 ``fault_schedule`` 或 ``name`` 時求乾淨情境）＋ 生成 ＋ 收尾寫入，
     確保無第二個 writer。資料落地另以專屬 ``session_id`` 隔離（見 ``name`` 參數）。
     註：姊妹端點 ``faults.py::run_test_plan`` 亦共用 ``pause_live_for_batch``。
     """
@@ -336,6 +338,9 @@ async def generate_bulk(body: dict):
                 "wind_profile": wind_profile,
                 # 日夜 / 季節循環所用的風場時區：情境可重現的必要資訊（WMOM-20261021-11）
                 "site_timezone": b.simulator.wind_model.site_timezone_name,
+                # 本情境的事件帶 session_id（WMOM-20261021-04）：調閱 / 摘要以 session 隔離，
+                # 不再靠模擬時間窗比對（舊情境沒有此鍵 → 退回時間窗）
+                "events_session_isolated": True,
                 "duration_hours": duration,
                 "time_step": step,
                 "fault_schedule": [
@@ -353,6 +358,9 @@ async def generate_bulk(body: dict):
     else:
         scenario_id = None
         session_id = b._session_id
+
+    # 情境的標準答案（WMOM-20261021-04）：與可觀測事件分開存，只有命名情境才有
+    recorder = GroundTruthRecorder(list(b.simulator.turbines)) if scenario_id is not None else None
 
     injected_count = 0  # 實際注入數（offset 超過批次總長者不會注入 → 不計入）
     sim_window: dict = {"start": None, "end": None}  # 情境的模擬時間窗（供調閱設範圍）
@@ -378,6 +386,10 @@ async def generate_bulk(body: dict):
         inj_ts = iso_utc(sim_time)
         if sim_window["start"] is None or inj_ts < sim_window["start"]:
             sim_window["start"] = inj_ts
+        if recorder is not None:
+            recorder.on_fault_injected(fstep, sim_time)
+        # 注入 / 跳機標記（source="scenario"）是給操作端看的情境標記，含故障 ID——不屬於可觀測事件
+        # （匯出給外部 RAG 時排除，見 storage.is_observable_event）
         b.record_event(
             event_type="fault",
             source="scenario",
@@ -385,6 +397,7 @@ async def generate_bulk(body: dict):
             turbine_id=fstep.turbine_id,
             detail=fstep.description or f"Scheduled {fstep.scenario_id} @ {fstep.offset_seconds / 3600:.1f}h",
             timestamp=iso_utc(sim_time),
+            session_id=session_id,
             payload={
                 "scenarioId": fstep.scenario_id,
                 "turbineId": fstep.turbine_id,
@@ -399,6 +412,8 @@ async def generate_bulk(body: dict):
 
     def on_trip(turbine_id: str, fault_scenario_id: str, trip_code: int, sim_time: datetime) -> None:
         """PLC 以故障預期碼跳機 → 記一筆 trip 事件（模擬時間戳），供情境掛載判定 FAULT 狀態。"""
+        if recorder is not None:
+            recorder.on_fault_tripped(turbine_id, fault_scenario_id, trip_code, sim_time)
         b.record_event(
             event_type="fault",
             source="scenario",
@@ -406,6 +421,7 @@ async def generate_bulk(body: dict):
             turbine_id=turbine_id,
             detail=f"{fault_scenario_id} tripped {turbine_id} via PLC event {trip_code}",
             timestamp=iso_utc(sim_time),
+            session_id=session_id,
             payload={
                 "kind": "trip",
                 "scenarioId": fault_scenario_id,
@@ -414,15 +430,23 @@ async def generate_bulk(body: dict):
             },
         )
 
+    def on_events(events: List[BulkEvent]) -> None:
+        """批次的可觀測事件（PLC 警報 / 跳機、狀態轉換，模擬時間戳）→ history_events（WMOM-20261021-04）。"""
+        b.record_bulk_events(events, session_id)
+        if recorder is not None:
+            recorder.on_events(events)
+
     # 批次生成前先停 Live 自由跑迴圈，全程（清故障 + 生成 + 收尾寫入）Live 都停著，離開 context
     # 才恢復。否則 live thread 會與批次「同時 step 同一組物理模型」（race）並「同時寫同一 SQLite」
     # → Windows 上實測 generate-bulk 撞 ``database is locked``。停 / 恢復集中在
     # DataBroker.pause_live_for_batch（faults.py::run_test_plan 共用同一套，避免漏套）。
     sim = b.simulator
     with b.pause_live_for_batch():
-        if schedule:
+        if schedule or scenario_id is not None:
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
+            # 命名情境即使沒有排程也要清（WMOM-20261021-04 code review）：否則 Live 殘留的故障會出現在
+            # 資料裡，標準答案卻把那台機組列為健康
             sim.fault_engine.clear()
         try:
             total = sim.generate_bulk(
@@ -432,10 +456,20 @@ async def generate_bulk(body: dict):
                 fault_schedule=schedule or None,
                 on_fault_injected=on_inject if schedule else None,
                 on_fault_tripped=on_trip if schedule else None,
+                on_events=on_events,
             )
             # Run downsampling after bulk generation
             b.storage.run_downsampling()
-            if scenario_id is not None:
+            if scenario_id is not None and recorder is not None:
+                # 標準答案另存一張表（盲測：情境詮釋資料 / 事件都不含根因）
+                b.storage.save_ground_truth(scenario_id, recorder.build(
+                    scenario_id=scenario_id,
+                    scenario_name=scenario_name,
+                    site_timezone=sim.wind_model.site_timezone_name,
+                    sim_start=sim_window["start"],
+                    sim_end=sim_window["end"],
+                    final_faults=sim.fault_engine.active_faults,
+                ))
                 # 回填統計 + 模擬時間窗並結束情境 session。趁 Live 仍停時寫（避免與恢復的 live 搶鎖）。
                 b.storage.update_session_config(scenario_id, {
                     "status": "ok",
