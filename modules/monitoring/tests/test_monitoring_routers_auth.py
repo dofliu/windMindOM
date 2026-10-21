@@ -132,3 +132,23 @@ def test_ground_truth_enforced_supervisor_passes(client, monkeypatch, tmp_path):
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     r = client.get(_GROUND_TRUTH_URL, headers=_bearer("supervisor"))
     assert r.status_code == 404, "過 gate 後才因情境不存在 404"
+
+
+# ── 情境資料包（WMOM-20261021-05）：盲測版＝登入者、評分端版（含答案）＝主管 ──────────
+def test_full_pack_requires_supervisor_even_when_auth_is_not_enforced(client):
+    assert client.get("/api/scenarios/1/pack/full").status_code == 401
+    assert client.get("/api/scenarios/1/pack/full", headers=_bearer("employee")).status_code == 403
+
+
+def test_blind_pack_follows_the_read_gate(client, monkeypatch, tmp_path):
+    from server.storage import Storage
+
+    class _Stub:
+        storage = Storage(db_path=str(tmp_path / "pack.db"))
+
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: _Stub())
+    assert client.get("/api/scenarios/1/pack").status_code == 404, "enforce=false：過 gate 後因情境不存在 404"
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    assert client.get("/api/scenarios/1/pack").status_code == 401
+    assert client.get("/api/scenarios/1/pack", headers=_bearer("employee")).status_code == 404
+    assert client.get("/api/scenarios/1/pack/full", headers=_bearer("supervisor")).status_code == 404

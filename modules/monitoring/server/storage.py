@@ -3,7 +3,7 @@ import json
 import threading
 import time as _time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 from pathlib import Path
 
 try:
@@ -1157,6 +1157,52 @@ class Storage:
                     pass
             result.append(d)
         return result
+
+    def iter_session_readings(self, session_id: int, batch_size: int = 5000) -> Iterator[List[sqlite3.Row]]:
+        """依時間、機組排序，分批取某 session 的 raw 讀值（情境資料包匯出用，WMOM-20261021-05）。
+
+        Args:
+            session_id: session id。
+            batch_size: 每批列數（匯出長情境時不一次載入全部）。
+
+        Yields:
+            每批 ``(timestamp, turbine_id, scada_json)`` 列。
+        """
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "SELECT timestamp, turbine_id, scada_json FROM turbine_data WHERE session_id = ? "
+            "ORDER BY timestamp, turbine_id, id",
+            (session_id,),
+        )
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                return
+            yield rows
+
+    def session_events(self, session_id: int) -> List[dict]:
+        """某 session 的全部事件，依時間由舊到新（同時刻依寫入順序；資料包匯出用，WMOM-20261021-05）。
+
+        Args:
+            session_id: session id。
+
+        Returns:
+            事件 dict（``payload`` 已解析）。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM history_events WHERE session_id = ? ORDER BY timestamp, id", (session_id,),
+        ).fetchall()
+        events = []
+        for row in rows:
+            event = dict(row)
+            if event.get("payload_json"):
+                try:
+                    event["payload"] = json.loads(event["payload_json"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            events.append(event)
+        return events
 
     def scenario_turbine_ids(self, session_id: int) -> List[str]:
         """情境（session）內出現過資料的機組 id 清單，依字母序排序（PR C Phase 1 情境掛載用）。

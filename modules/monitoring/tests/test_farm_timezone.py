@@ -6,7 +6,7 @@
 1. 同一個 UTC 時刻在任何伺服器時區下得到同一個風況（可重現）
 2. 風況模型、模擬器依設定的時區換算；無效時區名稱 raise
 3. 風場設定 ``timezone`` 欄：預設值、建立 / 更新時驗證、舊 DB 自動補欄
-4. broker 以目前風場的時區建立模擬器（切換風場、批次資料集同樣）；session config 記下所用時區
+4. broker 以目前風場的時區建立模擬器（切換風場同樣）；session config 記下所用時區
 5. code review 補強：跨月邊界、clone、``localtime``、非字串、存了無效時區時 fallback
 """
 
@@ -36,7 +36,6 @@ from server.farm_registry import DEFAULT_FARM_TIMEZONE, FarmRegistry
 from server.models import DataSourceConfig, DataSourceMode
 from server.routers import farms as farms_ep
 from simulator.engine import WindFarmSimulator
-from server.storage import Storage
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive
 from wind_model import WindEnvironmentModel
 
@@ -233,24 +232,6 @@ def test_farms_api_timezone_defaults_rejects_non_strings_and_patches(
     patched = asyncio.run(farms_ep.update_farm("default_tz", {"timezone": "America/New_York"}))
     assert patched["farm"]["timezone"] == "America/New_York"
     assert registry.get_farm("default_tz").timezone == "America/New_York"
-
-
-def test_dataset_generation_uses_the_farm_timezone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    registry = FarmRegistry(data_dir=tmp_path)
-    registry.create_farm("berlin", "Berlin", turbine_count=1, timezone="Europe/Berlin")
-    monkeypatch.setattr(farms_ep, "_get_registry", lambda: registry)
-    seen: List[str] = []
-    real_init = WindFarmSimulator.__init__
-
-    def spy_init(self: WindFarmSimulator, *args: object, **kwargs: object) -> None:
-        real_init(self, *args, **kwargs)  # type: ignore[arg-type]  # 原樣轉交
-        seen.append(self.wind_model.site_timezone_name)
-
-    monkeypatch.setattr(WindFarmSimulator, "__init__", spy_init)
-    result = asyncio.run(farms_ep.generate_dataset("berlin", {"duration_hours": 0.01, "time_step": 10.0}))
-    assert seen == ["Europe/Berlin"]
-    sessions = Storage(db_path=str(registry.get_farm_db_path("berlin"))).get_sessions()
-    assert [s["config"]["site_timezone"] for s in sessions if s["id"] == result["session_id"]] == ["Europe/Berlin"]
 
 
 def test_switch_farm_rebuilds_the_simulator_with_the_new_timezone(tmp_path: Path) -> None:

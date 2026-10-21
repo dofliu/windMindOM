@@ -12,6 +12,8 @@
 - ``GET  /api/scenarios/{id}/farm-status``                    該情境風場層 KPI（PR C Phase 1 掛載用）
 - ``GET  /api/scenarios/{id}/turbines/{turbine_id}/history``  某情境某機組的資料（隔離調閱）
 - ``GET  /api/scenarios/{id}/ground-truth``                   情境標準答案（評分端用，主管；WMOM-20261021-04）
+- ``GET  /api/scenarios/{id}/pack``                           情境資料包 zip（盲測版，不含答案；WMOM-20261021-05）
+- ``GET  /api/scenarios/{id}/pack/full``                      情境資料包 zip（評分端版，含 ground_truth.json，主管）
 - ``DELETE /api/scenarios/{id}``                              刪除情境（含資料列、事件、標準答案）
 
 事件隔離（WMOM-20261021-04）：情境 config 帶 ``events_session_isolated: True`` 者，事件以
@@ -20,17 +22,24 @@
 
 import asyncio
 import logging
+import shutil
+import tempfile
+import zipfile
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
-from server.storage import is_observable_event
+from server.scenario_pack import ScenarioPackError, export_scenario_pack, pack_file_names, pack_id_for
+from server.storage import Storage, is_observable_event
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.time_utils import parse_iso, to_utc, utc_now
 
@@ -765,3 +774,72 @@ async def delete_scenario(scenario_id: int):
     if not deleted:
         raise HTTPException(404, f"Scenario {scenario_id} not found")
     return {"status": "deleted", "scenario_id": scenario_id}
+
+
+# ── 情境資料包（WMOM-20261021-05，EPIC-DS Phase 3a）────────────────────────────
+
+
+def _build_pack_zip(storage: Storage, scenario_id: int, include_ground_truth: bool) -> Path:
+    """匯出資料包並壓成 zip（暫存目錄由呼叫端在回應送出後刪除）。
+
+    Args:
+        storage: 情境所在的 storage。
+        scenario_id: 情境 session id。
+        include_ground_truth: 是否含 ``ground_truth.json``。
+
+    Returns:
+        zip 檔路徑（父目錄是本次的暫存目錄）。
+
+    Raises:
+        ScenarioPackError: 情境不能匯出（暫存目錄已清掉）。
+    """
+    workdir = Path(tempfile.mkdtemp(prefix="wmom-pack-"))
+    try:
+        pack_id = pack_id_for(scenario_id)
+        pack_dir = workdir / pack_id
+        export_scenario_pack(storage, scenario_id, pack_dir, include_ground_truth=include_ground_truth)
+        zip_path = workdir / f"{pack_id}{'-full' if include_ground_truth else ''}.zip"
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in pack_file_names(include_ground_truth):
+                archive.write(pack_dir / name, arcname=f"{pack_id}/{name}")
+        return zip_path
+    except Exception:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+
+
+async def _pack_response(scenario_id: int, include_ground_truth: bool) -> FileResponse:
+    b = get_broker()
+    try:
+        # 長情境的匯出要數秒到數分鐘（讀 raw、寫 Parquet）：丟到 thread，不卡 event loop
+        zip_path = await asyncio.to_thread(_build_pack_zip, b.storage, scenario_id, include_ground_truth)
+    except ScenarioPackError as exc:
+        raise HTTPException(exc.status_code, str(exc))
+    return FileResponse(
+        zip_path, media_type="application/zip", filename=zip_path.name,
+        background=BackgroundTask(shutil.rmtree, zip_path.parent, ignore_errors=True),
+    )
+
+
+@router.get(
+    "/{scenario_id}/pack",
+    # 盲測版（不含答案）＝任何登入者，比照情境調閱
+    dependencies=[Depends(require_authenticated())],
+)
+async def download_scenario_pack(scenario_id: int) -> FileResponse:
+    """情境資料包 zip（設計文件 §5.1，盲測版：不含 ``ground_truth.json``）。
+
+    給受測端（外部 RAG 助手 / 學生）：manifest、tag 字典、警報目錄、raw / 10 分鐘統計 Parquet、
+    可觀測事件。WMOM-20261021-04 之前生成、或生成未成功的情境回 409。
+    """
+    return await _pack_response(scenario_id, include_ground_truth=False)
+
+
+@router.get(
+    "/{scenario_id}/pack/full",
+    # 評分端版（含答案）＝主管，比照 ground-truth 端點用永遠強制的 require_roles
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
+)
+async def download_scenario_pack_full(scenario_id: int) -> FileResponse:
+    """情境資料包 zip（評分端版：另含 ``ground_truth.json``）。"""
+    return await _pack_response(scenario_id, include_ground_truth=True)
