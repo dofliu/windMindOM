@@ -132,7 +132,10 @@ _ARROW_TYPES: Dict[str, pa.DataType] = {
     "UINT16": pa.uint16(),
     "BOOL": pa.bool_(),
 }
-_PACK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
+# 3–63 字：小寫英數與 '-'，頭尾必須是英數（fullmatch，不接受結尾換行）
+_PACK_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
+# 合約 1.0 之前存下的答案標籤；欄位與 1.0 相同（v1 只定稿、補了學生端輸出與評分定義）
+_LEGACY_CONTRACT_VERSIONS = frozenset({"0.1"})
 _READ_BATCH_ROWS = 5000
 _ROW_GROUP_ROWS = 50_000
 _TS_TYPE = pa.timestamp("us", tz="UTC")
@@ -358,8 +361,10 @@ def ground_truth_for_pack(ground_truth: Dict[str, JsonValue], pack_id: str) -> D
         return iso_z(value) if isinstance(value, str) and value else value
 
     out = json.loads(json.dumps(ground_truth))
-    # -04 起存的答案格式就是 v1（v1 只定稿、補了學生端輸出與評分定義），舊的 "0.1" 標籤跟著資料包換成目前版本
-    out["contract_version"] = CONTRACT_VERSION
+    # -04 起存的答案格式就是 v1：舊的 "0.1" 標籤換成 "1.0"。其他版本照存的標——將來 1.1 時，存的 1.0
+    # 答案沒有 1.1 的新欄位，不能冒充 1.1
+    if out.get("contract_version") in _LEGACY_CONTRACT_VERSIONS:
+        out["contract_version"] = "1.0"
     out["pack_id"] = pack_id
     for key in ("sim_start", "sim_end", "generated_at"):
         out[key] = z(out.get(key))
@@ -781,7 +786,7 @@ def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, i
 
     Raises:
         ScenarioPackError: 情境不能匯出（``out_dir`` 不受影響）。
-        ValueError: ``pack_id`` 格式不對（小寫英數與 ``-``，3–63 字）。
+        ValueError: ``pack_id`` 格式不對（小寫英數與 ``-``，3–63 字，頭尾為英數）。
     """
     pack_id = _checked_pack_id(pack_id, scenario_id)
     scenario = _load_exportable_scenario(storage, scenario_id, max_rows)
@@ -809,8 +814,9 @@ def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, i
 def _checked_pack_id(pack_id: Optional[str], scenario_id: int) -> str:
     if pack_id is None:
         return pack_id_for(scenario_id)
-    if not _PACK_ID_RE.match(pack_id):
-        raise ValueError(f"Invalid pack_id {pack_id!r}: use 3-63 lowercase letters, digits and '-'")
+    if not _PACK_ID_RE.fullmatch(pack_id):
+        raise ValueError(f"Invalid pack_id {pack_id!r}: 3-63 lowercase letters, digits and '-', "
+                         "starting and ending with a letter or digit")
     return pack_id
 
 
@@ -831,6 +837,7 @@ def export_ground_truth(storage: Storage, scenario_id: int, path: Path, *,
 
     Raises:
         ScenarioPackError: 情境沒有標準答案（404）。
+        ValueError: ``pack_id`` 格式不對。
     """
     pack_id = _checked_pack_id(pack_id, scenario_id)
     ground_truth = storage.get_ground_truth(scenario_id)

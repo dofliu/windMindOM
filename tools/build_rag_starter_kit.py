@@ -1,9 +1,13 @@
 """產生 RAG 學生專題 starter kit 的範例資料包（WMOM-20261021-09，EPIC-DS Phase 3d）。
 
-每個範例是一個固定的批次情境：固定起點（UTC）、固定風況、固定故障排程，從全新的模擬器生成，
-同一份程式碼重跑得到相同的資料（manifest 的 ``exported_at`` 與答案的 ``generated_at`` 除外）。
-生成走與 ``POST /api/config/simulation/generate-bulk`` 相同的路徑（事件、標準答案都一樣），
-寫進暫存 DB，不碰伺服器的 DB。
+每個範例是一個固定的批次情境：固定起點（UTC）、固定風況、固定故障排程，從全新的模擬器生成。
+生成走與 ``POST /api/config/simulation/generate-bulk`` 相同的路徑（事件、標準答案都一樣），每個範例各用
+一個新的暫存 DB（情境 session id 固定、與建置順序無關），不碰伺服器的 DB。
+
+可重產：同一份程式碼、同版 numpy / pyarrow 重跑，資料檔逐位元相同（manifest 的 ``exported_at`` 與答案的
+``generated_at`` 除外；Parquet 檔尾記有 pyarrow 版本，換版本只會差在那裡）。模擬器讀「現在時間」的地方
+有三處：``simulator.engine``（批次起點）、``wind_model``（profile 從現在的自動風況過渡）都在 ``_sim_clock``
+釘住；``fault_engine`` 的 ``started_at`` 與 ``grid_model`` 的 profile 起點目前不影響輸出（測試會擋）。
 
 輸出（預設 ``examples/rag_starter_kit/``）：
 
@@ -198,11 +202,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--probe", action="store_true", help="只生成並列出事件 / 答案摘要，不寫檔")
     args = parser.parse_args(argv)
 
+    known = {s.pack_id for s in STARTER_PACKS}
+    unknown = sorted(set(args.only or []) - known)
+    if unknown:
+        parser.error(f"不認得的 pack_id：{unknown}（可用：{sorted(known)}）")
     specs = [s for s in STARTER_PACKS if not args.only or s.pack_id in args.only]
     workdir = Path(tempfile.mkdtemp(prefix="wmom-starter-"))
     try:
-        storage = Storage(db_path=str(workdir / "starter.db"))
         for spec in specs:
+            storage = Storage(db_path=str(workdir / f"{spec.pack_id}.db"))
             scenario_id = generate(storage, spec)
             if args.probe:
                 _probe(storage, scenario_id, spec)

@@ -20,7 +20,8 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 - **出題端**以 `GET /api/scenarios/{id}/pack` 或 CLI `tools/export_scenario_pack.py` 匯出盲測版資料包，**以檔案交給受測端**。受測端不開 windMindOM 帳號：系統內的情境清單看得到出題者取的情境名稱與故障排程（DEC-20261021-03）。
 - **受測端**只拿得到資料包（加上 Z72 手冊與本合約）；輸出 `predictions.jsonl`。
-- **評分端**以標準答案（`GET /api/scenarios/{id}/pack/full` 或 CLI `--ground-truth`）和 `score.py` 評分。
+- **評分端**以標準答案（`GET /api/scenarios/{id}/pack/full` 或 CLI `--ground-truth`）和 `score.py` 評分：`python score.py --answers <評分端版資料包目錄或答案目錄> --predictions predictions.jsonl`（目錄下的 `ground_truth.json` / `*.ground_truth.json` 都會讀）。
+- **給受測端的只有** `examples/rag_starter_kit/` 目錄與盲測版資料包。不要給整個 repo：故障庫（`fault_engine.py`）、產生工具與標準答案都在裡面。
 - v1 的交付管道是**檔案**。之後的 WebSocket 回放（WMOM-20261021-06）與 OPC UA（-07）沿用本合約的事件（§4）與預測（§6）格式。
 
 ## 2. 版本規則
@@ -43,7 +44,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
   events.jsonl             可觀測事件（§4）
 ```
 
-`pack_id` 為小寫英數與 `-`（例 `z72-scenario-00012`、`z72-starter-01`），不含情境名稱。盲測版沒有 `ground_truth.json`。
+`pack_id` 為 3–63 字的小寫英數與 `-`，頭尾為英數（例 `z72-scenario-00012`、`z72-starter-01`），不含情境名稱。盲測版沒有 `ground_truth.json`。
 
 ### 3.2 manifest.json
 
@@ -113,6 +114,8 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 風向 `WDirAbs` 的 `_avg` 為圓平均（0–360°）、`_std` 為 Yamartino；`_min` / `_max` 為線性值。缺值不計入；整窗無值為 null。
 
+**時間因果**：在時間 t 只能用 `window_end <= t` 的窗——還沒結束的窗含有 t 之後的讀值（`pack_reader.Pack.stats_until`）。
+
 ## 4. events.jsonl
 
 一行一個 JSON 物件，依時間排序（同一時刻依發生順序：跳機在它造成的停機之前）。**每行都有下列全部欄位**，不適用者為 `null`：
@@ -163,9 +166,11 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 {"pack_id": "z72-starter-01", "turbine_id": "WT002", "ts": "2026-03-02T01:40:00Z", "category": "real_fault", "component": "main_bearing", "manual_refs": [262, 240], "root_cause": "主軸承溫度相對同風場機組持續上升，疑潤滑劣化", "actions": ["檢查主軸承潤滑與油脂"], "confidence": 0.7}
 ```
 
-**時間因果**：離線評分無法檢查助手有沒有偷看 `ts` 之後的資料，請自律（`pack_reader.Pack.raw_until` / `events_until` 示範「只看當下以前」）。WebSocket 回放（-06）上線後，以收到資料的時刻為準。
+**時間因果**：離線評分無法檢查助手有沒有偷看 `ts` 之後的資料，請自律（`pack_reader.Pack.raw_until` / `stats_until` / `events_until` 示範「只看當下以前」）。正式評測可要求繳交程式、由評分端重跑；WebSocket 回放（-06）上線後，以收到資料的時刻為準。
 
-格式錯誤的行（缺必填欄位、類別不在清單、故障診斷的元件不在詞彙內）不計分，評分報告會列出行號與原因。
+**檔案**：UTF-8（可帶 BOM）。PowerShell 5 的 `>` 會存成 UTF-16，評分程式會拒絕。
+
+**格式錯誤的行**不計分，評分報告列出行號與原因：不是 JSON 物件、缺必填欄位或不是字串、`ts` 不是 ISO 8601 時間、`category` 不在清單、故障診斷的 `component` 不在詞彙內（多半是拼錯）、`manual_refs` 不是整數清單（含 `true` / `"262"` 這類值，整行無效）。
 
 ## 7. 標準答案 ground_truth.json（評分端）
 
@@ -191,10 +196,10 @@ case：
 | `category` | ✓ | `real_fault` / `sensor_fault`（`nuisance` / `healthy` 保留給 -08） |
 | `component` | ✓ | 元件（詞彙見 §9） |
 | `expected_alarm_codes` | ✓ | 這個故障預期的事件碼（手冊引用的正解） |
-| `onset_ts` | ✓ | 故障開始（注入）時刻；`pre_existing` case 為 null（以 `sim_start` 起算） |
+| `onset_ts` | ✓ | 故障開始（注入）時刻；`pre_existing` case 為 null（以 `sim_start` 起算，不評時效） |
 | `first_alarm_ts` / `first_alarm_code` | ✓ | 第一個預期碼成立或跳機的時刻 / 碼；整段都沒出現為 null |
 | `trip_ts` / `trip_code` | | 故障造成的跳機 |
-| `superseded` | ✓ | 同機組同故障再注入時，舊 case 為 true（不評分） |
+| `superseded` | ✓ | 同機組同故障再注入時，舊 case 為 true：併進取代它的 case 一起評（§8） |
 | `fault_id` / `fault_name_en` / `fault_name_zh` | | 模擬器的故障情境（不用於自動評分） |
 | `root_cause` / `root_cause_en` | | 根因（人工 / LLM 評用） |
 | `expected_alarm_sequence` | | 預期碼的等級與文字（A 在前、T 在後） |
@@ -204,34 +209,37 @@ case：
 | `key_signals` | | 偏離健康機組的訊號（tag 字典的 `id`） |
 | `simulation_notes` / `_en` | | 模擬與真實不同之處 |
 | `observed_alarm_codes` / `other_observed_codes` | | 實際出現的預期碼 / 同機組其他碼 |
-| `origin` / `difficulty` / `injection` / `final_severity` / `pre_existing` | | 出題資訊 |
+| `pre_existing` | ✓ | 情境開始前就存在的故障（開始時間不明） |
+| `origin` / `difficulty` / `injection` / `final_severity` | | 出題資訊 |
 
 ## 8. 評分（`examples/rag_starter_kit/score.py`）
 
 **對應規則**
-1. 只評 `superseded` 為 false 的 case。case 的時間窗＝`[onset_ts, sim_end]`（`onset_ts` 為 null 時從 `sim_start` 起）。
-2. **故障診斷**＝`category` 為 `real_fault` / `sensor_fault` 的預測。依 `pack_id`、`turbine_id` 與 `ts` 落在哪個 case 的時間窗對到 case；同時落在多個 case 時，優先元件相同者，否則取最近開始的。
-3. 對不到任何 case 的故障診斷是**誤報**（健康機組、或故障開始之前）。
-4. `nuisance` 預測不對 case；落在某 case 時間窗內的另計「把故障當干擾」。
-5. 每個 case 以**最後一筆**對到的診斷評元件、類別與手冊引用；時效以**第一筆元件正確**的診斷計。
+1. 每個 case 的時間窗＝`[故障開始, sim_end]`。故障開始＝`onset_ts`；同機組同故障再注入時（舊 case 標 `superseded`），舊 case 併進取代它的 case，從最早那次注入起算、第一個預期警報也取最早的。`pre_existing` case（`onset_ts` 為 null）從 `sim_start` 起算。
+2. **故障診斷**＝`category` 為 `real_fault` / `sensor_fault` 的預測。依 `pack_id`、`turbine_id` 與 `ts` 落在哪個 case 的時間窗對到 case；同時落在多個 case 時，優先元件相同者，否則取最近開始的。同一時刻的預測依檔案行號排先後。
+3. 對不到任何 case 的故障診斷是**誤報**（健康機組、故障開始之前、或情境結束之後）。
+4. `nuisance` 預測 v1 **不評分**（-08 才有干擾 / 健康 case），只統計筆數；它也不會撤回之前的故障診斷。
+5. 每個 case 以**最後一筆**對到的診斷評元件、類別與手冊引用（助手可以邊看邊修正）。
+6. **時效**看「最後一段連續正確」：最後一筆診斷的元件正確時，往前找到連續都正確的第一筆，以它的 `ts` 為「診斷出來的時刻」。最後一筆錯就沒有時效分；中途改口過，從改回正確那筆算起。
 
-**指標**（每個 case 權重相同；沒偵測到的 case 在各項都算 0）
+**指標**（每個 case 權重相同；比例類指標中沒偵測到的 case 算 0）
 
 | 指標 | 定義 |
 |---|---|
 | 偵測率 | 有任何故障診斷對到的 case / 全部 case |
 | 元件正確率 | 最後診斷的 `component` 與答案相同 |
 | 元件群組正確率 | 最後診斷的元件與答案同一群組（`vocabulary.json` 的 `group`，例 `pitch_control_system` 與 `pitch_system_blade_1` 同屬 `pitch`） |
-| 類別正確率 | 最後診斷的 `category` 與答案相同（重點：`sensor_fault` vs `real_fault`） |
-| 手冊引用 hit@1 / hit@3 | 最後診斷的 `manual_refs` 前 1 / 3 個中有任何一個在 `expected_alarm_codes` |
-| 手冊引用 MRR | 第一個命中的名次倒數，平均 |
-| 延遲 | 第一筆元件正確的診斷 `ts` − `first_alarm_ts`（秒，負值＝提前）；報中位數與平均 |
-| 早期預警 | 第一筆元件正確的診斷早於 `first_alarm_ts`，或該 case 整段都沒有預期警報 |
-| 誤報 | 對不到 case 的故障診斷筆數，與涉及的機組數 |
+| 類別正確率 | 最後診斷的 `category` 與答案相同（v1 的故障庫中元件與類別一對一，`wind_vane_1` 是唯一的 `sensor_fault`；-08 擴充後才會分開） |
+| 手冊引用 hit@1 / hit@3 | 最後診斷的 `manual_refs`（去重）前 1 / 3 個中有任何一個在 `expected_alarm_codes` |
+| 手冊引用 MRR@10 | 前 10 個中第一個命中的名次倒數，平均（第 11 個以後不看：列一長串碼換不到分數） |
+| 延遲 | 診斷出來的時刻 − 第一個預期警報（秒，負值＝提前）；報中位數、平均與**樣本數**（只有元件正確、有預期警報、開始時間已知的 case 才有延遲） |
+| 早期預警 | 診斷出來的時刻早於第一個預期警報，或該 case 整段都沒有預期警報；`pre_existing` case 不評 |
+| 誤診 | 對到 case 但元件錯的診斷筆數（狂猜各種元件會在這裡現形） |
+| 誤報 | 對不到 case 的故障診斷：次數（同機組、同元件相隔 30 分鐘內算同一次，與輸出頻率無關）、筆數、機組數 |
 
-各項分開列，不合成總分（如何加權由課程評分決定）。`root_cause` 與 `actions` 不自動評分。
+各項分開列，不合成總分（如何加權由課程評分決定）；早期預警要與誤報、誤診一起看。`root_cause` 與 `actions` 不自動評分。
 
-**基準**：`baseline_assistant.py`（看到警報才用關鍵字猜元件）在三個範例資料包上：偵測率 100 %、元件 80 %、群組 100 %、類別 80 %、手冊 hit@1 100 %、早期預警 0。手冊引用很容易拿高分（引用已出現的警報碼就對了）；真正的考驗是**警報出現前**從訊號看出問題、分辨感測器故障，以及引用尚未出現的相關條目。
+**基準**：`baseline_assistant.py`（看到警報才用關鍵字猜元件）在三個範例資料包上：偵測率 100 %、元件 80 %、群組 100 %、類別 80 %、手冊 hit@1 100 %、早期預警 0、誤診 1、誤報 0。手冊引用很容易拿高分（引用已出現的警報碼就對了）；真正的考驗是**警報出現前**從訊號看出問題、分辨感測器故障，以及引用尚未出現的相關條目。
 
 ## 9. 詞彙
 
@@ -251,18 +259,24 @@ case：
 | `wind_vane_1` | yaw | 風向標 1 |
 | `nacelle_ventilation` | nacelle | 機艙通風 / 冷卻 |
 
-類別：`real_fault`、`sensor_fault`、`nuisance`（預測可用）、`healthy`（只在標準答案）。詞彙會隨故障庫擴充而增加（次版本），既有 ID 不改。
+類別：`real_fault`、`sensor_fault`、`nuisance`（預測可用）、`healthy`（只在標準答案）。詞彙會隨故障庫擴充而增加（次版本），既有 ID 不改。v1 的故障庫每個元件只對應一個故障、一個類別。
 
 ## 10. 模擬與真實的差異（受測端須知）
 
 - 資料由 windMindOM 的 Z72 物理模型與 PLC 保護層產生：警報 / 跳機由訊號越過真實 Z72 保護設定值觸發，事件碼與手冊條目都是真的；物理是簡化模型（不是氣彈 FEM），10 分鐘 std 由 10 s 取樣算出，比真實 PLC 偏低。
 - `synthetic` tag 是真實 Z72 沒有的訊號（§3.3）。`WMET_WSpeedNac` 在模擬裡是自由流風速（真實是風速計讀值），見 tag 字典的 `note`。
 - 標準答案 case 的 `simulation_notes` 列出個別故障與真實不同之處（例：超速在 351 跳機後故障凍結、不會出現 320）。
-- 健康機組也可能有事件（低風速停機、偶發跳機，列在 `unattributed_events`）——助手要能分辨。
+- 健康機組也有事件：低風速 / 陣風造成的啟停是 `state_change`（`stop_reason` 為 `low_wind` 等）；偶發的警報 / 跳機 / 資訊事件沒有 case 能解釋時列在標準答案的 `unattributed_events`。助手要能分辨。
+
+### 10.1 開發集與正式評測
+
+- starter kit 的範例資料包是**開發集**（附答案），只涵蓋 11 種故障中的 5 種，而且每個故障都會出警報。
+- 正式評測的資料包會有開發集沒有的故障、更長的情境，-08 之後還有干擾與健康負樣本；只靠「警報碼 → 元件」對照表拿不到好成績。
+- 正式評測的盲測版資料包與開發集同格式，但沒有 `answers/`；答案只在評分端。
 
 ## 11. 版本歷史
 
 | 版本 | 日期 | 內容 |
 |---|---|---|
 | 0.1 | 2026-10-21 | 設計文件 §5 草案；-04 標準答案、-05 資料包實作 |
-| 1.0 | 2026-10-21 | 定稿（WMOM-20261021-09）：資料包 / 事件 / 標準答案格式沿用 -05；新增受測端輸出（§6）、評分定義（§8）、詞彙檔（§9）；`contract_version` 改為 `"1.0"`（0.1 的標準答案匯出時一併標成 1.0，欄位相同） |
+| 1.0 | 2026-10-21 | 定稿（WMOM-20261021-09，DEC-20261021-04）：資料包 / 事件 / 標準答案格式沿用 -05；新增受測端輸出（§6）、評分定義（§8）、詞彙檔（§9）；`contract_version` 改為 `"1.0"`。0.1 時存下的標準答案欄位相同，**匯出成資料包時**標成 1.0（只轉換 0.1 這個舊標籤）；`GET /api/scenarios/{id}/ground-truth` 回傳存下的原值 |

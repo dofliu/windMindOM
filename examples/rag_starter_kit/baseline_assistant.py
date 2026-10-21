@@ -93,7 +93,7 @@ def diagnose(pack_id: str, events: Iterable[Dict[str, object]]) -> List[Dict[str
             continue
         if event["event_type"] not in ("alarm_raised", "trip"):
             continue
-        code = int(event["alarm_code"])  # type: ignore[arg-type]
+        code = int(str(event["alarm_code"]))
         codes = seen_codes.setdefault(turbine, [])
         if code in codes:
             continue
@@ -111,9 +111,21 @@ def diagnose(pack_id: str, events: Iterable[Dict[str, object]]) -> List[Dict[str
 
 
 def pack_dirs(paths: Sequence[Path]) -> List[Path]:
-    """展開參數：資料包目錄，或內含多個資料包的目錄。"""
+    """展開參數：資料包目錄，或內含多個資料包的目錄。
+
+    Args:
+        paths: 命令列給的路徑。
+
+    Returns:
+        資料包目錄。
+
+    Raises:
+        FileNotFoundError: 路徑不存在。
+    """
     out: List[Path] = []
     for path in paths:
+        if not path.is_dir():
+            raise FileNotFoundError(path)
         if (path / "manifest.json").exists():
             out.append(path)
         else:
@@ -135,8 +147,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("-o", "--output", type=Path, help="輸出 predictions.jsonl（預設印到 stdout）")
     args = parser.parse_args(argv)
 
+    try:
+        packs = pack_dirs(args.packs)
+    except FileNotFoundError as exc:
+        print(f"找不到資料包目錄：{exc}", file=sys.stderr)
+        return 2
+    if not packs:
+        print("沒有找到資料包（含 manifest.json 的目錄）", file=sys.stderr)
+        return 2
     lines = []
-    for pack_dir in pack_dirs(args.packs):
+    for pack_dir in packs:
         pack_id, events = read_events(pack_dir)
         lines += [json.dumps(p, ensure_ascii=False) for p in diagnose(pack_id, events)]
     text = "".join(line + "\n" for line in lines)

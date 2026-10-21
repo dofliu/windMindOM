@@ -8,8 +8,14 @@
     pack = load_pack("packs/z72-starter-01")
     raw = pack.raw()                       # 每 10 s 一列，欄名＝Bachmann tag 名
     stats = pack.stats()                   # 10 分鐘 avg / min / max / std
-    for event in pack.events_until("2026-03-02T02:00:00Z"):
+    # 模擬「助手在 t 當下」：只看 t 以前的資料（合約 §6 時間因果）
+    t = "2026-03-02T02:00:00Z"
+    recent = pack.raw_until(t, turbine_id="WT002", window="1h")
+    windows = pack.stats_until(t)          # 只有已經結束的 10 分鐘窗
+    for event in pack.events_until(t):
         ...
+
+時間參數可給 ISO 字串或 datetime；不帶時區者視為 UTC。
 
 直接執行會檢查 sha256 並印出摘要::
 
@@ -26,7 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -54,11 +60,15 @@ class Pack:
 
     @property
     def pack_id(self) -> str:
+        """資料包 ID。"""
         return str(self.manifest["pack_id"])
 
     @property
     def turbines(self) -> List[str]:
-        return list(self.manifest["turbines"])  # type: ignore[call-overload]
+        """機組 ID 清單。"""
+        turbines = self.manifest["turbines"]
+        assert isinstance(turbines, list)
+        return [str(t) for t in turbines]
 
     @cached_property
     def tags(self) -> pd.DataFrame:
@@ -88,14 +98,35 @@ class Pack:
         Returns:
             DataFrame。
         """
-        cols = None if columns is None else ["timestamp", "turbine_id", *columns]
-        filters = None if turbine_id is None else [("turbine_id", "==", turbine_id)]
-        return pd.read_parquet(self.path / "timeseries_raw.parquet", columns=cols, filters=filters)
+        return self._read_raw(turbine_id, columns, [])
+
+    def _read_raw(self, turbine_id: Optional[str], columns: Optional[List[str]],
+                  filters: List[Tuple[str, str, object]]) -> pd.DataFrame:
+        cols = None if columns is None else list(dict.fromkeys(["timestamp", "turbine_id", *columns]))
+        if turbine_id is not None:
+            filters = [*filters, ("turbine_id", "==", turbine_id)]
+        return pd.read_parquet(self.path / "timeseries_raw.parquet", columns=cols, filters=filters or None)
 
     def stats(self, turbine_id: Optional[str] = None) -> pd.DataFrame:
-        """10 分鐘統計（``window_start`` / ``window_end``、``n_samples``、``is_partial``、``<tag>_avg`` …）。"""
+        """10 分鐘統計（``window_start`` / ``window_end``、``n_samples``、``is_partial``、``<tag>_avg`` …）。
+
+        注意：包含所有窗——在時間 t 只能用 ``window_end <= t`` 的窗（``stats_until``）。
+        """
         filters = None if turbine_id is None else [("turbine_id", "==", turbine_id)]
         return pd.read_parquet(self.path / "stats_10min.parquet", filters=filters)
+
+    def stats_until(self, ts: Union[str, datetime], turbine_id: Optional[str] = None) -> pd.DataFrame:
+        """``ts`` 當下已經結束的 10 分鐘窗（``window_end <= ts``）——還沒結束的窗含有未來的讀值。
+
+        Args:
+            ts: 截止時間。
+            turbine_id: 只取一台機組。
+
+        Returns:
+            DataFrame。
+        """
+        df = self.stats(turbine_id)
+        return df[df["window_end"] <= _ts(ts)]
 
     def events_until(self, ts: Union[str, datetime], turbine_id: Optional[str] = None) -> Iterator[Dict[str, object]]:
         """``ts`` 之前（含）發生的事件——模擬「助手在 ts 當下看得到的事件」。
@@ -128,8 +159,9 @@ class Pack:
             DataFrame。
         """
         end = _ts(ts)
-        df = self.raw(turbine_id, columns)
-        return df[(df["timestamp"] > end - pd.Timedelta(window)) & (df["timestamp"] <= end)]
+        start = end - pd.Timedelta(window)
+        # 時間條件推進 Parquet 讀取（只讀需要的 row group），不必每次讀整個檔
+        return self._read_raw(turbine_id, columns, [("timestamp", ">", start), ("timestamp", "<=", end)])
 
 
 def verify_pack(path: PathLike) -> List[str]:
@@ -146,15 +178,16 @@ def verify_pack(path: PathLike) -> List[str]:
     problems = []
     major = int(str(manifest.get("contract_version", "0")).split(".")[0])
     if major != SUPPORTED_MAJOR:
-        problems.append(f"contract_version {manifest.get('contract_version')} is not {SUPPORTED_MAJOR}.x")
+        problems.append(f"合約版本 {manifest.get('contract_version')} 不是本程式支援的 {SUPPORTED_MAJOR}.x")
     for name, info in manifest["files"].items():
         file = pack_dir / name
         if not file.exists():
-            problems.append(f"{name}: missing")
+            problems.append(f"{name}：檔案不見了")
             continue
         digest = hashlib.sha256(file.read_bytes()).hexdigest()
         if digest != info["sha256"] or file.stat().st_size != info["bytes"]:
-            problems.append(f"{name}: sha256 / size mismatch")
+            # 常見原因：Windows 的 git 設定 core.autocrlf 把 JSON 的換行改成 CRLF（repo 已用 .gitattributes 關掉）
+            problems.append(f"{name}：sha256 / 大小與 manifest 不符（檔案被改過或換行被轉換）")
     return problems
 
 
@@ -183,7 +216,8 @@ def load_pack(path: PathLike, verify: bool = True) -> Pack:
 def summary(pack: Pack) -> str:
     """資料包摘要（給人看）。"""
     m = pack.manifest
-    counts = m["counts"]  # type: ignore[index]
+    counts = m["counts"]
+    assert isinstance(counts, dict)
     lines = [
         f"{pack.pack_id}（合約 v{m['contract_version']}）",
         f"  機組 {', '.join(pack.turbines)}；{m['sim_start']} → {m['sim_end']}；每 {m['sample_period_s']} s 一筆",
@@ -194,7 +228,7 @@ def summary(pack: Pack) -> str:
     ]
     alarms = [e for e in pack.events if e["event_type"] in ("alarm_raised", "trip")]
     for event in alarms[:10]:
-        entry = pack.alarm_catalog.get(int(event["alarm_code"]), {})  # type: ignore[arg-type]
+        entry = pack.alarm_catalog.get(int(str(event["alarm_code"])), {})
         lines.append(f"  {event['ts']} {event['turbine_id']} {event['event_type']:<12} "
                      f"{event['alarm_code']} {event['alarm_text']}（手冊 p.{entry.get('manual_page')}）")
     if len(alarms) > 10:

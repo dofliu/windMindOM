@@ -13,14 +13,19 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
+| open | 10 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 136 |
+| done | 137 |
 | **total** | **150** |
 
-最後更新：2026-10-21 深夜（**WMOM-20261021-05 done**（EPIC-DS Phase 3a ① 檔案）：情境資料包匯出——`server/scenario_pack.py`
+最後更新：2026-10-21 深夜（**WMOM-20261021-09 done**（EPIC-DS Phase 3d）：RAG 學生專題 starter kit——介面合約 v1 定稿
+（`docs/integration/rag_assistant_data_contract_v1.md`：受測端 predictions.jsonl、評分定義，評分欄位經劉老師確認）、
+`examples/rag_starter_kit/`（3 個範例資料包 + 分開的標準答案、vocabulary.json、pack_reader / baseline_assistant / score）、
+`tools/build_rag_starter_kit.py`（固定起點重產，逐位元相同）；CONTRACT_VERSION 1.0。
+逐條解析 header 核實：open 10 / in_progress 1 / deferred 2 / done 137 = 150。詳見 `work-logs/2026-10/2026-10-21-rag-starter-kit.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-05 done**（EPIC-DS Phase 3a ① 檔案）：情境資料包匯出——`server/scenario_pack.py`
 （manifest、tag 字典〔真實 / 自創〕、警報目錄快照、raw / 10 分鐘統計 Parquet、可觀測事件 events.jsonl、評分端版另附 ground_truth.json）、
 `GET /api/scenarios/{id}/pack`（盲測）/ `/pack/full`（主管）、CLI `tools/export_scenario_pack.py`；移除壞掉的資料集端點；
 code review 全修（events 欄位一致、id 順序串流、殘缺窗標記、排除 16 個模擬器內部量 DEC-20261021-03…）。
@@ -1487,14 +1492,39 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-09 — Phase 3d：學生專題 starter kit（介面合約 v1 + 範例資料包）
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: 學生專題要開發外部 RAG 維修助手，需要穩定的介面合約與可直接拿來用的資料。把設計文件 §5 的 v0 草案定稿為 v1（獨立文件），附 2-3 個範例資料包（含簡單 / 中等 / 有干擾的案例）與讀取範例程式（Python：讀 Parquet + events.jsonl、對 ground truth 打分）。
 - **Deliverable**: `docs/integration/rag_assistant_data_contract_v1.md`、範例資料包、`examples/` 讀取與評分範例
 - **Decision needed**: 合約 v1 定稿前請劉老師確認欄位（尤其 ground truth 的評分欄位）
+- **完成紀錄**:
+  - **劉老師確認評分欄位**（2026-10-21）：診斷以元件 + 類別自動評分（root_cause 留給人工 / LLM）；手冊引用以事件碼 hit@k / MRR；時效報延遲與早期預警；各項指標分列不合成總分。
+  - **合約 v1**（`docs/integration/rag_assistant_data_contract_v1.md`）：
+    - 角色與交付流程、版本規則（加欄位升次版本、改名 / 刪欄位升主版本、讀取端忽略未知欄位）。
+    - 資料包 / 事件 / 標準答案的欄位表、時間慣例。
+    - 受測端 `predictions.jsonl`、評分對應規則與指標定義、詞彙、模擬與真實的差異。
+    - `CONTRACT_VERSION` 0.1 → 1.0；-04 起存的答案匯出時標成 1.0。
+  - **`examples/rag_starter_kit/`**：
+    - 3 個範例資料包（入門 01、中等 02、有干擾 03），標準答案另放 `answers/`。
+    - `vocabulary.json`（11 元件 / 8 群組 / 類別 / 事件種類）。
+    - `pack_reader.py`（pandas：sha256 核對、`raw_until` / `events_until`）。
+    - `baseline_assistant.py`（關鍵字基準）、`score.py`（只用標準函式庫）、README。
+  - **`tools/build_rag_starter_kit.py`**：固定起點 / 風況 / 排程，從全新模擬器生成。要同時釘住 `simulator.engine` 與 `wind_model` 的 `utc_now`（`set_override` 從「現在」的自動風況過渡）；之後兩個獨立行程產生的資料檔 sha256 相同。
+  - **`scenario_pack`**：`export_scenario_pack(pack_id=...)`、`export_ground_truth()`。
+  - **基準成績**：偵測 100 %、元件 80 %、群組 100 %、類別 80 %、手冊 hit@1 100 %、早期預警 0、誤診 1。
+  - **code review**（Needs revision → 全修）：
+    - 早期預警可被狂猜換到：改為「最後一段連續正確」，並加誤診計數。
+    - superseded / pre_existing 時間窗修正。
+    - 壞行 / UTF-16 / BOM 不再讓評分中斷。
+    - 答案目錄可給評分端版資料包；誤報改以次數計；MRR@10；`stats_until`。
+    - 合約標籤只轉換 0.1；pack_id 嚴格驗證；`.gitattributes`；文件與型別同步（DEC-20261021-04）。
+  - **測試**：`tests/test_rag_starter_kit.py`（31 項）；mutation 35 項全抓到。
+  - **端對端功能測試**：真實伺服器、隔離 DB，15 / 15 通過。
+  - **完整 backend**：1741 → 1772 passed / 7 skipped / 1 xfailed；frontend 未改動（tsc、vitest 1512、build 通過）。
+  - 設計與已知限制見設計文件 §6.9。
 - **Depends on**: WMOM-20261021-05
 
 ### WMOM-20261021-10 — 切出風速改用平均風速判定（手冊事件 201）
@@ -1580,7 +1610,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 3a | ~~WMOM-20261021-05~~ ✅ | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
 | 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
-| 3d | WMOM-20261021-09 | 學生專題 starter kit（合約 v1 + 範例資料包） | 🟡 合約定稿需劉老師確認 |
+| 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
 | 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本） | 🔵 |
 
 ### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）

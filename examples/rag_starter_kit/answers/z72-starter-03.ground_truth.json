@@ -1,13 +1,13 @@
 {
  "contract_version": "1.0",
  "kind": "scenario_ground_truth",
- "scenario_id": 6,
+ "scenario_id": 2,
  "scenario_name": "干擾：風向標漂移（感測器故障）+ 葉片角不平衡，陣風、健康機組也有事件",
  "turbine_model": "Z72",
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-16T07:00:10.000000Z",
  "sim_end": "2026-03-16T13:00:00.000000Z",
- "generated_at": "2026-10-21T17:28:23.510441Z",
+ "generated_at": "2026-10-21T17:50:07.495171Z",
  "turbines": [
   "WT001",
   "WT002",

@@ -79,9 +79,12 @@ def test_committed_pack_is_complete_blind_and_current(pack_id: str) -> None:
     assert tags == sp.tag_dictionary(sp.pack_columns()), "範例資料包的 tag 與匯出器不一致：請重建 starter kit"
     events = [json.loads(line) for line in (pack_dir / sp.FILE_EVENTS).read_text(encoding="utf-8").splitlines()]
     assert events and all(list(e) == list(sp.EVENT_KEYS) for e in events)
+    answers = json.loads((KIT / "answers" / f"{pack_id}.ground_truth.json").read_text(encoding="utf-8"))
+    secrets_ = set(FAULT_SCENARIOS) | {answers["scenario_name"]} | {
+        c[k] for c in answers["cases"] for k in ("fault_name_en", "fault_name_zh", "component", "root_cause")}
     for name in (sp.FILE_MANIFEST, sp.FILE_EVENTS, sp.FILE_TAGS):
         text = (pack_dir / name).read_text(encoding="utf-8")
-        assert not [fid for fid in FAULT_SCENARIOS if fid in text], f"{name} 透露了故障 ID"
+        assert not [x for x in secrets_ if x in text], f"{name} 透露了答案"
 
 
 @pytest.mark.parametrize("pack_id", PACK_IDS)
@@ -146,13 +149,38 @@ def test_final_diagnosis_counts_and_latency_uses_the_first_correct_one() -> None
     case = report.case_results[0]
     assert case.component_correct and case.latency_s == 600.0 and not case.early_warning
     assert case.manual_reciprocal_rank == 0.5 and case.manual_hit_at_3 and not case.manual_hit_at_1
-    # 反過來：最後改成錯的 → 元件錯、但群組對（同屬 pitch）
+    # 反過來：最後改成錯的 → 元件錯、但群組對（同屬 pitch）；最後錯了就沒有延遲 / 早期預警
     report = _score([gt], [
         _pred("WT001", "2026-01-01T01:40:00Z", "pitch_system_blade_1"),
         _pred("WT001", "2026-01-01T02:10:00Z", "pitch_control_system"),
     ])
     case = report.case_results[0]
-    assert not case.component_correct and case.component_group_correct and case.early_warning
+    assert not case.component_correct and case.component_group_correct
+    assert not case.early_warning and case.latency_s is None and case.misdiagnosis_predictions == 1
+
+
+def test_guessing_every_component_does_not_buy_an_early_warning() -> None:
+    """警報前每 10 分鐘把 11 個元件都猜一遍、最後才答對：早期預警 0、誤診全部記下來。"""
+    gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")])
+    lines = [_pred("WT001", f"2026-01-01T01:{m:02d}:00Z", comp) for m in range(10, 60, 10) for comp in COMPONENTS]
+    lines.append(_pred("WT001", "2026-01-01T02:05:00Z", "main_bearing", refs=[262]))
+    report = _score([gt], lines)
+    case = report.case_results[0]
+    assert case.component_correct and not case.early_warning and case.latency_s == 300.0
+    assert case.misdiagnosis_predictions == 5 * (len(COMPONENTS) - 1) == report.misdiagnosis_predictions
+    assert len(case.components_claimed) == len(COMPONENTS)
+
+
+def test_time_to_diagnosis_starts_at_the_last_unbroken_correct_run() -> None:
+    gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")])
+    report = _score([gt], [
+        _pred("WT001", "2026-01-01T01:30:00Z", "main_bearing"),
+        _pred("WT001", "2026-01-01T01:40:00Z", "generator_stator"),
+        _pred("WT001", "2026-01-01T01:50:00Z", "main_bearing"),
+        _pred("WT001", "2026-01-01T02:30:00Z", "main_bearing"),
+    ])
+    case = report.case_results[0]
+    assert case.first_correct_ts == "2026-01-01T01:50:00.000000Z" and case.latency_s == -600.0 and case.early_warning
 
 
 def test_false_alarms_on_healthy_turbines_and_before_onset() -> None:
@@ -186,15 +214,25 @@ def test_multiple_cases_on_one_turbine_match_by_component() -> None:
     assert second.detected and not second.component_correct, "都不同 → 對到最近開始的 case"
 
 
-def test_superseded_cases_are_not_scored_and_pre_existing_starts_at_sim_start() -> None:
+def test_superseded_case_merges_into_its_replacement() -> None:
+    """同機組同故障再注入：故障從第一次注入就在，時間窗與第一個警報都取最早那次。"""
     gt = _gt([
-        _case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None, superseded=True),
-        _case("C002", "WT001", "main_bearing", "2026-01-01T02:00:00Z", None),
-        _case("C003", "WT002", "transformer", None, None, codes=[417, 444]),
+        _case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T01:30:00Z", superseded=True),
+        _case("C002", "WT001", "main_bearing", "2026-01-01T03:00:00Z", None),
     ])
-    report = _score([gt], [_pred("WT002", "2026-01-01T00:20:00Z", "transformer")])
-    assert [r.case_id for r in report.case_results] == ["C002", "C003"]
-    assert report.case_results[1].component_correct
+    report = _score([gt], [_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing")])
+    assert [r.case_id for r in report.case_results] == ["C002"]
+    case = report.case_results[0]
+    assert case.component_correct and report.false_alarm_predictions == 0, "再注入前的正確診斷不是誤報"
+    assert case.latency_s == 1800.0 and not case.early_warning, "第一個警報取被取代那次的"
+
+
+def test_pre_existing_case_has_no_timing_score() -> None:
+    gt = _gt([_case("C001", "WT002", "transformer", None, None, codes=[417, 444], pre_existing=True)])
+    report = _score([gt], [_pred("WT002", "2026-01-01T00:20:00Z", "transformer", refs=[417])])
+    case = report.case_results[0]
+    assert case.component_correct and not case.timing_scored
+    assert not case.early_warning and case.latency_s is None, "開始時間不明：不算早期預警"
 
 
 def test_nuisance_unknown_packs_and_invalid_lines() -> None:
@@ -217,6 +255,61 @@ def test_nuisance_unknown_packs_and_invalid_lines() -> None:
     assert report.detected == 0
 
 
+def test_manual_refs_hit_at_k_boundaries_and_cap() -> None:
+    def result(refs: List[object]):  # type: ignore[no-untyped-def]
+        gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None, codes=[262])])
+        line = json.dumps({"pack_id": "p1", "turbine_id": "WT001", "ts": "2026-01-01T02:00:00Z",
+                           "category": "real_fault", "component": "main_bearing", "manual_refs": refs})
+        return _score([gt], [line]).case_results[0]
+
+    def rr(refs: List[object]) -> float:
+        case = result(refs)
+        return case.manual_reciprocal_rank if case.detected else -1.0
+
+    assert rr([1, 2, 262]) == pytest.approx(1 / 3) and result([1, 2, 262]).manual_hit_at_3
+    assert rr([1, 2, 3, 262]) == pytest.approx(0.25) and not result([1, 2, 3, 262]).manual_hit_at_3
+    assert result([262]).manual_hit_at_1 and not result([1, 262]).manual_hit_at_1
+    assert rr([1, 1, 1, 262]) == pytest.approx(0.5), "重複的碼先去重"
+    assert rr(list(range(1, 11)) + [262]) == 0.0, "只看前 10 個（MRR@10）"
+    assert rr([True, 262]) == -1.0, "bool 不是事件碼：整行無效"
+
+
+def test_time_edges_ties_and_empty_inputs() -> None:
+    gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None)])
+    report = _score([gt], [
+        _pred("WT001", "2026-01-01T09:00:00+08:00", "main_bearing"),  # ＝01:00Z，窗的起點
+        _pred("WT001", "2026-01-01T06:00:01Z", "generator_stator"),  # 晚於 sim_end
+    ])
+    assert report.case_results[0].component_correct and report.false_alarm_predictions == 1
+    tie = _score([gt], [_pred("WT001", "2026-01-01T02:00:00Z", "generator_stator"),
+                        _pred("WT001", "2026-01-01T02:00:00Z", "main_bearing")])
+    assert tie.case_results[0].component_correct, "同一時刻依行號，後寫的是最後判斷"
+    assert _score([gt], []).detected == 0
+    empty = _score([_gt([])], [_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing")])
+    assert (empty.cases, empty.detection_rate, empty.false_alarm_predictions) == (0, 0.0, 1)
+
+
+def test_false_alarm_episodes_do_not_depend_on_output_rate() -> None:
+    gt = _gt([], healthy=["WT002"])
+    lines = [_pred("WT002", f"2026-01-01T01:{m:02d}:00Z", "main_bearing") for m in range(0, 60, 5)]
+    lines.append(_pred("WT002", "2026-01-01T03:00:00Z", "main_bearing"))
+    lines.append(_pred("WT002", "2026-01-01T03:00:00Z", "transformer"))
+    report = _score([gt], lines)
+    assert (report.false_alarm_predictions, report.false_alarm_episodes, report.false_alarm_turbines) == (14, 3, 1)
+
+
+def test_hostile_lines_are_reported_not_fatal() -> None:
+    report = _score([_gt([])], [
+        '{"pack_id": "p1", "turbine_id": "WT001", "ts": "0001-01-01T00:00:00+05:00", "category": "nuisance"}',
+        "[" * 100_000,
+        '{"pack_id": "p1", "turbine_id": "WT001", "ts": "2026-01-01T02:00:00Z", "category": "real_fault", '
+        '"component": ["main_bearing"]}',
+        '{"pack_id": "p1", "turbine_id": "WT001", "ts": "yesterday", "category": "nuisance"}',
+    ])
+    assert [i["line"] for i in report.invalid_predictions] == [1, 2, 3, 4]
+    assert "vocabulary" in str(report.invalid_predictions[2]["reason"])
+
+
 def test_cli_writes_a_json_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     answers = tmp_path / "p1.ground_truth.json"
     answers.write_text(json.dumps(_gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None)])),
@@ -233,6 +326,23 @@ def test_cli_writes_a_json_report(tmp_path: Path, capsys: pytest.CaptureFixture[
     empty.mkdir()
     assert score.main(["--answers", str(empty), "--predictions", str(predictions)]) == 2
     assert score.main(["--answers", str(tmp_path), "--predictions", str(tmp_path / "missing.jsonl")]) == 2
+    # BOM（Windows 記事本）照讀；UTF-16（PowerShell 5 的 >）回 2，不是 traceback
+    predictions.write_text(_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing") + "\n", encoding="utf-8-sig")
+    assert score.main(["--answers", str(answers), "--predictions", str(predictions)]) == 0
+    assert "格式錯誤" not in capsys.readouterr().out
+    assert score.main(["--answers", str(answers), str(answers), "--predictions", str(predictions)]) == 2, \
+        "同一個資料包的答案給兩次"
+    predictions.write_text(_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing") + "\n", encoding="utf-16")
+    assert score.main(["--answers", str(answers), "--predictions", str(predictions)]) == 2
+
+
+def test_answers_can_be_a_full_pack_directory(tmp_path: Path) -> None:
+    """評分端版資料包（/pack/full、CLI --ground-truth）的答案檔叫 ground_truth.json。"""
+    pack = tmp_path / "z72-scenario-00012"
+    pack.mkdir()
+    (pack / "ground_truth.json").write_text(json.dumps(_gt([])), encoding="utf-8")
+    assert [a["pack_id"] for a in score.load_answers([tmp_path])] == ["p1"]
+    assert [a["pack_id"] for a in score.load_answers([pack])] == ["p1"]
 
 
 # ── 4. 基準助手 ──────────────────────────────────────────────────────────────
@@ -257,13 +367,15 @@ def test_baseline_only_uses_events_up_to_each_prediction() -> None:
          "alarm_text": "Main bearing 1 temperature high"},
         {"ts": "2026-01-01T01:05:00Z", "turbine_id": "WT001", "event_type": "trip", "alarm_code": 240,
          "alarm_text": "Bearing 1 temperature very high"},
+        {"ts": "2026-01-01T01:30:00Z", "turbine_id": "WT001", "event_type": "alarm_raised", "alarm_code": 262,
+         "alarm_text": "Main bearing 1 temperature high"},
         {"ts": "2026-01-01T02:00:00Z", "turbine_id": "WT002", "event_type": "info", "alarm_code": 201,
          "alarm_text": "Windspeed too high"},
     ]
     out = baseline.diagnose("p1", events)
     assert [(p["ts"], p["manual_refs"]) for p in out[:2]] == [("2026-01-01T01:00:00Z", [262]),
                                                               ("2026-01-01T01:05:00Z", [240, 262])]
-    assert out[2]["category"] == "nuisance"
+    assert len(out) == 3 and out[2]["category"] == "nuisance", "同一機組再出現的碼不重複輸出"
 
 
 # ── 5. 讀取工具與產生工具 ─────────────────────────────────────────────────────
@@ -281,6 +393,14 @@ def test_pack_reader_never_returns_future_data() -> None:
     assert all(pack_reader._ts(str(e["ts"])) <= pack_reader._ts(cutoff) for e in seen)
     assert len(pack.stats("WT002")) == 25 and 262 in pack.alarm_catalog
     assert "z72-starter-01" in pack_reader.summary(pack)
+
+
+def test_pack_reader_stats_until_only_returns_finished_windows() -> None:
+    pack = pack_reader.load_pack(KIT / "packs" / "z72-starter-01", verify=False)
+    windows = pack.stats_until("2026-03-02T02:05:00", turbine_id="WT002")  # naive＝UTC
+    assert windows["window_end"].max() == pack_reader._ts("2026-03-02T02:00:00Z")
+    raw = pack.raw_until("2026-03-02T02:05:00", columns=["timestamp", "Z72PLC__UI_Loc_WTUR_Analogue_TotPwrAt"])
+    assert list(raw.columns) == ["timestamp", "turbine_id", "Z72PLC__UI_Loc_WTUR_Analogue_TotPwrAt"]
 
 
 def test_pack_reader_rejects_a_tampered_pack(tmp_path: Path) -> None:
@@ -306,6 +426,11 @@ def test_build_tool_generates_a_small_pack(tmp_path: Path) -> None:
         faults=({"scenario_id": "generator_overspeed", "turbine_id": "WT002", "offset_seconds": 0,
                  "severity_rate": 0.02},),
     )
+    with builder._sim_clock(spec.start):
+        import simulator.engine as engine_mod
+        import wind_model as wind_model_mod
+
+        assert engine_mod.utc_now() == wind_model_mod.utc_now() == spec.start, "兩處時鐘都要釘住才能重產"
     storage = Storage(db_path=str(tmp_path / "kit.db"))
     sid = builder.generate(storage, spec)
     manifest = sp.export_scenario_pack(storage, sid, tmp_path / "packs" / spec.pack_id, pack_id=spec.pack_id)
@@ -314,5 +439,21 @@ def test_build_tool_generates_a_small_pack(tmp_path: Path) -> None:
     assert manifest["sim_start"] == "2026-01-15T03:00:10.000000Z" and manifest["wind_profile"] == "rated"
     assert pack_reader.verify_pack(tmp_path / "packs" / spec.pack_id) == []
     assert [c["fault_id"] for c in answers["cases"]] == ["generator_overspeed"]
-    with pytest.raises(ValueError, match="pack_id"):
-        sp.export_scenario_pack(storage, sid, tmp_path / "bad", pack_id="Bad ID")
+    for bad in ("Bad ID", "z72-abc\n", "-abc", "abc-", "ab"):
+        with pytest.raises(ValueError, match="pack_id"):
+            sp.export_scenario_pack(storage, sid, tmp_path / "bad", pack_id=bad)
+    with pytest.raises(sp.ScenarioPackError) as exc:
+        sp.export_ground_truth(storage, 99999, tmp_path / "none.json")
+    assert exc.value.status_code == 404
+
+    # 可重產：同一個設定再生成一次（全新 DB），資料檔逐位元相同（_sim_clock 釘住時鐘才成立）
+    storage2 = Storage(db_path=str(tmp_path / "kit2.db"))
+    manifest2 = sp.export_scenario_pack(storage2, builder.generate(storage2, spec), tmp_path / "again",
+                                        pack_id=spec.pack_id)
+    for name in (sp.FILE_RAW, sp.FILE_STATS, sp.FILE_EVENTS):
+        assert manifest2["files"][name] == manifest["files"][name], name  # type: ignore[index]
+
+
+def test_only_the_legacy_contract_label_is_relabelled() -> None:
+    assert sp.ground_truth_for_pack({"contract_version": "0.1"}, "p")["contract_version"] == "1.0"
+    assert sp.ground_truth_for_pack({"contract_version": "1.1"}, "p")["contract_version"] == "1.1"
