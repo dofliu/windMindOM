@@ -26,10 +26,11 @@ from typing import Dict, List, Optional, Set
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from modules.auth.dependencies import require_authenticated, require_role
+from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
+from server.storage import is_observable_event
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.time_utils import parse_iso, to_utc, utc_now
 
@@ -461,10 +462,9 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
     這類情境改以「注入後、``as_of`` 前有無 trip 事件」判定；舊情境（無此標記）才沿用上述
     嚴重度公式近似。
 
-    ⚠️ 繼承既有限制（見 ``get_scenario_turbine_history`` docstring）：``history_events`` 無
-    ``session_id``，事件靠情境模擬時間窗（時間字串比較）撈取，短時間內連續產生的情境時間窗
-    可能重疊、混入其他情境的事件——與 ``eventsByTimeWindow`` 旗標標示的既有限制一致，非本次
-    新引入的風險。
+    事件來源：WMOM-20261021-04 之後的情境依 ``session_id`` 只撈本情境的注入 / 跳機標記；更早的情境
+    靠模擬時間窗撈（短時間內連續產生的情境時間窗可能重疊、混入其他情境的事件，與
+    ``eventsByTimeWindow`` 旗標標示的限制一致）。
 
     Args:
         fault_events: ``history_events`` 查詢結果（含已解析的 ``payload`` dict）。
@@ -690,10 +690,13 @@ async def get_scenario_farm_status(scenario_id: int) -> FarmStatus:
     # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit: int = 2000):
+async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit: int = 2000,
+                                       observable_only: bool = False):
     """調閱某情境某機組的資料——只回該情境 session 的 turbine_data（與 Live/歷史隔離）。
 
-    另附該情境的事件（PLC 警報 / 跳機、狀態轉換、故障注入標記），供時間軸標記。
+    另附該情境的事件（PLC 警報 / 跳機、狀態轉換、故障注入標記），供時間軸標記。注入 / 跳機標記
+    寫明故障（出題者 / 操作端看的）；``observable_only=true`` 只回可觀測事件（PLC 事件與狀態轉換，
+    ``storage.is_observable_event``），給盲測的外部消費端用。
 
     WMOM-20261021-04 之後的情境事件以 ``session_id`` 隔離（``events_by_time_window`` 為 False）。
     更早的情境沒有 session 隔離的事件，只能靠 ``sim_start..sim_end`` 時間窗撈取：短時間內連續
@@ -717,6 +720,8 @@ async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit:
             b.get_history_events(turbine_id, start=start, end=end, limit=min(limit, 1000))
             if start and end else []
         )
+    if observable_only:
+        events = [e for e in events if is_observable_event(e)]
     return {
         "scenario_id": scenario_id,
         "turbine_id": turbine_id,
@@ -728,8 +733,9 @@ async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit:
 
 @router.get(
     "/{scenario_id}/ground-truth",
-    # 標準答案＝評分端 / 出題者用（盲測：一般檢視者看不到答案）
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    # 標準答案＝評分端 / 出題者用（盲測：一般檢視者看不到答案）。用永遠強制的 require_roles：
+    # require_role 在 WMOM_AUTH_ENFORCE 未開（預設）時放行，答案卷不能預設公開（code review）
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
 )
 async def get_scenario_ground_truth(scenario_id: int) -> dict:
     """情境的標準答案（設計文件 §5.1 ``ground_truth.json``，介面合約 v0.1；WMOM-20261021-04）。

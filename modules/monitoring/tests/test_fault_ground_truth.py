@@ -55,6 +55,13 @@ def test_every_scenario_has_complete_answer_metadata(scenario_id: str) -> None:
     assert sc.key_signals, "至少要有一個看得到故障的 SCADA tag"
     unknown = [t for t in sc.key_signals if t not in SCADA_REGISTRY]
     assert not unknown, f"key_signals 不在 SCADA tag 註冊表：{unknown}"
+    # 至少一條處置出自手冊 Appendix C（標「（手冊）」/「manual」），中英對齊
+    assert [("手冊" in zh) for zh in sc.expected_actions_zh] == [("manual" in en) for en in sc.expected_actions_en]
+    assert any("手冊" in zh for zh in sc.expected_actions_zh)
+    # 模擬與真實的差異只寫在 simulation_notes，根因不放模擬器說明
+    assert len(sc.simulation_notes_zh) == len(sc.simulation_notes_en)
+    assert all(n.strip() for n in sc.simulation_notes_zh + sc.simulation_notes_en)
+    assert "模擬" not in sc.root_cause_zh and "simulat" not in sc.root_cause_en.lower()
 
 
 @pytest.mark.parametrize("scenario_id", SCENARIO_IDS)
@@ -165,7 +172,11 @@ def test_recorder_builds_case_with_onset_first_alarm_and_trip() -> None:
     assert case["other_observed_codes"] == [264]
     assert case["expected_alarm_codes"] == [262, 240]
     assert case["injection"] == {"offset_seconds": 600.0, "severity_rate": 0.001, "initial_severity": 0.0}
-    assert case["final_severity"] == 0.9877 and case["superseded"] is False
+    assert case["final_severity"] == 0.9877 and case["superseded"] is False and case["pre_existing"] is False
+    # 沒有 case 以預期碼解釋的警報：注入前的 262、別台的 262、連帶的 264（解除不列）
+    assert [(e["turbine_id"], e["code"], e["ts"][11:19]) for e in gt["unattributed_events"]] == [
+        ("WT001", 262, "00:01:40"), ("WT002", 262, "00:15:00"), ("WT001", 264, "00:40:00"),
+    ]
 
 
 def test_fault_without_alarm_before_trip_has_first_alarm_at_trip() -> None:
@@ -218,3 +229,62 @@ def test_unknown_scenario_injection_is_ignored() -> None:
     _inject(rec, "WT001", "not_a_fault", 0)
     gt = _build(rec)
     assert gt["cases"] == [] and gt["healthy_turbines"] == ["WT001"]
+
+
+def test_info_events_and_healthy_turbine_trips_are_listed_as_unattributed() -> None:
+    """健康機組的偶發跳機、切出風速 I201：答案卷要說得出「這筆沒有故障答案」。"""
+    rec = GroundTruthRecorder(["WT001", "WT002"])
+    rec.on_events([_plc("WT002", 100, "trip", 336), _plc("WT002", 110, "trip_cleared", 336),
+                   _plc("WT001", 200, "info", 201), _plc("WT001", 300, "operator_reset", 8)])
+    gt = _build(rec)
+    assert [(e["turbine_id"], e["kind"], e["code"], e["level"]) for e in gt["unattributed_events"]] == [
+        ("WT002", "trip", 336, "T2"), ("WT001", "info", 201, "I"),
+    ]
+    assert gt["healthy_turbines"] == ["WT001", "WT002"]
+
+
+@pytest.mark.parametrize("kind, code", [
+    ("alarm_cleared", 262), ("trip_cleared", 240), ("restart_blocked", 240), ("info", 201),
+])
+def test_only_raised_alarms_and_trips_count_for_a_case(kind: str, code: int) -> None:
+    rec = GroundTruthRecorder(["WT001"])
+    _inject(rec, "WT001", "bearing_wear", 0)
+    rec.on_events([_plc("WT001", 100, kind, code)])
+    case = _case(_build(rec), "C001")
+    assert case["first_alarm_ts"] is None and case["observed_alarm_codes"] == []
+    assert case["other_observed_codes"] == []
+
+
+def test_event_at_the_onset_instant_belongs_to_the_case() -> None:
+    rec = GroundTruthRecorder(["WT001"])
+    _inject(rec, "WT001", "bearing_wear", 600)
+    rec.on_events([_plc("WT001", 600, "alarm_raised", 262)])
+    assert _case(_build(rec), "C001")["first_alarm_code"] == 262
+
+
+def test_trip_is_credited_to_the_matching_fault_only_once() -> None:
+    rec = GroundTruthRecorder(["WT001"])
+    _inject(rec, "WT001", "converter_cooling_fault", 0)
+    _inject(rec, "WT001", "grid_voltage_sag", 0)
+    rec.on_fault_tripped("WT001", "grid_voltage_sag", 481, T0 + timedelta(seconds=100))
+    rec.on_fault_tripped("WT001", "grid_voltage_sag", 21, T0 + timedelta(seconds=200))
+    gt = _build(rec)
+    assert _case(gt, "C001")["trip_ts"] is None
+    assert (_case(gt, "C002")["trip_code"], _case(gt, "C002")["trip_ts"]) == (481, "2026-03-01T00:01:40.000000+00:00")
+
+
+def test_faults_present_at_the_end_without_an_injection_become_pre_existing_cases() -> None:
+    """生成前就殘留的故障不能被靜默略過：列成 onset 未知的 case，機組不算健康。"""
+    rec = GroundTruthRecorder(["WT001", "WT002"])
+    leftover = ActiveFault(scenario_id="bearing_wear", turbine_id="WT001", severity=1.0, tripped=True, trip_code=240)
+    gt = _build(rec, [leftover])
+    (case,) = gt["cases"]
+    assert case["pre_existing"] is True and case["onset_ts"] is None and case["injection"] is None
+    assert (case["fault_id"], case["trip_code"], case["final_severity"]) == ("bearing_wear", 240, 1.0)
+    assert gt["healthy_turbines"] == ["WT002"]
+
+
+def test_answer_carries_simulation_notes() -> None:
+    answer = scenario_answer(FAULT_SCENARIOS["generator_overspeed"])
+    assert answer["simulation_notes"] and answer["simulation_notes_en"]
+    assert "320" in answer["simulation_notes"][0]

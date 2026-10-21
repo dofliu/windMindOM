@@ -86,8 +86,12 @@ class FaultScenario:
     difficulty: str = "medium"                   # easy / medium / hard（對 RAG 診斷而言）
     # 故障在 SCADA 上看得到的 tag：高負載滿嚴重度時明顯偏離健康機組（tests/physics 會驗證）
     key_signals: Tuple[str, ...] = ()
-    expected_actions_zh: Tuple[str, ...] = ()    # 建議處置（依手冊 Appendix C 的處置提示）
+    # 建議處置：手冊 Appendix C 的處置提示（標「（手冊）」）＋ 工程實務；手冊原文另見標準答案的 manual_refs
+    expected_actions_zh: Tuple[str, ...] = ()
     expected_actions_en: Tuple[str, ...] = ()
+    # 模擬與真實的差異（評分端要知道，例：模擬不會出現的後續事件、沒有耦合的環境量）；根因 / 處置只寫真實世界
+    simulation_notes_zh: Tuple[str, ...] = ()
+    simulation_notes_en: Tuple[str, ...] = ()
 
 
 # ─── Pre-defined fault scenarios ──────────────────────────────────────────
@@ -126,14 +130,20 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WVIB_Kurtosis",
         ),
         expected_actions_zh=(
-            "檢查主軸承潤滑（油脂量 / 油質）",
-            "檢查軸承冷卻風扇",
+            "檢查主軸承潤滑（油脂量 / 油質）（手冊）",
+            "檢查軸承冷卻風扇（手冊）",
             "比對振動頻譜（峰度、高頻帶）評估軸承損傷，必要時安排更換",
         ),
         expected_actions_en=(
-            "Check main bearing lubrication.",
-            "Check the cooling fan.",
+            "Check main bearing lubrication (manual).",
+            "Check the cooling fan (manual).",
             "Review vibration spectra (kurtosis, high-frequency band) for bearing damage; plan replacement if needed.",
+        ),
+        simulation_notes_zh=(
+            "模擬的量測 tag 是 WGEN_GnBrgTmp1（發電機軸承溫度），PLC 以它判定事件 262 / 240（Main bearing 1）；情境名稱沿用 Generator Bearing Wear。",
+        ),
+        simulation_notes_en=(
+            "The simulated measurement tag is WGEN_GnBrgTmp1 (generator bearing temperature); the PLC uses it for events 262 / 240 (Main bearing 1). The scenario keeps its legacy name Generator Bearing Wear.",
         ),
     ),
 
@@ -165,14 +175,22 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnSpd",
         ),
         expected_actions_zh=(
-            "從現場操作面板讀取峰值轉速紀錄",
-            "檢查變槳驅動與變槳控制回路（含轉速量測）",
+            "從現場操作面板（Zoom/Rotor/Test Overspeed Trip）讀取峰值轉速並重設（手冊）",
+            "檢查變槳驅動與變槳控制回路（含轉速量測）；頻繁發生時調整變槳控制參數並聯絡 Harakosan（手冊）",
+            "硬體超速（320）後目視檢查輪轂是否受損（手冊）",
             "超速跳機後須確認原因才可重啟",
         ),
         expected_actions_en=(
-            "Read the peak speed measurement from the Local Operator Panel.",
-            "Check the pitch drives and the pitch control loop, including speed measurement.",
+            "Read the peak speed from the Local Operator Panel (Zoom/Rotor/Test Overspeed Trip) and reset it (manual).",
+            "Check the pitch drives and the pitch control loop, including speed measurement; if it trips often, fine-tune the pitch control parameters and contact Harakosan (manual).",
+            "After a hardware overspeed (320), visually inspect the hub for damage (manual).",
             "Find the cause of the overspeed trip before restarting.",
+        ),
+        simulation_notes_zh=(
+            "模擬中 351 跳機後故障即凍結（機組停在 T1），不會再出現 320；320 列為真實情況可能的後續事件。",
+        ),
+        simulation_notes_en=(
+            "In the simulation the fault freezes once 351 trips the turbine (it stays stopped on T1), so 320 never follows; 320 is listed as the possible real-world escalation.",
         ),
     ),
 
@@ -210,12 +228,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WCNV_CnvCabinTmp",
         ),
         expected_actions_zh=(
-            "依 ABB 變頻器手冊檢查冷卻水回路（Z72 手冊此類事件只寫 See [ABB]）",
+            "依 ABB 變頻器手冊檢查冷卻水回路（手冊：Z72 手冊此類事件只寫 See [ABB]）",
             "檢查冷卻液位與洩漏點（O-ring、接頭），補液並修漏",
             "確認冷卻泵與靜水壓恢復正常後再復位",
         ),
         expected_actions_en=(
-            "Inspect the converter cooling-water circuit per the ABB converter manual (the Z72 manual only says See [ABB]).",
+            "Inspect the converter cooling-water circuit per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
             "Check coolant level and leaks (O-rings, fittings); refill and repair.",
             "Reset only after pump and static pressure are back to normal.",
         ),
@@ -243,12 +261,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGDC_TrfCoreTmp",
         ),
         expected_actions_zh=(
-            "依 ABB 文件檢查變壓器溫度量測與冷卻（Z72 手冊此類事件只寫 See [ABB]）",
+            "依 ABB 文件檢查變壓器溫度量測與冷卻（手冊：Z72 手冊此類事件只寫 See [ABB]）",
             "檢查變壓器通風 / 冷卻風扇",
             "高溫期間降載運轉，確認冷卻恢復後再滿載",
         ),
         expected_actions_en=(
-            "Check transformer temperature measurement and cooling per the ABB documentation (the Z72 manual only says See [ABB]).",
+            "Check transformer temperature measurement and cooling per the ABB documentation (manual: the Z72 manual only says See [ABB]).",
             "Inspect transformer ventilation / cooling fans.",
             "Derate while hot; return to full load once cooling is restored.",
         ),
@@ -290,13 +308,13 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WVIB_Band1pY",
         ),
         expected_actions_zh=(
-            "檢查 1 號葉片變槳驅動與角度量測（編碼器 / 校準）",
-            "檢查變槳軸承是否卡滯",
+            "檢查 1 號葉片變槳驅動與角度量測（編碼器 / 校準）（手冊：pitch drives OK?）",
+            "檢查變槳軸承是否卡滯（手冊）",
             "重新校準葉片角度後確認三葉片同步",
         ),
         expected_actions_en=(
-            "Check the blade 1 pitch drive and angle measurement (encoder / calibration).",
-            "Check the pitch bearing for stiffness.",
+            "Check the blade 1 pitch drive and angle measurement (encoder / calibration) (manual: are the pitch drives OK?).",
+            "Check the pitch bearing for stiffness (manual).",
             "Recalibrate the blade angle and verify all three blades are synchronised.",
         ),
     ),
@@ -327,12 +345,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WLOD_TwrSsMom",
         ),
         expected_actions_zh=(
-            "檢查兩支風向標（是否彎曲、鬆動、校準偏移）",
+            "檢查兩支風向標（是否彎曲、鬆動、校準偏移）（手冊）",
             "比對兩支風向標讀值找出漂移的一支並重新校準",
             "校準後確認偏航誤差與功率曲線恢復",
         ),
         expected_actions_en=(
-            "Check both wind vanes (bent, loose, or out of calibration).",
+            "Check both wind vanes (bent, loose, or out of calibration) (manual).",
             "Compare the two vane readings to find the drifting one and recalibrate it.",
             "After calibration, verify the yaw error and power curve recover.",
         ),
@@ -363,14 +381,16 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnAirTmp1",
         ),
         expected_actions_zh=(
+            "確認是否外氣溫很高且產能很高（手冊）",
             "檢查定子溫度量測與發電機冷卻",
-            "比對溫度—功率斜率與鄰機，確認是否為繞組劣化",
-            "安排絕緣電阻量測（megger），必要時降載運轉",
+            "比對溫度—功率斜率與鄰機，確認是否為繞組劣化；安排絕緣電阻量測（megger），必要時降載",
+            "跳機（244）或持續發生時聯絡 Harakosan（手冊）",
         ),
         expected_actions_en=(
+            "Check whether the outside temperature is very high in combination with very high production (manual).",
             "Check stator temperature measurement and generator cooling.",
-            "Compare the temperature-vs-power slope with neighbouring turbines to confirm winding degradation.",
-            "Schedule an insulation resistance test (megger); derate if needed.",
+            "Compare the temperature-vs-power slope with neighbouring turbines to confirm winding degradation; schedule an insulation resistance test (megger) and derate if needed.",
+            "After a trip (244) or if it persists, contact Harakosan (manual).",
         ),
     ),
 
@@ -392,8 +412,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             {"type": "T1", "code": 228, "desc": "Yaw brake pressure very low"},
         ],
         component="yaw_brake_hydraulics",
-        root_cause_zh="偏航煞車液壓系統密封洩漏：液壓壓力逐日下降、洩漏偵測線路壓力上升（261），壓力低於警報設定（260）後高風載下偏航滑移，塔架側向負載波動增加，壓力過低時跳機（228）。",
-        root_cause_en="Yaw brake hydraulic seal leakage: system pressure drops day by day while the leakage-detector line pressurises (261); below the alarm setpoint (260) the nacelle slips in yaw under high wind load, raising tower side-side load fluctuation, and at very low pressure the turbine trips (228).",
+        root_cause_zh="偏航煞車液壓系統密封洩漏：液壓壓力逐日下降，先觸發壓力低警報（260），洩漏偵測線路壓力隨後上升（261）；高風載下偏航滑移、塔架側向負載波動增加，壓力過低時跳機（228）。",
+        root_cause_en="Yaw brake hydraulic seal leakage: system pressure drops day by day, first raising the low-pressure alarm (260), then the leakage-detector line pressurises (261); under high wind load the nacelle slips in yaw, raising tower side-side load fluctuation, and at very low pressure the turbine trips (228).",
         difficulty="medium",
         key_signals=(
             "WYAW_YwBrkHyPrs",
@@ -401,13 +421,13 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WLOD_DelTwrSs",
         ),
         expected_actions_zh=(
-            "檢查液壓動力單元",
-            "檢查偏航煞車是否漏油並修漏",
+            "檢查液壓動力單元（手冊）",
+            "檢查偏航煞車是否漏油並修漏（手冊）",
             "修復後確認系統壓力回到額定",
         ),
         expected_actions_en=(
-            "Check the hydraulic power unit.",
-            "Check the yaw brakes for leakage and fix it.",
+            "Check the hydraulic power unit (manual).",
+            "Check the yaw brakes for leakage and fix it (manual).",
             "After repair, verify system pressure is back to nominal.",
         ),
     ),
@@ -433,8 +453,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         ],
         component="blades",
         origin="environmental",
-        root_cause_zh="葉片結冰（環境因素）：冰層造成質量與氣動不平衡，功率下降、機艙振動不對稱增加，塔架加速度過高時跳機（236）；跳機前沒有結冰專用警報。真實情況氣溫回升後解除（本模擬不會自行解除）。",
-        root_cause_en="Blade icing (environmental): ice causes mass and aerodynamic imbalance, so power drops and nacelle vibration rises asymmetrically until tower acceleration trips the turbine (236); Z72 has no dedicated icing alarm before the trip. In reality it clears when temperature rises (this simulation does not self-clear).",
+        root_cause_zh="葉片結冰（環境因素）：冰層造成質量與氣動不平衡，功率下降、機艙振動不對稱增加，塔架加速度過高時跳機（236）；跳機前沒有結冰專用警報，氣溫回升後解除。",
+        root_cause_en="Blade icing (environmental): ice causes mass and aerodynamic imbalance, so power drops and nacelle vibration rises asymmetrically until tower acceleration trips the turbine (236); Z72 has no dedicated icing alarm before the trip, and it clears when the temperature rises.",
         difficulty="medium",
         key_signals=(
             "WNAC_VibMsNacYDir",
@@ -442,14 +462,22 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WTUR_TotPwrAt",
         ),
         expected_actions_zh=(
-            "確認氣象條件（低溫、高濕）與功率曲線是否符合結冰特徵",
+            "比對同風速下功率是否明顯低於功率曲線、機艙振動是否不對稱（結冰特徵），再確認氣溫 / 濕度是否支持結冰",
             "檢查葉片是否有冰層或葉片差異（手冊：Blade discrepancies and/or very gusty wind）",
             "結冰期間停機等待除冰，確認葉片無冰後再啟動",
         ),
         expected_actions_en=(
-            "Check whether weather (low temperature, high humidity) and the power curve match icing.",
+            "Check whether power at a given wind speed is clearly below the power curve and nacelle vibration is asymmetric (icing signature), then whether temperature / humidity support icing.",
             "Inspect blades for ice or blade discrepancies (manual: Blade discrepancies and/or very gusty wind).",
             "Keep the turbine stopped until the ice is gone, then restart.",
+        ),
+        simulation_notes_zh=(
+            "模擬的環境溫度 / 濕度不隨結冰情境調整（資料裡的氣溫可能不像結冰天氣），判斷以功率與振動特徵為主。",
+            "模擬中結冰不會自行解除。",
+        ),
+        simulation_notes_en=(
+            "Simulated ambient temperature / humidity do not follow the icing scenario (the data may not look like icing weather); judge by the power and vibration signature.",
+            "Icing does not clear by itself in the simulation.",
         ),
     ),
 
@@ -472,8 +500,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         ],
         component="grid_connection",
         origin="external_grid",
-        root_cause_zh="電網電壓下陷 / 振盪（外部因素，非機組故障）：變頻器輸出受限、無效功率支援增加，電壓低於低電壓穿越帶持續過久時變頻器欠壓保護跳機並要求機組跳機（481 + 021）。",
-        root_cause_en="Grid voltage sag / oscillation (external, not a turbine fault): converter output is limited and reactive support rises; when voltage stays below the low-voltage ride-through band too long, the converter undervoltage protection trips and requests a turbine trip (481 + 021).",
+        root_cause_zh="機組併網端電壓下陷 / 振盪（外部電網或饋線因素，非機組元件故障）：變頻器輸出受限、無效功率支援增加，電壓低於低電壓穿越帶持續過久時變頻器欠壓保護跳機並要求機組跳機（481 + 021）。",
+        root_cause_en="Voltage sag / oscillation at the turbine's grid connection (external grid or feeder, not a turbine component fault): converter output is limited and reactive support rises; when voltage stays below the low-voltage ride-through band too long, the converter undervoltage protection trips and requests a turbine trip (481 + 021).",
         difficulty="medium",
         key_signals=(
             "WGEN_GnVtgMs",
@@ -482,14 +510,20 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WTUR_TotPwrAt",
         ),
         expected_actions_zh=(
-            "確認電網側電壓紀錄（與鄰機 / 變電站比對，多機同時出現即為電網事件）",
-            "依 ABB 變頻器手冊檢查欠壓保護事件（Z72 手冊此類事件只寫 See [ABB]）",
-            "電網恢復後復位，不需更換機組元件",
+            "比對本機、鄰機與變電站的電壓紀錄：多機同時下陷為電網事件；只有本機下陷時檢查本機的饋線、併網電纜與開關",
+            "依 ABB 變頻器手冊檢查欠壓保護事件（手冊：Z72 手冊此類事件只寫 See [ABB]）",
+            "電壓恢復後復位，不需更換機組元件",
         ),
         expected_actions_en=(
-            "Check grid voltage records (compare with neighbouring turbines / the substation; simultaneous events point to the grid).",
-            "Check the undervoltage protection event per the ABB converter manual (the Z72 manual only says See [ABB]).",
-            "Reset once the grid recovers; no turbine component replacement needed.",
+            "Compare voltage records of this turbine, its neighbours and the substation: a simultaneous sag points to the grid; a sag on this turbine only points to its feeder, grid cable or switchgear.",
+            "Check the undervoltage protection event per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
+            "Reset once the voltage recovers; no turbine component replacement needed.",
+        ),
+        simulation_notes_zh=(
+            "模擬只讓被注入的這台機組端子電壓下陷，鄰機電壓正常。",
+        ),
+        simulation_notes_en=(
+            "Only the injected turbine's terminal voltage sags in the simulation; neighbouring turbines see normal voltage.",
         ),
     ),
 
@@ -528,12 +562,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         expected_actions_zh=(
             "檢查機艙通風風扇與進出風口（濾網堵塞、風扇故障）",
             "確認多個元件同時升溫指向共同原因（通風），不要逐一更換元件",
-            "等待溫度回到可運轉範圍後再啟動",
+            "等待溫度回到可運轉範圍後再啟動（手冊）",
         ),
         expected_actions_en=(
             "Check nacelle ventilation fans and air inlets/outlets (clogged filters, failed fans).",
             "Recognise that several components heating together points to a common cause (ventilation); do not replace components one by one.",
-            "Restart only once temperatures are back in the operating range.",
+            "Restart only once temperatures are back in the operating range (manual).",
         ),
     ),
 }

@@ -338,7 +338,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 ### 6.7 Phase 2 標準答案 + 情境事件（WMOM-20261021-04，2026-10-21）
 
-**故障情境 metadata**（`FaultScenario` 新欄位，只寫進標準答案）：`component`、`root_cause_zh/en`、`category`、`origin`、`difficulty`、`key_signals`、`expected_actions_zh/en`。預期警報序列沿用 `alarm_codes`（A 在前、T 在後，測試會擋）；手冊條目由 Z72 警報目錄組出（`simulator/ground_truth.py::manual_refs`，含頁碼、原因、處置提示），Z72 手冊只寫「See [ABB]」者標 `see_abb`，case 的 `manual_coverage` 為 `z72_manual` / `abb_manual` / `mixed`。
+**故障情境 metadata**（`FaultScenario` 新欄位，只寫進標準答案）：`component`、`root_cause_zh/en`、`category`、`origin`、`difficulty`、`key_signals`、`expected_actions_zh/en`、`simulation_notes_zh/en`。根因與處置只寫真實世界的答案；處置中出自手冊 Appendix C 的標「（手冊）」（每個情境至少一條），其餘為工程實務。模擬與真實不同之處寫在 `simulation_notes`（例：超速在 351 跳機後故障凍結、不會出現 320；結冰情境的環境溫度不耦合；電網下陷只作用在被注入的機組）。預期警報序列沿用 `alarm_codes`（A 在前、T 在後，測試會擋）；手冊條目由 Z72 警報目錄組出（`simulator/ground_truth.py::manual_refs`，含頁碼、原因、處置提示），Z72 手冊只寫「See [ABB]」者標 `see_abb`，case 的 `manual_coverage` 為 `z72_manual` / `abb_manual` / `mixed`。
 
 | 情境 | component | category / origin | 難度 | 手冊 |
 |---|---|---|---|---|
@@ -358,24 +358,48 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 **批次事件**：`generate_bulk(on_events=...)` 每個物理子步收集 PLC 事件（時刻依機組 `_sim_time` 回推，與 Live 的 `_plc_event_timestamp` 同換算）與 `WTUR_TurSt` 轉換（含停機原因），每個輸出步回呼一次；批次開始前先清掉 Live 留在佇列的事件。收集只讀狀態：同起點、同排程的兩次生成讀值逐位元相同（有測試）。寫入走 `DataBroker.record_bulk_events`，格式與 Live 相同（`_plc_event_fields` / `_state_transition_fields` 共用），一次 commit。實測 14 機、6 h、stress_test 前 8 個故障：62 筆事件（狀態轉換 50、警報 5、跳機 4…），生成時間與不收事件相同（77.6 s vs 81.6 s，雜訊內）。
 
-**事件 session 隔離**：`history_events.session_id`（舊 DB 自動補欄，舊列 NULL）。命名情境的事件記在情境 session、不帶 name 的批次與 Live 事件記在 Live session（`DataBroker.record_event` 預設）。情境 config 帶 `events_session_isolated: true` → 調閱 / 摘要依 session 查（`events_by_time_window` / `eventsByTimeWindow` = false，前端的「可能混入重疊情境」提醒自然消失）；舊情境退回時間窗。掛載的 FAULT 重算只撈 `source="scenario"` 的注入 / 跳機標記（PLC 事件可能數千筆，不篩會被 LIMIT 擠掉）。刪除情境一併刪事件與標準答案。
+**事件 session 隔離**（DEC-20261021-02）：
+- `history_events.session_id`（舊 DB 自動補欄，舊列 NULL）。命名情境的事件記在情境 session、不帶 name 的批次與 Live 事件記在 Live session（`DataBroker.record_event` 預設）。
+- 情境 config 帶 `events_session_isolated: true` → 調閱 / 摘要依 session 查（`events_by_time_window` / `eventsByTimeWindow` = false，前端的「可能混入重疊情境」提醒自然消失）；舊情境退回時間窗。
+- Live 端（不指定 session）的查詢排除情境 session 的事件：情境以模擬時間寫入，不排除會擠進 Live 時間軸。
+- 摘要的 `faultEvents` 在 session 模式只數 PLC 的警報成立與跳機；前端趨勢圖也只標這些與情境標記（`frontend/utils/scenarioEvents.ts`），解除、I201、停機狀態轉換不畫成「故障」線。
+- 掛載的 FAULT 重算只撈 `source="scenario"` 的注入 / 跳機標記（PLC 事件可能數千筆，不篩會被 LIMIT 擠掉）。
+- 刪除情境一併刪事件與標準答案；情境的 raw 讀值不受 3 天 retention 清除（凍結資料集）。
+- 同一時刻的事件依寫入順序排（跳機在它造成的停機狀態之前）。
 
-**標準答案**：`scenario_ground_truth` 表（一情境一列 JSON），`GET /api/scenarios/{id}/ground-truth`（主管）。每次故障注入一個 case：`onset_ts`（注入時刻）、`first_alarm_ts` / `first_alarm_code`（該故障**預期碼**第一次成立或跳機）、`trip_ts` / `trip_code`、`observed_alarm_codes`（實際出現的預期碼）、`other_observed_codes`（同機組其他 A / T 碼）、`injection`、`final_severity`、`superseded`（同機組同情境再注入時舊 case 標記），加上上述答案欄位；頂層 `healthy_turbines`（未注入故障的機組）。stress_test 6 h 實例：hydraulic_leak `260 → 261 → 228`（13:02 首警、14:03 跳機）；yaw_sensor_drift / pitch_imbalance / blade_icing 首次警報＝跳機（§6.1 限制 2）；stator / nacelle 6 h 內未達警報。
+**標準答案**：`scenario_ground_truth` 表（一情境一列 JSON），`GET /api/scenarios/{id}/ground-truth`（主管）。每次故障注入一個 case：`onset_ts`（注入時刻）、`first_alarm_ts` / `first_alarm_code`（該故障**預期碼**第一次成立或跳機）、`trip_ts` / `trip_code`、`observed_alarm_codes`（實際出現的預期碼）、`other_observed_codes`（同機組其他 A / T 碼）、`injection`、`final_severity`、`superseded`（同機組同情境再注入時舊 case 標記）、`pre_existing`，加上上述答案欄位。
 
-**盲測分離**：根因只在標準答案表。`storage.is_observable_event` 定義可觀測事件——排除情境 / 測試計畫標記（`source` `scenario` / `test_plan`）、`fault_lifecycle` 與 payload 帶 `scenarioId` / `faults` 的事件；整合測試檢查情境的可觀測事件不含任何故障 ID。
+頂層欄位：
+- `healthy_turbines`：未注入故障的機組。
+- `unattributed_events`：沒有任何 case 以預期碼解釋的警報 / 跳機 / 資訊事件，例如健康機組的偶發跳機（見 WMOM-20261021-12）、切出風速 I201、故障連帶的其他碼。評分端因此知道 RAG 面對的每一筆事件有沒有答案。
+
+命名情境一律先清掉 Live 殘留的故障。結束時若仍有沒有注入紀錄的故障，列成 `pre_existing` case（onset 未知），不靜默略過。stress_test 6 h 實例：hydraulic_leak `260 → 261 → 228`（13:02 首警、14:03 跳機）；yaw_sensor_drift / pitch_imbalance / blade_icing 首次警報＝跳機（§6.1 限制 2）；stator / nacelle 6 h 內未達警報。
+
+**盲測分離**：
+- 根因只在標準答案表，端點 `GET /api/scenarios/{id}/ground-truth` 永遠需要主管（`require_roles`，不受 `WMOM_AUTH_ENFORCE` 過渡開關影響）。
+- `storage.is_observable_event` 以**白名單**定義可觀測事件：PLC 事件與運轉狀態轉換；情境 / 測試計畫標記、`fault_lifecycle`、Live 的 FaultEngine 跳機 / 解除、操作 / 設定紀錄一律不算，新來源預設不可觀測。
+- 情境調閱端點加 `observable_only=true` 給盲測消費端；整合測試檢查情境的可觀測事件不含任何故障 ID。
 
 **已知限制**：
 
-1. **情境 config 的 `fault_schedule` 寫明注入的故障**：`GET /api/scenarios/{id}`（任何登入者）與前端情境頁看得到——那是出題者 / 操作端的資訊；-05 資料包的 manifest 不得帶出 `fault_schedule`，事件必須以 `is_observable_event` 過濾。
+1. **情境 config 的 `fault_schedule` 寫明注入的故障**：`GET /api/scenarios/{id}`（任何登入者）、摘要的 `faultsInjected` 與前端情境頁都看得到——那是出題者 / 操作端的資訊；-05 資料包的 manifest 不得帶出 `fault_schedule`，事件必須以 `is_observable_event` 過濾。
 2. **Live 路徑不是盲測資料源**：沒有標準答案，`Automatic fault trip` / `fault_lifecycle` 事件帶故障 ID（操作端展示用）。資料源一律走批次情境。
 3. 測試計畫（`/api/faults/test-plans/{id}/run`）會記事件與跳機標記，但寫進 Live session、不產生標準答案。
-4. 健康機組只列在 `healthy_turbines`，沒有 `category: healthy` 的 case；`nuisance` / 健康負樣本 case 留給 -08。
-5. `first_alarm_ts` 只看該故障的預期碼；兩個故障共用的碼（例：021）兩邊都記。
+4. 健康機組只列在 `healthy_turbines`，沒有 `category: healthy` 的 case；`nuisance` / 健康負樣本 case 留給 -08（事件已列在 `unattributed_events`）。
+5. 歸屬只靠事件碼：`first_alarm_ts` 只看該故障的預期碼；兩個故障共用的碼（例：021）兩邊都記；同機組多故障時，物理耦合造成的碼可能被另一個 case 認領（例：機艙冷卻失效讓軸承升溫，262 會算進同機組 bearing_wear 的首警）。
 6. 本變更之前生成的情境沒有標準答案（404），事件也沒有 session（退回時間窗）。
 7. `routers/farms.py::generate_dataset` 仍不記事件與標準答案（-05 決定修或移除）。
 8. 調閱端點仍有 1000 筆事件上限（最新在前）：很長的情境在單機歷史頁可能看不到最早的事件（-05 匯出直接讀表，不受影響）。
 9. ISSUES 原描述 (5)「T1/T2 不再一律稱為 alarm threshold reached」已於 -03-b 達成：PLC 事件 title 為 `Trip: T_240 …`、payload 帶 `code` / `level`；本次未改格式。
-10. 標準答案欄位比 §5.1 的 v0 範例多（`root_cause_en`、`origin`、`observed_alarm_codes`、`other_observed_codes`、`key_signals`、`manual_coverage`、`injection`…），合約 v1 於 -09 定稿。
+10. 標準答案欄位比 §5.1 的 v0 範例多（`root_cause_en`、`origin`、`observed_alarm_codes`、`other_observed_codes`、`key_signals`、`manual_coverage`、`injection`、`simulation_notes`、`unattributed_events`…），合約 v1 於 -09 定稿。
+11. **留給 -05 的可重現性與匯出事項**：
+    - 情境 config / 標準答案沒記 seed、`TurbineSpec`、模擬器版本。
+    - 批次沿用 Live 模擬器的模型狀態（未重置），「seed + manifest 可重現」目前不成立。
+    - `generated_at` 是 wall-clock。
+    - 事件的 `kind` 要對應到合約的 `event_type`（`trip_cleared`、`restart_blocked`、`info` 合約尚未定義）。
+    - 時間戳後綴 `+00:00` vs 合約範例 `Z`。
+    - 狀態事件的停機原因是模擬器內部詞彙（例：`maintenance_lock`、`overspeed_software`），匯出時可正規化。
+12. 不帶 name 的批次與測試計畫把事件寫進 Live session（時間戳從生成當下往未來展開，與它們的讀值同一時間軸，沿用舊行為）。
 
 ## 7. 不做的事
 

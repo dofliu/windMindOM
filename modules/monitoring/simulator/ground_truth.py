@@ -4,7 +4,8 @@
 
 1. 故障注入（``generate_bulk`` 的 ``on_fault_injected``）→ 每次注入一個 case，``onset_ts``＝注入時刻
 2. 可觀測事件（``on_events``）→ 該 case 預期碼第一次出現的時刻（``first_alarm_ts``）、實際出現的預期碼、
-   同機組出現的其他警報 / 跳機碼
+   同機組出現的其他警報 / 跳機碼；沒有任何 case 的預期碼能解釋的警報 / 跳機 / 資訊事件另列
+   ``unattributed_events``（例：健康機組的偶發跳機、切出風速 I201、故障連帶的其他碼）
 3. 故障造成的 PLC 跳機（``on_fault_tripped``）→ ``trip_ts`` / ``trip_code``
 
 產出的 dict 對齊設計文件 §5.1 ``ground_truth.json``（介面合約 v0.1），存進 ``scenario_ground_truth``
@@ -31,9 +32,10 @@ CONTRACT_VERSION = "0.1"
 MANUAL_DOC = "Z72 User Manual"
 MANUAL_SECTION = "Appendix C"
 _ABB_MARKER = "See [ABB]"
-# 會出現在 first_alarm / observed 的事件種類（警報成立與跳機）；解除、復位、資訊不算
+# 會出現在 first_alarm / observed 的事件種類（警報成立＝A 級、跳機＝T1 / T2）；解除、復位、資訊不算
 _ALARM_KINDS = frozenset({"alarm_raised", "trip"})
-_ALARM_LEVELS = frozenset({"A", "T1", "T2"})
+# 沒被 case 解釋時要列進 unattributed_events 的事件種類（警報、跳機與 I 類資訊，例：切出風速 201）
+_UNATTRIBUTED_KINDS = frozenset({"alarm_raised", "trip", "info"})
 
 JsonValue = Union[str, int, float, bool, None, List["JsonValue"], Dict[str, "JsonValue"]]
 
@@ -110,6 +112,8 @@ def scenario_answer(scenario: FaultScenario) -> Dict[str, JsonValue]:
         "expected_actions": list(scenario.expected_actions_zh),
         "expected_actions_en": list(scenario.expected_actions_en),
         "key_signals": list(scenario.key_signals),
+        "simulation_notes": list(scenario.simulation_notes_zh),
+        "simulation_notes_en": list(scenario.simulation_notes_en),
     }
 
 
@@ -146,6 +150,7 @@ class GroundTruthRecorder:
     def __init__(self, turbine_ids: Sequence[str]) -> None:
         self._turbine_ids = list(turbine_ids)
         self._cases: List[_Case] = []
+        self._unattributed: List[Dict[str, JsonValue]] = []
 
     def on_fault_injected(self, step: TestPlanStep, sim_time: datetime) -> None:
         """一次故障注入成為一個 case（``generate_bulk`` 的 ``on_fault_injected``）。
@@ -190,25 +195,38 @@ class GroundTruthRecorder:
         """可觀測事件歸到同機組、已開始的 case（``generate_bulk`` 的 ``on_events``）。
 
         預期碼 → ``first_alarm`` / ``observed_alarm_codes``；其他 A / T 碼 → ``other_observed_codes``
-        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。
+        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。沒有任何 case 以預期碼認領的警報 / 跳機 /
+        資訊事件列進 ``unattributed_events``：評分端才知道 RAG 面對的每一筆事件有沒有答案。
 
         Args:
             events: 可觀測事件。
         """
         for event in events:
             plc = event.plc_event
-            if plc is None or event.kind not in _ALARM_KINDS or plc.level not in _ALARM_LEVELS:
+            if plc is None:
                 continue
-            for case in self._active_cases(event.turbine_id):
-                if event.timestamp < case.onset:
-                    continue
-                if plc.code in case.expected_codes:
-                    if case.first_alarm is None:
-                        case.first_alarm = (event.timestamp, plc.code)
-                    if plc.code not in case.observed_codes:
-                        case.observed_codes.append(plc.code)
-                elif plc.code not in case.other_codes:
-                    case.other_codes.append(plc.code)
+            claimed = False
+            if event.kind in _ALARM_KINDS:
+                for case in self._active_cases(event.turbine_id):
+                    if event.timestamp < case.onset:
+                        continue
+                    if plc.code in case.expected_codes:
+                        claimed = True
+                        if case.first_alarm is None:
+                            case.first_alarm = (event.timestamp, plc.code)
+                        if plc.code not in case.observed_codes:
+                            case.observed_codes.append(plc.code)
+                    elif plc.code not in case.other_codes:
+                        case.other_codes.append(plc.code)
+            if not claimed and event.kind in _UNATTRIBUTED_KINDS:
+                self._unattributed.append({
+                    "ts": iso_utc(event.timestamp),
+                    "turbine_id": event.turbine_id,
+                    "kind": event.kind,
+                    "code": plc.code,
+                    "level": plc.level,
+                    "text": plc.text,
+                })
 
     def build(self, *, scenario_id: Optional[int], scenario_name: Optional[str],
               site_timezone: Optional[str], sim_start: Optional[str], sim_end: Optional[str],
@@ -227,7 +245,13 @@ class GroundTruthRecorder:
             可 JSON 序列化的標準答案。
         """
         final_severity = {(f.turbine_id, f.scenario_id): f.severity for f in final_faults}
-        faulty = {c.turbine_id for c in self._cases}
+        recorded = {(c.turbine_id, c.scenario.id) for c in self._cases if not c.superseded}
+        # 不是本次注入、卻在結束時仍存在的故障（例：生成前就殘留的故障）：不能靜默略過，列成 onset 未知的 case
+        pre_existing = [
+            f for f in final_faults
+            if (f.turbine_id, f.scenario_id) not in recorded and f.scenario_id in FAULT_SCENARIOS
+        ]
+        faulty = {c.turbine_id for c in self._cases} | {f.turbine_id for f in pre_existing}
         cases: List[JsonValue] = []
         for case in self._cases:
             answer = scenario_answer(case.scenario)
@@ -252,6 +276,24 @@ class GroundTruthRecorder:
                     else round(final_severity.get((case.turbine_id, case.scenario.id), 0.0), 4)
                 ),
                 "superseded": case.superseded,
+                "pre_existing": False,
+            })
+        for fault in pre_existing:
+            cases.append({
+                "case_id": f"C{len(cases) + 1:03d}",
+                "turbine_id": fault.turbine_id,
+                **scenario_answer(FAULT_SCENARIOS[fault.scenario_id]),
+                "onset_ts": None,
+                "first_alarm_ts": None,
+                "first_alarm_code": None,
+                "trip_ts": None,
+                "trip_code": fault.trip_code,
+                "observed_alarm_codes": [],
+                "other_observed_codes": [],
+                "injection": None,
+                "final_severity": round(fault.severity, 4),
+                "superseded": False,
+                "pre_existing": True,
             })
         return {
             "contract_version": CONTRACT_VERSION,
@@ -267,6 +309,7 @@ class GroundTruthRecorder:
             # 未注入故障的機組（仍可能有環境性停機，例：切出風速 I201）
             "healthy_turbines": [t for t in self._turbine_ids if t not in faulty],
             "cases": cases,
+            "unattributed_events": list(self._unattributed),
         }
 
     def _active_cases(self, turbine_id: str) -> List[_Case]:

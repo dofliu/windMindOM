@@ -22,6 +22,7 @@ import { Card, Field, Select } from './ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { authFetch } from '../services/authClient';
 import { rightAxisTags } from '../utils/chartAxes';
+import { isScenarioFaultMarker } from '../utils/scenarioEvents';
 import type { SavedScenario } from './ScenarioDetail';
 
 // recharts 3.x 未在 type 上露出 React 內建 `key`，比照 HistoryPage 以寬鬆型別轉一次。
@@ -53,8 +54,10 @@ interface HistEvent {
   timestamp: string;
   turbine_id?: string | null;
   event_type: string;
+  source?: string;
   title: string;
   detail?: string | null;
+  payload?: Record<string, unknown> | null;
   _time?: number;
 }
 
@@ -119,7 +122,8 @@ const ScenarioTrendView: React.FC<Props> = ({ scenario, lang = 'zh', turbineId, 
   const faultEvents = useMemo(
     () =>
       events
-        .filter(e => e.event_type === 'fault')
+        // 只標警報成立 / 跳機與情境標記（-04 起情境也記解除、資訊、狀態轉換，見 utils/scenarioEvents）
+        .filter(isScenarioFaultMarker)
         .map(e => ({ ...e, _time: e.timestamp ? new Date(e.timestamp).getTime() : 0 }))
         .filter(e => (e._time ?? 0) > 0)
         // 明確由舊到新排序，與趨勢圖左→右方向一致（不依賴 API 回傳順序）。

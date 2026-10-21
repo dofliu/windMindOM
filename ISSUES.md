@@ -13,18 +13,18 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
+| open | 12 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
 | done | 135 |
-| **total** | **149** |
+| **total** | **150** |
 
 最後更新：2026-10-21 深夜（**WMOM-20261021-04 done**（EPIC-DS Phase 2）：故障情境標準答案 metadata（元件 / 根因 / 類別 / 難度 /
 key signals / 建議處置，手冊條目由警報目錄組出、See [ABB] 標記）；批次路徑產生可觀測事件（PLC 事件 + 狀態轉換，模擬時間戳）；
 `history_events.session_id`（情境事件以 session 隔離）；標準答案存 `scenario_ground_truth` 表、`GET /api/scenarios/{id}/ground-truth`（主管），
-與可觀測事件分離（`storage.is_observable_event`）。逐條解析 header 核實：open 11 / in_progress 1 / deferred 2 / done 135 = 149。
-詳見 `work-logs/2026-10/2026-10-21-ground-truth-scenario-events.md`）。
+與可觀測事件分離（`storage.is_observable_event`）；依 code review 新增 `WMOM-20261021-12`（健康機組長時間偶發 T2 336，+1 筆）。
+逐條解析 header 核實：open 12 / in_progress 1 / deferred 2 / done 135 = 150。詳見 `work-logs/2026-10/2026-10-21-ground-truth-scenario-events.md`）。
 前次最後更新：2026-10-21 深夜（**WMOM-20261021-11 done**：風場時區——`FarmConfig.timezone`（預設 Asia/Taipei、`farms.db` 新欄、API 驗證）、
 broker 以目前風場時區建立模擬器、`wind_model` 以 `to_site_naive` 取風場當地時刻；同一組 UTC 時刻在任何伺服器時區下輸出逐位元相同；
 情境 session 記下 `site_timezone`；-10 / -11 code review 修正（移動平均窗精確化、I201 每停機週期一次、reset 保留平均風速；
@@ -1382,7 +1382,38 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **實測**：14 機、6 h、stress_test 前 8 個故障 → 62 筆事件，生成時間與不收事件相同（77.6 s vs 81.6 s）；hydraulic_leak `260 → 261 → 228`、超速 / 結冰 / 葉片 / 風向標首次警報＝跳機
   - **測試**：`test_fault_ground_truth.py`（42）、`test_bulk_events.py`（18）、`test_scenario_endpoints.py` +8、`test_monitoring_routers_auth.py` +3、`test_fault_threshold_reach.py` +11；mutation 16 項皆被抓到；健康輸出逐位元不變、`data_quality_analysis.py` 20 / 0
   - 設計與已知限制見設計文件 §6.7
-- **未做**：Live 路徑沒有標準答案（`Automatic fault trip` / `fault_lifecycle` 帶故障 ID，操作端展示用，不是盲測資料源）；測試計畫不產生標準答案；健康 / nuisance case（-08）；`farms.py::generate_dataset` 不記事件（-05）；情境 config 的 `fault_schedule` 寫明故障，-05 manifest 不得帶出
+  - **code-reviewer review**（Needs revision → 已處理）：
+    - **2 must-fix**：
+      - (1) 端點測試依 wall-clock 的季節風況，超速有時不跳機、測試時過時不過 → fixture 固定批次起點，超速測試固定 14 m/s。
+      - (2) 命名情境不帶排程時，Live 殘留的故障會帶進資料，標準答案卻把那台列為健康 → 命名情境一律先清故障；`build()` 把結束時仍在、卻沒有注入紀錄的故障列成 `pre_existing` case，不靜默略過。
+    - **should-fix 全修**：
+      - Live 端的事件查詢排除情境 session（情境以模擬時間寫入，會擠掉 Live 事件）。
+      - 摘要的 `faultEvents` 改只數 PLC 警報成立 / 跳機；前端趨勢圖只標警報成立 / 跳機與情境標記（`utils/scenarioEvents.ts`），健康機組的 I201、解除、停機狀態不再畫成「故障」線。
+      - 標準答案加 `unattributed_events`：沒有 case 能解釋的警報 / 跳機 / 資訊，例如健康機組的偶發跳機、I201。
+      - `is_observable_event` 改白名單（PLC 事件 + 狀態轉換）。
+      - 答案卷端點改用永遠強制的 `require_roles`（`require_role` 在 enforce 未開時放行）。
+      - 情境調閱加 `observable_only`。
+      - 答案文字依手冊與物理修正：
+        - 處置標「（手冊）」，補手冊條目：超速補「峰值轉速重設」「320 檢查輪轂」，定子補「外氣溫 / 產能」「聯絡 Harakosan」。
+        - 模擬與真實的差異移到 `simulation_notes`：320 不會出現、結冰的氣溫不耦合、電網下陷只影響單機。
+        - 電網處置改為「多機同時下陷＝電網，只有本機＝饋線」。
+        - 液壓的碼順序改正。
+      - 情境 raw 讀值不受 3 天 retention 清除。
+      - 同時刻事件依 `id` 排序。
+      - 補測試：Live 快照觸發條件（重構回歸）、PLC 時刻回推、跳機只歸對應故障一次、只有成立 / 跳機算首警、onset 當刻含、`record_events` 跨連線可見、session 索引查詢計畫。
+      - `DEC-20261021-02`。
+      - 過時 docstring。
+    - **新開**：`WMOM-20261021-12`。reviewer 實測健康 14 機 12 h 出現 T2 336，我已重現。
+    - mutation：review 修正 18 項中 17 項被抓到；存活的 1 項是等價的冗餘 level 過濾，已移除。
+    - 全套測試時發現既有的 `test_generate_bulk_fault_schedule.py::test_scheduled_fault_progresses_to_trip` 也依 wall-clock 風況（10/21 的 12-18 UTC 低風不跳機），同樣改固定 14 m/s。
+  - backend 1574 → **1687 passed** / 7 skipped / 1 xfailed；frontend vitest 1502 → 1512；tsc 0；健康輸出逐位元不變、`data_quality_analysis.py` 20 / 0
+- **未做**：
+  - Live 路徑沒有標準答案（`Automatic fault trip` / `fault_lifecycle` 帶故障 ID，操作端展示用，不是盲測資料源）。
+  - 測試計畫不產生標準答案。
+  - 健康 / nuisance case 留給 -08（`unattributed_events` 已列出事件）。
+  - `farms.py::generate_dataset` 不記事件（-05）。
+  - 情境 config 的 `fault_schedule` 與摘要的 `faultsInjected` 寫明故障，-05 manifest 不得帶出。
+  - 可重現性（seed、`TurbineSpec`、模擬器狀態未重置）留給 -05。
 - **Depends on**: WMOM-20261021-02
 
 ### WMOM-20261021-05 — Phase 3a：① 檔案——情境資料包匯出
@@ -1486,6 +1517,17 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Depends on**: WMOM-20261021-03-c
 - **Blocks**: WMOM-20261021-05（資料包可重現）
 
+### WMOM-20261021-12 — 健康機組長時間模擬偶發葉片同步差異 T2 跳機（336）
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 0.5 天
+- **Owner**: -
+- **Description**: -04 code review 實測：健康 14 機風場、起點 2026-04-10T09:00Z、12 h、`time_step` 60（物理子步 5 s），WT002 在 16:04:45 發生 T2 336（Discrepancy blade 1-3，訊號值 1.01 / 設定值 1.0），10 秒後解除。-03-b 的守門測試（`test_plc_integration.py`）只涵蓋 2 h，長時間下健康機組仍會偶發誤跳。疑似與 -10 的已知限制同源：子步 dt 5 s 時「5 秒延時」的規則等於單一樣本就成立；也可能是紊流下葉片角度的健康偏差分佈尾端碰到 1°。要查：(1) 健康機組葉片角度差的分佈與 336 規則的延時判定；(2) 依手冊確認 1° / 5 s 的語意；(3) 決定修規則（延時至少 2 個樣本）或接受為真實的 nuisance（標準答案已以 `unattributed_events` 列出，-08 可做成 nuisance case）。修完要加長時間（≥ 12 h、多起點）的健康風場無訊號事件測試。
+- **Deliverable**: 根因分析 + 規則修正或 nuisance 定案 + 長時間守門測試
+- **Depends on**: WMOM-20261021-03-b
+
 ---
 
 ## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
@@ -1508,6 +1550,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 1b | ~~WMOM-20261021-03~~ ✅ | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → ~~-03-c UTC 時間戳~~ ✅ | 🔵 |
 | 1b+ | ~~WMOM-20261021-10~~ ✅ | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
 | 1b+ | ~~WMOM-20261021-11~~ ✅ | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
+| 1b+ | WMOM-20261021-12 | 健康機組長時間偶發葉片同步差異 T2 336（規則延時 / nuisance 定案） | 🔵 |
 | 2 | ~~WMOM-20261021-04~~ ✅ | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |

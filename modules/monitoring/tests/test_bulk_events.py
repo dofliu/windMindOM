@@ -141,7 +141,7 @@ def test_record_events_batch_and_session_source_filters(tmp_path: Path) -> None:
     ts = iso_utc(T0)
     written = storage.record_events([
         {"event_type": "fault", "source": "plc", "title": "Trip", "turbine_id": "WT001",
-         "timestamp": ts, "session_id": 1, "payload": {"code": 240}},
+         "timestamp": ts, "session_id": 1, "payload": {"kind": "trip", "code": 240}},
         {"event_type": "state", "source": "simulator", "title": "Stop", "turbine_id": "WT001",
          "timestamp": ts, "session_id": 1},
         {"event_type": "fault", "source": "scenario", "title": "Inject", "turbine_id": "WT001",
@@ -152,9 +152,82 @@ def test_record_events_batch_and_session_source_filters(tmp_path: Path) -> None:
     assert written == 4 and storage.record_events([]) == 0
     assert len(storage.query_events(session_id=1)) == 3
     assert [e["title"] for e in storage.query_events("WT001", session_id=1, source="scenario")] == ["Inject"]
-    assert storage.query_events(session_id=1, source="plc")[0]["payload"] == {"code": 240}
-    assert storage.count_scenario_fault_events(session_id=1) == {"WT001": 2}
-    assert storage.count_scenario_fault_events(session_id=2) == {"WT001": 1}
+    assert storage.query_events(session_id=1, source="plc")[0]["payload"] == {"kind": "trip", "code": 240}
+    # session 模式只數 PLC 的警報成立 / 跳機（注入標記、無 kind 的事件不算）
+    assert storage.count_scenario_fault_events(session_id=1) == {"WT001": 1}
+    assert storage.count_scenario_fault_events(session_id=2) == {}
+    # 時間窗模式（舊情境）維持原語意：所有 fault 事件
+    assert storage.count_scenario_fault_events(ts, ts) == {"WT001": 3}
+
+
+def test_session_fault_count_ignores_cleared_info_and_state_events(tmp_path: Path) -> None:
+    """健康機組的 I201、解除、停機狀態轉換不算「故障事件」（code review S3）。"""
+    storage = Storage(db_path=str(tmp_path / "count.db"))
+    ts = iso_utc(T0)
+    storage.record_events([
+        {"event_type": "fault", "source": "plc", "title": t, "turbine_id": tid, "timestamp": ts,
+         "session_id": 1, "payload": {"kind": kind}}
+        for tid, kind, t in [("WT001", "alarm_raised", "a"), ("WT001", "alarm_cleared", "b"),
+                             ("WT002", "info", "c"), ("WT002", "trip_cleared", "d"),
+                             ("WT002", "restart_blocked", "e")]
+    ] + [{"event_type": "fault", "source": "simulator", "title": "stop", "turbine_id": "WT002",
+          "timestamp": ts, "session_id": 1, "payload": {"fromState": 6, "toState": 9}}])
+    assert storage.count_scenario_fault_events(session_id=1) == {"WT001": 1}
+
+
+def test_live_queries_exclude_scenario_session_events(tmp_path: Path) -> None:
+    storage = Storage(db_path=str(tmp_path / "live.db"))
+    scenario = storage.create_session("simulation", 1, config={"kind": storage.SCENARIO_KIND, "name": "s"})
+    live = storage.create_session("simulation", 1)
+    storage.record_event("fault", "plc", "scenario event", turbine_id="WT001", session_id=scenario)
+    storage.record_event("fault", "plc", "live event", turbine_id="WT001", session_id=live)
+    storage.record_event("fault", "scenario", "legacy marker", turbine_id="WT001")  # 舊資料：無 session
+    titles = {e["title"] for e in storage.query_events("WT001", exclude_scenario_sessions=True)}
+    assert titles == {"live event", "legacy marker"}
+    assert {e["title"] for e in storage.query_events("WT001")} == {"scenario event", "live event", "legacy marker"}
+
+
+def test_events_at_the_same_instant_keep_write_order(tmp_path: Path) -> None:
+    """同一子步的跳機與停機狀態同一時刻：依寫入順序（id）排，最新在前。"""
+    storage = Storage(db_path=str(tmp_path / "order.db"))
+    ts = iso_utc(T0)
+    storage.record_events([
+        {"event_type": "fault", "source": "plc", "title": f"e{i}", "timestamp": ts, "session_id": 1}
+        for i in range(5)
+    ])
+    assert [e["title"] for e in storage.query_events(session_id=1)] == ["e4", "e3", "e2", "e1", "e0"]
+
+
+def test_record_events_is_committed_for_other_connections(tmp_path: Path) -> None:
+    db = tmp_path / "commit.db"
+    storage = Storage(db_path=str(db))
+    storage.record_events([{"event_type": "state", "source": "simulator", "title": "x", "session_id": 3}])
+    conn = sqlite3.connect(str(db))
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM history_events WHERE session_id = 3").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_session_event_queries_use_the_session_index(tmp_path: Path) -> None:
+    storage = Storage(db_path=str(tmp_path / "plan.db"))
+    plan = storage._get_conn().execute(
+        "EXPLAIN QUERY PLAN SELECT * FROM history_events WHERE session_id = ? ORDER BY timestamp DESC", (1,),
+    ).fetchall()
+    assert any("idx_history_events_session" in str(tuple(row)) for row in plan), plan
+
+
+def test_cleanup_keeps_scenario_raw_readings(tmp_path: Path) -> None:
+    """情境＝凍結資料集：raw 讀值保留到情境被刪（標準答案與資料包都指向它）；Live 舊資料照清。"""
+    storage = Storage(db_path=str(tmp_path / "keep.db"))
+    scenario = storage.create_session("simulation", 1, config={"kind": storage.SCENARIO_KIND, "name": "s"})
+    live = storage.create_session("simulation", 1)
+    old = iso_utc(datetime.now(timezone.utc) - timedelta(days=10))
+    for sid in (scenario, live):
+        storage.store_readings([{"timestamp": old, "turbine_id": "WT001", "scada": {"WTUR_TurSt": 6}}], sid)
+    storage.run_cleanup()
+    assert len(storage.query_history("WT001", session_id=scenario)) == 1
+    assert storage.query_history("WT001", session_id=live) == []
 
 
 def test_delete_scenario_removes_its_events_and_ground_truth(tmp_path: Path) -> None:
@@ -189,13 +262,18 @@ def test_ground_truth_roundtrip_and_overwrite(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("event, observable", [
     ({"source": "plc", "event_type": "fault", "payload": {"code": 240, "level": "T1"}}, True),
-    ({"source": "simulator", "event_type": "state", "payload": {"shutdownCause": "plc:240"}}, True),
-    ({"source": "simulator", "event_type": "grid", "payload": None}, True),
+    ({"source": "simulator", "event_type": "fault",
+      "payload": {"fromState": 6, "toState": 9, "shutdownCause": "plc:240"}}, True),
+    ({"source": "simulator", "event_type": "grid", "payload": {"fromState": 6, "toState": 9}}, True),
     ({"source": "scenario", "event_type": "fault", "payload": {"kind": "trip"}}, False),
     ({"source": "test_plan", "event_type": "fault", "payload": {}}, False),
     ({"source": "simulator", "event_type": "fault_lifecycle", "payload": {}}, False),
     ({"source": "simulator", "event_type": "fault", "payload": {"faults": ["bearing_wear"]}}, False),
-    ({"source": "operator", "event_type": "fault", "payload": {"scenarioId": "bearing_wear"}}, False),
+    # Live 的 "Fault trip cleared in simulator"：反映 FaultEngine 內部狀態，不是 SCADA 事件
+    ({"source": "simulator", "event_type": "fault", "payload": {"turbineId": "WT001"}}, False),
+    ({"source": "simulator", "event_type": "fatigue", "payload": {"toLevel": 2}}, False),
+    ({"source": "api", "event_type": "config", "payload": None}, False),
+    ({"source": "plc", "event_type": "fault", "payload": {"scenarioId": "bearing_wear"}}, False),
 ])
 def test_is_observable_event(event: dict, observable: bool) -> None:
     assert is_observable_event(event) is observable
@@ -236,3 +314,58 @@ def test_broker_records_live_events_in_current_session_and_bulk_events_in_given_
         assert by_source["simulator"]["event_type"] == "fault"
     finally:
         broker.stop()
+
+
+# ── 6. code review 補強：Live 快照觸發（重構回歸）、批次事件時刻回推 ─────────────────
+
+
+@pytest.mark.parametrize("previous, current, cause, snapshot", [
+    (6, 7, "overspeed_software", True),     # 緊急停機一律快照
+    (6, 9, "plc:240", True),                # PLC 跳機
+    (6, 9, "grid_protection", True),
+    (6, 9, "operator_emergency", True),
+    (6, 9, "cut_out", False),               # 正常的環境性停機
+    (6, 9, "operator", False),
+    (9, 6, "plc:240", False),               # 重啟後 shutdown_cause 殘留，不能觸發
+    (6, 1, "plc:240", False),
+])
+def test_live_state_transition_snapshot_trigger(previous: int, current: int, cause: str, snapshot: bool,
+                                                tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.set_active_farm(registry.ensure_default_farm())
+    broker = DataBroker(farm_registry=registry)
+    broker.storage = Storage(db_path=str(tmp_path / "snap.db"))  # 未 start 的 broker 指向預設 DB，改用暫存檔
+    triggered: List[str] = []
+    monkeypatch.setattr(broker, "_trigger_snapshot", lambda tid, ref: triggered.append(ref))
+    broker._session_id = 4242
+    broker._record_state_transition_event("WT001", previous, current, cause)
+    assert bool(triggered) is snapshot
+    if snapshot:
+        assert triggered[0].startswith(f"stop:WT001:{current}:")
+    (event,) = broker.storage.query_events(session_id=4242)
+    assert event["payload"]["shutdownCause"] == cause
+
+
+def test_bulk_plc_event_time_is_back_dated_to_when_it_happened(fixed_start: datetime) -> None:
+    """PLC 事件時刻依機組 _sim_time 回推（與 Live 的 _plc_event_timestamp 同換算）。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    model = sim.turbines["WT001"]
+    model._sim_time = 100.0
+    model.plc.note_protection_stop("cut_out", 97.0)  # 3 秒前發生
+    reading = {"turbine_id": "WT001", "scada": {"WTUR_TurSt": 2}}
+    (event,) = sim._collect_bulk_events(T0, [reading], {})
+    assert event.timestamp == T0 - timedelta(seconds=3)
+
+
+def test_broker_live_event_queries_skip_scenario_sessions(tmp_path: Path) -> None:
+    """Live 歷史頁 / 事件匯出走 broker.get_history_events：不得混進情境（模擬時間）的事件。"""
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.set_active_farm(registry.ensure_default_farm())
+    broker = DataBroker(farm_registry=registry)
+    broker.storage = Storage(db_path=str(tmp_path / "live_q.db"))
+    scenario = broker.storage.create_session("simulation", 1, config={"kind": broker.storage.SCENARIO_KIND})
+    broker.storage.record_event("fault", "plc", "scenario trip", turbine_id="WT001", session_id=scenario)
+    broker._session_id = broker.storage.create_session("simulation", 1)
+    broker.record_event(event_type="fault", source="plc", title="live trip", turbine_id="WT001")
+    assert [e["title"] for e in broker.get_history_events("WT001")] == ["live trip"]
+    assert [e["title"] for e in broker.get_history_events("WT001", session_id=scenario)] == ["scenario trip"]

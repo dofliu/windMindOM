@@ -219,7 +219,8 @@ async def compare_turbine_events(
     all_events = []
 
     for tid in tid_list:
-        events = storage.query_events(turbine_id=tid, start=start, end=end, limit=limit)
+        events = storage.query_events(turbine_id=tid, start=start, end=end, limit=limit,
+                                      exclude_scenario_sessions=True)  # 情境事件不混進 Live（WMOM-20261021-04）
         if event_type:
             events = [e for e in events if e.get("event_type") == event_type]
         result[tid] = events
@@ -228,7 +229,8 @@ async def compare_turbine_events(
             all_events.append(ev)
 
     # Also get farm-wide events (turbine_id is NULL)
-    farm_events = storage.query_events(turbine_id=None, start=start, end=end, limit=limit)
+    farm_events = storage.query_events(turbine_id=None, start=start, end=end, limit=limit,
+                                       exclude_scenario_sessions=True)
     if event_type:
         farm_events = [e for e in farm_events if e.get("event_type") == event_type]
 

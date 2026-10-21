@@ -4,8 +4,8 @@
 - 讀取（turbines list）→ `require_authenticated`（任何登入者）
 - 控制（control/command）→ `require_role(SUPERVISOR)`
 - infra（modbus/start）→ `require_role(ADMIN)`（破壞性 / 開 port）
-- 情境標準答案（scenarios/{id}/ground-truth）→ `require_role(SUPERVISOR)`（盲測：一般檢視者看不到答案，
-  WMOM-20261021-04）
+- 情境標準答案（scenarios/{id}/ground-truth）→ `require_roles(SUPERVISOR)`（盲測：一般檢視者看不到答案，
+  且不受 enforce 開關影響——答案卷不能預設公開，WMOM-20261021-04）
 
 授權 dependency 在 endpoint body 前執行，故以空 body 驗 gate：被擋＝401/403、
 過 gate＝其餘（body 另計）。`enforce=false` 全放行（非破壞）。token 直接鑄造。
@@ -108,6 +108,12 @@ _GROUND_TRUTH_URL = "/api/scenarios/1/ground-truth"
 def test_ground_truth_enforced_no_token_401(client, monkeypatch):
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     assert client.get(_GROUND_TRUTH_URL).status_code == 401
+
+
+def test_ground_truth_requires_a_token_even_when_auth_is_not_enforced(client):
+    """過渡期（enforce=false）其他端點全放行，答案卷仍要登入。"""
+    assert client.get(_GROUND_TRUTH_URL).status_code == 401
+    assert client.get(_GROUND_TRUTH_URL, headers=_bearer("employee")).status_code == 403
 
 
 def test_ground_truth_enforced_employee_403(client, monkeypatch):

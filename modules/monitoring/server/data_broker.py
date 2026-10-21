@@ -719,9 +719,12 @@ class DataBroker:
         """Query stored history events (faults, grid, operator actions) with optional filters.
 
         ``session_id`` / ``source``：只回該 session / 該來源的事件（情境調閱用，WMOM-20261021-04）。
+        不指定 session 的查詢（Live 歷史頁、事件匯出）排除情境 session 的事件：情境以模擬時間寫入，
+        不排除的話會混進 Live 的時間軸。
         """
         return self.storage.query_events(turbine_id, start, end, limit,
-                                         session_id=session_id, source=source)
+                                         session_id=session_id, source=source,
+                                         exclude_scenario_sessions=session_id is None)
 
     def record_event(self, event_type: str, source: str, title: str,
                      turbine_id: Optional[str] = None, detail: Optional[str] = None,

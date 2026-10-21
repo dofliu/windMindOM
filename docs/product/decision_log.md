@@ -745,6 +745,30 @@ DEC-20260720-01 原文把 PR C 定義為「broker 新增『情境檢視』來源
 
 ---
 
+## DEC-20261021-02 — 情境事件以 `session_id` 隔離；標準答案另存一張表，可觀測事件以白名單判定（盲測）
+
+**日期**：2026-10-21　**狀態**：accepted　**Decision maker**：Claude（WMOM-20261021-04 實作，依 DEC-20261021-01 的盲測原則）
+**取代**：DEC-20260719-01 的 trade-off「`history_events` 不加 `session_id`、情境事件靠時間窗比對」
+
+### Context
+
+EPIC-DS Phase 2 要讓批次情境帶可觀測事件（PLC 警報 / 跳機、狀態轉換）與標準答案。之前情境事件沒有 session，靠模擬時間窗撈，短時間連續生成的情境會互相混入；而事件量從「幾筆注入標記」變成「每情境數十到數千筆」後，時間窗比對也會把情境事件混進 Live 的時間軸。標準答案若放在情境 config 或事件裡，一般檢視者與資料匯出都會看到答案。
+
+### Decision
+
+1. `history_events` 加 `session_id`（舊 DB 自動補欄、舊列 NULL）。新情境以 `config.events_session_isolated: true` 標記、依 session 查；舊情境退回時間窗。Live 端（不指定 session）的查詢排除情境 session 的事件。
+2. 標準答案存獨立的 `scenario_ground_truth` 表，經 `GET /api/scenarios/{id}/ground-truth` 取得，**永遠需要主管權限**（不受 `WMOM_AUTH_ENFORCE` 過渡開關影響）。
+3. 可觀測事件以**白名單**判定（`storage.is_observable_event`）：PLC 事件與運轉狀態轉換；其餘（情境 / 測試計畫標記、故障生命週期、Live 的 FaultEngine 事件、操作 / 設定紀錄）一律不可觀測，新來源預設不可觀測。
+4. 情境（凍結資料集）的 raw 讀值不受 3 天 retention 清除，刪除情境時一併刪事件與標準答案。
+
+### Consequences
+
+- 資料包匯出（-05）直接以 session 撈事件、`is_observable_event` 過濾、讀標準答案表；manifest 不得帶情境 config 的 `fault_schedule`。
+- 情境的注入 / 跳機標記保留在 `history_events`（操作端情境頁的時間軸標記要用），但不屬於可觀測事件。
+- 情境 raw 資料長期保留，DB 隨情境數量成長；需要時由使用者刪除情境。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

@@ -294,7 +294,7 @@ async def generate_bulk(body: dict):
     ``generate_bulk`` 同步跑在 request thread，會與 Live 背景 thread 併發呼叫同一批
     ``model.step()`` / ``fault_engine.step()``（``engine._lock`` 只保護 ``latest_data``、不含
     ``model.step()`` 本身）並同時寫同一 SQLite → Windows 上實測撞 ``database is locked``。
-    暫停期間才 ``fault_engine.clear()``（帶 ``fault_schedule`` 時求乾淨情境）＋ 生成 ＋ 收尾寫入，
+    暫停期間才 ``fault_engine.clear()``（帶 ``fault_schedule`` 或 ``name`` 時求乾淨情境）＋ 生成 ＋ 收尾寫入，
     確保無第二個 writer。資料落地另以專屬 ``session_id`` 隔離（見 ``name`` 參數）。
     註：姊妹端點 ``faults.py::run_test_plan`` 亦共用 ``pause_live_for_batch``。
     """
@@ -442,9 +442,11 @@ async def generate_bulk(body: dict):
     # DataBroker.pause_live_for_batch（faults.py::run_test_plan 共用同一套，避免漏套）。
     sim = b.simulator
     with b.pause_live_for_batch():
-        if schedule:
+        if schedule or scenario_id is not None:
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
+            # 命名情境即使沒有排程也要清（WMOM-20261021-04 code review）：否則 Live 殘留的故障會出現在
+            # 資料裡，標準答案卻把那台機組列為健康
             sim.fault_engine.clear()
         try:
             total = sim.generate_bulk(

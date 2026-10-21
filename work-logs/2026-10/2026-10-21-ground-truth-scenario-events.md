@@ -54,24 +54,73 @@ stress_test 前 6 h（14 機）實例：hydraulic_leak `260 → 261 → 228`（1
 - mutation 16 項（批次前清佇列、每子步收集、PLC 時刻回推、onset 篩選、首警不覆寫、取代、broker 預設 session、刪事件、session 計數、可觀測 payload 鍵、掛載來源篩選、調閱 session、端點權限、隔離旗標、注入 session、測試計畫跳機）皆被抓到；「調閱 session」一開始存活（鄰居情境在 WT001 沒有事件），補鄰居故障後抓到。
 - 健康機組輸出逐位元不變；`data_quality_analysis.py` 20 / 0。
 
+### 2.6 Code review（code-reviewer subagent）
+
+結論 Needs revision：2 must-fix、8 should-fix、6 組 nice-to-have。reviewer 用 scratchpad 複本實跑、做 mutation，repo 未被改動。
+
+**must-fix**
+
+- **M1 測試依 wall-clock**：端點測試的批次從 `utc_now()` 起算，風況隨季節 / 時刻變化，低風時超速不跳機。reviewer 在 10:32 UTC 實測有 1 支失敗，固定時鐘也重現了 4 支。修法：fixture 固定批次起點（`engine.utc_now`）；超速測試用 `set_override(14 m/s)`。
+- **M2 殘留故障**：命名情境不帶排程時不清故障，Live 殘留的 bearing_wear 會在資料裡跳機，答案卷卻列為健康。修法：命名情境一律先清故障。`build()` 另加安全網：結束時仍在、卻沒有注入紀錄的故障，列成 `pre_existing` case。
+
+**should-fix**
+
+- **S1 Live 查詢**：Live 端的查詢（`/api/turbines/{id}/history`、事件匯出、維護比較）原本會混進情境事件，現在排除情境 session。農場備份（`farms.py` 的 events.json）是全量備份，維持全量。
+- **S2 沒有答案的事件**：答案卷加 `unattributed_events`。reviewer 實測健康 14 機 12 h 出現 T2 336，我重現（WT002 16:04:45，1.01° / 1.0°），開 **WMOM-20261021-12**。
+- **S3 `faultEvents` 語意**：session 模式改只數 PLC 的警報成立 / 跳機。前端 `ScenarioTrendView` 原本對每筆 `fault` 事件畫參考線（I201、解除、停機狀態都畫），改用 `utils/scenarioEvents.ts::isScenarioFaultMarker`（+ vitest 10 項）。
+- **S4 盲測**：
+  - `is_observable_event` 改白名單。原本的黑名單會漏掉 Live 的 `Fault trip cleared in simulator`。
+  - 答案卷端點改 `require_roles`：`require_role` 在 enforce 預設關閉時放行，等於答案卷公開。
+  - 情境調閱加 `observable_only`。
+- **S5 答案文字**：
+  - 處置標「（手冊）」，並補齊手冊條目：超速補「峰值轉速重設 / 參數調整 / 320 檢查輪轂」，定子補「外氣溫 + 高產能 / 聯絡 Harakosan」。
+  - 模擬與真實的差異移到 `simulation_notes`：320 在模擬中不可達、結冰的氣溫不耦合、電網下陷只作用於單機。
+  - 電網處置改為「比對本機 / 鄰機 / 變電站」。
+  - 液壓碼順序改為 260 → 261 → 228。
+  - 根因不放模擬器說明，有測試擋。
+- **S6 測試缺口**（reviewer 的存活 mutant）：
+  - Live 快照觸發條件 8 組參數化。
+  - PLC 時刻回推。
+  - 跳機只歸對應故障且只一次。
+  - 只有成立 / 跳機算首警。
+  - onset 當刻含。
+  - `record_events` 跨連線可見。
+  - session 索引的查詢計畫。
+  - 同時刻依 id 排序。
+- **S7 retention**：情境 raw 讀值不受 3 天 retention 清除。
+- **S8 文件**：補 DEC-20261021-02，修過時 docstring，STATUS 佔位字串在收尾時替換。
+
+**nice-to-have（記為 §6.7 限制 11，留給 -05）**：可重現性（seed / spec / 模型狀態未重置）、`generated_at`、事件 kind 對合約的對應、`Z` 後綴、停機原因詞彙；歸屬受物理耦合影響（限制 5）。
+
+**驗證**：review 修正的 18 個 mutant 中 17 個被抓到；存活的 1 個是等價的冗餘 level 過濾（`alarm_raised` / `trip` 一定是 A / T 級），已移除。
+
+**全套測試時另發現**：既有的 `test_generate_bulk_fault_schedule.py::test_scheduled_fault_progresses_to_trip` 也依 wall-clock 風況：3 分鐘超速只在風夠大時跳機，10/21 的 12-18 UTC 都不會跳（逐小時實測）。同樣改固定 14 m/s，24 個時刻都通過。
+
+**結果**：backend 1574 → **1687 passed** / 7 skipped / 1 xfailed；frontend vitest 1502 → 1512、tsc 0；健康機組輸出逐位元不變；`data_quality_analysis.py` 20 / 0。
+
+**途中**：快照測試的 broker 沒有 `start()`，storage 指向預設的 `wind_farm_data.db`（gitignored），失敗的測試寫進 10 筆 session 4242 的事件。已刪除；測試改用暫存 DB。
+
 ## 3. 產出清單
 
 ### 新增檔案
 
 - `modules/monitoring/simulator/bulk_events.py`、`simulator/ground_truth.py`
 - `modules/monitoring/tests/test_fault_ground_truth.py`、`tests/test_bulk_events.py`
+- `frontend/utils/scenarioEvents.ts`、`frontend/utils/__tests__/scenarioEvents.test.ts`（review）
 - 本 work-log
 
 ### 修改檔案
 
 - `modules/monitoring/simulator/physics/fault_engine.py`、`simulator/engine.py`
-- `modules/monitoring/server/storage.py`、`data_broker.py`、`routers/config.py`、`routers/faults.py`、`routers/scenarios.py`
+- `modules/monitoring/server/storage.py`、`data_broker.py`、`routers/config.py`、`routers/faults.py`、`routers/scenarios.py`、`routers/maintenance.py`（review）
+- `frontend/components/ScenarioTrendView.tsx`（review）
 - `modules/monitoring/tests/test_scenario_endpoints.py`、`test_monitoring_routers_auth.py`、`tests/physics/test_fault_threshold_reach.py`
-- 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§3 註記、§6 表、新增 §6.7）、`docs/API_GUIDE.md`、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`、`TODO.md`
+- 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§3 註記、§6 表、新增 §6.7）、`docs/product/decision_log.md`（DEC-20261021-02）、`docs/API_GUIDE.md`、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`、`TODO.md`
 
 ### 動了狀態的 issue
 
 - WMOM-20261021-04：open → done
+- WMOM-20261021-12：新增 open（健康機組長時間偶發 T2 336，review 實測）
 
 ## 4. 下次怎麼接手
 
