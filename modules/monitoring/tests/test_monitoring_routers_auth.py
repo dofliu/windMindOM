@@ -4,6 +4,8 @@
 - 讀取（turbines list）→ `require_authenticated`（任何登入者）
 - 控制（control/command）→ `require_role(SUPERVISOR)`
 - infra（modbus/start）→ `require_role(ADMIN)`（破壞性 / 開 port）
+- 情境標準答案（scenarios/{id}/ground-truth）→ `require_role(SUPERVISOR)`（盲測：一般檢視者看不到答案，
+  WMOM-20261021-04）
 
 授權 dependency 在 endpoint body 前執行，故以空 body 驗 gate：被擋＝401/403、
 過 gate＝其餘（body 另計）。`enforce=false` 全放行（非破壞）。token 直接鑄造。
@@ -27,6 +29,7 @@ from modules.auth.tokens import create_access_token
 from server.routers.turbines import router as turbines_router
 from server.routers.control import router as control_router
 from server.routers.modbus import router as modbus_router
+from server.routers import scenarios as scenarios_ep
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +45,7 @@ def client():
     app.include_router(turbines_router)
     app.include_router(control_router)
     app.include_router(modbus_router)
+    app.include_router(scenarios_ep.router)
     return TestClient(app)
 
 
@@ -95,3 +99,30 @@ def test_modbus_enforced_admin_passes(client, monkeypatch):
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     r = client.post("/api/modbus/start", json={}, headers=_bearer("admin"))
     assert r.status_code not in (401, 403)
+
+
+# ── 情境標準答案 → SUPERVISOR（盲測，WMOM-20261021-04）─────────────────────
+_GROUND_TRUTH_URL = "/api/scenarios/1/ground-truth"
+
+
+def test_ground_truth_enforced_no_token_401(client, monkeypatch):
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    assert client.get(_GROUND_TRUTH_URL).status_code == 401
+
+
+def test_ground_truth_enforced_employee_403(client, monkeypatch):
+    """答案卷＝主管 → employee（一般檢視者）403。"""
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    assert client.get(_GROUND_TRUTH_URL, headers=_bearer("employee")).status_code == 403
+
+
+def test_ground_truth_enforced_supervisor_passes(client, monkeypatch, tmp_path):
+    from server.storage import Storage
+
+    class _Stub:
+        storage = Storage(db_path=str(tmp_path / "gt.db"))
+
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: _Stub())
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    r = client.get(_GROUND_TRUTH_URL, headers=_bearer("supervisor"))
+    assert r.status_code == 404, "過 gate 後才因情境不存在 404"

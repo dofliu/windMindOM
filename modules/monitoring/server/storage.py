@@ -45,6 +45,31 @@ _SESSION_CONFIG_TIME_KEYS = ("sim_start", "sim_end")
 # 舊 DB 轉換的每批列數（依 rowid 區段）：每批 commit，WAL 峰值約為一批的大小而非整個 DB
 _MIGRATION_BATCH_ROWS = 20_000
 
+# ── 可觀測事件的判定（盲測，WMOM-20261021-04）──
+# 情境 / 測試計畫的注入與跳機標記（給操作端看，含故障 ID）、故障生命週期事件都來自 FaultEngine 的
+# 內部狀態＝答案，不是真實 SCADA 看得到的事件；匯出給外部 RAG 助手時要排除。
+NON_OBSERVABLE_EVENT_SOURCES = frozenset({"scenario", "test_plan"})
+NON_OBSERVABLE_EVENT_TYPES = frozenset({"fault_lifecycle"})
+# payload 帶這些鍵＝含故障 ID（Live 路徑的 "Automatic fault trip" 事件即是）
+_GROUND_TRUTH_PAYLOAD_KEYS = frozenset({"scenarioId", "faults"})
+
+
+def is_observable_event(event: dict) -> bool:
+    """事件是否為「真實 SCADA 也看得到」的可觀測事件（不含任何故障根因）。
+
+    Args:
+        event: ``query_events`` 回傳的事件 dict（``payload`` 已解析）。
+
+    Returns:
+        可觀測時為 True：PLC 事件、狀態轉換、電網 / 操作事件等；情境標記與故障生命週期為 False。
+    """
+    if event.get("source") in NON_OBSERVABLE_EVENT_SOURCES:
+        return False
+    if event.get("event_type") in NON_OBSERVABLE_EVENT_TYPES:
+        return False
+    payload = event.get("payload")
+    return not (isinstance(payload, dict) and _GROUND_TRUTH_PAYLOAD_KEYS & payload.keys())
+
 
 def _naive_ts_sql(column: str) -> str:
     """SQL 條件：欄位是可解析、但沒有時區後綴的 naive 時間字串（舊版本地時間）。
@@ -109,6 +134,8 @@ class Storage:
       - turbine_data_10m:    10-min aggregates, permanent
       - turbine_snapshots:   1s high-freq capture around events, permanent
       - sessions:            tracks simulation/data source configs
+      - history_events:      可觀測事件 + 操作 / 注入標記（``session_id`` 隔離，WMOM-20261021-04）
+      - scenario_ground_truth: 情境的標準答案（與可觀測事件分開存，盲測，WMOM-20261021-04）
     """
 
     def __init__(self, db_path: str = str(DB_PATH), migrate_timestamps: bool = True):
@@ -320,7 +347,25 @@ class Storage:
         ])
         self._migrate_columns(conn, "history_events", [
             ("end_timestamp", "TEXT"),
+            # 事件所屬 session（WMOM-20261021-04）：情境的事件以此隔離，不再靠模擬時間窗比對；
+            # 舊列為 NULL（呼叫端依情境 config.events_session_isolated 決定要不要退回時間窗）
+            ("session_id", "INTEGER"),
         ])
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_history_events_session
+            ON history_events (session_id, timestamp)
+        """)
+
+        # ── 情境標準答案（ground truth，WMOM-20261021-04）──
+        # 與 history_events / sessions.config_json 分開存：可觀測資料（讀值、事件、情境詮釋資料）
+        # 不含任何故障根因，答案只在這張表（設計文件 §4 盲測原則）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scenario_ground_truth (
+                session_id INTEGER PRIMARY KEY,
+                contract_version TEXT NOT NULL,
+                ground_truth_json TEXT NOT NULL
+            )
+        """)
 
         conn.commit()
         if self._migrate_timestamps:
@@ -535,11 +580,11 @@ class Storage:
         ).fetchone()
         if row is None:
             return False
-        # 注意：history_events 無 session_id 欄位（見 DEC-20260719-01 trade-off），故本情境的
-        # 故障注入事件會成為孤兒留在 history_events。TODO：若日後補 history_events.session_id，
-        # 這裡要一併 DELETE。
+        # history_events 自 WMOM-20261021-04 起帶 session_id：一併刪除本情境的事件與標準答案。
+        # 更早生成的情境事件 session_id 為 NULL，仍會成為孤兒（DEC-20260719-01 trade-off）。
         for table in ("turbine_data", "turbine_data_1m",
-                      "turbine_data_10m", "turbine_snapshots"):
+                      "turbine_data_10m", "turbine_snapshots",
+                      "history_events", "scenario_ground_truth"):
             conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (scenario_id,))
         conn.execute("DELETE FROM sessions WHERE id = ?", (scenario_id,))
         conn.commit()
@@ -643,7 +688,8 @@ class Storage:
         return result
 
     def count_scenario_fault_events(self, start: Optional[str] = None,
-                                    end: Optional[str] = None) -> Dict[str, int]:
+                                    end: Optional[str] = None,
+                                    session_id: Optional[int] = None) -> Dict[str, int]:
         """時間窗內每台機組（有 turbine_id 者）的 ``fault`` 事件數——A0 摘要用。
 
         ``history_events`` 無 ``session_id``（見 ``delete_scenario`` 註），情境的故障事件只能靠
@@ -653,9 +699,13 @@ class Storage:
         旗標）。時間窗邊界比照 ``query_events``（``COALESCE(end_timestamp, timestamp) >= start`` /
         ``timestamp <= end``）。
 
+        WMOM-20261021-04 起事件帶 ``session_id``：給 ``session_id`` 時改以 session 隔離計數（時間窗
+        仍可再收窄，通常不給）。
+
         Args:
             start: 時間窗下界（含端點，比照 query_events）；None 表不限制下界。
             end: 時間窗上界（含端點）；None 表不限制上界。
+            session_id: 只數這個 session 的事件；None＝不限 session（舊情境的時間窗模式）。
 
         Returns:
             ``{turbine_id: count}``；窗內無 fault 事件的機組不出現在 dict 中（呼叫端取 0）。
@@ -664,6 +714,9 @@ class Storage:
         query = ("SELECT turbine_id, COUNT(*) AS cnt FROM history_events "
                  "WHERE event_type = 'fault' AND turbine_id IS NOT NULL")
         params: list = []
+        if session_id is not None:
+            query += " AND session_id = ?"
+            params.append(session_id)
         start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND COALESCE(end_timestamp, timestamp) >= ?"
@@ -689,17 +742,31 @@ class Storage:
         payload: Optional[dict] = None,
         timestamp: Optional[str] = None,
         end_timestamp: Optional[str] = None,
+        session_id: Optional[int] = None,
     ):
         """Store a history event for chart markers and audit-style review.
 
         ``timestamp`` / ``end_timestamp`` 正規化成 UTC（``iso_utc``）；``timestamp`` 缺值用現在時刻。
+        ``session_id``：事件所屬 session（WMOM-20261021-04）；None＝不屬於特定 session。
         """
         conn = self._get_conn()
-        conn.execute("""
-            INSERT INTO history_events
-            (timestamp, end_timestamp, turbine_id, event_type, source, title, detail, payload_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+        conn.execute(self._INSERT_EVENT_SQL, self._event_row(
+            event_type, source, title, turbine_id, detail, payload, timestamp, end_timestamp, session_id,
+        ))
+        conn.commit()
+
+    _INSERT_EVENT_SQL = """
+        INSERT INTO history_events
+        (timestamp, end_timestamp, turbine_id, event_type, source, title, detail, payload_json, session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+    @staticmethod
+    def _event_row(event_type: str, source: str, title: str, turbine_id: Optional[str],
+                   detail: Optional[str], payload: Optional[dict], timestamp: Optional[str],
+                   end_timestamp: Optional[str], session_id: Optional[int]) -> tuple:
+        """``history_events`` 一列的 INSERT 參數（``record_event`` / ``record_events`` 共用）。"""
+        return (
             normalize_iso(timestamp) if timestamp else iso_utc(),
             normalize_iso(end_timestamp),
             turbine_id,
@@ -708,8 +775,63 @@ class Storage:
             title,
             detail,
             json.dumps(payload) if payload is not None else None,
-        ))
+            session_id,
+        )
+
+    def record_events(self, events: List[dict]) -> int:
+        """批次寫入多筆事件，一次 commit（批次情境一次可能產生數千筆事件，WMOM-20261021-04）。
+
+        Args:
+            events: 每筆是 ``record_event`` 的關鍵字參數 dict（``event_type``、``source``、``title``
+                必填，其餘選填）。
+
+        Returns:
+            寫入筆數。
+        """
+        if not events:
+            return 0
+        conn = self._get_conn()
+        conn.executemany(self._INSERT_EVENT_SQL, [
+            self._event_row(
+                e["event_type"], e["source"], e["title"], e.get("turbine_id"), e.get("detail"),
+                e.get("payload"), e.get("timestamp"), e.get("end_timestamp"), e.get("session_id"),
+            )
+            for e in events
+        ])
         conn.commit()
+        return len(events)
+
+    # ── 情境標準答案（WMOM-20261021-04）──
+
+    def save_ground_truth(self, session_id: int, ground_truth: dict) -> None:
+        """存（或覆寫）某情境 session 的標準答案。
+
+        Args:
+            session_id: 情境 session id。
+            ground_truth: 標準答案 dict（``contract_version`` 必填，見 ``simulator/ground_truth.py``）。
+        """
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO scenario_ground_truth (session_id, contract_version, ground_truth_json) "
+            "VALUES (?, ?, ?)",
+            (session_id, str(ground_truth["contract_version"]), json.dumps(ground_truth, ensure_ascii=False)),
+        )
+        conn.commit()
+
+    def get_ground_truth(self, session_id: int) -> Optional[dict]:
+        """取某情境 session 的標準答案；沒有（舊情境、非情境 session）回 None。
+
+        Args:
+            session_id: 情境 session id。
+
+        Returns:
+            標準答案 dict 或 None。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT ground_truth_json FROM scenario_ground_truth WHERE session_id = ?", (session_id,),
+        ).fetchone()
+        return json.loads(row["ground_truth_json"]) if row else None
 
     def close_open_events(
         self,
@@ -1054,9 +1176,14 @@ class Storage:
         start: Optional[str] = None,
         end: Optional[str] = None,
         limit: int = 500,
+        session_id: Optional[int] = None,
+        source: Optional[str] = None,
     ) -> List[dict]:
-        """Query history events with optional turbine and time-range filter."""
-        """Query history_events with optional turbine, time range, and limit filters."""
+        """Query history_events with optional turbine, time range, session, source, and limit filters.
+
+        給 ``turbine_id`` 時一併回傳風場層事件（``turbine_id IS NULL``）。給 ``session_id`` / ``source``
+        時只回該 session / 該來源的事件（情境調閱用，WMOM-20261021-04）。
+        """
         conn = self._get_conn()
         query = """
             SELECT * FROM history_events
@@ -1067,6 +1194,12 @@ class Storage:
         if turbine_id is None:
             query = "SELECT * FROM history_events WHERE 1=1"
             params = []
+        if session_id is not None:
+            query += " AND session_id = ?"
+            params.append(session_id)
+        if source is not None:
+            query += " AND source = ?"
+            params.append(source)
         start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND COALESCE(end_timestamp, timestamp) >= ?"

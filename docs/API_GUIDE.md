@@ -373,6 +373,24 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > (with `turbineId` it also resets the turbine model; without, the engine clears the PLC's hourly
 > trip count and restart block on the next step).
 
+> **Batch scenarios: observable events and ground truth (WMOM-20261021-04).** `POST
+> /api/config/simulation/generate-bulk` (and `POST /api/faults/test-plans/{plan_id}/run`) now record the
+> batch's observable events on the simulated timeline: PLC events (`source="plc"`, same format as live)
+> and operating-state changes (`source="simulator"`, `event_type` `state` / `fault` / `grid` / `operator`).
+> History events carry a `session_id`: a named scenario's events belong to the scenario session, an
+> unnamed batch's to the live session. `GET /api/scenarios/{id}/turbines/{turbine_id}/history` and
+> `/summary` isolate events by session (`events_by_time_window` / `eventsByTimeWindow` = `false`);
+> scenarios generated earlier fall back to the simulated time window (`true`).
+>
+> `GET /api/scenarios/{id}/ground-truth` (supervisor) returns the scenario's answer key
+> (`ground_truth.json`, contract v0.1): one case per fault injection with `category`, `fault_id`,
+> `component`, `root_cause`, `onset_ts`, `first_alarm_ts`, `trip_ts`, `expected_alarm_codes`,
+> `observed_alarm_codes`, `manual_refs` (Z72 manual Appendix C; `see_abb` when the manual only says
+> "See [ABB]"), `expected_actions` and `key_signals`, plus `healthy_turbines`. It is stored apart from
+> the events (blind test): scenario injection / trip markers (`source="scenario"` / `"test_plan"`) name
+> the fault and are not observable events — exporters must filter with `storage.is_observable_event`.
+> Scenarios generated before this change have no ground truth (404).
+
 #### POST `/api/control/command`
 
 Operator commands.

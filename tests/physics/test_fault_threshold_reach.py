@@ -4,12 +4,13 @@
 WMOM-20261021-03b），前提是故障物理真的能把量測值推過 Z72 手冊 / spec 的門檻。校正前多數
 故障離門檻很遠（例：bearing_wear 滿嚴重度軸承只到 44 °C，門檻 85 / 95 °C）。
 
-本檔鎖住三件事（3 h 模擬、dt = 5 s，取最後 5 分鐘）：
+本檔鎖住四件事（3 h 模擬、dt = 5 s，取最後 5 分鐘）：
 
 1. 健康機組在 30 °C 與天氣模型最熱的 37 °C（7-8 月正午）各風速下，所有監控訊號都低於警報
    設定值——不會整天誤報（37 °C 時手冊的機艙控制櫃 50 °C 會被健康機組碰到，真機亦然，不檢查）
 2. 每個故障情境在高負載（14 m/s、25 °C）滿嚴重度時，量測值越過該情境跳機事件的真實設定值
 3. 中等嚴重度（0.5）時還沒到跳機設定值——跳機發生在故障後期，不是一注入就跳
+4. 標準答案列的 ``key_signals`` 在高負載下確實偏離健康機組（WMOM-20261021-04）
 
 另有兩組守門測試：新感測器只用 ``_aux_rng``（既有 tag 的健康輸出不受影響）、熱阻倍率的邊界。
 
@@ -26,6 +27,7 @@ import numpy as np
 import pytest
 
 from simulator.physics import TurbinePhysicsModel
+from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.thermal_model import ThermalElement, ThermalSystem
 from simulator.physics.turbine_physics import TurbineSpec
 
@@ -212,9 +214,30 @@ def test_stator_fault_stays_below_alarm_at_low_load() -> None:
     assert _mean(samples, _tag("WGEN_GnStaTmp1")) < SPEC.gen_stator_alarm
 
 
+# ── 標準答案的 key_signals 確實看得到故障（WMOM-20261021-04）──
+# 高負載（14 m/s、25 °C）滿嚴重度時，每個 key signal 的平均值都明顯偏離健康機組。會在取樣窗前跳機的
+# 保護類故障改用還在發電的嚴重度：grid_voltage_sag 0.5、generator_overspeed 0.3（轉速 25.1 vs 22.5 rpm）。
+_KEY_SIGNAL_SEVERITY = {"grid_voltage_sag": 0.5, "generator_overspeed": 0.3}
+
+
+@pytest.mark.parametrize("fault_id", sorted(FAULT_SCENARIOS))
+def test_ground_truth_key_signals_deviate_from_healthy(fault_id: str) -> None:
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    faulty, cause = _run(fault_id, _KEY_SIGNAL_SEVERITY.get(fault_id, 1.0), 14.0, 25.0)
+    for tag in FAULT_SCENARIOS[fault_id].key_signals:
+        h = np.array([s[tag] for s in healthy])
+        f = np.array([s[tag] for s in faulty])
+        deviation = abs(float(f.mean() - h.mean()))
+        floor = max(3.0 * float(h.std()), 0.02 * max(abs(float(h.mean())), 1.0))
+        assert deviation > floor, (
+            f"{fault_id}: key signal {tag} 只偏離 {deviation:.3g}（門檻 {floor:.3g}，結束時 {cause}）"
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 4. 守門：新感測器不動主 RNG、熱阻倍率邊界
 # ─────────────────────────────────────────────────────────────────────────
+
 
 def test_new_sensors_draw_only_from_aux_rng() -> None:
     """替換 ``_aux_rng`` 只改變新感測器，既有 tag 逐位元不變（保護既有校準的健康輸出）。"""

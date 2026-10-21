@@ -15,6 +15,7 @@ from server.models import (
 )
 from server.storage import Storage
 from server.farm_registry import FarmRegistry
+from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
 from simulator.physics.plc_protection import PlcEvent
 from simulator.physics.turbine_physics import TurbinePhysicsModel
@@ -712,20 +713,28 @@ class DataBroker:
                                           session_id=session_id)
 
     def get_history_events(self, turbine_id: Optional[str] = None, start: Optional[str] = None,
-                           end: Optional[str] = None, limit: int = 500) -> List[dict]:
-        """Query stored history events (faults, grid, operator actions) with optional filters."""
-        return self.storage.query_events(turbine_id, start, end, limit)
+                           end: Optional[str] = None, limit: int = 500,
+                           session_id: Optional[int] = None,
+                           source: Optional[str] = None) -> List[dict]:
+        """Query stored history events (faults, grid, operator actions) with optional filters.
+
+        ``session_id`` / ``source``：只回該 session / 該來源的事件（情境調閱用，WMOM-20261021-04）。
+        """
+        return self.storage.query_events(turbine_id, start, end, limit,
+                                         session_id=session_id, source=source)
 
     def record_event(self, event_type: str, source: str, title: str,
                      turbine_id: Optional[str] = None, detail: Optional[str] = None,
                      payload: Optional[Dict] = None, timestamp: Optional[str] = None,
-                     end_timestamp: Optional[str] = None):
+                     end_timestamp: Optional[str] = None, session_id: Optional[int] = None):
         """Persist a history event (fault, grid change, operator action, etc.) to storage.
 
         Args:
             timestamp: 事件發生時刻（ISO）。批次生成的排定故障須傳「模擬時間」而非
                 wall-clock——否則事件標記會落在真實時間、與資料的模擬時間窗對不上
                 （WMOM-20260718-03）。預設 None → storage 落地為現在時刻（UTC）。
+            session_id: 事件所屬 session；None＝目前的 Live session（WMOM-20261021-04）。情境生成
+                要傳情境自己的 session id。
         """
         self.storage.record_event(
             event_type=event_type,
@@ -736,7 +745,37 @@ class DataBroker:
             payload=payload,
             timestamp=timestamp,
             end_timestamp=end_timestamp,
+            session_id=session_id if session_id is not None else self._session_id,
         )
+
+    def record_bulk_events(self, events: List[BulkEvent], session_id: Optional[int]) -> int:
+        """把批次生成的可觀測事件寫進 ``history_events``（一次 commit，WMOM-20261021-04）。
+
+        格式與 Live 路徑相同（PLC 事件見 ``_plc_event_fields``、狀態轉換見
+        ``_state_transition_fields``），時間戳為事件的模擬時刻；不觸發 1 s 快照（快照是 Live 專用的
+        wall-clock 機制）。
+
+        Args:
+            events: ``generate_bulk`` 的 ``on_events`` 收到的事件。
+            session_id: 事件所屬 session（情境 session 或目前的 Live session）。
+
+        Returns:
+            寫入筆數。
+        """
+        rows: List[Dict] = []
+        for event in events:
+            if event.plc_event is not None:
+                fields = self._plc_event_fields(event.turbine_id, event.plc_event)
+            elif event.from_state is not None and event.to_state is not None:
+                fields = self._state_transition_fields(
+                    event.turbine_id, event.from_state, event.to_state, event.shutdown_cause,
+                )
+                if fields is None:
+                    continue
+            else:
+                continue
+            rows.append({**fields, "timestamp": iso_utc(event.timestamp), "session_id": session_id})
+        return self.storage.record_events(rows)
 
     def close_open_events(self, event_type: str, source: Optional[str] = None,
                           turbine_id: Optional[str] = None, closed_at: Optional[str] = None):
@@ -980,17 +1019,29 @@ class DataBroker:
             event: PLC 事件。
             timestamp: 事件發生時刻（ISO，模擬時間軸）；None＝現在時刻。
         """
-        label = self._PLC_EVENT_TITLES.get(event.kind, event.kind)
+        self.record_event(**self._plc_event_fields(turbine_id, event), timestamp=timestamp)
+
+    @classmethod
+    def _plc_event_fields(cls, turbine_id: str, event: PlcEvent) -> Dict:
+        """PLC 事件 → ``record_event`` 欄位（Live 與批次路徑共用，WMOM-20261021-04）。
+
+        Args:
+            turbine_id: 機組 ID。
+            event: PLC 事件。
+
+        Returns:
+            ``event_type`` / ``source`` / ``title`` / ``turbine_id`` / ``detail`` / ``payload``。
+        """
+        label = cls._PLC_EVENT_TITLES.get(event.kind, event.kind)
         detail = f"{event.level} {event.code:03d} {event.text}"
         if event.value is not None and event.setpoint is not None:
             detail += f" (value {event.value} / setpoint {event.setpoint})"
-        self.record_event(
+        return dict(
             event_type="fault",
             source="plc",
             title=f"{label}: {event.event_id} {event.text}",
             turbine_id=turbine_id,
             detail=detail,
-            timestamp=timestamp,
             payload={
                 "turbineId": turbine_id,
                 "kind": event.kind,
@@ -1007,8 +1058,33 @@ class DataBroker:
 
     def _record_state_transition_event(self, turbine_id: str, previous_state: int,
                                        current_state: int, shutdown_cause: Optional[str]):
-        state_name = self._state_name(current_state)
-        detail = f"{turbine_id} moved from {self._state_name(previous_state)} to {state_name}"
+        fields = self._state_transition_fields(turbine_id, previous_state, current_state, shutdown_cause)
+        if fields is None:
+            return
+        # Trigger snapshot for emergency stops and fault-caused stops（Live 專用的 wall-clock 機制）
+        if current_state == 7 or (current_state == 9 and isinstance(shutdown_cause, str) and
+                                  ("fault" in shutdown_cause or "plc:" in shutdown_cause
+                                   or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
+            event_ref = f"stop:{turbine_id}:{current_state}:{iso_utc()}"
+            self._trigger_snapshot(turbine_id, event_ref)
+        self.record_event(**fields)
+
+    @classmethod
+    def _state_transition_fields(cls, turbine_id: str, previous_state: int,
+                                 current_state: int, shutdown_cause: Optional[str]) -> Optional[Dict]:
+        """運轉狀態轉換 → ``record_event`` 欄位（Live 與批次路徑共用，WMOM-20261021-04）。
+
+        Args:
+            turbine_id: 機組 ID。
+            previous_state: 轉換前 ``WTUR_TurSt``。
+            current_state: 轉換後 ``WTUR_TurSt``。
+            shutdown_cause: 機組回報的停機原因。
+
+        Returns:
+            ``record_event`` 欄位；不記錄的狀態回 None。
+        """
+        state_name = cls._state_name(current_state)
+        detail = f"{turbine_id} moved from {cls._state_name(previous_state)} to {state_name}"
         payload = {
             "turbineId": turbine_id,
             "fromState": previous_state,
@@ -1017,15 +1093,8 @@ class DataBroker:
         }
 
         if current_state == 6:
-            self.record_event(
-                event_type="state",
-                source="simulator",
-                title="Entered production",
-                turbine_id=turbine_id,
-                detail=detail,
-                payload=payload,
-            )
-            return
+            return dict(event_type="state", source="simulator", title="Entered production",
+                        turbine_id=turbine_id, detail=detail, payload=payload)
 
         if current_state in (7, 9):
             event_type = "state"
@@ -1041,44 +1110,17 @@ class DataBroker:
             elif shutdown_cause in ("operator", "operator_emergency", "service"):
                 event_type = "operator"
                 title = "Operator-driven stop"
-
-            # Trigger snapshot for emergency stops and fault-caused stops
-            if current_state == 7 or (isinstance(shutdown_cause, str) and
-                                       ("fault" in shutdown_cause or "plc:" in shutdown_cause
-                                        or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
-                event_ref = f"stop:{turbine_id}:{current_state}:{iso_utc()}"
-                self._trigger_snapshot(turbine_id, event_ref)
-
-            self.record_event(
-                event_type=event_type,
-                source="simulator",
-                title=title,
-                turbine_id=turbine_id,
-                detail=f"{detail} ({shutdown_cause or 'unknown cause'})",
-                payload=payload,
-            )
-            return
+            return dict(event_type=event_type, source="simulator", title=title, turbine_id=turbine_id,
+                        detail=f"{detail} ({shutdown_cause or 'unknown cause'})", payload=payload)
 
         if current_state in (4, 5, 8):
-            self.record_event(
-                event_type="state",
-                source="simulator",
-                title="Startup / restart transition",
-                turbine_id=turbine_id,
-                detail=detail,
-                payload=payload,
-            )
-            return
+            return dict(event_type="state", source="simulator", title="Startup / restart transition",
+                        turbine_id=turbine_id, detail=detail, payload=payload)
 
         if current_state in (1, 2, 3):
-            self.record_event(
-                event_type="state",
-                source="simulator",
-                title="Returned to idle state",
-                turbine_id=turbine_id,
-                detail=detail,
-                payload=payload,
-            )
+            return dict(event_type="state", source="simulator", title="Returned to idle state",
+                        turbine_id=turbine_id, detail=detail, payload=payload)
+        return None
 
     @staticmethod
     def _state_name(state: int) -> str:
