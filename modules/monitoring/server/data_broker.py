@@ -16,6 +16,7 @@ from server.models import (
 from server.storage import Storage
 from server.farm_registry import FarmRegistry
 from simulator.engine import WindFarmSimulator
+from simulator.physics.plc_protection import PlcEvent
 
 if TYPE_CHECKING:
     from server.opc_adapter import OPCDAAdapter
@@ -244,7 +245,7 @@ class DataBroker:
         self._last_tur_state: Dict[str, int] = {}
         self._last_shutdown_cause: Dict[str, Optional[str]] = {}
         self._last_fault_trip: Dict[str, bool] = {}
-        self._last_fault_alarm_keys: Dict[str, set[str]] = {}
+
         # Fault lifecycle tracking: {turbine_id: {scenario_id: phase}}
         self._last_fault_phases: Dict[str, Dict[str, str]] = {}
         # Track active fault scenario keys for lifecycle start/end
@@ -430,7 +431,6 @@ class DataBroker:
         self._last_tur_state.clear()
         self._last_shutdown_cause.clear()
         self._last_fault_trip.clear()
-        self._last_fault_alarm_keys.clear()
         self._last_fault_phases.clear()
         self._active_fault_keys.clear()
         self._last_fatigue_alarm.clear()
@@ -767,15 +767,20 @@ class DataBroker:
                 self._last_fault_trip[turbine_id] = current_tripped
             elif last_tripped != current_tripped:
                 if current_tripped:
-                    tripped_faults = [f.get("scenario_id") for f in active_faults if f.get("tripped")]
+                    tripped = [f for f in active_faults if f.get("tripped")]
+                    tripped_faults = [f.get("scenario_id") for f in tripped]
+                    trip_codes = [f.get("trip_code") for f in tripped if f.get("trip_code") is not None]
                     event_ref = f"fault_trip:{turbine_id}:{datetime.now().isoformat()}"
                     self.record_event(
                         event_type="fault",
                         source="simulator",
                         title="Automatic fault trip",
                         turbine_id=turbine_id,
-                        detail=f"Trip triggered by {', '.join(tripped_faults) if tripped_faults else 'active fault'}",
-                        payload={"turbineId": turbine_id, "faults": tripped_faults},
+                        detail=(
+                            f"Trip triggered by {', '.join(tripped_faults) if tripped_faults else 'active fault'}"
+                            + (f" (PLC event {', '.join(str(c) for c in trip_codes)})" if trip_codes else "")
+                        ),
+                        payload={"turbineId": turbine_id, "faults": tripped_faults, "tripCodes": trip_codes},
                     )
                     # Trigger high-frequency snapshot capture
                     self._trigger_snapshot(turbine_id, event_ref)
@@ -790,33 +795,12 @@ class DataBroker:
                     )
                 self._last_fault_trip[turbine_id] = current_tripped
 
-            current_alarm_keys = set()
-            last_alarm_keys = self._last_fault_alarm_keys.get(turbine_id, set())
-            for fault in active_faults:
-                scenario_id = str(fault.get("scenario_id") or "")
-                phase = str(fault.get("phase") or "")
-                severity = fault.get("severity")
-                for alarm in fault.get("active_alarms") or []:
-                    alarm_type = str(alarm.get("type") or "")
-                    alarm_code = str(alarm.get("code") or "")
-                    alarm_key = f"{scenario_id}:{alarm_type}:{alarm_code}"
-                    current_alarm_keys.add(alarm_key)
-                    if alarm_key not in last_alarm_keys:
-                        self.record_event(
-                            event_type="fault",
-                            source="simulator",
-                            title=f"Fault alarm threshold reached: {scenario_id}",
-                            turbine_id=turbine_id,
-                            detail=f"{scenario_id} entered {phase} with alarm {alarm_type}{alarm_code and f' {alarm_code}'} at severity {severity}",
-                            payload={
-                                "turbineId": turbine_id,
-                                "scenarioId": scenario_id,
-                                "phase": phase,
-                                "severity": severity,
-                                "alarm": alarm,
-                            },
-                        )
-            self._last_fault_alarm_keys[turbine_id] = current_alarm_keys
+            # ── PLC events (real Z72 event codes, raised from the measured process
+            # values by the turbine's protection layer — WMOM-20261021-03-b). They carry
+            # no fault ground truth: observable events only.
+            if model is not None:
+                for plc_event in model.plc.drain_events():
+                    self._record_plc_event(turbine_id, plc_event)
 
             # ── Fault lifecycle: track start/end + phase transitions ──
             current_fault_keys = set()
@@ -928,6 +912,42 @@ class DataBroker:
                             },
                         )
                 self._last_fatigue_alarm[turbine_id] = (alm_twr, alm_bld)
+
+    _PLC_EVENT_TITLES = {
+        "alarm_raised": "Alarm",
+        "alarm_cleared": "Alarm cleared",
+        "trip": "Trip",
+        "trip_cleared": "Trip cleared",
+        "restart_blocked": "Restart blocked",
+        "operator_reset": "Operator reset",
+        "info": "Info",
+    }
+
+    def _record_plc_event(self, turbine_id: str, event: PlcEvent) -> None:
+        """把一筆 PLC 事件寫進 history_events（event_type="fault"，source="plc"）。"""
+        label = self._PLC_EVENT_TITLES.get(event.kind, event.kind)
+        detail = f"{event.level} {event.code:03d} {event.text}"
+        if event.value is not None and event.setpoint is not None:
+            detail += f" (value {event.value} / setpoint {event.setpoint})"
+        self.record_event(
+            event_type="fault",
+            source="plc",
+            title=f"{label}: {event.event_id} {event.text}",
+            turbine_id=turbine_id,
+            detail=detail,
+            payload={
+                "turbineId": turbine_id,
+                "kind": event.kind,
+                "code": event.code,
+                "level": event.level,
+                "text": event.text,
+                "plcTag": event.plc_tag,
+                "eventId": event.event_id,
+                "value": event.value,
+                "setpoint": event.setpoint,
+                "origin": event.source,
+            },
+        )
 
     def _record_state_transition_event(self, turbine_id: str, previous_state: int,
                                        current_state: int, shutdown_cause: Optional[str]):

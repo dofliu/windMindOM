@@ -129,17 +129,23 @@ def test_no_schedule_generates_data_without_faults():
 
 
 def test_scheduled_fault_progresses_to_trip():
-    """注入 → severity 進程 → 到 auto_trip 門檻跳機，證明排定故障真的驅動物理。"""
+    """注入 → severity 進程 → 物理 → PLC 跳機，證明排定故障真的驅動物理（WMOM-20261021-03-b：
+    跳機由 PLC 依量測值判定，不再是嚴重度門檻）。"""
     sim = _running_sim()
-    # generator_overspeed auto_trip=0.6；rate 0.05/s × dt 10 = 每步 +0.5 → 兩步內跳機。
+    # generator_overspeed：rate 0.05/s 很快滿嚴重度，轉速失控越過軟體超速 26.5 rpm →
+    # 物理層超速保護停機 → PLC 事件 351 → 故障 tripped。
     schedule = [PlanStep(offset_seconds=0.0, scenario_id="generator_overspeed",
                          turbine_id="WT002", severity_rate=0.05)]
+    trips: list = []
 
-    sim.generate_bulk(duration_hours=0.05, time_step=10.0, fault_schedule=schedule)
+    sim.generate_bulk(duration_hours=0.05, time_step=10.0, fault_schedule=schedule,
+                      on_fault_tripped=lambda tid, sid, code, t: trips.append((tid, sid, code)))
 
     wt002 = [f for f in sim.fault_engine.active_faults if f.turbine_id == "WT002"]
     assert wt002, "故障應仍在 active 清單"
-    assert wt002[0].tripped, "severity 應達 auto_trip_severity 而跳機"
+    assert wt002[0].tripped, "轉速越過超速設定應由 PLC 跳機"
+    assert wt002[0].trip_code in (351, 320)
+    assert trips == [("WT002", "generator_overspeed", wt002[0].trip_code)], "on_fault_tripped 應回呼一次"
 
 
 # ─── 端點層：_parse_fault_schedule 解析與驗證 ──────────────────────────────

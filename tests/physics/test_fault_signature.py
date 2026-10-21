@@ -32,6 +32,9 @@ def _run_paired(fault_id: str | None, severity: float,
     """跑同 seed baseline + faulty，回傳兩個 dict（SCADA tag → 60 s 平均）。"""
     mb = TurbinePhysicsModel(seed=seed)
     mf = TurbinePhysicsModel(seed=seed)
+    # 量測故障的物理特徵本身：關閉 PLC 保護，避免故障後期跳機停機（WMOM-20261021-03-b）
+    mb.plc.enabled = False
+    mf.plc.enabled = False
     for _ in range(warm_steps):
         mb.step(wind_speed=V, wind_direction=180.0, ambient_temp=15.0, dt=1.0)
         mf.step(wind_speed=V, wind_direction=180.0, ambient_temp=15.0, dt=1.0)

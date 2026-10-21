@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from wind_model import WindEnvironmentModel
 from simulator.grid_model import GridEnvironmentModel
 from simulator.physics import TurbinePhysicsModel, FaultEngine
-from simulator.physics.fault_engine import TestPlanStep
+from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPlanStep
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 
@@ -74,6 +74,8 @@ class WindFarmSimulator:
         self._per_turbine_wind = PerTurbineWind(turbine_count, seed=99)
         # Previous-step yaw misalignment (rad), fed into wake-steering each step
         self._last_yaw_err_rad = np.zeros(turbine_count)
+        # Optional sink for "fault caused a PLC trip" (set by generate_bulk; WMOM-20261021-03-b)
+        self._on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None
 
         self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
@@ -236,19 +238,20 @@ class WindFarmSimulator:
             wake_yaw_defl_m = self._per_turbine_wind.get_wake_yaw_deflection_offset(idx)
             wake_added_ti = self._per_turbine_wind.get_wake_added_ti(idx)
 
+            turbine_faults = [f for f in self.fault_engine.active_faults if f.turbine_id == tid]
             model.active_faults = [
                 {
                     "scenario_id": fault.scenario_id,
                     "severity": fault.severity,
                     "tripped": fault.tripped,
                 }
-                for fault in self.fault_engine.active_faults
-                if fault.turbine_id == tid
+                for fault in turbine_faults
             ]
-
-            for fault in self.fault_engine.active_faults:
-                if fault.turbine_id == tid and fault.tripped:
-                    model.cmd_emergency_stop(cause=f"fault:{fault.scenario_id}")
+            # Reset ≠ repair (WMOM-20260719-01): once a fault has caused a PLC trip the
+            # turbine stays down until maintenance clears the fault. A restart inhibit,
+            # not a fresh emergency stop every step (that made TurSt oscillate 7↔3)
+            # (WMOM-20261021-03-b).
+            model.maintenance_lock = any(f.tripped for f in turbine_faults)
 
             scada_output = model.step(
                 local_wind,
@@ -279,6 +282,9 @@ class WindFarmSimulator:
                     f"— 檢查該風場的風機規格（rotor_diameter / 額定等欄位是否為 0 或空）"
                 )
                 self._warned_non_finite = True
+
+            if turbine_faults:
+                self._link_faults_to_plc(tid, model, turbine_faults, sim_time)
 
             # Capture yaw_error (deg) for this step; fed back next step to drive
             # wake-steering deflection.
@@ -348,11 +354,40 @@ class WindFarmSimulator:
                 print(f"[Simulator] Error: {e}")
                 time.sleep(1)
 
+    def _link_faults_to_plc(self, tid: str, model: TurbinePhysicsModel,
+                            faults: List[ActiveFault], sim_time: datetime) -> None:
+        """把 PLC 判定結果回寫到故障：預期碼中目前成立者 → ``active_alarms``；PLC 以預期跳機碼
+        跳機 → ``FaultEngine.mark_tripped``（WMOM-20261021-03-b）。
+
+        Args:
+            tid: 機組 ID。
+            model: 該機組物理模型（含 ``plc``）。
+            faults: 該機組的 active faults。
+            sim_time: 本步模擬時間。
+        """
+        active = model.plc.active_codes()
+        new_trips = set(model.plc.last_trip_codes)
+        for fault in faults:
+            scenario = FAULT_SCENARIOS.get(fault.scenario_id)
+            if scenario is None:
+                continue
+            fault.active_alarms = [a for a in scenario.alarm_codes if a["code"] in active]
+            if fault.tripped:
+                continue
+            trip_codes = [
+                a["code"] for a in scenario.alarm_codes
+                if a["type"] in ("T1", "T2") and a["code"] in new_trips
+            ]
+            if trip_codes and self.fault_engine.mark_tripped(tid, fault.scenario_id, trip_codes[0]):
+                if self._on_fault_tripped is not None:
+                    self._on_fault_tripped(tid, fault.scenario_id, trip_codes[0], sim_time)
+
     def generate_bulk(self, duration_hours: float, time_step: float = 10.0,
                       callback: Optional[Callable[[List[Dict]], None]] = None,
                       progress_callback: Optional[Callable[[float, float], None]] = None,
                       fault_schedule: Optional[List[TestPlanStep]] = None,
-                      on_fault_injected: Optional[Callable[[TestPlanStep, datetime], None]] = None) -> int:
+                      on_fault_injected: Optional[Callable[[TestPlanStep, datetime], None]] = None,
+                      on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None) -> int:
         """Generate bulk historical data without real-time waiting.
 
         Runs the full physics simulation at maximum speed, writing data
@@ -372,6 +407,9 @@ class WindFarmSimulator:
                 以正確的模擬時間戳持久化故障事件（如 ``broker.record_event(timestamp=...)``），
                 使事件標記與批次資料的時間軸對齊、情境可重現。未知 scenario（``inject``
                 回 False）不會觸發此回呼。
+            on_fault_tripped: 選填。PLC 以故障的預期跳機碼使機組跳機、故障轉為 tripped 的當下，以
+                ``(turbine_id, scenario_id, trip_code, sim_time)`` 回呼，讓呼叫端把跳機寫成
+                事件（情境掛載依此判定 FAULT，WMOM-20261021-03-b）。
 
         Returns:
             Total number of readings generated
@@ -394,6 +432,8 @@ class WindFarmSimulator:
         # 為 False）批次仍應執行；且「停 Live」與「跑批次」不再共用旗標互相干擾（見 stop_live_loop
         # 的 borrow-corpse 隱患）。stop() 會清此旗標以保留「關閉時中止批次」的語意。
         self._bulk_running = True
+        prev_on_fault_tripped = self._on_fault_tripped
+        self._on_fault_tripped = on_fault_tripped
         try:
             for step_i in range(total_steps):
                 if not self._bulk_running:
@@ -430,6 +470,7 @@ class WindFarmSimulator:
                     progress_callback(current_hours, duration_hours)
         finally:
             self._bulk_running = False
+            self._on_fault_tripped = prev_on_fault_tripped
 
         return total_readings
 

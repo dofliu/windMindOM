@@ -148,7 +148,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 |---|---|---|
 | 1a ✅ | WMOM-20261021-02 | **Z72 真實警報目錄**：xlsx 314 筆 → `shared/alarm_codes.py`（+ 手冊 Appendix C 原因/處置/重啟次數）；11 個故障情境改用真實碼（2026-10-21 done） |
 | 1b-a ✅ | WMOM-20261021-03-a | **故障物理校正**：各情境量測訊號在物理上能越過真實保護設定值（2026-10-21 done） |
-| 1b-b | WMOM-20261021-03-b | **PLC 保護層**：警報 / 跳機改由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3 狀態跳動 |
+| 1b-b ✅ | WMOM-20261021-03-b | **PLC 保護層**：警報 / 跳機改由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3 狀態跳動（2026-10-21 done） |
 | 1b-c | WMOM-20261021-03-c | **UTC tz-aware 時間戳** |
 | 2 | WMOM-20261021-04 | **標準答案 + 情境事件**：故障情境 metadata（根因/元件/預期警報序列/手冊條目/處置）；bulk 路徑產生事件；`history_events` 加 `session_id`；ground truth 落庫 |
 | 3a | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；修或移除 `farms.py` 壞端點 |
@@ -162,17 +162,16 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 ### 6.1 Phase 1a 定案與已知限制
 
-**警報門檻慣例**（`fault_engine.py` docstring，`test_fault_alarm_codes.py` 強制）：
-A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip_severity`。
-跳機碼只在跳機當下出現，不會有「跳機碼已觸發但機組仍在發電」的資料。
+~~**警報門檻慣例**：A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip_severity`。~~
+-03-b 起已移除 severity 門檻，警報 / 跳機由 PLC 保護層依訊號判定（§6.3）；`alarm_codes` 只是情境的預期碼。
 
 **已知限制（留給 Phase 1b / 2）**：
 
-1. **警報由 severity 觸發，不是由物理訊號越過真實門檻觸發**。-03-a（2026-10-21）已讓物理訊號在高負載下真的越過設定值（§6.2），但事件仍由 `FaultEngine` 的 severity 門檻送出，低負載或快速升高時兩者時點會不一致；改成訊號觸發是 -03-b。
+1. ~~**警報由 severity 觸發，不是由物理訊號越過真實門檻觸發**~~ → -03-b 已解（§6.3）。
 2. **5 個情境在跳機前沒有任何警報**（pitch_imbalance、yaw_sensor_drift、generator_overspeed、blade_icing、grid_voltage_sag）。這符合真實 Z72 事件清單（沒有對應的 A 級警報），但 ground truth 的 `first_alarm_ts` 會等於 `trip_ts`，「早期徵兆」評分只能靠 SCADA 趨勢。
-3. **跳機一律走 emergency stop**（`simulator/engine.py` 對 tripped fault 呼叫 `cmd_emergency_stop`），但 T1 定義為正常伺服停機、T2 才是緊急變槳。
+3. ~~**跳機一律走 emergency stop**~~ → -03-b 已解：PLC 判定的 T1 走正常伺服停機（TurSt 9）、T2 走緊急變槳（TurSt 7）。
 4. **變頻器事件（400-700）手冊只寫「See [ABB]」**：只靠 Z72 手冊的 RAG 查不到細節，ground truth 應標註預期答案僅能指向 ABB 手冊。
-5. 物理層自有跳機（overspeed / cut-out / grid / ride-through）只寫 `shutdown_cause` 字串，沒有事件碼。
+5. ~~物理層自有跳機只寫 `shutdown_cause` 字串，沒有事件碼~~ → -03-b 已解：對應到 351 / 320 / 481 / 482 / 475 / 489（+021）與 I 201。
 
 ### 6.2 Phase 1b-a 故障物理校正結果（2026-10-21）
 
@@ -205,6 +204,66 @@ A 級警報門檻 < `auto_trip_severity`；T1 / T2 跳機碼門檻 == `auto_trip
 - **風向標 233 用 25 s 濾波值**：真實 tag `YwVn1/2AlgnAvg25s` 存在，本模擬只輸出 5 s 版本，濾波由 PLC 層做。
 - **yaw_sensor_drift 的語意**：控制器跟隨風向標 1，所以風向標 1 讀數仍接近 0、風向標 2 顯示真實偏航誤差（−drift），疲勞 / 偏航斜流 / 尾流轉向都用真實誤差。
 - **電壓驟降的副作用**：端電壓降低會啟動既有的電壓降載，嚴重度 0.3 時功率已降到約 1720 kW（健康約 2000 kW），遠早於跳機。
+
+### 6.3 Phase 1b-b PLC 保護層（2026-10-21）
+
+`modules/monitoring/simulator/physics/plc_protection.py`，每台機組一個 `PlcProtection`（`TurbinePhysicsModel.plc`），在每個物理步結束時判定。
+
+**判定對象是製程值（感測器模型之前）**：感測器模型的雜訊、漂移、卡值是為 SCADA 趨勢的視覺真實度調的，幅度對保護判定太大（例：葉片角度漂移上限 ±0.8°，健康機組約兩天一次葉片同步 T2 誤跳）。感測器故障造成的跳機留給 Phase 4（-08）以有標註的方式建模。
+
+**規則**（設定值全部來自 `TurbineSpec`）：溫度警報延時 10 s、跳機延時 5 s，皆有遲滯；延時用嚴格大於（批次 5 s 步長下單一樣本不算「持續」）。
+
+| 事件碼 | 訊號 | 條件 |
+|---|---|---|
+| A262 / T240 | 主軸承溫度 | > 85 / 95 °C |
+| A264 / T244 | 定子溫度 | > 140 / 150 °C |
+| A273 / T256 | 機艙空氣 / 機艙控制櫃溫度 | > 46 / 50 °C |
+| A417 / T444 | 變壓器鐵心溫度 | > 80 / 90 °C |
+| A420 / T437 + T021 | 變頻器冷卻水溫 | > 51 / 56 °C |
+| A421 / T438 + T021 | 變頻器機櫃溫度 | > 62 / 67 °C |
+| A432 | 冷卻水靜水壓 | < 2.5 bar，只在發電時判定（停機時泵停，本來就低） |
+| A260 / T228 | 偏航煞車液壓 | < 180 / 150 bar，只在煞車施加 90 s 後判定（偏航時煞車鬆開，壓力本來就低） |
+| A261 | 偏航煞車油封洩漏 | BOOL |
+| T233 | 風向標 1−2 差 | 25 s 濾波值差 > 15°，且 10 分鐘平均風速 > 4.5 m/s |
+| T335 / T336 / T337 | 葉片兩兩角度差 | 瞬間 > 8°、3 s > 3°、5 s > 1°；只在穩定發電 60 s 後判定（啟動大幅變槳時各葉片暫態差異可達 ~6.6°） |
+| T236 | 機艙振動 max(X, Y) | > 7 mm/s 持續 10 s |
+
+**跳機語意**：
+
+- A 級只送 `alarm_raised` / `alarm_cleared`，不停機。
+- T1 → 正常伺服停機（TurSt 9）；T2 → 緊急變槳（TurSt 7）。已排定的緊急停機不會被後到的正常停機要求降級。
+- 跳機鎖存到條件解除；解除時若該碼一小時內的跳機次數 ≤ 目錄 `max_per_hour` → `trip_cleared`，機組自動重啟；超過 → `restart_blocked`，需操作員復位（事件 008）。復位後條件仍成立會立即再跳。
+- 物理層既有保護停機補事件碼：軟體 / 硬體超速 → 351 / 320；LVRT band 1-2 → 481 + 021、band ≥ 3 → 482 + 021；HVRT → 475 + 021；`grid_protection` / `grid_trip` 依當下電壓 → 481 / 482 / 475 / 489（+ 021）；切出風速 → I 201（600 s 去重）。這類停機的重啟仍由物理層狀態機處理，不在 PLC 層鎖存。
+
+**故障引擎連動**：`FaultEngine` 的嚴重度只驅動物理；`alarm_codes` 改為情境的**預期碼**（ground truth metadata，無門檻）。PLC 以情境預期的 T 碼跳機時，引擎呼叫 `mark_tripped` 把故障轉為 tripped（記 `trip_code`）；tripped 期間引擎設 `model.maintenance_lock` 阻擋重啟，取代原本每步 `cmd_emergency_stop`——**7↔3 擺盪已修**。「復位不等於修好」不變量（WMOM-20260719-01）不變：復位解除 PLC 鎖存，但維修鎖仍擋住重啟；只有維護清除（`/api/faults/clear`）會解除。
+
+**事件輸出**：即時路徑由 broker 每步 `drain_events()`，記為 `event_type="fault"`、`source="plc"`，payload 含 `kind / code / level / text / plcTag / eventId / value / setpoint / origin`。批次路徑（`generate_bulk`）尚未收事件（-04），佇列上限 512，舊事件自動丟棄；情境排程的 tripped 轉換以 `kind="trip"` 事件記錄，供情境端點判斷「故障已跳機」。
+
+**實測**（15 m/s、25 °C、注入後 3 h、dt 5 s）：
+
+| 情境 | 嚴重度 1.0 事件序列（注入後分鐘） | 嚴重度 0.8 |
+|---|---|---|
+| bearing_wear | A262 7.8 → T240 10.0 | A262 28.0，3 h 未跳機 |
+| stator_winding_degradation | A264 8.5 → T244 10.1 | 3 h 無事件 |
+| transformer_overheat | A417 33.3 → T444 49.6 | A417 92.6，3 h 未跳機 |
+| converter_cooling_fault | A420 2.7 → T437 + T021 3.4 | A420 6.4 → T437 + T021 12.8 |
+| nacelle_cooling_failure | T256 61.3（無先行警報） | 3 h 無事件 |
+| hydraulic_leak | A261 0.2 → T228 2.3 | 同左 |
+| yaw_sensor_drift | T233 0.7 | T233 1.8 |
+| pitch_imbalance | T335 0.2 | T335 0.6 |
+| blade_icing | T236 0.2 | T236 0.2 |
+| grid_voltage_sag | T481 + T021 0.8（物理層 LVRT） | 同左 |
+| generator_overspeed | T351 + T320 0.2（物理層超速） | T351 0.2 |
+
+健康 3 機風場（自動風況，含紊流與偏航）2 h 內沒有任何訊號判定的事件（`test_plc_integration.py`）；健康機組既有 111 tag 輸出與 -03-a 之前逐位元相同。
+
+**已知限制**：
+
+1. **物理層保護停機的停機模式未依手冊等級**：軟體超速 351 在手冊是 T1，但物理層仍走緊急停機；切出風速也走緊急停機。
+2. **切出風速用瞬間風速**：手冊 201 是 10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s；目前物理層看瞬間有效風速，高紊流高風速時會頻繁切出（另開 WMOM-20261021-10）。
+3. **預期碼可能不出現**：低負載或嚴重度不足時情境不會跳機（上表嚴重度 0.8 的 4 個情境），ground truth（-04）必須允許「預期碼未出現」。
+4. **事件順序由物理決定**：converter_cooling_fault 的 T021 與 T437 同一步送出；hydraulic_leak 壓力在偏航後的判定窗內一次跌破兩個設定值時，T228（延時 5 s）會先於 A260（延時 10 s）。
+5. **`faults.py` 的 `run_test_plan` 不記錄 trip 事件**（不是情境 session），只有 `/api/config` 情境排程會記。
 
 ## 7. 不做的事
 

@@ -59,11 +59,11 @@ async def send_command(cmd: TurbineCommand):
     elif cmd.command == "start":
         model.cmd_start()
     elif cmd.command == "reset":
-        # 復位＝解除 latched trip 並嘗試重啟，但「不」移除未解決的故障。
-        # 若該機組的故障仍在 fault_engine 且已 tripped，引擎每步會重新
-        # emergency-stop 它（engine._run_one_step），故復位無法讓帶病機組恢復
-        # 發電——這正是現場語意：復位只是「確認並嘗試重啟」，不是「修好」。
-        # 唯一真正清除故障的路徑是維護中心 /api/faults/clear（工單完成）。
+        # 復位＝解除 PLC 鎖存的跳機（含超過每小時上限的封鎖）並嘗試重啟，但「不」移除
+        # 未解決的故障。條件仍成立的跳機下一步會再跳；若該機組的故障已 tripped，引擎每步
+        # 設 model.maintenance_lock 阻擋重啟（engine._run_one_step，WMOM-20261021-03-b），
+        # 故復位無法讓帶病機組恢復發電——這正是現場語意：復位只是「確認並嘗試重啟」，
+        # 不是「修好」。唯一真正清除故障的路徑是維護中心 /api/faults/clear（工單完成）。
         model.cmd_reset()
     elif cmd.command == "service_on":
         model.cmd_service(True)

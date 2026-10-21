@@ -4,18 +4,23 @@ Fault Simulation Engine — gradual degradation patterns for analyst diagnostics
 Design principles:
 1. Faults develop GRADUALLY over hours/days (not sudden jumps)
 2. Each fault affects MULTIPLE correlated tags (physically realistic)
-3. Severity increases over time → triggers alarm thresholds → trip
+3. Severity drives physical causes (heat, cooling, pitch, voltage …) in
+   TurbinePhysicsModel._get_fault_physics(); the turbine's PLC protection layer
+   (plc_protection.py) raises alarms / trips when the measured process values cross
+   the real Z72 setpoints — load and ambient dependent, not at a fixed severity
+   (WMOM-20261021-03-b)
 4. Historical trend data is analyzable for health assessment
 
-Alarm codes are real Z72 events from docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx
-(sheet "警告訊息列表"), compiled into shared/data/z72_alarm_catalog.json by
-tools/build_z72_alarm_catalog.py (WMOM-20261021-02). Each alarm's ``type`` / ``desc``
-must equal the catalog's level / text (enforced by test_fault_alarm_codes.py).
+``alarm_codes`` lists the real Z72 events (docs/1040610-Z72_PLC_OPC_TAG_1040510.xlsx,
+compiled into shared/data/z72_alarm_catalog.json) the PLC is EXPECTED to raise for this
+fault's physics — ground-truth metadata, not an emission schedule. ``type`` / ``desc``
+must equal the catalog's level / text (enforced by test_fault_alarm_codes.py). Under
+low load or mild weather some expected events may never appear (e.g. a stator fault
+at 9 m/s stays below its alarm setpoint).
 
-Alarm threshold convention:
-- A (alarm, turbine keeps running): threshold < auto_trip_severity
-- T1 / T2 (trip): threshold == auto_trip_severity — the trip code is raised at the
-  moment the turbine trips, never while it is still producing
+A fault becomes ``tripped`` when the PLC trips the turbine with one of its expected
+T1 / T2 codes (``mark_tripped``, called by the simulator engine); the turbine then
+stays down until maintenance clears the fault (reset ≠ repair, WMOM-20260719-01).
 
 Usage:
     engine = FaultEngine()
@@ -46,9 +51,10 @@ class FaultScenario:
     Definition of a fault type and how it affects SCADA tags over time.
 
     Each fault has:
-    - affected_tags: dict mapping tag_id → (max_offset, phase_curve_type)
-    - alarm_codes: which Bachmann alarm/trip codes this fault triggers
-    - severity: 0.0 (no fault) → 1.0 (full severity, trip condition)
+    - affected_tags: dict mapping tag_id → (max_offset, phase_curve_type) — vestigial,
+      effects now flow through TurbinePhysicsModel._get_fault_physics()
+    - alarm_codes: Z72 events the PLC is expected to raise for this fault (metadata)
+    - severity: 0.0 (no fault) → 1.0 (full severity)
     """
     id: str
     name_en: str
@@ -56,8 +62,11 @@ class FaultScenario:
     description_en: str
     description_zh: str
     affected_tags: Dict[str, Dict]  # tag_id → {max_offset, curve}
-    alarm_codes: List[Dict]         # [{type: "T1"|"T2"|"A", code: int, threshold: float, desc: str}]
-    auto_trip_severity: float = 0.85  # severity at which turbine trips
+    alarm_codes: List[Dict]         # [{type: "T1"|"T2"|"A", code: int, desc: str}]
+    # Legacy: before WMOM-20261021-03-b the turbine tripped when severity reached this.
+    # Only used now to approximate trips for scenario sessions generated before trip
+    # events were recorded (routers/scenarios.py::_tripped_fault_turbine_ids fallback).
+    auto_trip_severity: float = 0.85
 
 
 # ─── Pre-defined fault scenarios ──────────────────────────────────────────
@@ -82,8 +91,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnAirTmp1": {"max_offset": 10.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 262, "threshold": 0.4, "desc": "Main bearing 1 temperature high"},
-            {"type": "T1", "code": 240, "threshold": 0.85, "desc": "Bearing 1 temperature very high"},
+            {"type": "A", "code": 262, "desc": "Main bearing 1 temperature high"},
+            {"type": "T1", "code": 240, "desc": "Bearing 1 temperature very high"},
         ],
     ),
 
@@ -102,8 +111,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         alarm_codes=[
             # 對齊物理層兩道保護（TurbineSpec.overspeed_software_rpm 26.5 / overspeed_hardware_rpm 28.5）：
             # 351 變槳控制壓不住轉速；控制失效時轉速續升，觸發外部 Jaquet 硬體超速電驛 320（緊急變槳）
-            {"type": "T1", "code": 351, "threshold": 0.6, "desc": "Software overspeed"},
-            {"type": "T2", "code": 320, "threshold": 0.6, "desc": "Hardware overspeed or watchdog timeout"},
+            {"type": "T1", "code": 351, "desc": "Software overspeed"},
+            {"type": "T2", "code": 320, "desc": "Hardware overspeed or watchdog timeout"},
         ],
         auto_trip_severity=0.6,
     ),
@@ -124,12 +133,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         },
         alarm_codes=[
             # 手冊：021 會與 400-700 範圍的變頻器跳機碼一起出現
-            {"type": "A", "code": 420, "threshold": 0.3, "desc": "Cooling water temperature high"},
-            {"type": "A", "code": 421, "threshold": 0.5, "desc": "Converter cabinet temperature high"},
+            {"type": "A", "code": 420, "desc": "Cooling water temperature high"},
+            {"type": "A", "code": 421, "desc": "Converter cabinet temperature high"},
             # 物理層模擬 O-ring 劣化洩漏（coolant_leak_lph）→ 靜水壓下降
-            {"type": "A", "code": 432, "threshold": 0.6, "desc": "Static water pressure L"},
-            {"type": "T1", "code": 437, "threshold": 0.85, "desc": "Cooling water temperature very high"},
-            {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
+            {"type": "A", "code": 432, "desc": "Static water pressure L"},
+            {"type": "T1", "code": 437, "desc": "Cooling water temperature very high"},
+            {"type": "T1", "code": 21, "desc": "Turbine trip request from converter"},
         ],
     ),
 
@@ -144,8 +153,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WNAC_NacTmp": {"max_offset": 5.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 417, "threshold": 0.4, "desc": "Transformer temperature high"},
-            {"type": "T1", "code": 444, "threshold": 0.85, "desc": "Transformer temperature very high"},
+            {"type": "A", "code": 417, "desc": "Transformer temperature high"},
+            {"type": "T1", "code": 444, "desc": "Transformer temperature very high"},
         ],
     ),
 
@@ -170,8 +179,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         alarm_codes=[
             # Z72 沒有變槳角度偏差的 A 級警報：細微漂移在跳機前沒有任何警報，
             # 只能靠 1P 振動 / 功率交叉分析提早發現；跳機時兩組葉片同步差異同時觸發
-            {"type": "T2", "code": 335, "threshold": 0.90, "desc": "Discrepancy blade 1-2"},
-            {"type": "T2", "code": 336, "threshold": 0.90, "desc": "Discrepancy blade 1-3"},
+            {"type": "T2", "code": 335, "desc": "Discrepancy blade 1-2"},
+            {"type": "T2", "code": 336, "desc": "Discrepancy blade 1-3"},
         ],
         auto_trip_severity=0.90,  # takes longer to trip
     ),
@@ -189,7 +198,7 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         },
         alarm_codes=[
             # 漂移的是風向標 1（WYAW_YwVn1AlgnAvg5s）；PLC 以風向標 1-2 差異偵測
-            {"type": "T1", "code": 233, "threshold": 0.95, "desc": "Wind vane 1-2 discrepancy"},
+            {"type": "T1", "code": 233, "desc": "Wind vane 1-2 discrepancy"},
         ],
         auto_trip_severity=0.95,
     ),
@@ -206,8 +215,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnCurMs": {"max_offset": 15.0, "curve": "linear"},           # slight current increase
         },
         alarm_codes=[
-            {"type": "A", "code": 264, "threshold": 0.5, "desc": "Generator stator temperature 1 high"},
-            {"type": "T1", "code": 244, "threshold": 0.85, "desc": "Generator stator temperature 1 very high"},
+            {"type": "A", "code": 264, "desc": "Generator stator temperature 1 high"},
+            {"type": "T1", "code": 244, "desc": "Generator stator temperature 1 very high"},
         ],
         auto_trip_severity=0.85,
     ),
@@ -225,9 +234,9 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         },
         alarm_codes=[
             # 物理層壓力 = 210 − 80·severity bar；260 手冊門檻 < 180 bar → severity ≥ 0.375
-            {"type": "A", "code": 260, "threshold": 0.4, "desc": "Yaw brake pressure low"},
-            {"type": "A", "code": 261, "threshold": 0.5, "desc": "Yaw brake oil leakage detected"},
-            {"type": "T1", "code": 228, "threshold": 0.85, "desc": "Yaw brake pressure very low"},
+            {"type": "A", "code": 260, "desc": "Yaw brake pressure low"},
+            {"type": "A", "code": 261, "desc": "Yaw brake oil leakage detected"},
+            {"type": "T1", "code": 228, "desc": "Yaw brake pressure very low"},
         ],
     ),
 
@@ -248,7 +257,7 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         },
         alarm_codes=[
             # Z72 沒有結冰偵測碼：結冰只會以塔架加速度過高跳機呈現
-            {"type": "T1", "code": 236, "threshold": 0.85, "desc": "Tower acceleration very high"},
+            {"type": "T1", "code": 236, "desc": "Tower acceleration very high"},
         ],
     ),
 
@@ -266,8 +275,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         },
         alarm_codes=[
             # 欠壓由 ABB 變頻器 ARU 偵測，PLC 同時收到變頻器的跳機要求（021）
-            {"type": "T1", "code": 481, "threshold": 0.85, "desc": "Undervoltage ARU phase R-S low"},
-            {"type": "T1", "code": 21, "threshold": 0.85, "desc": "Turbine trip request from converter"},
+            {"type": "T1", "code": 481, "desc": "Undervoltage ARU phase R-S low"},
+            {"type": "T1", "code": 21, "desc": "Turbine trip request from converter"},
         ],
     ),
 
@@ -290,8 +299,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WCNV_IGCTWtrTmp": {"max_offset": 5.0, "curve": "linear"},
         },
         alarm_codes=[
-            {"type": "A", "code": 273, "threshold": 0.4, "desc": "Nacelle temperature range exceeded"},
-            {"type": "T1", "code": 256, "threshold": 0.85, "desc": "Nacelle cabinet temperature outside range"},
+            {"type": "A", "code": 273, "desc": "Nacelle temperature range exceeded"},
+            {"type": "T1", "code": 256, "desc": "Nacelle cabinet temperature outside range"},
         ],
     ),
 }
@@ -306,7 +315,8 @@ class ActiveFault:
     severity_rate: float = 0.0002        # per second (~0.72/hour = ~18 hours to full)
     started_at: Optional[datetime] = None
     tripped: bool = False
-    active_alarms: List[Dict] = field(default_factory=list)
+    trip_code: Optional[int] = None          # PLC trip code that tripped this fault
+    active_alarms: List[Dict] = field(default_factory=list)  # expected codes the PLC has active
 
 
 class FaultEngine:
@@ -394,23 +404,14 @@ class FaultEngine:
             if fault.tripped:
                 continue
 
-            # Progress severity
+            # Progress severity. Alarms / trips are no longer derived from severity:
+            # the PLC protection layer raises them from the measured signals and the
+            # engine reports back via mark_tripped() / active_alarms (WMOM-20261021-03-b).
             fault.severity = min(1.0, fault.severity + fault.severity_rate * dt)
 
             scenario = FAULT_SCENARIOS.get(fault.scenario_id)
             if not scenario:
                 continue
-
-            # Check alarm thresholds
-            fault.active_alarms = []
-            for alarm in scenario.alarm_codes:
-                threshold = alarm.get("threshold", 0.3)
-                if fault.severity >= threshold:
-                    fault.active_alarms.append(alarm)
-
-            # Auto-trip
-            if fault.severity >= scenario.auto_trip_severity:
-                fault.tripped = True
 
             # Calculate tag offsets
             modifiers = result.setdefault(fault.turbine_id, {})
@@ -423,6 +424,24 @@ class FaultEngine:
                 modifiers[tag_id] = modifiers.get(tag_id, 0) + offset
 
         return result
+
+    def mark_tripped(self, turbine_id: str, scenario_id: str, code: int) -> bool:
+        """PLC 以本故障的預期跳機碼跳機時，標記故障為 tripped（鎖存到維護清除）。
+
+        Args:
+            turbine_id: 機組 ID。
+            scenario_id: 故障情境 ID。
+            code: 觸發的 Z72 跳機碼。
+
+        Returns:
+            本次是否由未跳機轉為已跳機。
+        """
+        for fault in self._active_faults:
+            if fault.turbine_id == turbine_id and fault.scenario_id == scenario_id and not fault.tripped:
+                fault.tripped = True
+                fault.trip_code = code
+                return True
+        return False
 
     def get_fault_status(self) -> List[Dict]:
         """Return status of all active faults (for API/frontend)."""
@@ -438,6 +457,7 @@ class FaultEngine:
                 "severity": round(fault.severity, 4),
                 "phase": phase.value,
                 "tripped": fault.tripped,
+                "trip_code": fault.trip_code,
                 "active_alarms": fault.active_alarms,
                 "started_at": fault.started_at.isoformat() if fault.started_at else None,
             })

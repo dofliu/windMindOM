@@ -693,3 +693,49 @@ def test_scenario_rated_power_default_and_override():
     assert scenarios_ep._scenario_rated_power_kw({"rated_power_kw": 0}) == \
         scenarios_ep.DEFAULT_RATED_POWER_KW
     assert scenarios_ep._scenario_rated_power_kw({"rated_power_kw": 5500.0}) == 5500.0
+
+
+# ─── WMOM-20261021-03-b：跳機由 PLC 判定，情境另存 trip 事件 ─────────────────────
+
+def _trip_event(turbine_id: str, scenario_id: str, timestamp: str, code: int = 228) -> dict:
+    return {
+        "event_type": "fault",
+        "turbine_id": turbine_id,
+        "timestamp": timestamp,
+        "payload": {"kind": "trip", "scenarioId": scenario_id, "turbineId": turbine_id, "tripCode": code},
+    }
+
+
+def _new_injection(turbine_id: str, scenario_id: str, timestamp: str, initial_severity: float = 0.0) -> dict:
+    event = _fault_event(turbine_id, scenario_id, timestamp, initial_severity=initial_severity)
+    event["payload"]["tripEvents"] = True
+    return event
+
+
+def test_tripped_ids_use_trip_events_for_new_sessions():
+    events = [
+        _new_injection("WT001", "hydraulic_leak", "2026-01-01T00:00:00"),
+        _trip_event("WT001", "hydraulic_leak", "2026-01-01T00:10:00"),
+    ]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:05:00")) == set()      # 尚未跳機
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T00:20:00")) == {"WT001"}
+
+
+def test_new_session_without_trip_event_is_not_tripped_even_at_full_severity():
+    """新情境不再用嚴重度近似：PLC 沒跳（例如低負載）就不是 FAULT。"""
+    events = [_new_injection("WT001", "stator_winding_degradation", "2026-01-01T00:00:00",
+                             initial_severity=1.0)]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T05:00:00")) == set()
+
+
+def test_plc_events_without_scenario_are_ignored_by_trip_recompute():
+    plc_event = {
+        "event_type": "fault", "turbine_id": "WT001", "timestamp": "2026-01-01T00:01:00",
+        "payload": {"kind": "trip", "code": 240, "turbineId": "WT001"},
+    }
+    events = [_new_injection("WT001", "bearing_wear", "2026-01-01T00:00:00"), plc_event]
+    assert scenarios_ep._tripped_fault_turbine_ids(
+        events, datetime.fromisoformat("2026-01-01T01:00:00")) == set()

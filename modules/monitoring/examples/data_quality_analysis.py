@@ -125,10 +125,9 @@ def compute_healthy_individuality_spread(
     §5（故障前後信號變化）已經專門驗證故障對訊號的影響；本節（§7）的用意是
     驗證「同型機組間應有的細微個體差異」（製造公差、感測器偏移等），
     兩者是不同的驗證目的。測試計畫（如 basic_validation）會對特定機組注入
-    永久性故障（severity 超過 auto_trip_severity 後 `fault.tripped` 恆為
-    True，`DataBroker`/`WindFarmSimulator` 每步都對其呼叫
-    `cmd_emergency_stop`），該機組會有極大比例時間停在 emergency/recovery
-    迴圈、產電時間暴跌。若不排除，這些機組「平均產電功率」會被故障期間的
+    永久性故障（故障物理使 PLC 跳機後 `fault.tripped` 恆為 True，引擎以
+    `maintenance_lock` 阻擋重啟直到維護清除，WMOM-20261021-03-b），該機組會有
+    極大比例時間停機、產電時間暴跌。若不排除，這些機組「平均產電功率」會被故障期間的
     停機/低產出嚴重污染，讓 spread 指標膨脹到與 individuality 參數無關的
     數字，錯誤地指向「individuality 模型太誇張」。
 
