@@ -1317,8 +1317,9 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **broker / 情境**：即時路徑 `drain_events()` 記 `source="plc"` 事件（payload 含 kind/code/level/plcTag/eventId/value/setpoint），移除 severity「Fault alarm threshold reached」事件；情境排程記 `kind="trip"` 事件，`/api/scenarios` 依 trip 事件判斷已跳機（舊 session 沿用 severity 公式）
   - blade_icing 移除「葉片 1 變槳 bias 2°×嚴重度」（會讓結冰情境以葉片同步 T2 跳機，與預期碼 236 不符）
   - **驗證**：健康 3 機風場 2 h 無任何訊號判定事件；11 情境滿嚴重度（15 m/s、25 °C）都以預期碼跳機、停機模式依等級；主軸承漸進故障 A262 先於 T240；健康機組既有 111 tag 輸出與 main 逐位元相同；`data_quality_analysis.py` 20 通過 / 0 待改善
-  - **測試**：`test_plc_protection.py`（30）、`test_plc_integration.py`（13）、`test_scenario_endpoints.py` +3；改寫 `test_reset_keeps_fault.py`、`test_fault_alarm_codes.py`（門檻慣例 → 預期碼必須可由 PLC 送出）、`test_generate_bulk_fault_schedule.py`；`tests/physics` 兩個物理特性測試關閉 PLC
+  - **測試**：`test_plc_protection.py`（40）、`test_plc_integration.py`（13）、`test_plc_event_recording.py`（2）、`test_scenario_endpoints.py` +3；改寫 `test_reset_keeps_fault.py`、`test_fault_alarm_codes.py`（門檻慣例 → 預期碼必須可由 PLC 送出）、`test_generate_bulk_fault_schedule.py`；`tests/physics` 兩個物理特性測試關閉 PLC
   - 實測事件序列與已知限制見設計文件 §6.3
+  - **code-reviewer review**（Needs revision → 已處理）：2 must-fix——(1) 一小時內第二次跳機後只清故障不 reset 機組（`/api/faults/clear` 不帶機組、情境批次、測試計畫）會留下 `restart_blocked`，修好的機組永遠停機 → 維修鎖解除時引擎呼叫新的 `PlcProtection.maintenance_release`（清每小時計數與封鎖、保留鎖存讓殘餘條件解除時自動解除）；(2) T1 跳機的停機原因被維修鎖要求蓋成 `maintenance_lock` → 已有停機要求時不再要求，broker 認 `plc:` 前綴分類為故障停機。6 should-fix 中 5 項已修：判定窗關閉不再等於條件解除（鎖存的葉片跳機不會在減速時立刻解除、偏航中 A260 不會被清掉）、批次結束清空 PLC 佇列、事件 value / setpoint 取實際成立的規則、延時改為從第一個越限樣本起算（dt = 5 s 的 3 s 規則不再單一樣本成立）、物理層保護停機改以每次起動為一個週期記事件；另補測試（broker 記錄與時間戳、情境端點 trip 事件接線、訊號路徑復位 + 啟動、只清故障的二次跳機）。nice-to-have 中處理了 LVRT / 電網欠壓碼分界一致化（band ≥ 2 與 < 0.81 p.u. → 482）、停用 PLC 時不擋重啟、`API_GUIDE.md` 註記、部分 docstring；未處理：每小時計數時點（手冊未明，記為已知限制）、`update_spec` 與 sim 執行緒競爭（既有模式）
 - **未做**：物理層保護停機的模式未依手冊等級（351 是 T1 但仍走緊急停機）；切出風速用瞬間風速（→ WMOM-20261021-10）；批次路徑 `generate_bulk` 不收 PLC 事件（→ -04）；`faults.py` `run_test_plan` 不記 trip 事件
 - **Depends on**: WMOM-20261021-03-a
 

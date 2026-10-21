@@ -349,6 +349,16 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 })
 ```
 
+> **Trips are raised by the PLC protection layer (WMOM-20261021-03-b).** Fault severity only drives
+> the physics; a fault becomes `tripped` when the turbine's PLC trips on one of the scenario's expected
+> T codes. `GET /api/faults/scenarios` → `alarm_codes[]` lists those expected codes (`code` / `type` /
+> `description`) and no longer carries a severity `threshold`; `GET /api/faults` entries add
+> `trip_code`. PLC events (alarm raised / cleared, trip, restart blocked, operator reset) are recorded
+> as history events with `event_type="fault"`, `source="plc"`. A tripped fault holds a restart inhibit:
+> the `reset` command clears PLC latches but does not repair the fault; `/api/faults/clear` does
+> (with `turbineId` it also resets the turbine model; without, the engine clears the PLC's hourly
+> trip count and restart block on the next step).
+
 #### POST `/api/control/command`
 
 Operator commands.

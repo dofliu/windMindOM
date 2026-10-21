@@ -10,13 +10,17 @@
 
 跳機語意：
 
-- **A（警報）**：條件成立超過延時 → ``alarm_raised``；回到遲滯範圍內 → ``alarm_cleared``。不停機。
+- **延時**：從第一個越限樣本起算，連續越限的經過時間 ≥ 延時才成立（批次 5 s 子步下，有延時的規則至少
+  要兩個連續樣本；單一樣本不算「持續」）。成立後只依遲滯解除；判定窗（``gate`` / ``producing_only``）
+  關閉只禁止新的成立，不等於條件解除（否則鎖存的跳機會在停機減速時立刻被解除）。
+- **A（警報）**：條件成立 → ``alarm_raised``；回到遲滯範圍內 → ``alarm_cleared``。不停機。
 - **T1 / T2（跳機）**：條件成立超過延時 → ``trip``，T1 要求正常伺服停機、T2 要求緊急變槳停機。
   跳機鎖存到條件解除；解除時若該碼一小時內的跳機次數未超過手冊每小時上限（``max_per_hour``）
   → ``trip_cleared`` 自動解除、機組可自動重啟；超過則 ``restart_blocked``，需操作員復位
   （``operator_reset``，事件 008）。復位後條件仍成立會立即再跳。
 - **物理層既有保護**（超速、LVRT / 電網保護、切出風速）停機時，依停機原因補上對應事件碼
-  （``note_protection_stop``）。這類停機的重啟由物理層狀態機處理，不在此鎖存。
+  （``note_protection_stop``）。這類停機的重啟由物理層狀態機處理，不在此鎖存；同一停機週期只記一次，
+  機組再次起動（``on_restart``）後重新計。
 
 所有事件以 ``PlcEvent`` 暫存於有上限的佇列，由即時路徑（broker）或批次路徑以 ``drain_events``
 取走；沒人取時舊事件自動丟棄，不會無限成長。
@@ -65,6 +69,13 @@ _OPERATOR_RESET_CODE = 8     # I: Operator reset
 PROTECTION_TRIP_CODES: Tuple[int, ...] = (351, 320, 475, 481, 482, 489, _CONVERTER_TRIP_REQUEST)
 # I 類事件（切出風速）去重間隔：暴風時物理層會反覆要求停機，避免洗版
 _INFO_EVENT_MIN_INTERVAL_S = 600.0
+# 延時比較的浮點容差（子步 dt 累加誤差）
+_DELAY_EPS_S = 1e-6
+# 電網保護停機依量測電壓分類（p.u.）：< 0.81 對齊物理層嚴重欠壓限值 → 482；< 0.90 → 481；
+# > 1.08（物理層過壓限值 1.10 含個體差 ±0.02）→ 475；其餘視為頻率越界 → 489
+_GRID_VERY_LOW_PU = 0.81
+_GRID_LOW_PU = 0.90
+_GRID_HIGH_PU = 1.08
 
 
 @dataclass(frozen=True)
@@ -94,7 +105,8 @@ class ProtectionRule:
 
 @dataclass
 class _RuleState:
-    timer: float = 0.0
+    # 從第一個越限樣本起算的經過秒數；None＝目前未越限
+    elapsed: Optional[float] = None
     on: bool = False
 
 
@@ -202,6 +214,11 @@ class PlcProtection:
     """單台機組的 Z72 PLC 保護層。"""
 
     def __init__(self, spec: "TurbineSpec") -> None:
+        """建立規則表並清空狀態。
+
+        Args:
+            spec: 機組規格（保護設定值來源）。
+        """
         self.spec = spec
         self.enabled = True
         self.rules = build_rules(spec)
@@ -217,6 +234,8 @@ class PlcProtection:
         """清除全部狀態（機組完整 reset 時呼叫）。"""
         self._rule_state: Dict[int, _RuleState] = {i: _RuleState() for i in range(len(self.rules))}
         self._codes: Dict[int, _CodeState] = {}
+        # 每個事件碼最近一次成立的規則（同碼多規則時，事件的 value / setpoint 取實際成立者）
+        self._trigger_rule: Dict[int, ProtectionRule] = {}
         self._protection_latched: Dict[int, float] = {}
         self._last_info_time: Dict[int, float] = {}
         self._events: Deque[PlcEvent] = deque(maxlen=_EVENT_QUEUE_MAX)
@@ -231,8 +250,12 @@ class PlcProtection:
 
     @property
     def restart_inhibited(self) -> bool:
-        """任一本層判定的跳機仍鎖存（含封鎖）時，機組不可重啟。"""
-        return any(st.latched for st in self._codes.values())
+        """任一本層判定的跳機仍鎖存（含封鎖）時，機組不可重啟。
+
+        Returns:
+            True＝擋住重啟；停用（``enabled=False``）時恆為 False。
+        """
+        return self.enabled and any(st.latched for st in self._codes.values())
 
     @property
     def last_trip_codes(self) -> Tuple[int, ...]:
@@ -240,14 +263,22 @@ class PlcProtection:
         return self._last_trip_codes
 
     def active_codes(self) -> Dict[int, str]:
-        """目前成立中的警報與鎖存中的跳機（事件碼 → 等級）。"""
+        """目前成立中的警報與鎖存中的跳機。
+
+        Returns:
+            事件碼 → 等級（A / T1 / T2）。
+        """
         result = {code: self._alarm[code].level for code, st in self._codes.items() if st.active or st.latched}
         for code in self._protection_latched:
             result[code] = self._alarm[code].level
         return result
 
     def drain_events(self) -> List[PlcEvent]:
-        """取走並清空暫存事件。"""
+        """取走並清空暫存事件。
+
+        Returns:
+            自上次取走後的事件（依發生順序）。
+        """
         events = list(self._events)
         self._events.clear()
         return events
@@ -295,19 +326,25 @@ class PlcProtection:
 
     def _rule_on(self, idx: int, rule: ProtectionRule, dt: float, producing: bool) -> bool:
         st = self._rule_state[idx]
-        if (rule.producing_only and not producing) or (rule.gate and self.signals[rule.gate] < 0.5):
-            st.timer = 0.0
-            st.on = False
-            return False
         value = self.signals[rule.signal]
-        crossed = value > rule.setpoint if rule.above else value < rule.setpoint
-        st.timer = st.timer + dt if crossed else 0.0
         if st.on:
-            still = value > rule.setpoint - rule.hysteresis if rule.above else value < rule.setpoint + rule.hysteresis
-            st.on = still
-        else:
-            # 嚴格大於：步長 ≥ 延時（批次 5 s 子步）時至少要連續兩個樣本，單一樣本不算「持續」
-            st.on = crossed and (st.timer > rule.delay_s if rule.delay_s > 0 else True)
+            # 已成立：只依遲滯解除。判定窗關閉（停機減速、偏航中）不等於條件解除
+            if rule.above:
+                st.on = value > rule.setpoint - rule.hysteresis
+            else:
+                st.on = value < rule.setpoint + rule.hysteresis
+            if not st.on:
+                st.elapsed = None
+            return st.on
+        gated = (rule.producing_only and not producing) or (
+            rule.gate is not None and self.signals[rule.gate] < 0.5)
+        crossed = not gated and (value > rule.setpoint if rule.above else value < rule.setpoint)
+        if not crossed:
+            st.elapsed = None
+            return False
+        # 經過時間從第一個越限樣本起算：dt = 5 s 時單一樣本的經過時間是 0，不算「持續」
+        st.elapsed = 0.0 if st.elapsed is None else st.elapsed + dt
+        st.on = st.elapsed >= rule.delay_s - _DELAY_EPS_S
         return st.on
 
     def evaluate(self, output: Mapping[str, float], sim_time: float, dt: float,
@@ -330,16 +367,20 @@ class PlcProtection:
             return []
         self._update_signals(output, dt, producing, yawing)
         code_on: Dict[int, bool] = {}
+        firing: Dict[int, ProtectionRule] = {}
         for idx, rule in enumerate(self.rules):
             on = self._rule_on(idx, rule, dt, producing)
             code_on[rule.code] = code_on.get(rule.code, False) or on
+            if on and rule.code not in firing:
+                firing[rule.code] = rule
+        self._trigger_rule.update(firing)
 
         trips: List[Tuple[int, str]] = []
         for code in sorted(code_on):
             active = code_on[code]
             alarm = self._alarm[code]
             st = self._codes.setdefault(code, _CodeState())
-            value, setpoint = self._trigger_value(code)
+            value, setpoint = self._trigger_value(code, firing.get(code))
             if alarm.level == "A":
                 if active and not st.active:
                     self._emit(sim_time, "alarm_raised", code, value, setpoint)
@@ -364,11 +405,10 @@ class PlcProtection:
         self._last_trip_codes = tuple(pending) + tuple(code for code, _ in trips)
         return trips
 
-    def _trigger_value(self, code: int) -> Tuple[Optional[float], Optional[float]]:
-        for rule in self.rules:
-            if rule.code == code:
-                return round(self.signals.get(rule.signal, float("nan")), 3), rule.setpoint
-        return None, None
+    def _trigger_value(self, code: int, rule: Optional[ProtectionRule]) -> Tuple[Optional[float], Optional[float]]:
+        """事件的訊號值與設定值：本步成立的規則；解除事件取最近一次成立的規則。"""
+        rule = rule or self._trigger_rule.get(code) or next(r for r in self.rules if r.code == code)
+        return round(self.signals.get(rule.signal, float("nan")), 3), rule.setpoint
 
     # ── 物理層保護、操作員 ──────────────────────────────────────────────────
 
@@ -403,24 +443,54 @@ class PlcProtection:
         if cause in _OVERSPEED_CODES:
             return [_OVERSPEED_CODES[cause]]
         if cause.startswith("ride_through:lvrt_band"):
+            # band 1 = 0.80–0.90 p.u.；band ≥ 2 < 0.80 p.u.（與電網保護的 0.81 嚴重欠壓一致）
             band = int(cause.rsplit("band", 1)[1] or 1)
-            return [481 if band <= 2 else 482, _CONVERTER_TRIP_REQUEST]
+            return [481 if band <= 1 else 482, _CONVERTER_TRIP_REQUEST]
         if cause.startswith("ride_through:hvrt"):
             return [475, _CONVERTER_TRIP_REQUEST]
         if cause in ("grid_protection", "grid_trip"):
+            # 前一步的量測電壓（本步訊號尚未更新）；電網電壓變化慢，差一步不影響分類
             v_pu = self.signals.get("grid_voltage_pu", 1.0)
-            if v_pu < 0.87:
-                return [481 if cause == "grid_protection" else 482, _CONVERTER_TRIP_REQUEST]
-            if v_pu > 1.10:
+            if v_pu < _GRID_VERY_LOW_PU:
+                return [482, _CONVERTER_TRIP_REQUEST]
+            if v_pu < _GRID_LOW_PU:
+                return [481, _CONVERTER_TRIP_REQUEST]
+            if v_pu > _GRID_HIGH_PU:
                 return [475, _CONVERTER_TRIP_REQUEST]
             return [489, _CONVERTER_TRIP_REQUEST]
         return []
 
-    def on_production_resumed(self, sim_time: float) -> None:
-        """機組回到發電：物理層保護停機的事件視為解除。"""
+    def on_restart(self, sim_time: float) -> None:
+        """機組再次起動（進入起動 / 發電）：物理層保護停機的事件視為解除。
+
+        以起動而非停機完成為界：條件持續時物理層會在停止狀態反覆要求停機，以停機完成為界會洗版；
+        起動後再遇到同一保護停機則重新記事件。
+
+        Args:
+            sim_time: 機組模擬時間（秒）。
+        """
         for code in list(self._protection_latched):
             del self._protection_latched[code]
             self._emit(sim_time, "trip_cleared", code, None, None, source="protection")
+
+    def maintenance_release(self, sim_time: float) -> None:
+        """故障被維護清除（修好 + 技師復位）：清除每小時跳機計數與封鎖。
+
+        與 ``operator_reset`` 不同，不解除鎖存：修好後的殘餘條件（例：液壓回壓中）解除時，鎖存的跳機
+        以計數 0 自動解除，不會因殘餘條件再跳一次；已封鎖者在下一步即解除。
+
+        Args:
+            sim_time: 機組模擬時間（秒）。
+        """
+        if not self.enabled:
+            return
+        released = False
+        for st in self._codes.values():
+            released = released or st.latched
+            st.trip_times.clear()
+            st.blocked = False
+        if released:
+            self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
 
     def operator_reset(self, sim_time: float) -> None:
         """操作員復位：解除全部鎖存 / 封鎖的跳機；條件仍成立者下一步會再跳。

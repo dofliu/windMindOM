@@ -15,8 +15,10 @@ WMOM-20261021-03-b 起：故障是在 PLC 以其預期跳機碼使機組跳機�
 
 本檔以引擎層驗證這條不變量（不需 broker / HTTP / 背景執行緒）：
 0. 故障 tripped 後機組停著，不再 7↔3 擺盪。
-1. 故障 tripped 後 ``cmd_reset`` → 故障仍在、機組被維修鎖擋住，不發電。
+1. 故障 tripped 後 ``cmd_reset`` → 故障仍在、機組被維修鎖擋住，不發電（物理層保護與 PLC 訊號判定兩條路徑）。
 2. 走維護清除（``fault_engine.clear`` + ``turbine.reset()``）→ 故障永久移除、機組重新併網發電。
+3. 只清故障不 reset 機組（``/api/faults/clear`` 不帶機組、情境批次）也必須恢復發電，即使一小時內第二次跳機
+   已讓 PLC 封鎖自動重啟。
 """
 
 from __future__ import annotations
@@ -151,3 +153,66 @@ def test_maintenance_clear_permanently_removes_fault():
     assert active == [], "維護清除後故障應永久消失"
     assert not sim.turbines["WT002"].maintenance_lock
     assert PRODUCING in states, "維護清除後機組應能重新併網發電"
+
+
+def _warm_up(sim: WindFarmSimulator, tid: str, t0: datetime, i: int = 0) -> int:
+    while sim.turbines[tid].tur_state != PRODUCING:
+        _step(sim, t0, i)
+        i += 1
+        assert i < 2000, "前置條件：機組應併網發電"
+    return i
+
+
+def _inject_hydraulic_leak_and_trip(sim: WindFarmSimulator, tid: str, t0: datetime, i: int) -> int:
+    """注入 hydraulic_leak（滿嚴重度）→ PLC 依偏航煞車液壓 < 150 bar 以 T1 228 跳機（訊號判定路徑）。"""
+    assert sim.fault_engine.inject("hydraulic_leak", tid, severity_rate=0.0, initial_severity=1.0)
+    fault = next(f for f in sim.fault_engine.active_faults if f.turbine_id == tid)
+    while not fault.tripped:
+        _step(sim, t0, i)
+        i += 1
+        assert i < 2000, "前置條件：液壓洩漏應使 PLC 以 228 跳機"
+    assert fault.trip_code == 228
+    return i
+
+
+def test_signal_trip_keeps_plc_cause_and_reset_start_cannot_resume_power():
+    """PLC 訊號判定的 T1 跳機：正常停機、停機原因保留 "plc:228"（不被維修鎖蓋掉）；復位 + 啟動也不復電。"""
+    sim = _running_sim(turbine_count=1)
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    model = sim.turbines["WT001"]
+    i = _inject_hydraulic_leak_and_trip(sim, "WT001", t0, _warm_up(sim, "WT001", t0))
+    states, causes = [], set()
+    for j in range(i, i + 24):
+        _step(sim, t0, j)
+        states.append(model.tur_state)
+        causes.add(model.get_control_status()["shutdown_cause"])
+    assert 9 in states and EMERGENCY_STOP not in states, f"T1 應走正常伺服停機，states={states}"
+    assert causes == {"plc:228"}
+
+    model.cmd_reset()
+    model.cmd_start()
+    states = []
+    for j in range(i + 24, i + 144):
+        _step(sim, t0, j)
+        states.append(model.tur_state)
+    assert PRODUCING not in states, f"復位 + 啟動不得讓帶病機組恢復發電，states={states}"
+
+
+def test_clear_without_model_reset_resumes_power_even_after_restart_block():
+    """一小時內第二次 228 跳機（手冊每小時上限 1）會封鎖自動重啟；只清故障、不 reset 機組時，
+    引擎在維修鎖解除時代技師清除跳機計數與封鎖，修好的機組仍要能恢復發電。"""
+    sim = _running_sim(turbine_count=1)
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    model = sim.turbines["WT001"]
+    i = _warm_up(sim, "WT001", t0)
+    for _round in range(2):
+        i = _inject_hydraulic_leak_and_trip(sim, "WT001", t0, i)
+        for _ in range(12):
+            _step(sim, t0, i)
+            i += 1
+        sim.fault_engine.clear()      # 不帶機組：不呼叫 model.reset()
+        i = _warm_up(sim, "WT001", t0, i)
+    events = [(e.kind, e.code) for e in model.plc.drain_events()]
+    assert events.count(("trip", 228)) == 2
+    assert not model.plc.restart_inhibited
+

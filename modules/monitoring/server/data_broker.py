@@ -4,7 +4,7 @@ import os
 import threading
 import time as _time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterator, List, Optional, Dict, TYPE_CHECKING
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -17,6 +17,7 @@ from server.storage import Storage
 from server.farm_registry import FarmRegistry
 from simulator.engine import WindFarmSimulator
 from simulator.physics.plc_protection import PlcEvent
+from simulator.physics.turbine_physics import TurbinePhysicsModel
 
 if TYPE_CHECKING:
     from server.opc_adapter import OPCDAAdapter
@@ -800,7 +801,8 @@ class DataBroker:
             # no fault ground truth: observable events only.
             if model is not None:
                 for plc_event in model.plc.drain_events():
-                    self._record_plc_event(turbine_id, plc_event)
+                    self._record_plc_event(turbine_id, plc_event,
+                                           self._plc_event_timestamp(reading, model, plc_event))
 
             # ── Fault lifecycle: track start/end + phase transitions ──
             current_fault_keys = set()
@@ -923,8 +925,36 @@ class DataBroker:
         "info": "Info",
     }
 
-    def _record_plc_event(self, turbine_id: str, event: PlcEvent) -> None:
-        """把一筆 PLC 事件寫進 history_events（event_type="fault"，source="plc"）。"""
+    @staticmethod
+    def _plc_event_timestamp(reading: Dict, model: TurbinePhysicsModel, event: PlcEvent) -> Optional[str]:
+        """PLC 事件的發生時刻＝本筆 reading 的模擬時間往回推（加速模式一個 tick 跑多步）。
+
+        Args:
+            reading: 本步該機組的 reading（含 ISO ``timestamp``）。
+            model: 該機組物理模型（``_sim_time`` 與事件 ``sim_time`` 同一時間軸）。
+            event: PLC 事件。
+
+        Returns:
+            ISO 時間字串；reading 沒有時間戳時回 None（storage 以現在時刻落地）。
+        """
+        ts = reading.get("timestamp")
+        if not isinstance(ts, str):
+            return None
+        try:
+            reading_time = datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+        lag_s = max(0.0, float(model._sim_time) - event.sim_time)
+        return (reading_time - timedelta(seconds=lag_s)).isoformat()
+
+    def _record_plc_event(self, turbine_id: str, event: PlcEvent, timestamp: Optional[str] = None) -> None:
+        """把一筆 PLC 事件寫進 history_events（event_type="fault"，source="plc"）。
+
+        Args:
+            turbine_id: 機組 ID。
+            event: PLC 事件。
+            timestamp: 事件發生時刻（ISO，模擬時間軸）；None＝現在時刻。
+        """
         label = self._PLC_EVENT_TITLES.get(event.kind, event.kind)
         detail = f"{event.level} {event.code:03d} {event.text}"
         if event.value is not None and event.setpoint is not None:
@@ -935,6 +965,7 @@ class DataBroker:
             title=f"{label}: {event.event_id} {event.text}",
             turbine_id=turbine_id,
             detail=detail,
+            timestamp=timestamp,
             payload={
                 "turbineId": turbine_id,
                 "kind": event.kind,
@@ -977,16 +1008,19 @@ class DataBroker:
             if shutdown_cause in ("grid_trip", "grid_protection"):
                 event_type = "grid"
                 title = "Automatic grid protection stop"
-            elif isinstance(shutdown_cause, str) and shutdown_cause.startswith("fault:"):
+            elif isinstance(shutdown_cause, str) and shutdown_cause.startswith(("fault:", "plc:")):
+                # "plc:<碼>"：PLC 保護層依訊號判定的跳機（WMOM-20261021-03-b）
                 event_type = "fault"
-                title = f"Automatic fault stop: {shutdown_cause.split(':', 1)[1]}"
+                prefix, ident = shutdown_cause.split(":", 1)
+                title = f"Automatic fault stop: {'PLC event ' if prefix == 'plc' else ''}{ident}"
             elif shutdown_cause in ("operator", "operator_emergency", "service"):
                 event_type = "operator"
                 title = "Operator-driven stop"
 
             # Trigger snapshot for emergency stops and fault-caused stops
             if current_state == 7 or (isinstance(shutdown_cause, str) and
-                                       ("fault" in shutdown_cause or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
+                                       ("fault" in shutdown_cause or "plc:" in shutdown_cause
+                                        or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
                 event_ref = f"stop:{turbine_id}:{current_state}:{datetime.now().isoformat()}"
                 self._trigger_snapshot(turbine_id, event_ref)
 

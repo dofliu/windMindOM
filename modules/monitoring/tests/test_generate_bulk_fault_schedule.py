@@ -146,6 +146,8 @@ def test_scheduled_fault_progresses_to_trip():
     assert wt002[0].tripped, "轉速越過超速設定應由 PLC 跳機"
     assert wt002[0].trip_code in (351, 320)
     assert trips == [("WT002", "generator_overspeed", wt002[0].trip_code)], "on_fault_tripped 應回呼一次"
+    # 批次路徑不收 PLC 事件：結束時佇列須清空，否則 Live 恢復後 broker 會把它們當成剛發生的事件
+    assert all(m.plc.drain_events() == [] for m in sim.turbines.values())
 
 
 # ─── 端點層：_parse_fault_schedule 解析與驗證 ──────────────────────────────

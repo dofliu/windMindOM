@@ -2,7 +2,7 @@
 
 以「健康基準輸出 + 覆寫個別訊號」逐步驅動 ``PlcProtection.evaluate``，驗證：
 
-- A 警報：延時才成立（條件須持續「超過」延時）、遲滯才解除
+- A 警報：延時才成立（從第一個越限樣本起算的經過時間 ≥ 延時）、遲滯才解除；判定窗關閉不等於解除
 - T 跳機：回傳停機要求（T1 / T2）、鎖存到條件解除、手冊每小時上限內自動解除、超過則封鎖需復位
 - 操作員復位：解除鎖存；條件仍成立則下一步再跳
 - 葉片差異三段延時、風向標 25 s 濾波 + 10 分鐘風速條件、只在發電時判定的靜水壓
@@ -163,12 +163,47 @@ def test_blade_discrepancy_three_stage_delays(disc: float, seconds: int, expect_
         assert all(level == "T2" for _, level in trips)
 
 
-def test_single_sample_does_not_satisfy_a_delay_at_coarse_time_steps() -> None:
-    """批次子步 5 s：單一樣本超過 1° 不算「持續 5 s」，連續兩個樣本才跳。"""
+@pytest.mark.parametrize("disc", [1.6, 3.5])   # 5 s 規則（> 1°）與 3 s 規則（> 3°）
+def test_single_sample_does_not_satisfy_a_delay_at_coarse_time_steps(disc: float) -> None:
+    """批次子步 5 s：單一越限樣本的經過時間是 0，不算「持續」；連續兩個樣本才跳。"""
     d = Driver()
     d.run(60, dt=5.0)
-    assert d.run(5, dt=5.0, WROT_PtAngValBl1=0.6) == []
-    assert d.run(10, dt=5.0, WROT_PtAngValBl1=0.6) != []
+    assert d.run(5, dt=5.0, WROT_PtAngValBl1=-1.0 + disc) == []
+    assert d.run(5, dt=5.0, WROT_PtAngValBl1=-1.0 + disc) != []
+
+
+def test_latched_trip_is_not_cleared_when_the_judgement_window_closes() -> None:
+    """葉片差異跳機後機組停機（判定窗關閉），差異仍在 → 維持鎖存；差異消失才解除。"""
+    d = Driver()
+    d.run(60)
+    assert d.run(6, WROT_PtAngValBl1=0.5) != []
+    d.run(60, producing=False, WROT_PtAngValBl1=0.5)
+    assert d.kinds(335) == ["trip"]
+    assert d.plc.restart_inhibited
+    d.run(1, producing=False)
+    assert d.kinds(335) == ["trip", "trip_cleared"]
+
+
+def test_alarm_stays_raised_while_yawing_releases_the_brake() -> None:
+    d = Driver()
+    d.run(91)
+    d.run(11, WYAW_YwBrkHyPrs=170.0)
+    assert d.kinds(260) == ["alarm_raised"]
+    d.run(30, yawing=True, WYAW_YwBrkHyPrs=20.0)     # 偏航中煞車鬆開：不是條件解除
+    assert d.kinds(260) == ["alarm_raised"]
+
+
+def test_event_value_and_setpoint_come_from_the_rule_that_fired() -> None:
+    d = Driver()
+    d.run(60)
+    d.run(6, WROT_PtAngValBl1=0.5)                     # 1.5°，由「5 s > 1°」規則成立
+    trip = next(e for e in d.events if e.code == 335 and e.kind == "trip")
+    assert (trip.value, trip.setpoint) == (1.5, SPEC.blade_discrepancy_5s_deg)
+
+    d2 = Driver()
+    d2.run(6, WCNV_CnvCabinTmp=SPEC.converter_cabinet_trip + 1.0)   # 021 由機櫃溫度觸發
+    req = next(e for e in d2.events if e.code == 21 and e.kind == "trip")
+    assert (req.value, req.setpoint) == (SPEC.converter_cabinet_trip + 1.0, SPEC.converter_cabinet_trip)
 
 
 def test_blade_discrepancy_ignored_during_startup_transient_and_while_stopped() -> None:
@@ -214,19 +249,32 @@ def test_protection_stops_are_coded_but_do_not_inhibit_restart() -> None:
     assert d.plc.note_protection_stop("overspeed_software", d.t) == [351]
     assert d.plc.note_protection_stop("overspeed_software", d.t) == []   # 同一停機不重複
     assert not d.plc.restart_inhibited
-    d.plc.on_production_resumed(d.t)
+    d.plc.on_restart(d.t)
     events = d.plc.drain_events()
     assert [(e.kind, e.code, e.source) for e in events] == [
         ("trip", 351, "protection"), ("trip_cleared", 351, "protection"),
     ]
 
 
+def test_protection_stop_is_coded_again_after_each_restart_attempt() -> None:
+    """起動中再遇電網擾動（未到發電）也要記事件：以每次起動為一個停機週期。"""
+    d = Driver()
+    d.run(1, WCNV_VtgMsCnvGd1=0.78 * NOMINAL_LN_KV)
+    assert d.plc.note_protection_stop("grid_trip", d.t) == [482, 21]
+    d.plc.on_restart(d.t)
+    assert d.plc.note_protection_stop("grid_trip", d.t) == [482, 21]
+
+
 @pytest.mark.parametrize(("cause", "voltage_pu", "codes"), [
     ("ride_through:lvrt_band1", 0.85, [481, 21]),
+    ("ride_through:lvrt_band2", 0.70, [482, 21]),   # < 0.80 p.u.，與電網保護 0.81 一致
     ("ride_through:lvrt_band3", 0.40, [482, 21]),
     ("ride_through:hvrt_band1", 1.15, [475, 21]),
     ("grid_protection", 0.85, [481, 21]),
+    ("grid_protection", 0.79, [482, 21]),
     ("grid_trip", 0.78, [482, 21]),
+    ("grid_trip", 0.88, [481, 21]),
+    ("grid_trip", 1.12, [475, 21]),
     ("grid_trip", 1.00, [489, 21]),       # 電壓正常 → 頻率越界
     ("overspeed_hardware", 1.00, [320]),
     ("operator", 1.00, []),
@@ -250,6 +298,14 @@ def test_disabled_plc_is_silent() -> None:
     assert d.run(30, WGEN_GnBrgTmp1=120.0) == []
     assert d.plc.note_protection_stop("overspeed_software", 1.0) == []
     assert d.events == []
+
+
+def test_disabling_plc_releases_restart_inhibit() -> None:
+    d = Driver()
+    d.run(6, WGEN_GnBrgTmp1=120.0)
+    assert d.plc.restart_inhibited
+    d.plc.enabled = False
+    assert not d.plc.restart_inhibited
 
 
 def test_event_queue_is_bounded_when_nobody_drains() -> None:

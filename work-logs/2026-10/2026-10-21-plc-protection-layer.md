@@ -48,9 +48,21 @@ WMOM-20261021-03-b：以 `TurbineSpec` 真實設定值（-03-a）判定量測訊
 - 11 情境滿嚴重度（15 m/s、25 °C）都以預期碼跳機，事件序列見設計文件 §6.3
 - 健康機組既有 111 tag 輸出與 -03-a 之前逐位元相同（0 差異）
 - `examples/data_quality_analysis.py`：20 通過 / 0 待改善（不變）
-- backend 全套：1471 → **1507 passed** / 7 skipped / 1 xfailed（frontend 未動）
+- backend 全套：1471 → **1521 passed** / 7 skipped / 1 xfailed（frontend 未動；review 修正前 1507）
 
-### 2.6 卡住或延後的事
+### 2.6 Code review（code-reviewer subagent）
+
+結論 Needs revision：2 must-fix、6 should-fix、5 nice-to-have。處理如下：
+
+- **must-fix 1：只清故障不 reset 機組會永久停機**。一小時內第二次 228 跳機（手冊每小時上限 1）留下 `restart_blocked`；`/api/faults/clear` 不帶機組、情境批次、測試計畫都只清故障不 reset 機組，修好的機組永遠停在 TurSt 1。修法：維修鎖由 True 變 False 時，引擎呼叫新增的 `PlcProtection.maintenance_release`（清每小時跳機計數與封鎖、送事件 008）。不直接用 `operator_reset`：修好後殘餘條件（液壓回壓中）仍成立時，解除鎖存會立刻再跳一次。
+- **must-fix 2：T1 跳機原因被蓋成 `maintenance_lock`**。PLC 在步末要求正常停機，下一步引擎設維修鎖、`_update_state` 再要求一次同模式停機 → 覆寫 `shutdown_cause`。修法：已有停機要求時不再要求；broker 把 `plc:<碼>` 分類為 `Automatic fault stop: PLC event <碼>`（原 `fault:` 分支已無人使用）。
+- **should-fix 已修**：判定窗關閉不再等於條件解除（`_rule_on` 成立後只依遲滯解除）；`generate_bulk` 結束清空 PLC 佇列；broker 事件時間戳由 reading 模擬時間回推；value / setpoint 取實際成立的規則；延時改為「從第一個越限樣本起算 ≥ 延時」（dt = 1 s 時與原本完全相同，dt = 5 s 時 3 s 規則從 1 個樣本改為 2 個）；物理層保護停機改以每次起動（進入 4 / 8 / 6）為一個週期。
+- **測試補強**：`test_plc_event_recording.py`（新，broker 記錄與時間戳、PLC 停機分類）、情境端點 trip 事件接線、`test_reset_keeps_fault.py` +2（訊號路徑 T1 原因與復位 + 啟動、只清故障的二次跳機）、`test_plc_protection.py` +10。兩個 must-fix 的測試都做了 mutation 驗證（拿掉修正 → 失敗）。
+- **nice-to-have 已修**：LVRT band ≥ 2 與電網 < 0.81 p.u. 一致對應 482；`enabled=False` 時不擋重啟；`API_GUIDE.md` 註記 `alarm_codes` 移除 `threshold`、新增 `trip_code`；補 docstring。
+- **未修**：每小時計數在解除時判定（手冊未說明，列設計文件已知限制）；`update_spec` 與 sim 執行緒的競爭（`switch_farm` 既有模式，非本次引入）。
+- 修正後健康 111 tag 仍逐位元相同；`data_quality_analysis.py` 20 / 0。
+
+### 2.7 卡住或延後的事
 
 - **切出風速用瞬間風速**：手冊 201 是 10 分鐘平均 > 25 或 5 秒平均 > 35 m/s；物理層看瞬間有效風速且走緊急停機，高紊流高風速時反覆切出 → 開 WMOM-20261021-10
 - **物理層保護停機的停機模式**：351 在手冊是 T1，物理層仍走緊急停機——未改，避免動到超速物理的既有校正
@@ -62,7 +74,8 @@ WMOM-20261021-03-b：以 `TurbineSpec` 真實設定值（-03-a）判定量測訊
 ### 新增檔案
 
 - `modules/monitoring/simulator/physics/plc_protection.py`
-- `modules/monitoring/tests/test_plc_protection.py`（30）
+- `modules/monitoring/tests/test_plc_protection.py`（40，含 review 補的 10）
+- `modules/monitoring/tests/test_plc_event_recording.py`（2，review 補）
 - `modules/monitoring/tests/test_plc_integration.py`（13）
 - 本 work-log
 
@@ -73,7 +86,7 @@ WMOM-20261021-03-b：以 `TurbineSpec` 真實設定值（-03-a）判定量測訊
 - `modules/monitoring/server/data_broker.py`、`routers/config.py`、`routers/scenarios.py`、`routers/control.py`（註解）
 - `modules/monitoring/examples/data_quality_analysis.py`（docstring）
 - 測試：`test_reset_keeps_fault.py`（改寫 + 無 7↔3）、`test_fault_alarm_codes.py`、`test_generate_bulk_fault_schedule.py`、`test_scenario_endpoints.py`（+3）、`tests/physics/test_fault_signature.py` / `test_fault_threshold_reach.py`（關 PLC，純物理特性）
-- 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§6.1 標記已解、新增 §6.3）、`docs/physics_model_status.md`（1.8a）、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`、`TODO.md`
+- 文件：`docs/product/EPIC-DS_realistic_data_source.md`（§6.1 標記已解、新增 §6.3）、`docs/API_GUIDE.md`（故障 API 註記）、`docs/physics_model_status.md`（1.8a）、`ISSUES.md`、`STATUS.yaml`、`CLAUDE.md`、`TODO.md`
 
 ### 動了狀態的 issue
 

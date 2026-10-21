@@ -1040,7 +1040,9 @@ class TurbinePhysicsModel:
 
         if self.operator_stop or self.service_mode:
             self._request_stop("normal", "operator")
-        if self.maintenance_lock and st in (4, 5, 6, 8):
+        # 已有停機要求（例：PLC 剛以 T1 跳機）時不再要求，否則同模式的要求會把 shutdown_cause
+        # 從 "plc:<碼>" 蓋成內部機制名稱
+        if self.maintenance_lock and st in (4, 5, 6, 8) and not self._stop_requested:
             self._request_stop("normal", "maintenance_lock")
         inhibit = self._restart_inhibited()
         if wind_speed > s.cut_out_speed + 0.5:
@@ -1328,7 +1330,8 @@ class TurbinePhysicsModel:
             self._sync_progress = 0.0
         elif state == 6:
             self._sync_progress = 1.0
-            self.plc.on_production_resumed(self._sim_time)
+        if state in (4, 6, 8):
+            self.plc.on_restart(self._sim_time)
         if state in (7, 9):
             self._restart_block_timer = max(self._restart_block_timer, 20.0 if state == 7 else 10.0)
 

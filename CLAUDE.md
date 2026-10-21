@@ -139,7 +139,7 @@ WMOM = WindMindOM 縮寫。
 - **物理改動守則補充**：新增感測器 / tag 的隨機數一律走 `TurbinePhysicsModel._aux_rng`，不可動主 `_rng` 序列（否則所有已校準的健康輸出都會位移）
 - **PLC 保護層守則**：警報 / 跳機只由 `PlcProtection` 依 `TurbineSpec` 設定值判定**製程值**（感測器模型之前）送出；`FaultEngine.alarm_codes` 是情境的預期碼（ground truth），不再有 severity 門檻；故障 tripped 期間以 `model.maintenance_lock` 擋重啟，復位不等於修好（`test_reset_keeps_fault.py`）；改規則後須確認健康風場無訊號事件（`test_plc_integration.py`）
 - **下次工作**：EPIC-DS 依序 1b-c（-03-c UTC）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1507 passed / 7 skipped / 1 xfailed；frontend vitest 1501 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1521 passed / 7 skipped / 1 xfailed；frontend vitest 1501 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

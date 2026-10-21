@@ -251,7 +251,13 @@ class WindFarmSimulator:
             # turbine stays down until maintenance clears the fault. A restart inhibit,
             # not a fresh emergency stop every step (that made TurSt oscillate 7↔3)
             # (WMOM-20261021-03-b).
-            model.maintenance_lock = any(f.tripped for f in turbine_faults)
+            lock = any(f.tripped for f in turbine_faults)
+            if model.maintenance_lock and not lock:
+                # 故障被維護清除＝修好後技師復位：清 PLC 每小時跳機計數與封鎖。不論走哪條清除路徑
+                # （/api/faults/clear 不帶機組、情境批次、測試計畫都不會 model.reset()），否則
+                # 一小時內第二次跳機留下的 restart_blocked 會讓已修好的機組永遠停機
+                model.plc.maintenance_release(model._sim_time)
+            model.maintenance_lock = lock
 
             scada_output = model.step(
                 local_wind,
@@ -471,6 +477,10 @@ class WindFarmSimulator:
         finally:
             self._bulk_running = False
             self._on_fault_tripped = prev_on_fault_tripped
+            # 批次路徑不收 PLC 事件（-04 之前）：丟掉佇列裡的批次事件，否則 Live 恢復後 broker
+            # 會把它們當成「剛剛發生」的事件寫入
+            for model in self.turbines.values():
+                model.plc.drain_events()
 
         return total_readings
 

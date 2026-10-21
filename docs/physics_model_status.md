@@ -188,7 +188,9 @@ Included:
 - one `PlcProtection` per turbine, evaluated at the end of every physics step on the
   **pre-sensor process values** (the sensor model's noise / drift / stuck values are too large
   for protection logic; sensor-fault trips are Phase 4, labeled)
-- rules from `TurbineSpec` setpoints with hysteresis and strict delays: bearing 262/240, stator
+- rules from `TurbineSpec` setpoints with hysteresis and delays measured from the first crossing
+  sample (at 5 s batch sub-steps a delayed rule needs two consecutive samples); once on, a rule
+  clears only past its hysteresis — a closed judgement window does not clear it: bearing 262/240, stator
   264/244, nacelle 273/256, transformer 417/444, cooling water 420/437(+021), converter cabinet
   421/438(+021), static pressure 432 (producing only), yaw brake 260/228 (90 s after brakes
   applied), seals leak 261, vane 1-2 discrepancy 233 (25 s filter, 10-min wind > 4.5 m/s), blade
@@ -198,11 +200,14 @@ Included:
   never downgraded
 - trips latch until the condition clears, then auto-clear while the code's trips in the last
   hour ≤ catalog `max_per_hour`; otherwise `restart_blocked` until operator reset (event 008)
-- physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT 481/482 + 021,
-  HVRT 475 + 021, grid protection by voltage 481/482/475/489 + 021, cut-out I 201
+- physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT band 1 → 481 and
+  band ≥ 2 → 482 (+ 021), HVRT 475 + 021, grid protection by measured voltage (< 0.81 → 482,
+  < 0.90 → 481, > 1.08 → 475, else frequency 489; + 021), cut-out I 201; once per stop cycle,
+  re-coded after each start attempt
 - a fault becomes `tripped` when the PLC trips with one of the scenario's expected T codes; while
   tripped the engine sets `maintenance_lock` (restart inhibit), which replaced the per-step
-  emergency stop that made TurSt oscillate 7↔3
+  emergency stop that made TurSt oscillate 7↔3; when maintenance clears the fault the engine
+  clears the PLC's hourly trip count and restart block (`maintenance_release`)
 
 Verified:
 - healthy 3-turbine farm, 2 h automatic wind: no signal-judged events

@@ -524,6 +524,13 @@ def test_scenario_turbines_reports_fault_for_tripped_injected_fault(broker):
     assert by_id["WT001"].status != TurbineStatus.FAULT
     assert by_id["WT003"].status != TurbineStatus.FAULT
 
+    # 端點接線（WMOM-20261021-03-b）：注入事件標 tripEvents、PLC 跳機經 on_fault_tripped 記成 trip 事件
+    events = broker.storage.query_events("WT002", limit=500)
+    injections = [e for e in events if (e.get("payload") or {}).get("tripEvents") is True]
+    trips = [e["payload"] for e in events if (e.get("payload") or {}).get("kind") == "trip"]
+    assert injections, "情境排程的注入事件應標 tripEvents"
+    assert trips == [{"kind": "trip", "scenarioId": "hydraulic_leak", "turbineId": "WT002", "tripCode": 228}]
+
     status = asyncio.run(scenarios_ep.get_scenario_farm_status(sid))
     assert status.faultCount == 1
 

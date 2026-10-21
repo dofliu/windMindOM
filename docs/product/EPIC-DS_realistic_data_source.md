@@ -211,7 +211,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 **判定對象是製程值（感測器模型之前）**：感測器模型的雜訊、漂移、卡值是為 SCADA 趨勢的視覺真實度調的，幅度對保護判定太大（例：葉片角度漂移上限 ±0.8°，健康機組約兩天一次葉片同步 T2 誤跳）。感測器故障造成的跳機留給 Phase 4（-08）以有標註的方式建模。
 
-**規則**（設定值全部來自 `TurbineSpec`）：溫度警報延時 10 s、跳機延時 5 s，皆有遲滯；延時用嚴格大於（批次 5 s 步長下單一樣本不算「持續」）。
+**規則**（設定值全部來自 `TurbineSpec`）：溫度警報延時 10 s、跳機延時 5 s，皆有遲滯。延時從第一個越限樣本起算，連續越限的經過時間 ≥ 延時才成立——批次 5 s 子步下，有延時的規則（含葉片 3 s）至少要兩個連續樣本，單一樣本不算「持續」。成立後只依遲滯解除；判定窗（偏航煞車、穩定發電、只在發電時）關閉只禁止新的成立，不等於條件解除。
 
 | 事件碼 | 訊號 | 條件 |
 |---|---|---|
@@ -232,12 +232,12 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 - A 級只送 `alarm_raised` / `alarm_cleared`，不停機。
 - T1 → 正常伺服停機（TurSt 9）；T2 → 緊急變槳（TurSt 7）。已排定的緊急停機不會被後到的正常停機要求降級。
-- 跳機鎖存到條件解除；解除時若該碼一小時內的跳機次數 ≤ 目錄 `max_per_hour` → `trip_cleared`，機組自動重啟；超過 → `restart_blocked`，需操作員復位（事件 008）。復位後條件仍成立會立即再跳。
-- 物理層既有保護停機補事件碼：軟體 / 硬體超速 → 351 / 320；LVRT band 1-2 → 481 + 021、band ≥ 3 → 482 + 021；HVRT → 475 + 021；`grid_protection` / `grid_trip` 依當下電壓 → 481 / 482 / 475 / 489（+ 021）；切出風速 → I 201（600 s 去重）。這類停機的重啟仍由物理層狀態機處理，不在 PLC 層鎖存。
+- 跳機鎖存到條件解除（停機減速中葉片差異仍在、偏航中煞車鬆開都不算解除）；解除時若該碼一小時內的跳機次數 ≤ 目錄 `max_per_hour` → `trip_cleared`，機組自動重啟；超過 → `restart_blocked`，需操作員復位（事件 008）。復位後條件仍成立會立即再跳。
+- 物理層既有保護停機補事件碼：軟體 / 硬體超速 → 351 / 320；LVRT band 1（0.80–0.90 p.u.）→ 481 + 021、band ≥ 2（< 0.80 p.u.）→ 482 + 021；HVRT → 475 + 021；`grid_protection` / `grid_trip` 依量測電壓 < 0.81 → 482、< 0.90 → 481、> 1.08 → 475、其餘（頻率越界）→ 489（+ 021）；切出風速 → I 201（600 s 去重）。這類停機的重啟仍由物理層狀態機處理，不在 PLC 層鎖存；同一停機週期只記一次，機組再次起動後重新計。
 
-**故障引擎連動**：`FaultEngine` 的嚴重度只驅動物理；`alarm_codes` 改為情境的**預期碼**（ground truth metadata，無門檻）。PLC 以情境預期的 T 碼跳機時，引擎呼叫 `mark_tripped` 把故障轉為 tripped（記 `trip_code`）；tripped 期間引擎設 `model.maintenance_lock` 阻擋重啟，取代原本每步 `cmd_emergency_stop`——**7↔3 擺盪已修**。「復位不等於修好」不變量（WMOM-20260719-01）不變：復位解除 PLC 鎖存，但維修鎖仍擋住重啟；只有維護清除（`/api/faults/clear`）會解除。
+**故障引擎連動**：`FaultEngine` 的嚴重度只驅動物理；`alarm_codes` 改為情境的**預期碼**（ground truth metadata，無門檻）。PLC 以情境預期的 T 碼跳機時，引擎呼叫 `mark_tripped` 把故障轉為 tripped（記 `trip_code`）；tripped 期間引擎設 `model.maintenance_lock` 阻擋重啟，取代原本每步 `cmd_emergency_stop`——**7↔3 擺盪已修**。「復位不等於修好」不變量（WMOM-20260719-01）不變：復位解除 PLC 鎖存，但維修鎖仍擋住重啟；只有維護清除（`/api/faults/clear`）會解除。維修鎖解除時引擎代技師清除 PLC 的每小時跳機計數與封鎖（`maintenance_release`，事件 008）——不論走哪條清除路徑（不帶機組的清除、情境批次、測試計畫都不會 reset 機組），否則一小時內第二次跳機留下的 `restart_blocked` 會讓修好的機組永遠停機。
 
-**事件輸出**：即時路徑由 broker 每步 `drain_events()`，記為 `event_type="fault"`、`source="plc"`，payload 含 `kind / code / level / text / plcTag / eventId / value / setpoint / origin`。批次路徑（`generate_bulk`）尚未收事件（-04），佇列上限 512，舊事件自動丟棄；情境排程的 tripped 轉換以 `kind="trip"` 事件記錄，供情境端點判斷「故障已跳機」。
+**事件輸出**：即時路徑由 broker 每步 `drain_events()`，記為 `event_type="fault"`、`source="plc"`，payload 含 `kind / code / level / text / plcTag / eventId / value / setpoint / origin`；value / setpoint 取實際成立的那條規則（同碼多規則時，例：葉片 5 s 1° 規則、021 的機櫃溫度來源）；時間戳由 reading 的模擬時間回推（加速模式一個 tick 跑多步）。PLC 判定的停機原因為 `plc:<碼>`，broker 分類為 `Automatic fault stop: PLC event <碼>`。批次路徑（`generate_bulk`）尚未收事件（-04），結束時清空佇列，避免 Live 恢復後被當成新事件；情境排程的 tripped 轉換以 `kind="trip"` 事件記錄，供情境端點判斷「故障已跳機」。
 
 **實測**（15 m/s、25 °C、注入後 3 h、dt 5 s）：
 
@@ -245,9 +245,9 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 |---|---|---|
 | bearing_wear | A262 7.8 → T240 10.0 | A262 28.0，3 h 未跳機 |
 | stator_winding_degradation | A264 8.5 → T244 10.1 | 3 h 無事件 |
-| transformer_overheat | A417 33.3 → T444 49.6 | A417 92.6，3 h 未跳機 |
-| converter_cooling_fault | A420 2.7 → T437 + T021 3.4 | A420 6.4 → T437 + T021 12.8 |
-| nacelle_cooling_failure | T256 61.3（無先行警報） | 3 h 無事件 |
+| transformer_overheat | A417 33.3 → T444 49.6 | A417 91.6，3 h 未跳機 |
+| converter_cooling_fault | A420 2.7 → T437 + T021 3.4 | A420 6.4 → T437 + T021 13.2 |
+| nacelle_cooling_failure | T256 61.2（無先行警報） | 3 h 無事件 |
 | hydraulic_leak | A261 0.2 → T228 2.3 | 同左 |
 | yaw_sensor_drift | T233 0.7 | T233 1.8 |
 | pitch_imbalance | T335 0.2 | T335 0.6 |
@@ -264,6 +264,8 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 3. **預期碼可能不出現**：低負載或嚴重度不足時情境不會跳機（上表嚴重度 0.8 的 4 個情境），ground truth（-04）必須允許「預期碼未出現」。
 4. **事件順序由物理決定**：converter_cooling_fault 的 T021 與 T437 同一步送出；hydraulic_leak 壓力在偏航後的判定窗內一次跌破兩個設定值時，T228（延時 5 s）會先於 A260（延時 10 s）。
 5. **`faults.py` 的 `run_test_plan` 不記錄 trip 事件**（不是情境 session），只有 `/api/config` 情境排程會記。
+6. **每小時計數在條件解除時判定**：手冊只寫「Max #/hr」，未說明是跳機當下或重啟當下計數；目前在解除（要重啟）時看最近一小時的跳機次數。
+7. **實測時點有約 ±1 分鐘的差異**：上表是同一程序依序跑 22 個情境的結果；前面情境的跳機時點會透過程序層級的共享狀態影響後面情境（例：converter_cooling_fault 0.8 單獨跑為 13.2 分、在序列中曾量到 12.8 分），屬量測條件差異，不是物理改變。
 
 ## 7. 不做的事
 
