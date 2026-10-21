@@ -105,6 +105,8 @@ def test_generate_bulk_isolates_scenario_from_live_and_ends_it(broker):
 
     active = broker.storage.get_active_session()
     assert active is not None and active["id"] == broker._session_id, "情境已 end → active 仍是 Live"
+    # 情境記下日夜循環所用的風場時區（可重現的必要資訊，WMOM-20261021-11）
+    assert broker.storage.get_scenario(sid)["config"]["site_timezone"] == "Asia/Taipei"
 
 
 def test_generate_bulk_failure_finalizes_scenario_session(broker, monkeypatch):

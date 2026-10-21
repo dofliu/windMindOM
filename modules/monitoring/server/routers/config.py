@@ -334,6 +334,8 @@ async def generate_bulk(body: dict):
                 "kind": b.storage.SCENARIO_KIND,
                 "name": scenario_name,
                 "wind_profile": wind_profile,
+                # 日夜 / 季節循環所用的風場時區：情境可重現的必要資訊（WMOM-20261021-11）
+                "site_timezone": b.simulator.wind_model.site_timezone_name,
                 "duration_hours": duration,
                 "time_step": step,
                 "fault_schedule": [

@@ -18,7 +18,7 @@ from server.farm_registry import FarmRegistry
 from simulator.engine import WindFarmSimulator
 from simulator.physics.plc_protection import PlcEvent
 from simulator.physics.turbine_physics import TurbinePhysicsModel
-from simulator.time_utils import iso_utc, parse_iso, to_utc, utc_now
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, parse_iso, to_utc, utc_now
 
 if TYPE_CHECKING:
     from server.opc_adapter import OPCDAAdapter
@@ -328,6 +328,15 @@ class DataBroker:
     def active_farm_id(self) -> Optional[str]:
         return self._active_farm_id
 
+    def _active_farm_timezone(self) -> str:
+        """目前風場的時區（模擬的日夜 / 季節循環用，WMOM-20261021-11）；查不到風場時用預設值。
+
+        Returns:
+            IANA 時區名稱。
+        """
+        farm = self.farm_registry.get_farm(self._active_farm_id) if self._active_farm_id else None
+        return farm.timezone if farm is not None else DEFAULT_SITE_TIMEZONE
+
     def start(self, config: Optional[DataSourceConfig] = None,
               sim_config: Optional[SimulationConfig] = None,
               run_loop: bool = True) -> None:
@@ -443,6 +452,7 @@ class DataBroker:
             turbine_count=self._sim_config.turbineCount,
             base_wind_speed=self._sim_config.baseWindSpeed,
             turbulence_intensity=self._sim_config.turbulenceIntensity,
+            site_timezone=self._active_farm_timezone(),
         )
 
         # Create a new session

@@ -15,9 +15,10 @@ Supports:
   - Predefined profiles (calm, moderate, rated, storm, etc.)
   - Accelerated time (time_scale > 1 for bulk data generation)
 
-Time of day / month (diurnal and seasonal layers) are read in the server's local time: the
-simulator passes tz-aware UTC timestamps (WMOM-20261021-03-c), which every getter converts with
-``to_local_naive`` so the cycles stay where they were when timestamps were naive local time.
+Time of day / month (diurnal and seasonal layers) are read in the wind farm's local time
+(``site_timezone``, default Asia/Taipei — WMOM-20261021-11): the simulator passes tz-aware UTC
+timestamps (WMOM-20261021-03-c), which every getter converts with ``to_site_naive``. The same UTC
+instant gives the same cycle phase on any server, so generated data is reproducible.
 """
 
 import math
@@ -25,7 +26,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
 
-from simulator.time_utils import to_local_naive, to_utc, utc_now
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive, to_utc, utc_now
 
 
 # ─── Seasonal wind parameters (typical coastal/onshore site) ─────────
@@ -97,9 +98,10 @@ class WeatherSystem:
 class WindEnvironmentModel:
     """Multi-scale wind environment model for realistic long-term simulation."""
 
-    def __init__(self, seed: int = 0):
+    def __init__(self, seed: int = 0, site_timezone_name: str = DEFAULT_SITE_TIMEZONE):
         self._rng = np.random.RandomState(seed)
         self.turbulence_intensity = 0.10
+        self.set_site_timezone(site_timezone_name)
         self.base_ambient_temp = 25.0
 
         # Sub-models
@@ -126,6 +128,18 @@ class WindEnvironmentModel:
 
         # Weather system state (for deterministic long-term)
         self._last_weather_update = 0.0
+
+    def set_site_timezone(self, name: str) -> None:
+        """Set the wind farm's IANA time zone used for diurnal / seasonal cycles (WMOM-20261021-11).
+
+        Args:
+            name: IANA time zone name, e.g. ``Asia/Taipei``.
+
+        Raises:
+            ValueError: Unknown time zone.
+        """
+        self.site_tz = site_timezone(name)
+        self.site_timezone_name = name
 
     # ─── Override control ──────────────────────────────────────────────
 
@@ -224,7 +238,7 @@ class WindEnvironmentModel:
     def get_wind_speed(self, timestamp: datetime) -> float:
         """Get wind speed at given timestamp (includes all layers)."""
         ts_utc = to_utc(timestamp)  # ramp profile 經過時間用 UTC 相減（_profile_start_time 是 UTC）
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         self._elapsed_real += 1.0  # approximate
 
         # Check for active transition ramp
@@ -255,7 +269,7 @@ class WindEnvironmentModel:
 
     def _get_auto_wind(self, timestamp: datetime) -> float:
         """Multi-layer automatic wind speed model."""
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         month = timestamp.month
         hour = timestamp.hour + timestamp.minute / 60.0
 
@@ -281,7 +295,7 @@ class WindEnvironmentModel:
         return max(0.5, base)
 
     def get_wind_direction(self, timestamp: datetime) -> float:
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_wind_direction is not None:
             return (self._override_wind_direction + self._rng.normal(0, 3)) % 360
 
@@ -295,7 +309,7 @@ class WindEnvironmentModel:
                 self._rng.normal(0, 2.0)) % 360
 
     def get_ambient_temp(self, timestamp: datetime) -> float:
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_ambient_temp is not None:
             return self._override_ambient_temp + self._rng.normal(0, 0.3)
 
@@ -346,7 +360,7 @@ class WindEnvironmentModel:
         Uses the weather model's current state (no side effects) so this can be
         called multiple times per step without advancing RNG state.
         """
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_wind_speed is not None or self._active_profile is not None:
             return 0.0
 
@@ -398,7 +412,7 @@ class WindEnvironmentModel:
         Offshore wind sites sit in the marine boundary layer where RH is high
         year-round and peaks during rainy season and overnight.
         """
-        timestamp = to_local_naive(timestamp)
+        timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_ambient_temp is not None:
             # During manual override we keep humidity stable to avoid surprising
             # coolant behavior during demos; still add a little sensor noise.

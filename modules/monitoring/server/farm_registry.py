@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -34,6 +35,31 @@ LEGACY_DB_NAME = "wind_farm_data.db"
 # 時間戳（WMOM-20261021-03-c）：與 simulator/time_utils.py 的 iso_utc 同格式。本檔不匯入 time_utils——
 # farm_registry 也會以套件模式（modules.monitoring.server.farm_registry）被 cost / shared 匯入，
 # 那時 simulator 不在 sys.path 上。
+# 風場時區預設值，同 simulator/time_utils.py 的 DEFAULT_SITE_TIMEZONE（WMOM-20261021-11）
+DEFAULT_FARM_TIMEZONE = "Asia/Taipei"
+
+
+def _validate_timezone(name: object) -> str:
+    """確認是有效的 IANA 時區名稱。
+
+    Args:
+        name: 時區名稱。
+
+    Returns:
+        原名稱。
+
+    Raises:
+        ValueError: 不是字串或不是有效的時區名稱。
+    """
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"timezone must be a non-empty IANA name, got {name!r}")
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown timezone: {name!r}") from exc
+    return name
+
+
 def _utc_now_text() -> str:
     """現在時刻的 UTC ISO 字串（``...ffffff+00:00``）。
 
@@ -80,6 +106,8 @@ class FarmConfig:
     is_offshore: bool = False
     created_at: str = ""
     last_active_at: str = ""
+    # 風場時區（IANA 名稱）：模擬的日夜 / 季節循環依此當地時刻（WMOM-20261021-11）
+    timezone: str = DEFAULT_FARM_TIMEZONE
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -102,6 +130,7 @@ class FarmConfig:
             is_offshore=is_offshore_val,
             created_at=row["created_at"] or "",
             last_active_at=row["last_active_at"] or "",
+            timezone=(row["timezone"] if "timezone" in row_keys else None) or DEFAULT_FARM_TIMEZONE,
         )
 
 
@@ -150,6 +179,13 @@ class FarmRegistry:
         except sqlite3.OperationalError:
             # 欄位已存在（另一 process 先 ALTER 過 / 重啟）— 視為 already-migrated
             pass
+        # WMOM-20261021-11：風場時區欄（既有 farm 取預設 Asia/Taipei——Z72 參考風場在台灣海峽）
+        try:
+            conn.execute(
+                f"ALTER TABLE farms ADD COLUMN timezone TEXT NOT NULL DEFAULT '{DEFAULT_FARM_TIMEZONE}'"
+            )
+        except sqlite3.OperationalError:
+            pass
         # WMOM-20261021-03-c：舊版 created_at / last_active_at 是 naive 本地時間，一次性轉 UTC，
         # 否則 list_farms 的 ORDER BY last_active_at（字串排序）會把新舊兩種格式混排錯
         if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
@@ -174,8 +210,13 @@ class FarmRegistry:
                     layout: Optional[Dict] = None,
                     location: str = "",
                     description: str = "",
-                    is_offshore: bool = False) -> FarmConfig:
-        """Create a new wind farm project with its own database directory."""
+                    is_offshore: bool = False,
+                    timezone: str = "") -> FarmConfig:
+        """Create a new wind farm project with its own database directory.
+
+        ``timezone``：風場 IANA 時區（空字串＝預設 Asia/Taipei）；無效名稱 raise ``ValueError``。
+        """
+        timezone = _validate_timezone(timezone or DEFAULT_FARM_TIMEZONE)
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,15 +226,15 @@ class FarmRegistry:
             INSERT INTO farms (farm_id, name, turbine_count,
                                turbine_spec_json, wind_profile_json,
                                grid_profile_json, layout_json,
-                               location, description, is_offshore, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               location, description, is_offshore, created_at, timezone)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             farm_id, name, turbine_count,
             json.dumps(turbine_spec or {}),
             json.dumps(wind_profile or {}),
             json.dumps(grid_profile or {}),
             json.dumps(layout or {}),
-            location, description, 1 if is_offshore else 0, now,
+            location, description, 1 if is_offshore else 0, now, timezone,
         ))
         conn.commit()
         conn.close()
@@ -204,7 +245,7 @@ class FarmRegistry:
             turbine_spec=turbine_spec or {}, wind_profile=wind_profile or {},
             grid_profile=grid_profile or {}, layout=layout or {},
             location=location, description=description,
-            is_offshore=is_offshore, created_at=now,
+            is_offshore=is_offshore, created_at=now, timezone=timezone,
         )
         config_path.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
         return cfg
@@ -222,7 +263,7 @@ class FarmRegistry:
         return [FarmConfig.from_row(r) for r in rows]
 
     def update_farm(self, farm_id: str, **kwargs) -> Optional[FarmConfig]:
-        """Update farm metadata. Accepts: name, location, description, turbine_spec, wind_profile, grid_profile, is_offshore."""
+        """Update farm metadata. Accepts: name, location, description, turbine_spec, wind_profile, grid_profile, is_offshore, timezone."""
         farm = self.get_farm(farm_id)
         if not farm:
             return None
@@ -237,6 +278,7 @@ class FarmRegistry:
             "grid_profile": "grid_profile_json",
             "layout": "layout_json",
             "is_offshore": "is_offshore",
+            "timezone": "timezone",
         }
         for key, val in kwargs.items():
             col = field_map.get(key)
@@ -252,6 +294,8 @@ class FarmRegistry:
                             f"is_offshore must be bool, got {type(val).__name__}"
                         )
                     db_val = 1 if val else 0
+                elif col == "timezone":
+                    db_val = _validate_timezone(val)
                 else:
                     db_val = val
                 conn.execute(f"UPDATE farms SET {col} = ? WHERE farm_id = ?", (db_val, farm_id))

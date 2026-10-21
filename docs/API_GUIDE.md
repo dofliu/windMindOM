@@ -330,6 +330,12 @@ requests.post("http://localhost:8100/api/config/grid", json={"profile": "low_fre
 > another offset is converted to UTC; a string without an offset is read as the server's local time
 > (the pre-UTC behaviour). Databases written before this change are converted once on startup.
 
+> **Farm time zone (WMOM-20261021-11).** `POST /api/farms` and `PATCH /api/farms/{farm_id}` accept
+> `timezone` (IANA name, default `Asia/Taipei`; unknown names → 400). The simulator's diurnal and
+> seasonal cycles follow the farm's local time, so the same UTC instants produce the same data on
+> any server. A change takes effect the next time the farm's simulation starts. Scenario sessions
+> record the zone they ran with in `config.site_timezone`.
+
 #### POST `/api/faults/inject`
 
 Inject fault for diagnostic study.

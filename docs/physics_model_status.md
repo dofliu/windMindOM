@@ -143,6 +143,11 @@ Current realism level:
 - Good first-stage farm-wide wind realism.
 - Enough to make nearby turbines non-identical.
 
+Time of day / season (`wind_model.py`, WMOM-20261021-11): the diurnal and seasonal layers read the
+wind farm's local time (`FarmConfig.timezone`, IANA name, default `Asia/Taipei`), converted from the
+UTC simulation time. The same UTC instant gives the same weather on any server, so generated data
+is reproducible across machines (previously the cycles followed the server's local time zone).
+
 ### 1.8 Fault-to-Physics Coupling
 Files:
 - `simulator/physics/fault_engine.py`

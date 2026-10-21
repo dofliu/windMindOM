@@ -18,7 +18,7 @@ from simulator.physics import TurbinePhysicsModel, FaultEngine
 from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPlanStep
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
-from simulator.time_utils import iso_utc, utc_now
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, utc_now
 
 
 def _zero_non_finite(scada: Dict[str, float]) -> List[str]:
@@ -58,8 +58,10 @@ class WindFarmSimulator:
     _GRID_MODEL_SEED = 1042
 
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
-                 turbulence_intensity: float = 0.1):
-        self.wind_model = WindEnvironmentModel()
+                 turbulence_intensity: float = 0.1,
+                 site_timezone: str = DEFAULT_SITE_TIMEZONE):
+        # site_timezone：風場時區，日夜 / 季節循環依風場當地時刻（WMOM-20261021-11）
+        self.wind_model = WindEnvironmentModel(site_timezone_name=site_timezone)
         self.grid_model = GridEnvironmentModel(seed=self._GRID_MODEL_SEED)
         self.wind_model.turbulence_intensity = turbulence_intensity
         self.turbines: Dict[str, TurbinePhysicsModel] = {}

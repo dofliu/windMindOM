@@ -275,7 +275,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - 落庫與 API 的字串格式固定為 `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`（`iso_utc`）。SQLite 以字串字典序比較時間，長度與後綴一致才保證字典序＝時間序；不用 `Z`（`Z` 的字元碼大於 `.` 與數字，同一秒內順序會顛倒）。Pydantic 回應中的 `datetime` 欄位（`TurbineReading.timestamp`、`FarmStatus.timestamp`）序列化為 `...Z`，兩者都是 RFC 3339 UTC。
 - 外部傳入的時間字串（前端 `toISOString()` 的 `Z`、任意時區後綴）在 storage 邊界正規化；**naive 字串視為伺服器本地時間**——這是本次之前所有資料與舊 API 呼叫端的語意。
 - **既有 DB**：開檔時依 `PRAGMA user_version` 一次性把 naive 本地時間轉成 UTC（10 個時間戳欄位 + 情境 `config.sim_start/sim_end`；`farms.db` 的 `created_at` / `last_active_at` 同樣處理）。只轉沒有時區後綴的值；整秒部分用 SQLite `'utc'` 修飾詞換算、小數秒原樣保留（與 Python 換算的 `sim_start` 逐微秒一致，情境時間窗邊界的事件不會被排除）；依 rowid 區段每 2 萬列一批 commit（WAL 峰值約一批大小，中斷後下次開檔接著轉），全部完成才更新版本號。換算用本機時區，啟動 log 會印出所用時區；`tools/vacuum_db.py` 以 `migrate_timestamps=False` 開檔，先清理不轉換。
-- **日夜 / 季節循環**（`wind_model.py`）仍以伺服器本地時間計：各 getter 先把 UTC 轉回本地 naive 再取 hour / month，換成 UTC 輸入後循環不位移。
+- **日夜 / 季節循環**（`wind_model.py`）：-03-c 時仍以伺服器本地時間計；**WMOM-20261021-11 起改用風場時區**（§6.6）。
 
 **順帶修好的既有 bug**：
 
@@ -285,7 +285,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 **已知限制**：
 
-1. 日夜循環依「伺服器本地時區」而非「風場所在時區」：同一情境在 UTC 的 CI 與 UTC+8 的開發機上，日夜相位差 8 小時。要固定成風場時區需要 farm 層級的時區設定（WMOM-20261021-11，做 -05 前處理）。
+1. ~~日夜循環依「伺服器本地時區」而非「風場所在時區」~~ → WMOM-20261021-11 已解（§6.6）。
 2. 資料包（-05）的對外格式可再選 `Z` 後綴（合約 v0 的範例用 `Z`）；兩者等價，匯出時統一即可。
 3. **舊 DB 換算假設「在寫入它的同一時區開啟」**：例如把 Windows（台北）寫的 DB 掛進 UTC 的 Docker 容器啟動，會整整偏 8 小時且不報錯（啟動 log 會印出換算用的時區）。有 DST 的時區在空窗 / 重複的那一小時可能差 1 小時（台灣無 DST）。
 4. **轉換只跑一次**：`user_version` 升為 1 後若退回舊版執行、再升回新版，退回期間寫入的 naive 列不會再被轉換。
@@ -313,6 +313,15 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 1. **高風速時陣風模型偏強**：`wind_field.py` 的自然陣風事件頻率與振幅都隨平均風速放大（22 m/s 時約每 3 分鐘一次、振幅最大 4 × V / 12 ≈ 7 m/s），疊加農場與單機兩層紊流，22-24 m/s、TI 0.12-0.15 時 5 秒平均約 7 分鐘內就會越過 35 m/s 而切出，之後因 10 分鐘平均 > 20 m/s 一直不重啟。切出規則本身照手冊；若 -08 要做「暴風前後」情境，需再檢視陣風模型的高風速校準。
 2. 判定用的是自由流有效風速（含紊流、陣風事件），不是機艙風速計讀值（`WMET_WSpeedRaw` 有轉子感應修正，運轉中約低 4-16 %）；真實 PLC 一般依機艙風速計判定。
 3. 開機 / reset 後前 10 分鐘只有 5 秒平均（35 m/s）保護；`reset()` 會清空平均值（完整重設語意）。
+
+### 6.6 風場時區（WMOM-20261021-11，2026-10-21）
+
+- **設定**：`FarmConfig.timezone`（IANA 名稱，`farms.db` 新欄，既有風場補預設值 `Asia/Taipei`——Z72 參考風場在台灣海峽）；`POST /api/farms`、`PATCH /api/farms/{id}` 可設，無效名稱回 400。
+- **模擬器**：broker 以目前風場的時區建立 `WindFarmSimulator(site_timezone=...)`；`wind_model.py` 各 getter 以 `to_site_naive(ts, site_tz)` 換成風場當地時刻再取 hour / month。naive 輸入視為已是風場牆鐘時間（舊呼叫端與測試）。
+- **可重現**：同一組 UTC 時刻在 UTC、Asia/Taipei、America/New_York 的伺服器時區下得到逐位元相同的風況；模擬器全部 SCADA tag 輸出在 UTC 與 Asia/Taipei 下逐位元相同（`test_farm_timezone.py`）。資料包（-05）可在任何機器上重產。
+- **情境 metadata**：情境 session 的 `config.site_timezone` 記下所用時區，-05 manifest 可直接取用。
+- **行為改變**：伺服器本地時區不是 Asia/Taipei 的機器（例如 UTC 的 CI、Docker），日夜相位比改動前移動（UTC 機器上 +8 小時）；台北時區的開發機不變。`data_quality_analysis.py` 仍 20 / 0。
+- **已知限制**：Windows 上 `zoneinfo` 需要 `tzdata` 套件提供時區資料（workflow 模組早已使用 `ZoneInfo("Asia/Taipei")`，現有環境可用）。
 
 ## 7. 不做的事
 

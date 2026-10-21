@@ -13,14 +13,18 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
+| open | 12 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 133 |
+| done | 134 |
 | **total** | **149** |
 
-最後更新：2026-10-21 深夜（**WMOM-20261021-10 done**：切出風速改依手冊事件 201——10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s
+最後更新：2026-10-21 深夜（**WMOM-20261021-11 done**：風場時區——`FarmConfig.timezone`（預設 Asia/Taipei、`farms.db` 新欄、API 驗證）、
+broker 以目前風場時區建立模擬器、`wind_model` 以 `to_site_naive` 取風場當地時刻；同一組 UTC 時刻在任何伺服器時區下輸出逐位元相同；
+情境 session 記下 `site_timezone`。逐條解析 header 核實：open 12 / in_progress 1 / deferred 2 / done 134 = 149。
+詳見 `work-logs/2026-10/2026-10-21-farm-timezone.md`）。
+前次最後更新：2026-10-21 深夜（**WMOM-20261021-10 done**：切出風速改依手冊事件 201——10 分鐘平均 > 25 m/s 或 5 秒平均 > 35 m/s
 正常停機、10 分鐘平均 < 20 m/s 才重啟（平均累積滿窗長才判定）、氣動模型不再於瞬間風速 > 25 m/s 歸零；16 m/s / TI 0.18
 發電時間 31.5 % → 99.8 %、I201 事件 7 → 0。逐條解析 header 核實：open 13 / in_progress 1 / deferred 2 / done 133 = 149。
 詳見 `work-logs/2026-10/2026-10-21-cut-out-averaging.md`）。
@@ -1443,13 +1447,22 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-11 — 風場時區設定：日夜 / 季節循環改用風場所在時區
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 0.5-1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: -03-c 起時間戳一律 UTC，但 `wind_model.py` 的日夜 / 季節循環仍以「伺服器本地時區」取 hour / month（`to_local_naive`），同一情境在 UTC 的 CI 與 UTC+8 的開發機上相位差 8 小時，資料包（-05）不可重現。改為 farm 層級的時區設定（Z72 參考風場預設 `Asia/Taipei`，`zoneinfo`），模擬器依風場時區換算；需確認 `data_quality_analysis.py` 與既有物理測試不退化（CI 是 UTC，改成固定 Asia/Taipei 後日夜相位會移動）。
 - **Deliverable**: farm 設定欄位、`wind_model.py` 換算、測試
+- **完成紀錄**:
+  - `simulator/time_utils.py`：`DEFAULT_SITE_TIMEZONE`（Asia/Taipei）、`site_timezone(name)`（`zoneinfo`，無效名稱 raise `ValueError`）、`to_site_naive(ts, tz)` 取代 `to_local_naive`（aware → 風場當地牆鐘；naive 視為已是風場牆鐘）
+  - `wind_model.py`：`WindEnvironmentModel(site_timezone_name=...)` / `set_site_timezone`，6 個讀 hour / month 的 getter 改 `to_site_naive`；`WindFarmSimulator(site_timezone=...)`
+  - `FarmConfig.timezone`：`farms.db` 新欄（既有風場以 ALTER 補預設 Asia/Taipei）；`create_farm` / `update_farm` 驗證，`POST /api/farms`、`PATCH /api/farms/{id}` 無效名稱回 400
+  - broker 以目前風場的時區建立模擬器（`_active_farm_timezone`）；情境 session 的 `config.site_timezone` 記下所用時區（-05 manifest 用）
+  - **可重現**：同一組 UTC 時刻在 UTC / Asia/Taipei / America/New_York 伺服器時區下風況逐位元相同；模擬器全部 SCADA tag 在 UTC 與 Asia/Taipei 下逐位元相同
+  - **行為改變**：伺服器時區不是 Asia/Taipei 的機器（CI、Docker）日夜相位移動 +8 小時；健康機組物理輸出（不經風況模型）逐位元不變；`data_quality_analysis.py` 20 / 0；既有測試全過（只改 -03-c 的風況測試名稱與敘述）
+  - **測試**：`test_farm_timezone.py`（8）、`test_scenario_endpoints.py` 加 `site_timezone` 斷言；mutation：改回伺服器本地 / broker 不帶風場時區 / 建立不驗證 / 情境不記時區，各有測試失敗
+- **未做**：前端建立風場表單未加時區欄位（API 預設 Asia/Taipei，需要時再加）；Windows 需 `tzdata` 套件提供時區資料（workflow 模組已用 `ZoneInfo("Asia/Taipei")`，既有環境可用）
 - **Depends on**: WMOM-20261021-03-c
 - **Blocks**: WMOM-20261021-05（資料包可重現）
 
@@ -1474,7 +1487,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
 | 1b | ~~WMOM-20261021-03~~ ✅ | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → ~~-03-c UTC 時間戳~~ ✅ | 🔵 |
 | 1b+ | ~~WMOM-20261021-10~~ ✅ | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
-| 1b+ | WMOM-20261021-11 | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
+| 1b+ | ~~WMOM-20261021-11~~ ✅ | 風場時區設定：日夜 / 季節循環改用風場時區（資料包可重現，-05 前） | 🔵 |
 | 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
