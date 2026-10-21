@@ -36,16 +36,16 @@ import { MyOrdersMode } from './MyOrdersMode';
 type FieldMode = 'query' | 'alert' | 'orders';
 
 /**
- * 常用 Z72 告警碼 — 現場一鍵帶入。
+ * 常用 Z72 告警碼 — 現場一鍵帶入（警報模式同時帶入等級）。
  *
- * 皆為真實 Z72 事件碼（`shared/data/z72_alarm_catalog.json`，WMOM-20261021-02），
+ * 皆為真實 Z72 事件碼與等級（`shared/data/z72_alarm_catalog.json`，WMOM-20261021-02），
  * 且都是模擬器故障情境會送出、baseline 語料有對應處置的碼。Z72 為直驅機型，沒有齒輪箱。
  */
-const COMMON_ALARM_CODES: Array<{ code: number; labelZh: string; labelEn: string }> = [
-  { code: 21, labelZh: '變頻器跳機要求', labelEn: 'Converter trip request' },
-  { code: 262, labelZh: '主軸承溫度高', labelEn: 'Main bearing temp high' },
-  { code: 260, labelZh: '偏航煞車壓力低', labelEn: 'Yaw brake pressure low' },
-  { code: 335, labelZh: '葉片同步差異', labelEn: 'Blade discrepancy' },
+const COMMON_ALARM_CODES: Array<{ code: number; level: AlarmLevel; labelZh: string; labelEn: string }> = [
+  { code: 21, level: 'T1', labelZh: '變頻器跳機要求', labelEn: 'Converter trip request' },
+  { code: 262, level: 'A', labelZh: '主軸承 1 溫度高', labelEn: 'Main bearing 1 temp high' },
+  { code: 260, level: 'A', labelZh: '偏航煞車壓力低', labelEn: 'Yaw brake pressure low' },
+  { code: 335, level: 'T2', labelZh: '葉片 1-2 同步差異', labelEn: 'Blade 1-2 discrepancy' },
 ];
 
 /** 告警等級選項（對齊 schemas.AlarmLevel：A 警示 / T1 一級跳機 / T2 二級跳機）。 */
@@ -468,6 +468,7 @@ const AlertMode: React.FC<{
                 ariaLabel={`${zh ? '帶入告警碼' : 'Use alarm'} ${a.code}`}
                 onClick={() => {
                   setAlarmCode(String(a.code));
+                  setAlarmLevel(a.level);
                   setTagsRaw(zh ? a.labelZh : a.labelEn);
                 }}
               >

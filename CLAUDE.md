@@ -137,7 +137,7 @@ WMOM = WindMindOM 縮寫。
 - **Milestone**：M1–M4 done；M5 ~75%（剩客戶手冊 / 一年警報 csv，隨 M6 暫緩）；M6 deferred（auth 全面完成部分保留）；**EPIC-DS Phase 1a done**（WMOM-20261021-02：Z72 真實警報目錄 `shared/alarm_codes.py` + 11 故障情境改用真實碼）
 - **警報碼守則**：模擬器、語料、前端用到的 Z72 警報碼一律以 `shared/data/z72_alarm_catalog.json`（xlsx 314 筆 + 手冊 Appendix C）為準，不自創碼或描述；`tests/test_alarm_codes.py`、`modules/monitoring/tests/test_fault_alarm_codes.py` 會擋
 - **下次工作**：EPIC-DS 依序 1b（WMOM-20261021-03 溫度門檻 / 狀態跳動 / UTC）→ 2（-04 標準答案 + 情境事件）→ 3a（-05 資料包匯出）→ 3d（-09 學生 starter kit）→ 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1438 passed / 7 skipped / 1 xfailed；frontend vitest 1500 passed（2026-10-21）。以各 module `tests/` 為準
+- **測試**：backend 1435 passed / 7 skipped / 1 xfailed；frontend vitest 1501 passed（2026-10-21）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

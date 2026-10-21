@@ -297,6 +297,19 @@ describe('FieldPage 現場知識查詢頁', () => {
     expect(payload.timestamp).toMatch(/Z$/);
   });
 
+  it('警報模式常用告警碼 chip 同時帶入真實 Z72 等級（335 = T2）', () => {
+    const hook = renderField();
+    fireEvent.click(screen.getByRole('button', { name: '警報檢索' }));
+    fireEvent.click(screen.getByRole('button', { name: '帶入告警碼 335' }));
+    expect(screen.getByLabelText('告警等級')).toHaveValue('T2');
+    fireEvent.change(screen.getByLabelText('機組代號'), { target: { value: 'WTG-07' } });
+    fireEvent.click(screen.getByRole('button', { name: '檢索處置' }));
+    expect((hook.runAlert as Mock).mock.calls[0][0]).toMatchObject({
+      alarm_code: 335,
+      alarm_level: 'T2',
+    });
+  });
+
   it('清除按鈕呼叫 clearSearch', () => {
     const hook = renderField();
     // 依賴 query / alert 兩模式互斥渲染（同時只有一個「清除」在 DOM）；

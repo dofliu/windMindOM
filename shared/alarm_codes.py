@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, cast
 
 AlarmLevel = Literal["A", "T1", "T2", "I"]
+VALID_LEVELS: Tuple[AlarmLevel, ...] = ("A", "T1", "T2", "I")
 
 CATALOG_PATH = Path(__file__).resolve().parent / "data" / "z72_alarm_catalog.json"
 TRIP_LEVELS: Tuple[AlarmLevel, ...] = ("T1", "T2")
@@ -65,10 +66,19 @@ class AlarmDef:
 
 @lru_cache(maxsize=1)
 def _load_catalog() -> Dict[int, AlarmDef]:
-    """讀取並快取目錄 JSON。"""
+    """讀取並快取目錄 JSON。
+
+    Returns:
+        事件碼 → `AlarmDef` 對照表。
+
+    Raises:
+        ValueError: JSON 內有未知等級（目錄檔被手動改壞時及早失敗）。
+    """
     raw = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     catalog: Dict[int, AlarmDef] = {}
     for e in raw["events"]:
+        if e["level"] not in VALID_LEVELS:
+            raise ValueError(f"Z72 警報目錄事件碼 {e['code']} 的等級 {e['level']!r} 不合法")
         catalog[int(e["code"])] = AlarmDef(
             code=int(e["code"]),
             level=cast(AlarmLevel, e["level"]),
@@ -113,11 +123,22 @@ def get_alarm(code: int) -> AlarmDef:
 
 
 def is_known_code(code: int) -> bool:
-    """事件碼是否存在於 Z72 目錄。"""
+    """事件碼是否存在於 Z72 目錄。
+
+    Args:
+        code: Z72 事件碼。
+
+    Returns:
+        存在時為 True。
+    """
     return code in _load_catalog()
 
 
 def all_alarms() -> Tuple[AlarmDef, ...]:
-    """依事件碼排序回傳全部事件定義。"""
+    """依事件碼排序回傳全部事件定義。
+
+    Returns:
+        全部 `AlarmDef`，依事件碼遞增排序。
+    """
     catalog = _load_catalog()
     return tuple(catalog[c] for c in sorted(catalog))

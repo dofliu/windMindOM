@@ -33,9 +33,10 @@
 
 ### 2.2 卡住或延後的事
 
+- 警報仍由 severity 觸發，物理量級與真實判定條件不一致（pitch 偏差、風向標差、超速轉速、電網電壓）→ 併入 -03；清單見設計文件 §6.1
 - 物理層自有跳機（overspeed / cut-out / grid / ride-through）仍只寫 `shutdown_cause` 字串，沒有事件碼 → Phase 1b / 2
-- `yaw_sensor_drift` 物理偏移上限 12°，但真實 233 判定門檻是風向標差 > 15°；目前靠 severity 觸發，物理與門檻的耦合留給 Phase 1b / 2
-- 變頻器相關碼（400-700）手冊只寫「See [ABB]」：RAG 只靠 Z72 手冊會查不到細節，ground truth 設計時要標註（Phase 2）
+- 跳機一律走 emergency stop，但 T1 應為正常伺服停機 → 併入 -03
+- 變頻器相關碼（400-700）手冊只寫「See [ABB]」：RAG 只靠 Z72 手冊會查不到細節，ground truth 設計時要標註（-04）
 
 ### 2.3 重大決策
 
@@ -83,12 +84,27 @@
 2. **WMOM-20261021-04（Phase 2）**：情境 metadata（根因 / 元件 / 預期警報序列 / 手冊條目 / 處置）+ bulk 路徑事件 + `session_id`
 3. 阻擋項：無。`-09` 合約 v1 定稿前需劉老師確認 ground truth 評分欄位
 
+## 4.1 Code review（code-reviewer subagent）
+
+- 0 must-fix、5 should-fix、5 nice-to-have；下游無破壞（唯一消費者 `data_broker.py` 以 scenario:type:code 去重）
+- 已處理：
+  - generator_overspeed 351/027 → 351/320（對齊物理層兩道超速保護）
+  - converter_cooling 加 432 靜水壓低（物理層有 O-ring 洩漏）
+  - grid_voltage_sag 4 個同時跳機碼 → 481 + 021
+  - hydraulic 260 門檻 0.3 → 0.4（對齊 180 bar）
+  - builder：sanity guard（筆數下限、無法辨識的表格列直接報錯）、重複碼偵測、workbook close、空值統一 None、修 PDF 斷字
+  - `alarm_codes.py`：載入時驗證等級，docstring 補 Returns
+  - 設計文件 §3 標成 Phase 1a 前的快照，新增 §6.1 門檻慣例與已知限制
+  - FieldPage chip 同時帶入真實等級（+1 測，mutation-verified）
+- 併入後續 issue：警報對齊物理訊號、T1 正常停機（-03）；事件 title 帶碼（-04）
+- 未採納：測試參數改 `Dict[str, object]`（會讓門檻比較在型別上不合法；維持與 `FaultScenario.alarm_codes: List[Dict]` 一致）；`AlarmLevel` 與 knowledge schema 合併（跨模組重構，非本 issue 範圍）
+
 ## 5. 驗證
 
-- backend：`python -m pytest modules/*/tests/ tests/ -q` → **1438 passed / 7 skipped / 1 xfailed**（基準 1305；新增 `test_alarm_codes.py` 與 `test_fault_alarm_codes.py`）
+- backend：`python -m pytest modules/*/tests/ tests/ -q` → **1435 passed / 7 skipped / 1 xfailed**（基準 1305；新增 `test_alarm_codes.py` 與 `test_fault_alarm_codes.py`；review 修正後情境警報數 25→24，參數化測試隨之變動）
 - 來源漂移測試在本機（有 openpyxl + pdfplumber）實際執行並通過；CI 無這兩個套件時 skip
 - mutation 檢查：把 `fault_engine.py` 還原成舊碼，`test_fault_alarm_codes.py` 46 項失敗
-- frontend：`tsc --noEmit` 0 error；`vitest run` **1500 passed**（70 files）
+- frontend：`tsc --noEmit` 0 error；`vitest run` **1501 passed**（70 files；+1 FieldPage chip 帶等級）
 
 ## 6. 學到的事
 

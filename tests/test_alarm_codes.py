@@ -97,6 +97,13 @@ def test_unknown_code_handling() -> None:
         get_alarm(41)
 
 
+def test_empty_manual_fields_are_none_not_blank() -> None:
+    """手冊沒寫的欄位一律是 None（不混用空字串），並修掉 PDF 斷字。"""
+    for a in all_alarms():
+        assert a.cause != "" and a.rectification != ""
+    assert get_alarm(20).rectification == "Check parameter ranges, and re-configure"
+
+
 def test_most_events_have_manual_entry() -> None:
     alarms = all_alarms()
     with_manual = [a for a in alarms if a.manual_page is not None]
@@ -113,5 +120,8 @@ def test_catalog_matches_sources_when_build_deps_available() -> None:
         sys.path.insert(0, str(tools_dir))
     import build_z72_alarm_catalog as builder
 
-    catalog = builder.build_catalog(builder.read_xlsx_events(), builder.read_manual_events())
-    assert builder._render(catalog) == CATALOG_PATH.read_text(encoding="utf-8")
+    xlsx_events = builder.read_xlsx_events()
+    manual_events = builder.read_manual_events()
+    builder.validate_sources(xlsx_events, manual_events)
+    catalog = builder.build_catalog(xlsx_events, manual_events)
+    assert builder.render_catalog(catalog) == CATALOG_PATH.read_text(encoding="utf-8")
