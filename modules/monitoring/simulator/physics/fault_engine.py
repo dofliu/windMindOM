@@ -36,6 +36,8 @@ from enum import Enum
 from typing import Dict, List, Optional
 from datetime import datetime
 
+from ..time_utils import iso_utc, utc_now
+
 
 class FaultPhase(str, Enum):
     """Fault lifecycle phases visible in trend data."""
@@ -374,7 +376,7 @@ class FaultEngine:
             turbine_id=turbine_id,
             severity=initial_severity,
             severity_rate=severity_rate,
-            started_at=datetime.now(),
+            started_at=utc_now(),
         ))
         return True
 
@@ -459,7 +461,7 @@ class FaultEngine:
                 "tripped": fault.tripped,
                 "trip_code": fault.trip_code,
                 "active_alarms": fault.active_alarms,
-                "started_at": fault.started_at.isoformat() if fault.started_at else None,
+                "started_at": iso_utc(fault.started_at) if fault.started_at else None,
             })
         return statuses
 

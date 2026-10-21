@@ -13,9 +13,61 @@ except ImportError:
     # sys.path-injected import (when imported via `server.storage` per run.py)
     from sqlite_utils import open_sqlite  # type: ignore[no-redef]
 
+try:
+    # 套件模式（modules.monitoring.server.storage）
+    from ..simulator.time_utils import iso_utc, normalize_iso, parse_iso, utc_now
+except ImportError:
+    # sys.path 注入模式（server.storage；modules/monitoring 在 sys.path）
+    from simulator.time_utils import iso_utc, normalize_iso, parse_iso, utc_now  # type: ignore[no-redef]
+
 
 import os as _os
 DB_PATH = Path(_os.environ.get("DB_PATH", str(Path(__file__).parent.parent / "wind_farm_data.db")))
+
+# 時間戳 schema 版本（``PRAGMA user_version``）：1＝所有時間戳欄位都是 ``iso_utc`` 格式的 UTC
+# （WMOM-20261021-03-c）。0＝舊版，時間戳為 naive 伺服器本地時間，開檔時一次性轉換。
+TIMESTAMP_SCHEMA_VERSION = 1
+# 存時間戳的欄位（表, 欄）
+_TIMESTAMP_COLUMNS = (
+    ("turbine_data", "timestamp"),
+    ("turbine_data_1m", "timestamp"),
+    ("turbine_data_10m", "timestamp"),
+    ("turbine_snapshots", "timestamp"),
+    ("sessions", "started_at"),
+    ("sessions", "ended_at"),
+    ("history_events", "timestamp"),
+    ("history_events", "end_timestamp"),
+    ("work_orders", "created_at"),
+    ("work_orders", "completed_at"),
+)
+# sessions.config_json 內的時間戳鍵（情境的模擬時間窗）
+_SESSION_CONFIG_TIME_KEYS = ("sim_start", "sim_end")
+
+
+def _naive_ts_sql(column: str) -> str:
+    """SQL 條件：欄位是可解析、但沒有時區後綴的 naive 時間字串（舊版本地時間）。"""
+    return (
+        f"{column} IS NOT NULL AND {column} != '' "
+        f"AND substr({column}, -1) NOT IN ('Z', 'z') "
+        f"AND NOT (substr({column}, -6, 1) IN ('+', '-') AND substr({column}, -3, 1) = ':') "
+        f"AND strftime('%s', {column}) IS NOT NULL"
+    )
+
+
+def _local_to_utc_sql(column: str) -> str:
+    """SQL 運算式：naive 本地時間字串 → ``iso_utc`` 格式（SQLite 的 'utc' 修飾詞以本機時區換算；
+    ``%f`` 只到毫秒，補三個 0 成微秒位數）。"""
+    return f"strftime('%Y-%m-%dT%H:%M:%f', {column}, 'utc') || '000+00:00'"
+
+
+def _reading_timestamp(reading: dict) -> str:
+    """reading 的時間戳 → ``iso_utc`` 格式；缺值用現在時刻。"""
+    ts = reading.get('timestamp')
+    if isinstance(ts, datetime):
+        return iso_utc(ts)
+    if ts:
+        return normalize_iso(str(ts)) or iso_utc()
+    return iso_utc()
 
 
 class Storage:
@@ -233,7 +285,50 @@ class Storage:
         ])
 
         conn.commit()
+        self._migrate_timestamps_to_utc(conn)
         conn.close()
+
+    @staticmethod
+    def _migrate_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+        """舊 DB（naive 本地時間）→ UTC 時間戳，一次性（WMOM-20261021-03-c）。
+
+        只轉換沒有時區後綴的值，可重入：中途中斷時版本號不會更新，下次開檔接著轉剩下的列。
+        新建的空 DB 直接標成新版本。換算用本機時區（SQLite 'utc' 修飾詞 / Python ``astimezone``），
+        即假設 DB 在寫入它的同一時區被開啟。
+
+        Args:
+            conn: 已開啟的連線（本方法會 commit）。
+        """
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= TIMESTAMP_SCHEMA_VERSION:
+            return
+        converted = 0
+        for table, column in _TIMESTAMP_COLUMNS:
+            converted += conn.execute(
+                f"UPDATE {table} SET {column} = {_local_to_utc_sql(column)} WHERE {_naive_ts_sql(column)}"
+            ).rowcount
+        for row in conn.execute("SELECT id, config_json FROM sessions WHERE config_json IS NOT NULL").fetchall():
+            try:
+                cfg = json.loads(row[1])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            changed = False
+            for key in _SESSION_CONFIG_TIME_KEYS:
+                value = cfg.get(key)
+                if isinstance(value, str) and value:
+                    normalized = normalize_iso(value)
+                    if normalized != value:
+                        cfg[key] = normalized
+                        changed = True
+            if changed:
+                conn.execute("UPDATE sessions SET config_json = ? WHERE id = ?", (json.dumps(cfg), row[0]))
+                converted += 1
+        conn.execute(f"PRAGMA user_version = {TIMESTAMP_SCHEMA_VERSION}")
+        conn.commit()
+        if converted:
+            print(f"[Storage] 時間戳轉為 UTC：{converted} 個欄位值（舊版 naive 本地時間，WMOM-20261021-03-c）")
 
     def _migrate_columns(self, conn, table: str, columns: list):
         """Add missing columns to existing tables."""
@@ -257,7 +352,7 @@ class Storage:
                                   rated_power_kw, rotor_diameter_m, model_name, config_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            datetime.now().isoformat(),
+            iso_utc(),
             data_source,
             turbine_count,
             rated_power_kw,
@@ -272,7 +367,7 @@ class Storage:
         """Mark a session as ended."""
         conn = self._get_conn()
         conn.execute("UPDATE sessions SET ended_at = ? WHERE id = ?",
-                     (datetime.now().isoformat(), session_id))
+                     (iso_utc(), session_id))
         conn.commit()
 
     def get_sessions(self, limit: int = 20) -> List[dict]:
@@ -515,6 +610,7 @@ class Storage:
         query = ("SELECT turbine_id, COUNT(*) AS cnt FROM history_events "
                  "WHERE event_type = 'fault' AND turbine_id IS NOT NULL")
         params: list = []
+        start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND COALESCE(end_timestamp, timestamp) >= ?"
             params.append(start)
@@ -540,15 +636,18 @@ class Storage:
         timestamp: Optional[str] = None,
         end_timestamp: Optional[str] = None,
     ):
-        """Store a history event for chart markers and audit-style review."""
+        """Store a history event for chart markers and audit-style review.
+
+        ``timestamp`` / ``end_timestamp`` 正規化成 UTC（``iso_utc``）；``timestamp`` 缺值用現在時刻。
+        """
         conn = self._get_conn()
         conn.execute("""
             INSERT INTO history_events
             (timestamp, end_timestamp, turbine_id, event_type, source, title, detail, payload_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            timestamp or datetime.now().isoformat(),
-            end_timestamp,
+            normalize_iso(timestamp) if timestamp else iso_utc(),
+            normalize_iso(end_timestamp),
             turbine_id,
             event_type,
             source,
@@ -572,7 +671,7 @@ class Storage:
             SET end_timestamp = ?
             WHERE event_type = ? AND end_timestamp IS NULL
         """
-        params: list = [closed_at or datetime.now().isoformat(), event_type]
+        params: list = [normalize_iso(closed_at) if closed_at else iso_utc(), event_type]
         if source is not None:
             query += " AND source = ?"
             params.append(source)
@@ -609,7 +708,7 @@ class Storage:
              scada_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            str(reading.get('timestamp', datetime.now().isoformat())),
+            _reading_timestamp(reading),
             str(reading.get('turbine_id', '')),
             session_id,
             str(reading.get('operational_state', 'IDLE')),
@@ -671,7 +770,7 @@ class Storage:
              rotor_speed, scada_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            str(reading.get('timestamp', datetime.now().isoformat())),
+            _reading_timestamp(reading),
             str(reading.get('turbine_id', '')),
             session_id,
             event_ref,
@@ -703,10 +802,10 @@ class Storage:
         故不影響現況；日後若要對 1m/10m 做 session 隔離查詢，GROUP BY 需補 session_id。
         """
         conn = self._get_conn()
-        now = datetime.now()
+        now = utc_now()
 
         # ── Build 1-minute aggregates from raw data older than 5 minutes ──
-        cutoff_1m = (now - timedelta(minutes=5)).isoformat()
+        cutoff_1m = iso_utc(now - timedelta(minutes=5))
         # Find the latest 1m aggregate timestamp to avoid re-processing
         latest_1m = conn.execute(
             "SELECT MAX(timestamp) FROM turbine_data_1m"
@@ -736,7 +835,7 @@ class Storage:
         conn.commit()
 
         # ── Build 10-minute aggregates from 1-min data older than 15 minutes ──
-        cutoff_10m = (now - timedelta(minutes=15)).isoformat()
+        cutoff_10m = iso_utc(now - timedelta(minutes=15))
         latest_10m = conn.execute(
             "SELECT MAX(timestamp) FROM turbine_data_10m"
         ).fetchone()[0]
@@ -782,21 +881,21 @@ class Storage:
           設 0 = 不清（保留 legacy 行為，不建議）。
         """
         conn = self._get_conn()
-        now = datetime.now()
+        now = utc_now()
 
-        raw_cutoff = (now - timedelta(days=raw_retention_days)).isoformat()
+        raw_cutoff = iso_utc(now - timedelta(days=raw_retention_days))
         deleted_raw = conn.execute(
             "DELETE FROM turbine_data WHERE timestamp < ?", (raw_cutoff,)
         ).rowcount
 
-        agg_cutoff = (now - timedelta(days=agg_1m_retention_days)).isoformat()
+        agg_cutoff = iso_utc(now - timedelta(days=agg_1m_retention_days))
         deleted_1m = conn.execute(
             "DELETE FROM turbine_data_1m WHERE timestamp < ?", (agg_cutoff,)
         ).rowcount
 
         deleted_snapshots = 0
         if snapshots_retention_days > 0:
-            snap_cutoff = (now - timedelta(days=snapshots_retention_days)).isoformat()
+            snap_cutoff = iso_utc(now - timedelta(days=snapshots_retention_days))
             deleted_snapshots = conn.execute(
                 "DELETE FROM turbine_snapshots WHERE timestamp < ?", (snap_cutoff,)
             ).rowcount
@@ -852,6 +951,7 @@ class Storage:
         if session_id is not None:
             query += " AND session_id = ?"
             params.append(session_id)
+        start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND timestamp >= ?"
             params.append(start)
@@ -913,6 +1013,7 @@ class Storage:
         if turbine_id is None:
             query = "SELECT * FROM history_events WHERE 1=1"
             params = []
+        start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND COALESCE(end_timestamp, timestamp) >= ?"
             params.append(start)
@@ -960,6 +1061,7 @@ class Storage:
         if event_ref:
             query += " AND event_ref = ?"
             params.append(event_ref)
+        start, end = normalize_iso(start), normalize_iso(end)
         if start:
             query += " AND timestamp >= ?"
             params.append(start)
@@ -991,7 +1093,7 @@ class Storage:
         """Create a new work order and return it as a dict."""
         conn = self._get_conn()
         wo_id = f"WO-{int(_time.time() * 1000)}"
-        now = datetime.now().isoformat()
+        now = iso_utc()
         status = "IN_PROGRESS" if technician_id else "OPEN"
         conn.execute("""
             INSERT INTO work_orders
@@ -1042,7 +1144,7 @@ class Storage:
             params.append(kwargs["status"])
             if kwargs["status"] == "COMPLETED":
                 sets.append("completed_at = ?")
-                params.append(datetime.now().isoformat())
+                params.append(iso_utc())
         if "notes" in kwargs:
             sets.append("notes = ?")
             params.append(kwargs["notes"])
@@ -1071,7 +1173,7 @@ class Storage:
             "turbineName": d["turbine_name"],
             "technicianId": d.get("technician_id"),
             "status": d["status"],
-            "createdAt": int(datetime.fromisoformat(d["created_at"]).timestamp() * 1000)
+            "createdAt": int(parse_iso(d["created_at"]).timestamp() * 1000)
                 if d.get("created_at") else 0,
             "completedAt": d.get("completed_at"),
             "faultDescription": d["fault_description"],

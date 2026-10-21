@@ -13,14 +13,18 @@
 
 | Status | Count |
 |--------|------|
-| open | 14 |
-| in_progress | 2 |
+| open | 13 |
+| in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 130 |
+| done | 132 |
 | **total** | **148** |
 
-最後更新：2026-10-21 晚（**WMOM-20261021-03-b done**：PLC 保護層——警報 / 跳機改由製程訊號越過 `TurbineSpec` 真實設定值觸發
+最後更新：2026-10-21 深夜（**WMOM-20261021-03-c done → 母 issue -03 done**：monitoring 時間戳全面改 UTC tz-aware——新增
+`simulator/time_utils.py`（固定格式 `...ffffff+00:00`、naive 視為伺服器本地時間）、寫入一律 UTC、storage 邊界正規化查詢範圍、
+既有 DB 開檔一次性把 naive 本地時間轉 UTC（`PRAGMA user_version`）、風況日夜循環仍以本地時間計。逐條解析 header 核實：
+open 13 / in_progress 1 / deferred 2 / done 132 = 148。詳見 `work-logs/2026-10/2026-10-21-utc-timestamps.md`）。
+前次最後更新：2026-10-21 晚（**WMOM-20261021-03-b done**：PLC 保護層——警報 / 跳機改由製程訊號越過 `TurbineSpec` 真實設定值觸發
 （遲滯、延時、葉片三段、風向標 25 s 濾波、偏航煞車 / 穩定發電判定窗），T1 正常停機 / T2 緊急變槳，跳機鎖存 + 每小時
 重啟上限 + 復位（事件 008），物理層保護停機補事件碼，`FaultEngine` 改由 PLC 跳機轉 tripped 並以 `maintenance_lock` 取代每步
 緊急停機（修 7↔3）；新增 `WMOM-20261021-10`（切出風速改用平均風速，+1 筆）。逐條解析 header 核實：open 14 / in_progress 2 /
@@ -1272,7 +1276,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-03 — Phase 1b：警報與時間戳擬真（溫度門檻、狀態跳動、UTC）
 
-- **Status**: in_progress（2026-10-21 拆成 -03-a / -03-b / -03-c；-03-a、-03-b done，剩 -03-c）
+- **Status**: done（2026-10-21；拆成 -03-a / -03-b / -03-c，三段皆 done）
 - **Milestone**: EPIC-DS
 - **Priority**: high
 - **Estimate**: 3-4 天（原估 1-1.5 天；2026-10-21 實測發現多數故障物理碰不到真實門檻，需先校正）
@@ -1325,12 +1329,24 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-03-c — monitoring 時間戳改 UTC tz-aware
 
-- **Status**: open
+- **Status**: done（2026-10-21）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-21
 - **Description**: monitoring 全面使用 naive local `datetime.now()`；改為 UTC tz-aware（storage 寫入 / 讀取、事件、情境 sim time），knowledge `AlertEvent` 已要求 tz-aware。需處理既有 SQLite 資料的相容讀取。
+- **完成紀錄**:
+  - **新模組** `modules/monitoring/simulator/time_utils.py`：`utc_now` / `to_utc` / `iso_utc`（固定格式 `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`，字典序＝時間序）/ `parse_iso`（接受 `Z`、任意時區後綴，naive 視為伺服器本地時間）/ `normalize_iso` / `to_local_naive`
+  - **寫入一律 UTC**：模擬時間（Live、`generate_bulk`）、reading、事件、session、工單、OPC 即時讀值、故障 `started_at`、電網 profile 起點、farm registry；`examples/data_quality_analysis.py` 同步
+  - **storage 邊界正規化**：`record_event` / `close_open_events` / reading 與 snapshot 寫入、`query_history` / `query_events` / `query_snapshots` / `count_scenario_fault_events` 的 start/end——前端以 `toISOString()`（`Z`）送的範圍與 DB 一致
+  - **既有 DB 一次性轉換**：`PRAGMA user_version` 0 → 1，把 10 個時間戳欄位與情境 `config.sim_start/sim_end` 中沒有時區後綴的 naive 本地時間轉成 UTC（SQL `strftime(..., 'utc')`，可重入）；新建 DB 直接標新版本
+  - **日夜 / 季節循環不位移**：`wind_model.py` 各 getter 先把 UTC 轉回伺服器本地 naive 再取 hour / month（與改動前相同）
+  - **情境 tripped 重算**：`_parse_scenario_timestamp` 一律回 tz-aware，`as_of` 正規化，避免 naive / aware 混比 `TypeError`
+  - **前端**：`HistoryPage` 資料預覽表的時間欄原本直接印後端字串，改用 `toLocaleString()`（其餘時間顯示本來就經過 `new Date()`）
+  - **順帶修好的既有 bug**：前端以 UTC 送查詢範圍、DB 存本地時間，伺服器在 UTC+8 時歷史查詢窗偏 8 小時
+  - **測試**：`test_utc_timestamps.py`（7，時區相關的測試把程序時區設成 Asia/Taipei；mutation：拿掉 DB 轉換 / 查詢正規化 / 風況本地時間各 1 項失敗）、`HistoryPage.test.tsx` +1（mutation 驗證）；既有測試只改 `test_plc_event_recording.py` 的時間戳斷言
+  - 設計與已知限制見設計文件 §6.4
+- **未做**：日夜循環依伺服器本地時區、不是風場時區（需 farm 層級時區設定）；`farms.py` 匯出 zip 的檔名仍用本地時間（給人看的檔名）
 - **Depends on**: WMOM-20261021-03-a
 
 ### WMOM-20261021-04 — Phase 2：標準答案（ground truth）+ 情境路徑事件
@@ -1430,7 +1446,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 |---|---|---|---|
 | 0 | ~~WMOM-20261021-01~~ ✅ | 方向調整文件（DEC + 設計 + ROADMAP/STATUS/CLAUDE.md 同步） | 🔵 |
 | 1a | ~~WMOM-20261021-02~~ ✅ | Z72 真實警報目錄 + 11 故障情境改用真實碼 | 🔵 |
-| 1b | WMOM-20261021-03 | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → -03-c UTC 時間戳 | 🔵 |
+| 1b | ~~WMOM-20261021-03~~ ✅ | 拆三段：~~-03-a 故障物理校正~~ ✅ → ~~-03-b PLC 保護層（訊號觸發、T1/T2 停機、鎖存、修 7↔3）~~ ✅ → ~~-03-c UTC 時間戳~~ ✅ | 🔵 |
 | 1b+ | WMOM-20261021-10 | 切出風速改用 10 分鐘 / 5 秒平均（手冊 201）、正常停機 | 🔵 |
 | 2 | WMOM-20261021-04 | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | WMOM-20261021-05 | ① 情境資料包匯出（含 10-min stats） | 🔵 |

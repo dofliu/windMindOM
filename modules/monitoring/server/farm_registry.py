@@ -10,7 +10,7 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -138,7 +138,7 @@ class FarmRegistry:
         farm_dir = self._farms_dir / farm_id
         farm_dir.mkdir(parents=True, exist_ok=True)
 
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat(timespec="microseconds")  # UTC（WMOM-20261021-03-c）
         conn = self._get_conn()
         conn.execute("""
             INSERT INTO farms (farm_id, name, turbine_count,
@@ -247,7 +247,7 @@ class FarmRegistry:
         farm = self.get_farm(farm_id)
         if not farm:
             return False
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat(timespec="microseconds")  # UTC（WMOM-20261021-03-c）
         conn = self._get_conn()
         conn.execute("UPDATE farms SET is_active = 0 WHERE is_active = 1")
         conn.execute(

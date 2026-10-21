@@ -18,9 +18,10 @@ from typing import List, Optional
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
 from simulator.engine import WindFarmSimulator
 from simulator.physics.fault_engine import TEST_PLANS
+from simulator.time_utils import iso_utc, utc_now
 
 # ═══════════════════════════════════════════════════════════
 # Phase 1: 產生模擬資料
@@ -41,7 +42,7 @@ def generate_data(duration_hours=2.0, time_step=1.0, turbine_count=5):
     total_steps = int(duration_hours * 3600 / time_step)
     report_interval = max(1, total_steps // 20)
 
-    sim_time = datetime.now()
+    sim_time = utc_now()
 
     for step_i in range(total_steps):
         sim_time += timedelta(seconds=time_step)
@@ -76,7 +77,7 @@ def generate_data(duration_hours=2.0, time_step=1.0, turbine_count=5):
 
         for r in readings:
             row = {
-                "timestamp": sim_time.isoformat(),
+                "timestamp": iso_utc(sim_time),
                 "sim_seconds": sim_seconds,
                 "turbine_id": r["turbine_id"],
             }

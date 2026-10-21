@@ -253,6 +253,7 @@ async def export_farm(farm_id: str, body: dict = {}):
                 zf.writestr("events.json", json.dumps(events_list, indent=2, ensure_ascii=False))
 
     buf.seek(0)
+    # 下載檔名用伺服器本地時間（給人看的檔名，不是儲存 / 比較用的時間戳）
     filename = f"{farm_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     return StreamingResponse(
         buf,
@@ -338,7 +339,8 @@ async def generate_dataset(farm_id: str, body: dict):
     total_readings = 0
 
     from datetime import timedelta
-    sim_time = datetime.now()
+    from simulator.time_utils import utc_now
+    sim_time = utc_now()
 
     for i in range(total_steps):
         if not sim._running:

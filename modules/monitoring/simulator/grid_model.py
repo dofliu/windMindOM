@@ -3,6 +3,8 @@ from typing import Optional
 
 import numpy as np
 
+from simulator.time_utils import to_utc, utc_now
+
 
 class GridEnvironmentModel:
     """Simple grid-side environment model for frequency and voltage events."""
@@ -23,7 +25,7 @@ class GridEnvironmentModel:
         self._override_voltage = voltage_v
         self._active_profile = "manual" if frequency_hz is not None or voltage_v is not None else None
         if self._active_profile:
-            self._profile_start_time = datetime.now()
+            self._profile_start_time = utc_now()
 
     def clear_override(self):
         """Remove all manual overrides and return to auto mode."""
@@ -49,14 +51,14 @@ class GridEnvironmentModel:
             return
         if profile == "recovery":
             self._active_profile = profile
-            self._profile_start_time = datetime.now()
+            self._profile_start_time = utc_now()
             self._override_frequency = None
             self._override_voltage = None
             return
         if profile in profiles:
             freq, volt = profiles[profile]
             self._active_profile = profile
-            self._profile_start_time = datetime.now()
+            self._profile_start_time = utc_now()
             self._override_frequency = freq
             self._override_voltage = volt
 
@@ -72,7 +74,7 @@ class GridEnvironmentModel:
     def get_frequency(self, timestamp: datetime) -> float:
         """Compute current grid frequency (Hz) with profile and noise effects."""
         if self._active_profile == "recovery" and self._profile_start_time:
-            elapsed = (timestamp - self._profile_start_time).total_seconds()
+            elapsed = (to_utc(timestamp) - self._profile_start_time).total_seconds()
             base = (self.base_frequency_hz - 1.0) + min(1.0, elapsed / 120.0)
             return base + self._rng.normal(0, 0.03)
         if self._override_frequency is not None:
@@ -83,7 +85,7 @@ class GridEnvironmentModel:
         """Compute current grid voltage (V) with profile and noise effects."""
         nom = self.base_voltage_v
         if self._active_profile == "recovery" and self._profile_start_time:
-            elapsed = (timestamp - self._profile_start_time).total_seconds()
+            elapsed = (to_utc(timestamp) - self._profile_start_time).total_seconds()
             base = nom * 0.90 + min(nom * 0.10, elapsed / 120.0 * nom * 0.10)
             return base + self._rng.normal(0, nom * 0.001)
         if self._override_voltage is not None:

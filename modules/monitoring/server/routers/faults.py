@@ -11,6 +11,7 @@ from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server.models import FaultInjectionRequest, FaultClearRequest
 from simulator.physics.fault_engine import TEST_PLANS, TestPlanStep
+from simulator.time_utils import iso_utc
 
 router = APIRouter(prefix="/api/faults", tags=["faults"])
 
@@ -193,7 +194,7 @@ async def run_test_plan(plan_id: str, body: dict = {}):
             title=f"Test plan: {s.scenario_id} on {s.turbine_id}",
             turbine_id=s.turbine_id,
             detail=s.description,
-            timestamp=sim_time.isoformat(),
+            timestamp=iso_utc(sim_time),
             payload={
                 "plan_id": plan_id,
                 "scenarioId": s.scenario_id,

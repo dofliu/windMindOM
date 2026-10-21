@@ -792,7 +792,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ turbines, lang = 'zh' }) => {
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {String(row.timestamp)}
+                        {row._time ? new Date(Number(row._time)).toLocaleString() : String(row.timestamp)}
                       </td>
                       {activeTags.map(tag => (
                         <td

@@ -149,7 +149,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | 1a ✅ | WMOM-20261021-02 | **Z72 真實警報目錄**：xlsx 314 筆 → `shared/alarm_codes.py`（+ 手冊 Appendix C 原因/處置/重啟次數）；11 個故障情境改用真實碼（2026-10-21 done） |
 | 1b-a ✅ | WMOM-20261021-03-a | **故障物理校正**：各情境量測訊號在物理上能越過真實保護設定值（2026-10-21 done） |
 | 1b-b ✅ | WMOM-20261021-03-b | **PLC 保護層**：警報 / 跳機改由訊號觸發、T1/T2 停機、鎖存與重啟上限、修 7↔3 狀態跳動（2026-10-21 done） |
-| 1b-c | WMOM-20261021-03-c | **UTC tz-aware 時間戳** |
+| 1b-c ✅ | WMOM-20261021-03-c | **UTC tz-aware 時間戳**（2026-10-21 done） |
 | 2 | WMOM-20261021-04 | **標準答案 + 情境事件**：故障情境 metadata（根因/元件/預期警報序列/手冊條目/處置）；bulk 路徑產生事件；`history_events` 加 `session_id`；ground truth 落庫 |
 | 3a | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；修或移除 `farms.py` 壞端點 |
 | 3b | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道） |
@@ -266,6 +266,23 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 5. **`faults.py` 的 `run_test_plan` 不記錄 trip 事件**（不是情境 session），只有 `/api/config` 情境排程會記。
 6. **每小時計數在條件解除時判定**：手冊只寫「Max #/hr」，未說明是跳機當下或重啟當下計數；目前在解除（要重啟）時看最近一小時的跳機次數。
 7. **實測時點有約 ±1 分鐘的差異**：上表是同一程序依序跑 22 個情境的結果；前面情境的跳機時點會透過程序層級的共享狀態影響後面情境（例：converter_cooling_fault 0.8 單獨跑為 13.2 分、在序列中曾量到 12.8 分），屬量測條件差異，不是物理改變。
+
+### 6.4 Phase 1b-c UTC 時間戳（2026-10-21）
+
+**慣例**（`modules/monitoring/simulator/time_utils.py`）：
+
+- 內部一律 tz-aware UTC（`utc_now()`）；模擬時間（Live、`generate_bulk`）、事件、session、工單、OPC 即時讀值都是 UTC。
+- 落庫與 API 的字串格式固定為 `YYYY-MM-DDTHH:MM:SS.ffffff+00:00`（`iso_utc`）。SQLite 以字串字典序比較時間，長度與後綴一致才保證字典序＝時間序；不用 `Z`（`Z` 的字元碼大於 `.` 與數字，同一秒內順序會顛倒）。Pydantic 回應中的 `datetime` 欄位（`TurbineReading.timestamp`、`FarmStatus.timestamp`）序列化為 `...Z`，兩者都是 RFC 3339 UTC。
+- 外部傳入的時間字串（前端 `toISOString()` 的 `Z`、任意時區後綴）在 storage 邊界正規化；**naive 字串視為伺服器本地時間**——這是本次之前所有資料與舊 API 呼叫端的語意。
+- **既有 DB**：開檔時依 `PRAGMA user_version` 一次性把 naive 本地時間轉成 UTC（10 個時間戳欄位 + 情境 `config.sim_start/sim_end`），只轉沒有時區後綴的值、可重入；換算用本機時區，即假設 DB 在寫入它的同一時區被開啟。
+- **日夜 / 季節循環**（`wind_model.py`）仍以伺服器本地時間計：各 getter 先把 UTC 轉回本地 naive 再取 hour / month，換成 UTC 輸入後循環不位移。
+
+**順帶修好的既有 bug**：前端歷史查詢以 `toISOString()`（UTC）送範圍、DB 存本地時間，伺服器在 UTC+8 時查詢窗整整偏 8 小時；兩邊統一成 UTC 後正確。
+
+**已知限制**：
+
+1. 日夜循環依「伺服器本地時區」而非「風場所在時區」：同一情境在 UTC 的 CI 與 UTC+8 的開發機上，日夜相位差 8 小時。要固定成風場時區需要 farm 層級的時區設定（目前沒有）。
+2. 資料包（-05）的對外格式可再選 `Z` 後綴（合約 v0 的範例用 `Z`）；兩者等價，匯出時統一即可。
 
 ## 7. 不做的事
 
