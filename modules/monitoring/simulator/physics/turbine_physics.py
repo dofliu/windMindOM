@@ -209,6 +209,8 @@ class TurbineSpec:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+Z72_RATED_POWER_KW = TurbineSpec().rated_power_kw  # 熱模型與 PLC 設定值校準的機型
+
 TURBINE_PRESETS: Dict[str, TurbineSpec] = {
     # Default: Z72-2000-MV (Harakosan, direct-drive PMSG, 60Hz)
     "z72_2mw": TurbineSpec(),
@@ -234,6 +236,15 @@ TURBINE_PRESETS: Dict[str, TurbineSpec] = {
         grid_frequency_nominal=50.0,
     ),
 }
+
+
+def thermal_heat_scale(spec: TurbineSpec) -> float:
+    """熱模型的電氣發熱倍數：以 Z72 的額定功率正規化。
+
+    熱阻與 PLC 的溫度設定值都是 Z72（2 MW）的；其他機型（``TURBINE_PRESETS``）若照絕對 kW 發熱，健康機組
+    就會被 Z72 的溫度保護跳機（8 MW 約 5 分鐘）。冷卻系統依容量放大，故發熱 × Z72 額定 ÷ 本機額定。
+    """
+    return Z72_RATED_POWER_KW / spec.rated_power_kw if spec.rated_power_kw > 0 else 1.0
 
 
 class TurbinePhysicsModel:
@@ -329,7 +340,7 @@ class TurbinePhysicsModel:
             rated_speed=self.spec.rated_speed,
             gear_ratio=self.spec.gear_ratio,
         )
-        self.thermal = ThermalSystem()
+        self.thermal = ThermalSystem(heat_scale=thermal_heat_scale(self.spec))
         self.vibration = VibrationModel(seed=_seed)
         self.yaw = YawModel(seed=_seed)
 
@@ -437,6 +448,7 @@ class TurbinePhysicsModel:
     def update_spec(self, spec: TurbineSpec):
         """Update turbine specifications and rebuild sub-models."""
         self.spec = spec
+        self.thermal.heat_scale = thermal_heat_scale(spec)
         self.power_curve = PowerCurveModel(
             power_curve=spec.power_curve,
             rated_power_kw=spec.rated_power_kw,
@@ -1462,6 +1474,8 @@ class TurbinePhysicsModel:
         self.electrical.reset()
         self.plc.reset()
         self.maintenance_lock = False
+        # _sim_time 歸零：舊的啟動時間戳留著會讓「每小時重啟上限」一直成立（修好後數小時不能重啟）
+        self._restart_timestamps.clear()
 
     def _enter_state(self, state: int):
         self.tur_state = state

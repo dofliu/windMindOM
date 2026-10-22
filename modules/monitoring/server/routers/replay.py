@@ -22,20 +22,22 @@ import json
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from typing import Deque, Dict, List, Literal, MutableMapping, Optional, Tuple
+from typing import Annotated, Deque, Dict, List, Literal, MutableMapping, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from modules.auth.dependencies import Actor, require_roles
+from modules.auth.dependencies import Actor, is_auth_enforced, require_roles
 from modules.auth.roles import Role
 from server import replay as rp
 from server import scenario_pack as sp
+from server.routers.scenarios import SQLITE_INT_MAX, ScenarioId
 from server.storage import Storage
 from simulator.time_utils import iso_utc, parse_iso
 
 router = APIRouter(tags=["replay"])
+RunId = Annotated[int, PathParam(ge=1, le=SQLITE_INT_MAX)]  # 回放 id（同情境 id：超出 SQLite 整數範圍擋成 422）
 logger = logging.getLogger(__name__)
 
 # 每個回放目前開著的連線數（單一程序）。鍵含 DB 路徑：各風場 DB 的回放 id 各自從 1 起算
@@ -69,7 +71,7 @@ def _storage() -> Storage:
 
 
 @router.post("/api/scenarios/{scenario_id}/replay-runs", status_code=201)
-async def create_replay_run(scenario_id: int, body: ReplayRunCreate,
+async def create_replay_run(scenario_id: ScenarioId, body: ReplayRunCreate,
                             actor: Actor = Depends(require_roles(Role.SUPERVISOR))) -> JSONResponse:
     """建立回放並回傳 token（只回這一次；DB 只存 sha256）。
 
@@ -79,8 +81,15 @@ async def create_replay_run(scenario_id: int, body: ReplayRunCreate,
         actor: 建立者（主管）。
 
     Returns:
-        ``{"run", "token", "ws_path"}``（``Cache-Control: no-store``）。
+        ``{"run", "token", "ws_path"}``（``Cache-Control: no-store``）；伺服器沒有強制登入時另有 ``warning``。
+
+    Raises:
+        HTTPException: 409——正式評測但伺服器沒有強制登入（``WMOM_AUTH_ENFORCE``）、同情境已有另一種模式的回放、
+            未結束的正式評測加總超過伺服器上限；404 / 409 / 413——情境不能回放；422——參數超出範圍。
     """
+    enforced = is_auth_enforced()
+    if body.mode == "evaluation" and not enforced:
+        raise HTTPException(status_code=409, detail=rp.EVALUATION_NEEDS_AUTH)
     storage = _storage()
     try:
         run, token = await asyncio.to_thread(
@@ -94,13 +103,15 @@ async def create_replay_run(scenario_id: int, body: ReplayRunCreate,
     except ValueError as exc:  # 例：正式評測的速度超過伺服器能穩定送出的上限
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     view = await asyncio.to_thread(rp.run_view, storage, run)
-    return JSONResponse(status_code=201, content={"run": view, "token": token, "ws_path": "/ws/replay"},
-                        headers={"Cache-Control": "no-store"})
+    content: Dict[str, object] = {"run": view, "token": token, "ws_path": "/ws/replay"}
+    if not enforced:
+        content["warning"] = rp.PRACTICE_WITHOUT_AUTH
+    return JSONResponse(status_code=201, content=content, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/scenarios/{scenario_id}/replay-runs",
             dependencies=[Depends(require_roles(Role.SUPERVISOR))])
-async def list_replay_runs(scenario_id: int) -> dict:
+async def list_replay_runs(scenario_id: ScenarioId) -> dict:
     """列出情境的回放（新的在前，不含 token）。
 
     Args:
@@ -118,7 +129,7 @@ async def list_replay_runs(scenario_id: int) -> dict:
 
 
 @router.delete("/api/replay-runs/{run_id}", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
-async def revoke_replay_run(run_id: int) -> dict:
+async def revoke_replay_run(run_id: RunId) -> dict:
     """撤銷回放：之後不能再連線、送預測；開著的連線在 ``RUN_RECHECK_S`` 秒內以 4403 斷線。
 
     Args:
@@ -136,7 +147,9 @@ async def revoke_replay_run(run_id: int) -> dict:
 
 
 @router.get("/api/replay-runs/{run_id}/predictions", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
-async def download_replay_predictions(run_id: int, connection: Optional[int] = None) -> Response:
+async def download_replay_predictions(run_id: RunId,
+                                      connection: Annotated[Optional[int], Query(ge=1, le=SQLITE_INT_MAX)] = None,
+                                      ) -> Response:
     """受測端經 WS 送來的預測（``predictions.jsonl``；練習模式可用 ``connection`` 只取某次連線）。
 
     Args:
@@ -394,10 +407,14 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, sen
     """已佔到連線名額後：載入回放、決定時鐘（單次回放在這裡開始計時）。
 
     Raises:
-        ReplayError: 單次回放 / 練習的 OPC UA 播出已結束（4410）、情境不能回放（4404）、練習回放用
-            ``stream=false`` 但還沒以 OPC UA 播出（4412）。
+        ReplayError: 單次回放 / 練習的 OPC UA 播出已結束（4410）、情境不能回放（4404）、用 ``stream=false``
+            但還沒以 OPC UA 播出（4412；正式評測由 OPC UA server 開播，只收預測的連線不能搶先開始計時）。
     """
     run_id = int(run["id"])
+    if not send_data and not run["started_at"]:
+        if run["mode"] == "evaluation":
+            raise rp.ReplayError("正式評測以 OPC UA 播出：要等出題端啟動 tools/opcua_server.py 才開始", 4412)
+        raise rp.ReplayError("練習回放還沒有以 OPC UA 播出：stream=false 要先啟動 tools/opcua_server.py", 4412)
     if run["mode"] == "evaluation" and run["started_at"]:
         # 先用便宜的查詢擋掉已結束的單次回放，不必載入整個情境
         bounds = await asyncio.to_thread(storage.session_reading_bounds, int(run["scenario_id"]))
@@ -409,6 +426,9 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, sen
         replay = await asyncio.to_thread(rp.ScenarioReplay, storage, int(run["scenario_id"]))
     except sp.ScenarioPackError as exc:
         raise rp.ReplayError(f"情境不能回放：{exc}", 4404) from exc
+    # 開播訊息用到的說明與 tag 字典先算一次：算不出來時還沒開始計時，單次回放不會被這條失敗的連線用掉
+    replay.describe()
+    replay.tag_dictionary()
     now = rp.wall_time()
     if run["mode"] == "evaluation":
         started_at = await asyncio.to_thread(storage.start_replay_run, run_id,
@@ -418,8 +438,6 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, sen
             raise rp.ReplayError("單次回放已結束", 4410)
     elif not send_data:
         # 練習回放以 OPC UA 播出：時鐘用 OPC UA server 開播時記下的起點，預測的時間才對得上 OPC UA 的資料
-        if not run["started_at"]:
-            raise rp.ReplayError("練習回放還沒有以 OPC UA 播出：stream=false 要先啟動 tools/opcua_server.py", 4412)
         clock = rp.ReplayClock(replay.sim_start, float(run["speed"]), parse_iso(str(run["started_at"])).timestamp())
         if now > clock.wall_at(replay.sim_end) + rp.CLOSE_GRACE_S:
             raise rp.ReplayError("這次 OPC UA 播出已結束：重新啟動 OPC UA server 再練習", 4410)

@@ -42,6 +42,7 @@ JsonObject = Dict[str, object]
 
 NAMESPACE_URI = "urn:windmindom:z72sim"
 SLOTS = 21  # 事件碼陣列的長度（PLC 的 SINT16[21]）
+REFRESH_EVERY = 30  # 每讀幾次重新瀏覽一次機組站號（即時模擬換風場時會多出新的機組）
 LISTS: Dict[str, str] = {"A": "Z72PLC__ActiveAlarm", "T1": "Z72PLC__ActiveTrip1", "T2": "Z72PLC__ActiveTrip2"}
 WATCH: Dict[str, str] = {
     "state": "WTUR.Z72PLC__UI_Loc_WTUR_State_TurSt",
@@ -107,13 +108,31 @@ class Watcher:
 
     def __init__(self, client: Client, idx: int, stations: Sequence[str]) -> None:
         self._client = client
-        self.stations = list(stations)
+        self._idx = idx
         self._status = [node(client, idx, f"WindMindOM.{name}") for name in ("Status", "SimTime")]
+        self.stations: List[str] = []
         self._nodes: List[Node] = []
+        self._use(stations)
+
+    def _use(self, stations: Sequence[str]) -> None:
+        self.stations = list(stations)
+        self._nodes = []
         for station in self.stations:
-            self._nodes += [node(client, idx, f"Z72.{station}.{tag}") for tag in WATCH.values()]
-            self._nodes += [node(client, idx, f"Z72.{station}.{tag}[{i}]")
+            self._nodes += [node(self._client, self._idx, f"Z72.{station}.{tag}") for tag in WATCH.values()]
+            self._nodes += [node(self._client, self._idx, f"Z72.{station}.{tag}[{i}]")
                             for tag in LISTS.values() for i in range(SLOTS)]
+
+    async def refresh(self) -> bool:
+        """重新瀏覽機組站號（即時模擬的機組節點在第一筆讀值才建立；換風場會多出新的機組）。
+
+        Returns:
+            站號是否有變。
+        """
+        stations = await list_stations(self._client, self._idx)
+        if stations == self.stations:
+            return False
+        self._use(stations)
+        return True
 
     async def read(self) -> Snapshot:
         """讀一次。
@@ -151,9 +170,13 @@ async def connect_opcua(client: Client) -> Tuple[int, Dict[str, object], List[st
     status: Dict[str, object] = {}
     for name in ("Source", "Status", "SimTime", "PackId", "Mode", "Speed"):
         status[name] = await node(client, idx, f"WindMindOM.{name}").read_value()
+    return idx, status, await list_stations(client, idx)
+
+
+async def list_stations(client: Client, idx: int) -> List[str]:
+    """``Objects/Z72`` 底下的機組站號（``H01`` …，排序）。"""
     z72 = await client.nodes.objects.get_child([f"{idx}:Z72"])
-    stations = sorted([str((await child.read_browse_name()).Name) for child in await z72.get_children()])
-    return idx, status, stations
+    return sorted([str((await child.read_browse_name()).Name) for child in await z72.get_children()])
 
 
 def _turbine_for(station: str, turbines: Sequence[str]) -> str:
@@ -194,8 +217,16 @@ async def _watch(watcher: Watcher, summary: Summary, ws: Optional[ClientConnecti
     assistant = BaselineAssistant()
     previous: Dict[str, Dict[str, List[int]]] = {}
     sent = polls = 0
+    waiting_noted = False
     while not done.is_set() and (max_polls is None or polls < max_polls):
         try:
+            # 還沒有機組（即時模擬剛開、還沒選資料來源）時每次都重新瀏覽；之後每 REFRESH_EVERY 次看有沒有新機組
+            if not watcher.stations or (polls and polls % REFRESH_EVERY == 0):
+                if await watcher.refresh():
+                    print(f"機組：{', '.join(watcher.stations) or '-'}")
+                elif not watcher.stations and not waiting_noted:
+                    print("等待機組節點…（即時模擬：主程式選了資料來源、開始產生讀值後才會出現）")
+                    waiting_noted = True
             snapshot = await watcher.read()
         except OPC_ERRORS:
             if done.is_set():  # 回放已結束、OPC UA server 也剛好關了

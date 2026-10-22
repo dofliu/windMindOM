@@ -1,9 +1,12 @@
+import asyncio
 from datetime import datetime
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, HTTPException, Depends
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server import batch_state
+from server.batch_state import reject_during_batch
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
 from simulator.bulk_events import BulkEvent
 from simulator.ground_truth import GroundTruthRecorder
@@ -105,7 +108,7 @@ async def get_config():
 @router.post(
     "/datasource",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_datasource(config: DataSourceConfig):
     """Switch data source mode (simulation / opc_da)."""
@@ -117,7 +120,7 @@ async def set_datasource(config: DataSourceConfig):
 @router.post(
     "/simulation",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_simulation(config: SimulationConfig):
     """Update simulation parameters. Only restarts if turbine count changed."""
@@ -181,7 +184,7 @@ async def get_wind_status():
 @router.post(
     "/wind",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_wind(req: WindOverrideRequest):
     """Set wind conditions manually, or activate a profile.
@@ -217,7 +220,7 @@ async def set_wind(req: WindOverrideRequest):
 @router.post(
     "/wind/clear",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def clear_wind():
     """Return to automatic daily pattern wind model."""
@@ -252,7 +255,7 @@ async def get_time_scale():
 @router.post(
     "/simulation/time-scale",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_time_scale(body: dict):
     """Set simulation time acceleration factor.
@@ -277,6 +280,15 @@ async def set_time_scale(body: dict):
     dependencies=[Depends(require_role(Role.SUPERVISOR))],
 )
 async def generate_bulk(body: dict):
+    """Generate bulk historical data at maximum speed（背景執行緒，見 ``_generate_bulk``）。
+
+    批次在背景執行緒跑，不卡 event loop：生成期間 WS 回放、OPC UA、查詢照常運作；同時只允許一個批次，
+    生成期間會改到模擬器的請求回 409（``server.batch_state``，WMOM-20261022-01、DEC-20261022-05）。
+    """
+    return await asyncio.to_thread(_generate_bulk, body)
+
+
+def _generate_bulk(body: dict) -> dict:
     """Generate bulk historical data at maximum speed.
 
     Parameters:
@@ -285,9 +297,12 @@ async def generate_bulk(body: dict):
       fault_schedule: 選填。Scenario 模式的故障排程（DEC-20260718-01）。每筆
         ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?}``
         於指定 sim-time 注入，讓批次資料集包含該故障的發展（見 ``_parse_fault_schedule``）。
+      wind_profile: 選填。風況標籤（風況本身以 ``POST /api/config/wind`` 套用）；情境另記生成時實際套用的
+        profile（``wind_profile_applied``），資料包 / 回放輸出的是後者。
+      name: 選填。情境名稱（存成可調閱的專屬情境 session）。
 
     The data is written to SQLite via the normal storage pipeline.
-    This runs synchronously and may take minutes for large durations.
+    This runs in a worker thread and may take minutes for large durations.
 
     本呼叫與 Live 背景迴圈共用同一個 simulator instance，故批次全程以
     ``DataBroker.pause_live_for_batch()`` **暫停 Live 自由跑迴圈**（結束後恢復）。否則
@@ -298,6 +313,12 @@ async def generate_bulk(body: dict):
     確保無第二個 writer。資料落地另以專屬 ``session_id`` 隔離（見 ``name`` 參數）。
     註：姊妹端點 ``faults.py::run_test_plan`` 亦共用 ``pause_live_for_batch``。
     """
+    with batch_state.batch_slot("產生情境"):
+        return _generate_bulk_in_slot(body)
+
+
+def _generate_bulk_in_slot(body: dict) -> dict:
+    """``_generate_bulk`` 佔到批次位子後的本體。"""
     b = get_broker()
     if not b.simulator:
         raise HTTPException(400, "Simulator not running")
@@ -317,7 +338,11 @@ async def generate_bulk(body: dict):
     # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
     scenario_name = body.get("name")
     scenario_name = scenario_name.strip() if isinstance(scenario_name, str) else ""
+    # 風況 profile 只是標籤（前端先以 POST /api/config/wind 套用再帶同名）；資料包 / 回放輸出的是生成時實際套用的
+    # profile（wind_profile_applied），標籤與實際不符時不會寫錯。非字串會讓資料包 / 回放讀不出，擋下
     wind_profile = body.get("wind_profile")
+    if wind_profile is not None and not isinstance(wind_profile, str):
+        raise HTTPException(400, "wind_profile 必須是風況 profile 名稱（字串）")
 
     if scenario_name:
         # 把當下機型的額定功率釘進情境 session——情境是凍結資料集，容量因數的分母應反映「生成當時的
@@ -336,6 +361,8 @@ async def generate_bulk(body: dict):
                 "kind": b.storage.SCENARIO_KIND,
                 "name": scenario_name,
                 "wind_profile": wind_profile,
+                # 生成時實際套用的風況（手動風速 / 自動為 manual / auto）：資料包 / 回放輸出這個，不信標籤
+                "wind_profile_applied": b.simulator.wind_model.get_status()["profile"] or "auto",
                 # 日夜 / 季節循環所用的風場時區：情境可重現的必要資訊（WMOM-20261021-11）
                 "site_timezone": b.simulator.wind_model.site_timezone_name,
                 # 本情境的事件帶 session_id（WMOM-20261021-04）：調閱 / 摘要以 session 隔離，
@@ -446,8 +473,8 @@ async def generate_bulk(body: dict):
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
             # 命名情境即使沒有排程也要清（WMOM-20261021-04 code review）：否則 Live 殘留的故障會出現在
-            # 資料裡，標準答案卻把那台機組列為健康
-            sim.fault_engine.clear()
+            # 資料裡，標準答案卻把那台機組列為健康；Live 殘留的 PLC 狀態同理（WMOM-20261022-01）
+            sim.start_clean_scenario()
         try:
             total = sim.generate_bulk(
                 duration_hours=duration,
@@ -516,7 +543,7 @@ async def get_grid_status():
 @router.post(
     "/grid",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_grid(req: GridOverrideRequest):
     """Apply grid profile or manual frequency/voltage override."""
@@ -543,7 +570,7 @@ async def set_grid(req: GridOverrideRequest):
 @router.post(
     "/grid/clear",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def clear_grid():
     """Clear grid overrides and return to auto mode."""
@@ -597,7 +624,7 @@ async def list_sessions():
 @router.post(
     "/storage/maintenance",
     # WMOM-20260716-05h-2：儲存清理＝系統管理員（破壞性）
-    dependencies=[Depends(require_role(Role.ADMIN))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.ADMIN))],
 )
 async def run_maintenance():
     """Manually trigger downsampling and cleanup."""
@@ -632,7 +659,7 @@ async def get_turbine_spec():
 @router.post(
     "/turbine-spec",
     # WMOM-20260716-05h-2：設定變更＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_turbine_spec(spec_dict: dict):
     """Update turbine specifications for all turbines.

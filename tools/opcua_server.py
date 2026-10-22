@@ -35,6 +35,7 @@ for _path in (REPO_ROOT, MONITORING_ROOT):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from modules.auth.dependencies import is_auth_enforced  # noqa: E402
 from server import opcua_server as ou  # noqa: E402
 from server import replay as rp  # noqa: E402
 from server.scenario_pack import ScenarioPackError  # noqa: E402
@@ -130,10 +131,13 @@ async def serve(storage: Storage, run_id: int, host: str, port: int, exit_when_f
         exit code（0 播完、1 回放被撤銷 / 到期 / 刪除）。
 
     Raises:
-        ValueError: 回放不能播。
+        ValueError: 回放不能播（含：正式評測但沒有強制登入，``WMOM_AUTH_ENFORCE``）。
         OSError: 埠被占用等，server 起不來。
     """
     run, replay = load_run(storage, run_id)
+    # 伺服器是否強制登入看環境變數：與主程式用同一套設定（DEC-20261022-05）
+    if run["mode"] == "evaluation" and not is_auth_enforced():
+        raise ValueError(rp.EVALUATION_NEEDS_AUTH)
     server = ou.Z72OpcUaServer(host=host, port=port)
     await server.start(turbines=replay.turbines)
     try:

@@ -28,20 +28,25 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Annotated, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
+from server.batch_state import reject_during_batch
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
 from server.storage import Storage, is_observable_event
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.time_utils import parse_iso, to_utc, utc_now
+
+# 路徑上的情境 id：超出 SQLite 整數範圍會在綁參數時出錯（500）；先在 FastAPI 驗證擋成 422
+SQLITE_INT_MAX = 2**63 - 1
+ScenarioId = Annotated[int, PathParam(ge=1, le=SQLITE_INT_MAX)]
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 logger = logging.getLogger(__name__)
@@ -268,7 +273,7 @@ def _build_farm_summary(turbines: List[ScenarioTurbineSummary],
     # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
-async def list_scenarios(limit: int = 50):
+async def list_scenarios(limit: Annotated[int, Query(ge=1, le=1000)] = 50):
     """列出已保存情境（config_json.kind == "scenario"），最新在前。"""
     b = get_broker()
     return {"scenarios": b.storage.list_scenarios(limit=limit)}
@@ -299,6 +304,8 @@ def _parse_compare_ids(ids: str) -> List[int]:
         parsed = [int(part) for part in raw_parts]
     except ValueError:
         raise HTTPException(400, "ids 必須是以逗號分隔的整數情境 id，例如 ids=3,7,12")
+    if any(not 1 <= value <= SQLITE_INT_MAX for value in parsed):
+        raise HTTPException(400, "ids 的情境 id 超出範圍")
 
     deduped: List[int] = []
     seen = set()
@@ -347,7 +354,7 @@ async def compare_scenarios(ids: str) -> ScenarioCompareResponse:
     # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario(scenario_id: int):
+async def get_scenario(scenario_id: ScenarioId):
     """回傳單一情境的詮釋資料（名稱/風況/時長/故障排程/統計/時間窗）。"""
     b = get_broker()
     sc = b.storage.get_scenario(scenario_id)
@@ -426,7 +433,7 @@ async def _load_scenario_summary(scenario_id: int) -> ScenarioSummary:
     # 檢視＝任何登入者（比照 list/get scenario）
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario_summary(scenario_id: int) -> ScenarioSummary:
+async def get_scenario_summary(scenario_id: ScenarioId) -> ScenarioSummary:
     """情境物理摘要（單一情境）。實作見 ``_load_scenario_summary``（與 ``compare_scenarios`` 共用）。"""
     return await _load_scenario_summary(scenario_id)
 
@@ -664,7 +671,7 @@ def _aggregate_scenario_farm_status(turbines: List[TurbineReading]) -> FarmStatu
     # 檢視＝任何登入者（比照 /api/turbines 與其餘情境檢視端點）
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario_turbines(scenario_id: int) -> List[TurbineReading]:
+async def get_scenario_turbines(scenario_id: ScenarioId) -> List[TurbineReading]:
     """該情境每台機組的最後一筆讀數（PR C Phase 1 情境掛載：FarmOverview/TurbineDetail 唯讀顯示用）。
 
     格式對齊即時 ``GET /api/turbines``，讓前端掛載模式下可重用同一批畫面元件；資料本身是凍結快照
@@ -683,7 +690,7 @@ async def get_scenario_turbines(scenario_id: int) -> List[TurbineReading]:
     # 檢視＝任何登入者（比照 /api/turbines/farm-status 與其餘情境檢視端點）
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario_farm_status(scenario_id: int) -> FarmStatus:
+async def get_scenario_farm_status(scenario_id: ScenarioId) -> FarmStatus:
     """該情境的風場層 KPI（PR C Phase 1 情境掛載：FarmOverview 唯讀顯示用）。格式對齊即時
     ``GET /api/turbines/farm-status``。"""
     b = get_broker()
@@ -699,13 +706,15 @@ async def get_scenario_farm_status(scenario_id: int) -> FarmStatus:
     # 檢視＝任何登入者
     dependencies=[Depends(require_authenticated())],
 )
-async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit: int = 2000,
+async def get_scenario_turbine_history(scenario_id: ScenarioId, turbine_id: str,
+                                       limit: Annotated[int, Query(ge=1, le=100_000)] = 2000,
                                        observable_only: bool = False):
     """調閱某情境某機組的資料——只回該情境 session 的 turbine_data（與 Live/歷史隔離）。
 
     另附該情境的事件（PLC 警報 / 跳機、狀態轉換、故障注入標記），供時間軸標記。注入 / 跳機標記
     寫明故障（出題者 / 操作端看的）；``observable_only=true`` 只回可觀測事件（PLC 事件與狀態轉換，
-    ``storage.is_observable_event``），給盲測的外部消費端用。
+    ``storage.is_observable_event``），格式同資料包的 ``events.jsonl``（合約 §4：不含製程值、設定值與內部停機原因）。
+    讀值是系統內部的完整 SCADA（含模型內部量）：給受測端的資料一律走資料包 / 回放，不用這個端點。
 
     WMOM-20261021-04 之後的情境事件以 ``session_id`` 隔離（``events_by_time_window`` 為 False）。
     更早的情境沒有 session 隔離的事件，只能靠 ``sim_start..sim_end`` 時間窗撈取：短時間內連續
@@ -730,7 +739,10 @@ async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit:
             if start and end else []
         )
     if observable_only:
-        events = [e for e in events if is_observable_event(e)]
+        from server.scenario_pack import pack_event
+
+        observable = (pack_event(e) for e in events if is_observable_event(e))
+        events = [e for e in observable if e is not None]
     return {
         "scenario_id": scenario_id,
         "turbine_id": turbine_id,
@@ -746,7 +758,7 @@ async def get_scenario_turbine_history(scenario_id: int, turbine_id: str, limit:
     # require_role 在 WMOM_AUTH_ENFORCE 未開（預設）時放行，答案卷不能預設公開（code review）
     dependencies=[Depends(require_roles(Role.SUPERVISOR))],
 )
-async def get_scenario_ground_truth(scenario_id: int) -> dict:
+async def get_scenario_ground_truth(scenario_id: ScenarioId) -> dict:
     """情境的標準答案（設計文件 §5.1 ``ground_truth.json``，介面合約 v0.1；WMOM-20261021-04）。
 
     與可觀測的讀值 / 事件分開存放：每個故障注入一個 case（根因、元件、預期警報序列、手冊條目、
@@ -765,9 +777,9 @@ async def get_scenario_ground_truth(scenario_id: int) -> dict:
     "/{scenario_id}",
     # 刪除情境＝系統管理員（不可逆、會清 5 張表的資料列）——對齊 farms/config/modbus
     # 破壞性端點的既定慣例（皆 ADMIN）。
-    dependencies=[Depends(require_role(Role.ADMIN))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.ADMIN))],
 )
-async def delete_scenario(scenario_id: int, force: bool = False):
+async def delete_scenario(scenario_id: ScenarioId, force: bool = False):
     """刪除情境 session 及其所有資料列；非情境 session 不受影響（回 404）。
 
     情境的 WebSocket 回放收過受測端的預測（評測結果，WMOM-20261021-06）時，預設拒絕（409）：
@@ -876,7 +888,7 @@ async def _pack_response(scenario_id: int, include_ground_truth: bool) -> FileRe
     # 盲測版（不含答案）＝任何登入者，比照情境調閱
     dependencies=[Depends(require_authenticated())],
 )
-async def download_scenario_pack(scenario_id: int) -> FileResponse:
+async def download_scenario_pack(scenario_id: ScenarioId) -> FileResponse:
     """情境資料包 zip（設計文件 §5.1，盲測版：不含 ``ground_truth.json``）。
 
     內容：manifest、tag 字典、警報目錄、raw / 10 分鐘統計 Parquet、可觀測事件。這是出題者下載後
@@ -894,6 +906,6 @@ async def download_scenario_pack(scenario_id: int) -> FileResponse:
     # 評分端版（含答案）＝主管，比照 ground-truth 端點用永遠強制的 require_roles
     dependencies=[Depends(require_roles(Role.SUPERVISOR))],
 )
-async def download_scenario_pack_full(scenario_id: int) -> FileResponse:
+async def download_scenario_pack_full(scenario_id: ScenarioId) -> FileResponse:
     """情境資料包 zip（評分端版：另含 ``ground_truth.json``）。"""
     return await _pack_response(scenario_id, include_ground_truth=True)

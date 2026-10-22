@@ -94,6 +94,10 @@ def scenario_answer(scenario: FaultScenario) -> Dict[str, JsonValue]:
         ``manual_refs``、``expected_actions`` 等欄位。
     """
     refs = manual_refs(a["code"] for a in scenario.alarm_codes)
+    refs_json: List[JsonValue] = list(refs)
+    sequence: List[JsonValue] = [
+        {"code": a["code"], "level": a["type"], "text": a["desc"]} for a in scenario.alarm_codes
+    ]
     return {
         "category": scenario.category,
         "origin": scenario.origin,
@@ -105,10 +109,8 @@ def scenario_answer(scenario: FaultScenario) -> Dict[str, JsonValue]:
         "root_cause": scenario.root_cause_zh,
         "root_cause_en": scenario.root_cause_en,
         "expected_alarm_codes": [a["code"] for a in scenario.alarm_codes],
-        "expected_alarm_sequence": [
-            {"code": a["code"], "level": a["type"], "text": a["desc"]} for a in scenario.alarm_codes
-        ],
-        "manual_refs": refs,
+        "expected_alarm_sequence": sequence,
+        "manual_refs": refs_json,
         "manual_coverage": manual_coverage(refs),
         "expected_actions": list(scenario.expected_actions_zh),
         "expected_actions_en": list(scenario.expected_actions_en),

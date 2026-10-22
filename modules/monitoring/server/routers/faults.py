@@ -3,12 +3,15 @@
 Includes test plan system for automated fault sequences.
 """
 
+import asyncio
 from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server import batch_state
+from server.batch_state import reject_during_batch
 from server.models import FaultInjectionRequest, FaultClearRequest
 from simulator.bulk_events import BulkEvent
 from simulator.physics.fault_engine import TEST_PLANS, TestPlanStep
@@ -52,7 +55,7 @@ async def list_scenarios():
 @router.post(
     "/inject",
     # WMOM-20260716-05h-2：故障注入＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def inject_fault(req: FaultInjectionRequest):
     """Inject a fault into a specific turbine."""
@@ -102,7 +105,7 @@ async def get_active_faults():
 @router.post(
     "/clear",
     # WMOM-20260716-05h-2：清除故障＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def clear_faults(req: FaultClearRequest):
     """Clear faults. Omit both fields to clear all."""
@@ -165,10 +168,21 @@ async def run_test_plan(plan_id: str, body: dict = {}):
 
     This generates the full duration of simulated data with faults injected
     at their scheduled offsets. Data is written to SQLite.
+    批次在背景執行緒跑、同時只允許一個批次（同 ``config.generate_bulk``，``server.batch_state``）。
 
     Options:
       time_step: physics step in seconds (default 10)
     """
+    return await asyncio.to_thread(_run_test_plan, plan_id, body)
+
+
+def _run_test_plan(plan_id: str, body: dict) -> dict:
+    """``run_test_plan`` 在背景執行緒的本體（佔住唯一的批次位子）。"""
+    with batch_state.batch_slot("執行測試計畫"):
+        return _run_test_plan_in_slot(plan_id, body)
+
+
+def _run_test_plan_in_slot(plan_id: str, body: dict) -> dict:
     b = get_broker()
     if not b.simulator:
         raise HTTPException(400, "Simulator not running")
@@ -233,7 +247,7 @@ async def run_test_plan(plan_id: str, body: dict = {}):
     with b.pause_live_for_batch():
         # Clear any existing faults for a clean plan run（挪到停 Live 之後，避免與 Live 的
         # fault_engine.step() 併發動同一組非 lock 保護的物理狀態）。
-        b.simulator.fault_engine.clear()
+        b.simulator.start_clean_scenario()  # 含 Live 殘留的 PLC 狀態（WMOM-20261022-01）
         # Delegate to the shared scheduled-injection primitive (WMOM-20260718-03).
         total_readings = b.simulator.generate_bulk(
             duration_hours=duration,

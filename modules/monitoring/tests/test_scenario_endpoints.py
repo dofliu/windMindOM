@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -944,10 +945,80 @@ def test_named_scenario_without_schedule_starts_from_a_clean_fault_state(broker)
 
 
 def test_scenario_history_can_return_only_observable_events(broker):
-    """給盲測的外部消費端：observable_only 拿掉寫明故障的注入 / 跳機標記。"""
+    """observable_only：拿掉寫明故障的注入 / 跳機標記，其餘轉成資料包的事件格式（不含製程值 / 設定值 / 內部停機原因）。"""
+    from server.scenario_pack import EVENT_KEYS
+
     sid = _overspeed_scenario(broker)
     full = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))["events"]
     blind = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000, observable_only=True))["events"]
     assert any(e["source"] == "scenario" for e in full)
-    assert blind and all(is_observable_event(e) for e in blind)
-    assert {e["source"] for e in blind} == {"plc", "simulator"}
+    observable = [e for e in full if is_observable_event(e)]
+    assert blind and len(blind) == len(observable)
+    assert all(tuple(e) == EVENT_KEYS for e in blind), "只有合約 §4 的欄位"
+    assert {e["event_type"] for e in blind} >= {"trip", "state_change"}
+    text = json.dumps(blind)
+    assert "setpoint" not in text and "shutdownCause" not in text and "overspeed_software" not in text
+
+
+def test_bulk_generation_runs_off_the_event_loop_one_at_a_time(broker):
+    """批次在背景執行緒跑：event loop 照常運作；同時只能一個批次；批次期間改模擬器的請求回 409。"""
+    from server import batch_state
+
+    async def main() -> tuple:
+        ticks = 0
+        gaps: list = []
+
+        async def ticker() -> None:
+            nonlocal ticks
+            last = time.monotonic()
+            while True:
+                await asyncio.sleep(0.01)
+                now = time.monotonic()
+                gaps.append(now - last)
+                last = now
+                ticks += 1
+
+        tick_task = asyncio.create_task(ticker())
+        first = asyncio.create_task(config_ep.generate_bulk({"duration_hours": 1.0, "time_step": 10.0, "name": "批次A"}))
+        while batch_state.running() is None and not first.done():
+            await asyncio.sleep(0.01)
+        assert batch_state.running() == "產生情境"
+        with pytest.raises(HTTPException) as second:
+            await config_ep.generate_bulk({"duration_hours": 0.05, "time_step": 10.0, "name": "批次B"})
+        with pytest.raises(HTTPException) as mutate:
+            batch_state.reject_during_batch()
+        result = await first
+        tick_task.cancel()
+        return result, second.value.status_code, mutate.value.status_code, max(gaps), ticks
+
+    result, second, mutate, max_gap, ticks = asyncio.run(main())
+    assert result["status"] == "ok" and second == 409 and mutate == 409
+    assert ticks > 10 and max_gap < 1.0, f"生成期間 event loop 不能被卡住（最大間隔 {max_gap:.2f} s）"
+    assert batch_state.running() is None
+    batch_state.reject_during_batch()  # 批次結束後放行
+
+
+def test_simulator_changing_routes_are_guarded_during_batches() -> None:
+    """會改到模擬器的路由都掛 reject_during_batch（新增這類路由時要一起加）。"""
+    from server.batch_state import reject_during_batch
+    from server.routers import control as control_ep
+    from server.routers import farms as farms_ep
+    from server.routers import faults as faults_ep
+    from server.routers import source as source_ep
+
+    guarded = {
+        (method, route.path)
+        for module in (config_ep, control_ep, farms_ep, faults_ep, scenarios_ep, source_ep)
+        for route in module.router.routes
+        for method in getattr(route, "methods", set())
+        if any(dep.dependency is reject_during_batch for dep in getattr(route, "dependencies", []))
+    }
+    expected = {
+        ("POST", "/api/config/datasource"), ("POST", "/api/config/simulation"), ("POST", "/api/config/wind"),
+        ("POST", "/api/config/wind/clear"), ("POST", "/api/config/simulation/time-scale"),
+        ("POST", "/api/config/grid"), ("POST", "/api/config/grid/clear"), ("POST", "/api/config/storage/maintenance"),
+        ("POST", "/api/config/turbine-spec"), ("POST", "/api/control/command"), ("POST", "/api/control/curtail"),
+        ("POST", "/api/farms/{farm_id}/activate"), ("POST", "/api/faults/inject"), ("POST", "/api/faults/clear"),
+        ("DELETE", "/api/scenarios/{scenario_id}"), ("POST", "/api/source/select"),
+    }
+    assert guarded == expected

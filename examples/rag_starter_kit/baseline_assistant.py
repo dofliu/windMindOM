@@ -85,7 +85,7 @@ def read_events(pack_dir: Path) -> Tuple[str, List[Dict[str, object]]]:
         ``(pack_id, 事件)``。
     """
     manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
-    lines = (pack_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    lines = (pack_dir / "events.jsonl").read_text(encoding="utf-8").split("\n")
     return str(manifest["pack_id"]), [json.loads(line) for line in lines if line.strip()]
 
 

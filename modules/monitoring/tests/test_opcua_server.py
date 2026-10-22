@@ -18,6 +18,7 @@ import asyncio
 import logging
 import secrets
 import socket
+import sqlite3
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -311,7 +312,9 @@ def test_replay_feeder_stops_when_the_run_is_revoked(generated: Dict[str, object
 
     async def check_run() -> Optional[str]:
         calls.append(1)
-        return "revoked" if len(calls) >= 2 else None
+        if len(calls) == 2:  # DB 暫時鎖住：記錄、下一輪再查，播出不中斷
+            raise sqlite3.OperationalError("database is locked")
+        return "revoked" if len(calls) >= 3 else None
 
     async def main() -> Tuple[Optional[str], bool, str]:
         server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
@@ -343,6 +346,13 @@ def test_evaluation_starts_at_server_start_and_ws_joins_without_data(generated: 
     run, token = rp.create_run(storage, int(generated["scenario_id"]), mode="evaluation",  # type: ignore[call-overload]
                                speed=EVAL_SPEED, allow_overlap=True)
     run_id = int(run["id"])  # type: ignore[arg-type]
+    app = FastAPI()
+    app.include_router(replay_ep.router)
+    # OPC UA server 開播前，只收預測的 WS 連線不能搶先開始計時（全班的時鐘會在沒有資料時就開始走）
+    with TestClient(app).websocket_connect("/ws/replay?stream=false",
+                                           headers={"Authorization": f"Bearer {token}"}) as ws:
+        assert ws.receive_json()["code"] == 4412
+    assert storage.get_replay_run(run_id)["started_at"] is None  # type: ignore[index]
     run_row, replay = opcua_cli.load_run(storage, run_id)
     assert storage.get_replay_run(run_id)["started_at"] is None, "載入不開播（節點建好、開始監聽才開播）"  # type: ignore[index]
     clock = opcua_cli.start_clock(storage, run_row, replay)
@@ -351,8 +361,6 @@ def test_evaluation_starts_at_server_start_and_ws_joins_without_data(generated: 
     again = opcua_cli.start_clock(storage, *opcua_cli.load_run(storage, run_id))
     assert again.wall_start == clock.wall_start, "server 重啟：接著播、不重來"
 
-    app = FastAPI()
-    app.include_router(replay_ep.router)
     with TestClient(app).websocket_connect("/ws/replay?stream=false",
                                            headers={"Authorization": f"Bearer {token}"}) as ws:
         before = clock.sim_now()
@@ -385,6 +393,23 @@ def test_evaluation_starts_at_server_start_and_ws_joins_without_data(generated: 
         opcua_cli.load_run(storage, run_id)
     with pytest.raises(ValueError, match="回放不存在"):
         opcua_cli.load_run(storage, 999_999)
+
+
+def test_cli_refuses_an_evaluation_without_enforced_login(generated: Dict[str, object],
+                                                         monkeypatch: pytest.MonkeyPatch,
+                                                         capsys: pytest.CaptureFixture[str]) -> None:
+    """正式評測要伺服器強制登入（DEC-20261022-05）：沒開 WMOM_AUTH_ENFORCE 時 OPC UA CLI 不開播。"""
+    import opcua_server as opcua_cli
+
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    run, _ = rp.create_run(storage, int(generated["scenario_id"]), mode="evaluation",  # type: ignore[call-overload]
+                           speed=EVAL_SPEED, allow_overlap=True)
+    monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
+    assert opcua_cli.main([str(generated["db"]), str(run["id"]), "--host", "127.0.0.1",
+                           "--port", str(_free_port())]) == 1
+    assert "WMOM_AUTH_ENFORCE" in capsys.readouterr().err
+    assert storage.get_replay_run(int(run["id"]))["started_at"] is None, "沒開播"  # type: ignore[index, arg-type]
+    storage.revoke_replay_run(int(run["id"]), iso_utc())  # type: ignore[arg-type]
 
 
 def test_cli_plays_a_practice_run_to_the_end(generated: Dict[str, object], capsys: pytest.CaptureFixture[str],
@@ -703,6 +728,27 @@ def test_live_feeder_clears_turbines_that_disappear() -> None:
             await server.stop()
 
     asyncio.run(main())
+
+
+def test_kit_opcua_client_finds_turbines_that_appear_later() -> None:
+    """即時模擬的機組節點在第一筆讀值才建立：客戶端先連上（還沒有機組）也要看得到之後出現的機組。"""
+    import opcua_client
+
+    async def main() -> opcua_client.Summary:
+        server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
+        await server.start()  # 主程式剛開機、還沒選資料來源：沒有任何機組節點
+        try:
+            task = asyncio.create_task(opcua_client.run(server.endpoint, poll_s=0.1, verbose=False, max_polls=25))
+            await asyncio.sleep(1.0)
+            await server.ensure_turbine("WT001")
+            await server.set_status(Source="live", Status="running")
+            await server.write_lists("WT001", {"A": [262], "T1": [], "T2": []}, datetime.now(timezone.utc))
+            return await task
+        finally:
+            await server.stop()
+
+    summary = asyncio.run(main())
+    assert summary.counts.get("opcua_event") == 1, "新出現的機組的警報要讀得到"
 
 
 def test_station_collisions_are_rejected() -> None:

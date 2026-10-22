@@ -216,3 +216,15 @@ def test_clear_without_model_reset_resumes_power_even_after_restart_block():
     assert events.count(("trip", 228)) == 2
     assert not model.plc.restart_inhibited
 
+
+
+def test_full_reset_clears_the_hourly_restart_count() -> None:
+    """reset() 把模擬時間歸零：舊的啟動時間戳也要清，否則修好的機組要等好幾小時才准重啟。"""
+    from simulator.physics.turbine_physics import TurbinePhysicsModel
+
+    model = TurbinePhysicsModel(seed=3)
+    model._sim_time = 2000.0
+    model._restart_timestamps = [15.0, 1305.0, 1905.0]
+    assert model._max_restarts_exceeded()
+    model.reset()
+    assert not model._max_restarts_exceeded()

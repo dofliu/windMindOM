@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 6 |
+| open | 7 |
 | in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 141 |
-| **total** | **151** |
+| done | 142 |
+| **total** | **153** |
 
-最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
+最後更新：2026-10-22（**WMOM-20261022-01 done**（EPIC-DS 全面檢查，-08 其餘子項前）：三路 code review（🔴 2、🟡 18、🟢 14）＋真伺服器端到端 47 項；修非 Z72 機型被 Z72 溫度保護跳機、Live 殘留 PLC 狀態漏進情境、評測 stream=false 搶先開播等；劉老師決定（DEC-20261022-05）正式評測要伺服器強制登入、批次生成移到背景執行緒、建立正式評測檢查總速率、手冊保真度另開 **WMOM-20261022-02（open，排在 -08 其餘子項前）**。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 142 = 153。詳見 `work-logs/2026-10/2026-10-22-epic-ds-verification.md`）。
+前次最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-12 done**：健康機組長時間偶發 T2 336 的根因是物理——葉片零點校正誤差 σ 0.12°加上伺服死區 / 雜訊，尾端碰到手冊的 5 s > 1°；PLC 規則與手冊一致，不改規則、不列 nuisance（DEC-20261022-01）。零點 σ 0.12 → 0.06°、起動 / 緊急順槳以外的死區 0.10° / 雜訊 0.04°；新增健康風場長時間守門測試（原始重現點 12 h ＋ 冬季夜間 / 夏季清晨各 6 h）與 14 種子 × 12 h 葉片同步機制測試；starter kit 重產（基準成績不變）。
@@ -1693,6 +1694,41 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ---
 
+## 📌 2026-10-22 session 新增 issue（EPIC-DS 全面檢查）
+
+### WMOM-20261022-01 — EPIC-DS 全面程式碼檢查 + 功能驗證（-08 其餘子項前）
+
+- **Status**: done（2026-10-22）
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 0.5-1 天
+- **Owner**: Claude
+- **Description**: 劉老師要求在做 -08 其餘子項前，先對 EPIC-DS 至今的程式（Phase 1a–4-a，約 70 個 Python 檔）做一次整體程式碼檢查與功能測試驗證。各 issue 合併前都個別 review 過，這次找跨模組才看得出來的問題、文件與程式不一致，並以真伺服器跑過三條管道（① 資料包 ② WS 回放 ③ OPC UA）到評分。
+- **Deliverable**: 三路 code review 結果與修正、完整 backend / frontend 測試、靜態檢查、端到端驗證紀錄、work-log
+- **完成紀錄**:
+  - **三路 code review**（模擬器 / PLC、伺服器 / 資料包 / 回放、OPC UA / kit / 合約）：🔴 2、🟡 18、🟢 14，多數以腳本證實。
+  - **直接修**：非 Z72 機型健康機組被 Z72 溫度保護跳機（熱模型以額定功率正規化，Z72 逐位元不變）；Live 殘留 PLC 狀態漏進命名情境（`start_clean_scenario`）；`reset()` 後重啟上限一直成立；正式評測 `stream=false` 搶先開播（4412）；`wind_profile` 非字串讓匯出 500、回放用掉單次評測（`wind_profile_applied`）；id / limit 範圍檢查；`observable_only` 事件改資料包格式；CLI 評分端版另放 `-full/`；評測中不能切換風場；kit 三個客戶端的例外 / 晚出現機組 / U+2028；OPC UA 回放狀態檢查失敗不中斷；合約 / README 文字。
+  - **劉老師決定**（DEC-20261022-05）：正式評測要伺服器強制登入（REST / CLI / OPC UA CLI）；批次生成移到背景執行緒（同時一個、批次期間改模擬器的 16 個路由 409）；建立正式評測時檢查整台伺服器的總速率；手冊保真度另開 WMOM-20261022-02。
+  - **驗證**：真伺服器端到端 47 項全過（三條管道逐筆 / 逐位元相同、評分相同；生成期間查狀態最慢 0.10 s，原本 31.4 s）；完整 backend / frontend 見 work-log。
+  - 詳見設計文件 §6.14、`work-logs/2026-10/2026-10-22-epic-ds-verification.md`。
+- **Depends on**: WMOM-20261021-08-a
+
+### WMOM-20261022-02 — 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw_sensor_drift 不跳 233
+
+- **Status**: open
+- **Milestone**: EPIC-DS
+- **Priority**: high（排在 -08 其餘子項前，劉老師確認）
+- **Estimate**: 1 天
+- **Owner**: -
+- **Description**: WMOM-20261022-01 的模擬器 review 對照手冊找到的不一致，修了都會改變資料時間點，範例資料包要重建：
+  - Appendix D 的設定值：液壓壓力低（260 / 228）延遲 30 s（`SDYwHyBrkTm`，模擬器 10 / 5 s）；風向標差異 233 延遲 60 s（`SDWndVnDiscrTm`，模擬器 0 s）；編碼器有效範圍 −5–95°（0–90° ± `SDVaneLimitTolerance` 5°，模擬器 −10–100° 且註明「手冊沒給」）；機艙 273 設定 45 °C（模擬器 46）；Pt100 濾波 10 s（`CDTauPT100`）。液壓 170 / 190 bar（Appendix D）與 180 bar（Appendix C）手冊自相矛盾，註明取捨。
+  - 自動重啟被擋時真實 Z72 送 A039「Auto restart blocked」（手冊獨有碼，目錄的 `manual_only_codes`）；模擬器送自創的 `restart_blocked` 並帶跳機碼，物理層 `_max_restarts_exceeded` 停機時完全沒事件。
+  - `yaw_sensor_drift`：漂移 18° 加上機組個體差（bias1 − bias2 < −3°）時差異到不了 15°，233 永遠不出現（種子 33 / 34 / 119…）；守門測試只測 seed 7。
+- **Deliverable**: PLC / spec 設定值與註解、A039、yaw drift、多種子守門測試、設計文件 §6.3 表格重量、範例資料包重建、合約說明
+- **Depends on**: WMOM-20261022-01
+
+---
+
 ## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
 
 > **2026-10-21 起現行主線為 EPIC-DS**（DEC-20261021-01）；EPIC-M6 deferred。
@@ -1719,6 +1755,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 3b | ~~WMOM-20261021-06~~ ✅ | ② WebSocket 回放串流（回放 token、單次直播＋練習、伺服器蓋 ts；合約 v1.1） | 🔵 |
 | 3c | ~~WMOM-20261021-07~~ ✅ | ③ OPC UA server（模仿 Bachmann tag；回放＋即時模擬，合約 v1.2） | 🔵 |
 | 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
+| 檢查 | ~~WMOM-20261022-01~~ ✅ | 全面程式碼檢查 + 功能驗證（DEC-20261022-05） | 🔵 |
+| 4 | WMOM-20261022-02 | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（-08 其餘子項前） | 🔵 |
 | 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本）；拆子項：~~-08-a 感測器故障 vs 真故障~~ ✅ | 🔵 |
 
 ### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）

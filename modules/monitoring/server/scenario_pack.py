@@ -41,7 +41,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pyarrow as pa
@@ -104,6 +104,17 @@ TAG_NOTES: Dict[str, str] = {
 KNOWN_WIND_PROFILES: FrozenSet[str] = frozenset({
     "calm", "moderate", "rated", "strong", "storm", "gusty", "ramp_up", "ramp_down", "auto",
 })
+
+
+def scenario_wind_profile(config: Mapping[str, object]) -> Optional[str]:
+    """資料包 / 回放輸出的風況 profile。
+
+    生成時實際套用的 profile（``wind_profile_applied``）優先；更早的情境沒有這個鍵，退回出題者給的標籤。
+    已知的名稱照回，其他（手動風速、自訂文字、非字串）回 None：不輸出、也不會因型別而出錯。
+    """
+    value = config.get("wind_profile_applied", config.get("wind_profile"))
+    return value if isinstance(value, str) and value in KNOWN_WIND_PROFILES else None
+
 
 # Bachmann TurSt（1-9）的狀態名稱，與 DataBroker._state_name 一致（測試會比對）
 STATE_NAMES: Dict[int, str] = {
@@ -318,7 +329,8 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
     Returns:
         合約格式的事件（``EVENT_KEYS`` 全部都有，不適用者為 None）；無法對應者回 None。
     """
-    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    raw_payload = event.get("payload")
+    payload: Dict[str, JsonValue] = raw_payload if isinstance(raw_payload, dict) else {}
     out: Dict[str, JsonValue] = dict.fromkeys(EVENT_KEYS)
     out["ts"] = iso_z(str(event["timestamp"]))
     out["turbine_id"] = event.get("turbine_id")
@@ -335,7 +347,7 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
             plc_tag=payload.get("plcTag"),
         )
         return out
-    from_state, to_state = payload.get("fromState"), payload.get("toState")
+    from_state, to_state, cause = payload.get("fromState"), payload.get("toState"), payload.get("shutdownCause")
     if not isinstance(from_state, int) or not isinstance(to_state, int):
         return None
     out.update(
@@ -344,7 +356,7 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
         to_state=to_state,
         from_state_name=STATE_NAMES.get(from_state),
         to_state_name=STATE_NAMES.get(to_state),
-        stop_reason=stop_reason(payload.get("shutdownCause")) if to_state in _STOP_STATES else None,
+        stop_reason=stop_reason(cause if isinstance(cause, str) else None) if to_state in _STOP_STATES else None,
     )
     return out
 
@@ -792,7 +804,8 @@ def load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Optio
     scenario = storage.get_scenario(scenario_id)
     if scenario is None:
         raise ScenarioPackError(f"Scenario {scenario_id} not found", status_code=404)
-    config = scenario.get("config") if isinstance(scenario.get("config"), dict) else {}
+    raw_config = scenario.get("config")
+    config: Dict[str, JsonValue] = raw_config if isinstance(raw_config, dict) else {}
     if config.get("status") != "ok":
         raise ScenarioPackError(f"Scenario {scenario_id} did not finish generating (status={config.get('status')!r})")
     if config.get("events_session_isolated") is not True:
@@ -846,7 +859,6 @@ def _write_pack_files(storage: Storage, scenario: Dict[str, JsonValue], scenario
         _write_json(out_dir / FILE_GROUND_TRUTH, ground_truth_for_pack(ground_truth, pack_id))
         files.append(FILE_GROUND_TRUTH)
 
-    wind_profile = config.get("wind_profile")
     manifest: Dict[str, JsonValue] = {
         "contract_version": CONTRACT_VERSION,
         "pack_id": pack_id,
@@ -860,7 +872,7 @@ def _write_pack_files(storage: Storage, scenario: Dict[str, JsonValue], scenario
         "stats_convention": stats_convention(columns),
         "duration_hours": config.get("duration_hours"),
         "site_timezone": config.get("site_timezone"),
-        "wind_profile": wind_profile if wind_profile in KNOWN_WIND_PROFILES else None,
+        "wind_profile": scenario_wind_profile(config),
         "rated_power_kw": scenario.get("rated_power_kw"),
         "ground_truth_included": ground_truth is not None,
         "generator": {
@@ -971,17 +983,19 @@ def export_ground_truth(storage: Storage, scenario_id: int, path: Path, *,
     return out
 
 
-def write_pack_zip(pack_dir: Path, zip_path: Path, include_ground_truth: bool) -> None:
+def write_pack_zip(pack_dir: Path, zip_path: Path, include_ground_truth: bool, pack_id: Optional[str] = None) -> None:
     """把資料包目錄壓成 zip（內部路徑 ``{pack_id}/{檔名}``）。
 
     Parquet 本身已壓縮，直接存（STORED）；JSON / JSONL 用 DEFLATE。
 
     Args:
-        pack_dir: 資料包目錄（目錄名＝pack_id）。
+        pack_dir: 資料包目錄。
         zip_path: 輸出的 zip。
         include_ground_truth: 是否含 ``ground_truth.json``。
+        pack_id: zip 內的頂層目錄；None＝目錄名（評分端版的目錄叫 ``{pack_id}-full``，zip 內仍是 pack_id）。
     """
+    root = pack_id if pack_id is not None else pack_dir.name
     with zipfile.ZipFile(zip_path, "w") as archive:
         for name in pack_file_names(include_ground_truth):
             compression = zipfile.ZIP_STORED if name.endswith(".parquet") else zipfile.ZIP_DEFLATED
-            archive.write(pack_dir / name, arcname=f"{pack_dir.name}/{name}", compress_type=compression)
+            archive.write(pack_dir / name, arcname=f"{root}/{name}", compress_type=compression)

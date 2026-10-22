@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server.batch_state import reject_during_batch
 from pydantic import BaseModel
 from typing import Optional
 
@@ -30,7 +31,7 @@ class CurtailCommand(BaseModel):
 @router.post(
     "/command",
     # WMOM-20260716-05h-2：操作指令＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def send_command(cmd: TurbineCommand):
     """Send operator command to a turbine.
@@ -92,7 +93,7 @@ async def send_command(cmd: TurbineCommand):
 @router.post(
     "/curtail",
     # WMOM-20260716-05h-2：限載＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def set_curtailment(cmd: CurtailCommand):
     """Set per-turbine power curtailment (限載).

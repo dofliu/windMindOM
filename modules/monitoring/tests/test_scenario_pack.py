@@ -141,7 +141,8 @@ def test_blind_pack_files_and_manifest(generated: Dict[str, object]) -> None:
     assert (manifest["sim_start"], manifest["sim_end"]) == ("2026-01-15T03:00:10.000000Z", "2026-01-15T05:00:00.000000Z")
     assert manifest["sample_period_s"] == 10.0 and manifest["stats_window_s"] == 600
     assert manifest["site_timezone"] == "Asia/Taipei" and manifest["ground_truth_included"] is False
-    assert manifest["wind_profile"] == "rated" and manifest["generator"]["exporter_version"] == sp.EXPORTER_VERSION
+    # fixture 以手動風速 14 m/s 生成、標籤寫 rated：資料包寫的是實際套用的風況（手動 → 不輸出），不信標籤
+    assert manifest["wind_profile"] is None and manifest["generator"]["exporter_version"] == sp.EXPORTER_VERSION
     assert manifest["counts"] == {"raw_rows": 720 * 3, "stats_rows": 13 * 3, "partial_windows": 2 * 3,
                                   "events": len(_events(pack_dir)), "events_dropped": 0}
     convention = manifest["stats_convention"]
@@ -409,9 +410,13 @@ def test_cli_lists_and_exports(generated: Dict[str, object], tmp_path: Path, cap
     assert "可匯出" in capsys.readouterr().out
     assert pack_cli.main([db, str(sid), "--out", str(tmp_path), "--ground-truth", "--zip"]) == 0
     pack_id = sp.pack_id_for(sid)
-    assert (tmp_path / pack_id / sp.FILE_GROUND_TRUTH).exists()
+    assert (tmp_path / f"{pack_id}-full" / sp.FILE_GROUND_TRUTH).exists()
     with zipfile.ZipFile(tmp_path / f"{pack_id}-full.zip") as archive:
         assert f"{pack_id}/{sp.FILE_GROUND_TRUTH}" in archive.namelist()
+    # 盲測版與評分端版不共用目錄：先匯出評分端版，給受測端的目錄仍然沒有答案
+    assert pack_cli.main([db, str(sid), "--out", str(tmp_path)]) == 0
+    assert not (tmp_path / pack_id / sp.FILE_GROUND_TRUTH).exists()
+    assert (tmp_path / f"{pack_id}-full" / sp.FILE_GROUND_TRUTH).exists()
     assert pack_cli.main([db, "99999", "--out", str(tmp_path)]) == 1
     assert pack_cli.main([str(tmp_path / "missing.db"), "--list"]) == 2
 
@@ -680,6 +685,24 @@ def test_synthetic_manifest_uses_the_data(synthetic: Dict[str, object]) -> None:
     assert (synthetic["dir"] / sp.FILE_EVENTS).read_bytes() == b""  # type: ignore[operator]
     for name in (sp.FILE_MANIFEST, sp.FILE_TAGS, sp.FILE_ALARMS):
         assert b"\r\n" not in (synthetic["dir"] / name).read_bytes()  # type: ignore[operator]
+
+
+def test_wind_profile_is_the_applied_one_and_never_breaks_export(synthetic: Dict[str, object], tmp_path: Path,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """資料包寫生成時實際套用的風況；非字串的標籤（舊資料 / API 直接寫入）不會讓匯出或回放出錯。"""
+    from server import replay as rp
+
+    storage: Storage = synthetic["storage"]  # type: ignore[assignment]
+    rows = [(f"2026-01-15T03:0{i}:00.000000+00:00", "WT001", json.dumps({"WTUR_TurSt": 6})) for i in range(3)]
+    applied = _synthetic_scenario(storage, rows, wind_profile="rated", wind_profile_applied="strong")
+    assert sp.export_scenario_pack(storage, applied, tmp_path / "a")["wind_profile"] == "strong"
+    odd = _synthetic_scenario(storage, rows, wind_profile={"base_speed": 12})
+    assert sp.export_scenario_pack(storage, odd, tmp_path / "b")["wind_profile"] is None
+    assert rp.ScenarioReplay(storage, odd).describe()["wind_profile"] is None
+    monkeypatch.setattr(config_ep, "get_broker", lambda: _FakeBroker(storage, WindFarmSimulator(turbine_count=1)))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(config_ep.generate_bulk({"duration_hours": 0.01, "name": "x", "wind_profile": ["rated"]}))
+    assert exc.value.status_code == 400 and "wind_profile" in str(exc.value.detail)
 
 
 def test_synthetic_stats_windows_and_missing_values(synthetic: Dict[str, object]) -> None:

@@ -340,6 +340,13 @@ def test_cli_writes_a_json_report(tmp_path: Path, capsys: pytest.CaptureFixture[
         "同一個資料包的答案給兩次"
     predictions.write_text(_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing") + "\n", encoding="utf-16")
     assert score.main(["--answers", str(answers), "--predictions", str(predictions)]) == 2
+    # JSON 字串裡的 U+2028 / U+0085 / \x0c 是合法字元（ensure_ascii=False 不跳脫），不是換行：照算一筆
+    line = json.loads(_pred("WT001", "2026-01-01T02:00:00Z", "main_bearing"))
+    line["root_cause"] = "軸承\u2028磨耗\u0085\x0c"
+    predictions.write_text(json.dumps(line, ensure_ascii=False) + "\r\n", encoding="utf-8")
+    capsys.readouterr()
+    assert score.main(["--answers", str(answers), "--predictions", str(predictions)]) == 0
+    assert "格式錯誤" not in capsys.readouterr().out
 
 
 def test_answers_can_be_a_full_pack_directory(tmp_path: Path) -> None:

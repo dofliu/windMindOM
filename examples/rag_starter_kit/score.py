@@ -521,7 +521,7 @@ def main(argv: Optional[List[str]] = None) -> int:
               "Out-File -Encoding utf8 或在 Python 裡寫檔）", file=sys.stderr)
         return 2
     components = load_vocabulary(args.vocabulary)
-    predictions, invalid = read_predictions(text.splitlines(), components)
+    predictions, invalid = read_predictions(text.split("\n"), components)
     try:
         report = score(answers, predictions, components, invalid)
     except ValueError as exc:
