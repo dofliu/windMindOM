@@ -28,6 +28,14 @@ from simulator.physics.vibration_spectral import SpectralVibrationModel
 from simulator.physics.fatigue_model import FatigueModel, FatigueSpec
 from simulator.physics.plc_protection import PlcProtection
 
+# 各葉片變槳的健康誤差（WMOM-20261021-12）：零點校正誤差 σ、伺服死區與編碼器雜訊；起動（狀態 5）/
+# 緊急順槳（狀態 7）的追蹤誤差較大，其餘狀態用小的值。健康機組葉片間差異須遠小於手冊的 1° 設定值
+_PITCH_OFFSET_SIGMA_DEG = 0.06
+_PITCH_DEADBAND_DEG = 0.10
+_PITCH_NOISE_DEG = 0.04
+_PITCH_DEADBAND_TRANSIENT_DEG = 0.18
+_PITCH_NOISE_TRANSIENT_DEG = 0.18
+
 
 class _RollingMean:
     """固定時間窗的移動平均（PLC 的「10 分鐘平均」「5 秒平均」）。
@@ -386,7 +394,10 @@ class TurbinePhysicsModel:
         self._grid_emergency_trip_accum = 0.0
         # Z72: restart tracking (max restarts per hour)
         self._restart_timestamps: List[float] = []
-        self._pitch_offset_bl = [self._rng.normal(0, 0.12) for _ in range(3)]
+        # 葉片零點校正誤差（WMOM-20261021-12）：真實機組試車時把葉片間差異校到約 ±0.1–0.2°。原 σ 0.12°
+        # 讓兩片相差可達 0.6°，加上追蹤誤差就碰到手冊的葉片差異設定值（5 s > 1° → T2 335–337），
+        # 健康機組長時間會偶發誤跳。只改 σ、不改抽樣次數：主 _rng 序列不位移
+        self._pitch_offset_bl = [self._rng.normal(0, _PITCH_OFFSET_SIGMA_DEG) for _ in range(3)]
         self._pitch_stiction = [0.0, 0.0, 0.0]
         self._sensor_bias: Dict[str, float] = {}
         self._sensor_stuck_until: Dict[str, float] = {}
@@ -1268,15 +1279,20 @@ class TurbinePhysicsModel:
         command = max(-max_rate * dt, min(max_rate * dt, diff))
         self.pitch_angle += command
 
+        # 各葉片獨立伺服追蹤共同指令。起動 / 緊急順槳以外的誤差（死區＋編碼器雜訊）要遠小於手冊的葉片差異
+        # 設定值（5 s > 1°），否則健康機組會誤跳 T2 335–337（WMOM-20261021-12）；起動 / 緊急順槳時誤差較大，
+        # 但 PLC 只在穩定發電時判定。只改雜訊 σ、不改抽樣次數：主 _rng 序列不位移
+        transient = self.tur_state in (5, 7)
+        deadband = _PITCH_DEADBAND_TRANSIENT_DEG if transient else _PITCH_DEADBAND_DEG
+        spread = _PITCH_NOISE_TRANSIENT_DEG if transient else _PITCH_NOISE_DEG
         for i in range(3):
             blade_target = self.pitch_angle + self._pitch_offset_bl[i]
             blade_diff = blade_target - self._pitch_bl[i]
-            if abs(blade_diff) < 0.18:
+            if abs(blade_diff) < deadband:
                 blade_diff = 0.0
             blade_rate = max_rate * (0.92 + i * 0.03)
             blade_change = max(-blade_rate * dt, min(blade_rate * dt, blade_diff))
             self._pitch_bl[i] += blade_change
-            spread = 0.18 if self.tur_state in (5, 7) else 0.08
             self._pitch_bl[i] += self._rng.normal(0, spread)
 
     def force_state(self, state: int):

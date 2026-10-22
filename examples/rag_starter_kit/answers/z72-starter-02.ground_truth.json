@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-09T04:00:10.000000Z",
  "sim_end": "2026-03-09T10:00:00.000000Z",
- "generated_at": "2026-10-21T17:49:21.387426Z",
+ "generated_at": "2026-10-22T05:13:16.363652Z",
  "turbines": [
   "WT001",
   "WT002",
