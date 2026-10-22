@@ -147,7 +147,7 @@ WMOM = WindMindOM 縮寫。
 - **回放守則**：受測端只用回放 token 連 `/ws/replay`（不開帳號、看不到情境清單）；回放訊息與盲測版資料包逐筆相同，新增訊息內容要走 `ScenarioReplay` 並維持「與資料包相同、不含答案」（`test_replay.py` 會擋）；預測的 `ts` 一律由伺服器蓋，不接受受測端給的時間；正式評測與練習回放不要開在同一個情境（建回放時預設擋下，`allow_overlap` 才放行）；正式評測的速度受「機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆 / 秒」限制
 - **OPC UA 守則**：節點 ID＝真實 OPC DA item ID（`opc_data_reader.py` 的 `BASE_TAGS` 每個都要讀得到，`test_opcua_server.py` 會擋）；讀值欄位與盲測版資料包同一組、值逐位元相同，不加答案或模型內部量；事件碼陣列（`ActiveEventLists`）即時模擬與回放同一套規則，且每一步等於 `PlcProtection.active_codes()`（解除鎖存一律送 `trip_cleared`，不要在復位時清清單）；只收匿名、關閉 asyncua 內建 admin、唯讀（`test_opcua_server.py` 會擋），只開在教室 / 實驗室網路，即時模擬的 OPC UA 預設只聽 `127.0.0.1`、批次期間不發布；正式評測在 server 建好節點並開始監聽後才開播（`tools/opcua_server.py` 的 `load_run` → `start` → `start_clock`），練習回放的 WS `stream=false` 以 OPC UA 記下的起點對時
 - **下次工作**：EPIC-DS Phase 4（-08 難度與多樣性：連鎖、感測器故障、多重故障、誤報、負樣本）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend 1833 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。以各 module `tests/` 為準
+- **測試**：backend 1853 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
