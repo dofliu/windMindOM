@@ -137,6 +137,11 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 ### 5.2 串流：WebSocket 回放
 
+> **已實作**（WMOM-20261021-06，§6.11）：實際介面見合約 v1.1 §12。和草案不同的地方：
+> - 端點是 `ws://{host}/ws/replay`，以回放 token 選情境，不帶 scenario_id。
+> - 速度由出題端建回放時決定。
+> - 受測端在同一條連線送預測，伺服器蓋 `ts`。
+
 - `ws://{host}/ws/replay/{scenario_id}?speed=1`（speed = 1 為實時，>1 加速）
 - 訊息：`{"type": "reading", ...}`、`{"type": "event", ...同 events.jsonl}`、
   `{"type": "control", "status": "started|paused|finished", "sim_ts": ...}`
@@ -558,6 +563,113 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - 基準成績、lead time、238 筆狀態轉換都不變。
 
 **已知限制**：各葉片伺服速率仍差 0.92 / 0.95 / 0.98 倍。Live 1 s 步長下，共同指令以最大速率移動時，葉片會短暫相差：TI 12% 約 0.5–0.9°，陣風 TI 30% 約 1.2–1.8°（code review 實測；修正前 1.5–2.0°）。1 s 內追上，不會持續 3 s / 5 s（連續 5 s 最大值不論紊流都約 0.5°）。
+
+### 6.11 Phase 3b WebSocket 回放（WMOM-20261021-06，2026-10-22）
+
+**定案**（劉老師確認，DEC-20261022-02）：
+
+| 項目 | 決定 |
+|---|---|
+| 回放方式 | 單次直播（evaluation）＋ 練習模式（practice） |
+| 速度 | 出題端建回放時固定 |
+| 預測 | 走同一條 WS，伺服器以收到時的模擬時間蓋 `ts` |
+| 受測端身分 | 回放 token（不開帳號） |
+
+合約升為 v1.1（新增 §12），資料包與標準答案格式不變。
+
+**回放器** `modules/monitoring/server/replay.py`（-07 OPC UA server 共用）：
+- `ScenarioReplay`：可匯出資料包的情境才能回放（同 `load_exportable_scenario` 的條件）。
+  - 讀值依時間分頁取：先取 `(id, timestamp)` 索引，每頁再以 id 取 500 筆。每頁一個短查詢，可以在 `asyncio.to_thread` 的不同執行緒呼叫。
+  - 事件以 `is_observable_event` 過濾後全部載入。
+  - 10 分鐘統計逐窗計算：與匯出器同一個 `StatsBuilder`，新增 `close_before` / `close_all`。
+- **訊息順序**：依模擬時間。同一時刻：結束於此刻的統計 → 事件 → 讀值。最後的殘缺窗在資料結束時送。
+- **內容與盲測版資料包逐筆相同**：讀值的 REAL32 取 float32 的最短十進位表示，讀回 float32 與 Parquet 逐位元相同。測試逐筆比對 raw / stats / events。
+- `ReplayClock`：模擬時間＝`sim_start` +（實際經過秒數 × 速度）。
+
+**端點** `server/routers/replay.py`：
+- **REST（主管）**：
+  - 建回放：`POST /api/scenarios/{id}/replay-runs`。token 只回一次。
+  - 列表 / 狀態：`GET` 同路徑，狀態為 ready / not_started / running / finished / expired / revoked。
+  - 撤銷：`DELETE /api/replay-runs/{id}`。
+  - 下載預測：`GET /api/replay-runs/{id}/predictions`。
+- **CLI** `tools/replay_runs.py`：同樣的四個動作，直接操作風場 DB。
+- **WS** `/ws/replay`：token 放 `Authorization: Bearer` 或 `?token=`。
+  - 送訊息與收預測是兩個 task，送訊息有鎖。
+  - 單次回放在第一次連線時原子地寫入 `started_at`。
+  - 拒絕連線時先送 `error` 再以 44xx 關閉。
+  - 播完送 `finished`，連線再開 10 秒讓途中的預測拿到 ack。
+- **DB**：
+  - `replay_runs`（token 只存 sha256、模式、速度、到期、`started_at`、連線數、撤銷時間）。
+  - `replay_predictions`（回放、連線序號、收到時間、模擬時間、預測）。
+  - 刪除情境時一併刪除。
+
+**時間因果**：
+- `ts`＝收到預測時的模擬時間，不會早於受測端看到的資料。伺服器照時鐘送、不等受測端，收得慢就晚。
+- 情境結束後的預測退回（評分時也對不到 case）。
+- 單次回放中途加入：`?backfill=false` 只從「現在」開始；預設補送過去的資料，但時鐘仍是直播的現在。
+
+**starter kit**：
+- `stream_client.py`：基準助手的即時版，一個 task 收、一個 task 判斷，等所有預測都有 ack 才離開。
+- README 新增「即時回放」，`requirements.txt` 加 `websockets>=13`。
+- 範例資料包重產：只有 `contract_version` 改成 1.1，資料檔逐位元不變。
+
+**code review**（Needs revision → 全修）：
+- **M1 詞彙檢查在 Docker 裡失效**：詞彙檔在 `examples/`，映像不含，找不到時原本直接略過。
+  - 唯一來源移到 `shared/data/rag_assistant_vocabulary.json`，kit 的 `vocabulary.json` 是副本（`build_rag_starter_kit` 同步、測試比對）。
+  - 找不到就匯入失敗。
+- **M2 單次回放的連線上限有競態**：實測同時 16 條連線收進 9 條。改為檢查與佔位之間沒有 await，鍵含 DB 路徑。
+- **S1 極端數值讓連線以 1011 斷線**：超長整數、巨大的 `confidence`。改為每則訊息的處理失敗只回 `error`。
+- **S2 撤銷 / 到期不影響已開的連線**：串流中每 5 秒重讀，撤銷或到期就以 4403 關閉。
+- **S3 同情境的練習回放可以先偷看**：建回放時預設拒絕兩種模式並存（409，`allow_overlap` 才放行）；新增 `?check=true` 試 token 而不開始計時。
+- **S4 每條連線都重載整個情境**：
+  - 索引改為 `array('q')` 的 id（寫入順序已是時間順序時不排序），依情境快取。
+  - 4409 / 4410 先擋。
+  - 讀值上限 200 萬筆。
+- **S5 測試沒守住傳送端的時間因果**：新增假時鐘驅動 `stream()` 的測試，逐則確認送出時 `due ≤ 現在`。
+- **S6 預測與訊息的保護**：每則 64 → 16 KB；每個回放總量 20 MB；uvicorn `ws_max_size` 1 MiB。
+- **S7 串流落後時鐘**：
+  - 預取下一頁；讀值轉換加速約 2 倍（約 3,800 筆 / 秒）。
+  - 正式評測限制「機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆 / 秒」。
+  - 600× 時落後中位數 0.03 s。
+- **S8 刪除情境會連帶刪掉評測結果**：有預測時 `DELETE /api/scenarios/{id}` 預設 409，要 `force`。前端提示先下載。
+- **S9 kit 客戶端被拒絕時只吐 traceback**：改為印出關閉碼與伺服器說明；預設不走環境變數的 proxy；`--check`。
+- **S10 文件**：4401 / 4404 的語意、20 秒 keepalive、ISSUES 描述等。
+- **Nice-to-have 採用**：
+  - 蓋章不早於已送出的資料（時鐘被調回也一樣）。
+  - 不用 `UPDATE … RETURNING`（SQLite < 3.35 也可用）。
+  - handler 被取消時一併取消子 task。
+  - 建回放的回應 `Cache-Control: no-store`。
+  - 基準助手的單步邏輯抽成 `BaselineAssistant` 共用。
+
+**測試** `modules/monitoring/tests/test_replay.py`（54 項；以下為初版 40 項，review 補測見下）：
+- 與資料包逐筆相同、順序與統計的因果、不含答案。
+- 時鐘、預測檢查。
+- WS：
+  - 練習模式完整播完。
+  - 預測蓋章、受測端填的 ts / pack_id 不採用；下載後 `score.py` 評得到。
+  - 單次回放：第一次連線定開始時間、中途加入不倒帶、播完不能再連。
+  - token：缺 / 無效 / 撤銷 / 到期。
+  - 撤銷後不收預測、壞訊息、連線上限、情境結束後的預測、關閉碼。
+- REST 權限與參數、刪除情境連帶刪回放。
+- kit 客戶端對真的 uvicorn 伺服器跑完一次（1200×）。
+- CLI。
+- **review 補測**：
+  - 假時鐘下傳送端逐則 `due ≤ 現在`。
+  - 串流中撤銷 5 秒內斷線。
+  - 時鐘調回時 `ts` 不早於已送資料。
+  - 兩種模式並存防呆（含 REST 409）、`?check=true` 不開始計時。
+  - 正式評測的連線上限、預測筆數 / 位元組上限、4404。
+  - 二進位 / 超長整數 / 巨大 confidence / 超長訊息 / sensor_fault。
+  - 索引快取、詞彙檔缺失、刪除情境要 `force`、正式評測的速度上限。
+  - kit 客戶端被拒絕時的關閉碼與 `--check`。
+
+**已知限制**：
+1. **回放存在風場 DB**：伺服器以目前風場查 token；切換風場後，其他風場的回放連不上。
+2. **連線數上限每個程序各算**（每個回放 4 條）。
+3. **兩種模式並存的防呆可以用 `allow_overlap` 關掉**：關掉後，正式評測的情境若同時開練習回放，學生可以先看完。
+4. **沒有前端頁面**：建回放用 REST 或 CLI；Docker 映像不含 `tools/`，容器內用 REST。
+5. **受測端慢就晚**：高速回放（例：10000×）時，受測端每慢 0.1 秒就晚 1000 秒模擬時間。正式評測的速度要依受測端的運算時間選。
+6. **取樣週期的來源**：回放的 `sample_period_s` 取情境設定的 `time_step`；資料包取資料推得的值，沒有才用 `time_step`。批次生成的情境兩者相同；人工寫入的 session 若不同，`is_partial` 可能不一致。
 
 ## 7. 不做的事
 

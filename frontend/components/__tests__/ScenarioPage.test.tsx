@@ -161,6 +161,7 @@ function installFetch(
     scenarioHistory?: unknown;
     scenarioSummary?: unknown;
     deleteOk?: boolean;
+    deleteStatus?: number;
     sourceKind?: string | null; // /api/source/status 回的 kind；預設 'simulation'（生成需 simulation 來源）
     selectOk?: boolean; // /api/source/select 是否成功；預設 true
     compareBody?: unknown; // /api/scenarios/compare 回傳（A2，WMOM-20260922-04）
@@ -175,6 +176,7 @@ function installFetch(
   const scenarioHistory = opts.scenarioHistory ?? SCENARIO_HISTORY;
   const scenarioSummary = opts.scenarioSummary ?? summaryWith(['WT001', 'WT002', 'WT003']);
   const deleteOk = opts.deleteOk ?? true;
+  const deleteStatus = opts.deleteStatus ?? (deleteOk ? 200 : 403);
   const sourceKind = opts.sourceKind === undefined ? 'simulation' : opts.sourceKind;
   const selectOk = opts.selectOk ?? true;
   const compareBody = opts.compareBody ?? SCENARIO_COMPARE;
@@ -193,7 +195,7 @@ function installFetch(
     if (url.includes('/api/scenarios/') && url.includes('/history')) return jsonRes(scenarioHistory);
     if (url.includes('/api/scenarios/') && url.includes('/summary')) return jsonRes(scenarioSummary);
     if (url.includes('/api/scenarios/') && method === 'DELETE')
-      return jsonRes({ status: 'deleted' }, deleteOk, deleteOk ? 200 : 403);
+      return jsonRes({ status: 'deleted' }, deleteOk, deleteStatus);
     if (url.includes('/api/scenarios')) return jsonRes({ scenarios: saved });
     return Promise.reject(new Error(`unexpected fetch: ${method} ${url}`));
   });
@@ -597,6 +599,18 @@ describe('ScenarioPage — 過去情境清單', () => {
       fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
     });
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/系統管理員權限/));
+    expect(screen.getByText('暴風測試')).toBeInTheDocument();
+  });
+
+  it('刪除被擋（409，回放存有評測結果）→ 提示先下載預測、情境仍在', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    installFetch({ deleteOk: false, deleteStatus: 409 });
+    await renderPage('zh');
+    await waitFor(() => expect(screen.getByText('暴風測試')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /刪除情境/ }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/評測結果/));
     expect(screen.getByText('暴風測試')).toBeInTheDocument();
   });
 

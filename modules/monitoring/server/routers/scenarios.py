@@ -767,9 +767,17 @@ async def get_scenario_ground_truth(scenario_id: int) -> dict:
     # 破壞性端點的既定慣例（皆 ADMIN）。
     dependencies=[Depends(require_role(Role.ADMIN))],
 )
-async def delete_scenario(scenario_id: int):
-    """刪除情境 session 及其所有資料列；非情境 session 不受影響（回 404）。"""
+async def delete_scenario(scenario_id: int, force: bool = False):
+    """刪除情境 session 及其所有資料列；非情境 session 不受影響（回 404）。
+
+    情境的 WebSocket 回放收過受測端的預測（評測結果，WMOM-20261021-06）時，預設拒絕（409）：
+    先下載 ``/api/replay-runs/{id}/predictions``，確定不要了才帶 ``force=true``。
+    """
     b = get_broker()
+    predictions = b.storage.count_scenario_replay_predictions(scenario_id)
+    if predictions and not force:
+        raise HTTPException(409, f"Scenario {scenario_id} has {predictions} replay predictions (graded results); "
+                                 "download them first, or pass force=true to delete anyway")
     deleted = b.storage.delete_scenario(scenario_id)
     if not deleted:
         raise HTTPException(404, f"Scenario {scenario_id} not found")

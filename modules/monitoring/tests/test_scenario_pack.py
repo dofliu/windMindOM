@@ -52,6 +52,7 @@ from server.storage import Storage, is_observable_event  # noqa: E402
 from shared.plc_tags import is_real_plc_tag  # noqa: E402
 from shared.alarm_codes import all_alarms, get_alarm  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
+from simulator.ground_truth import CONTRACT_VERSION  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 from simulator.physics.scada_registry import SCADA_REGISTRY  # noqa: E402
 from simulator.time_utils import parse_iso  # noqa: E402
@@ -135,7 +136,7 @@ def test_blind_pack_files_and_manifest(generated: Dict[str, object]) -> None:
     for name, info in manifest["files"].items():
         assert info == {"sha256": _sha256(pack_dir / name), "bytes": (pack_dir / name).stat().st_size}
     sid = generated["scenario_id"]
-    assert manifest["pack_id"] == f"z72-scenario-{sid:05d}" and manifest["contract_version"] == "1.0"
+    assert manifest["pack_id"] == f"z72-scenario-{sid:05d}" and manifest["contract_version"] == CONTRACT_VERSION
     assert manifest["turbines"] == ["WT001", "WT002", "WT003"]
     assert (manifest["sim_start"], manifest["sim_end"]) == ("2026-01-15T03:00:10.000000Z", "2026-01-15T05:00:00.000000Z")
     assert manifest["sample_period_s"] == 10.0 and manifest["stats_window_s"] == 600
@@ -526,7 +527,7 @@ def test_ground_truth_timestamps_are_converted_everywhere() -> None:
           "cases": [{"onset_ts": "2026-01-15T03:00:00+00:00", "first_alarm_ts": None, "trip_ts": ""}],
           "unattributed_events": [{"ts": "2026-01-15T03:05:00+00:00", "code": 336}]}
     out = sp.ground_truth_for_pack(gt, "z72-scenario-00001")
-    assert out["contract_version"] == "1.0", "-04 起存的答案就是 v1 格式：匯出時標成目前的合約版本"
+    assert out["contract_version"] == "1.0", "-04 起存的答案就是 v1.0 格式：舊的 0.1 標籤匯出時標成 1.0"
     assert out["sim_start"] == "2026-01-15T03:00:00.000000Z" and out["sim_end"] is None
     assert out["cases"][0] == {"onset_ts": "2026-01-15T03:00:00.000000Z", "first_alarm_ts": None, "trip_ts": ""}
     assert out["unattributed_events"][0]["ts"] == "2026-01-15T03:05:00.000000Z"

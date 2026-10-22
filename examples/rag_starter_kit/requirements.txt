@@ -1,3 +1,5 @@
 # starter kit 的讀取程式（pack_reader.py）需要；score.py 與 baseline_assistant.py 只用標準函式庫
 pandas>=2.0
 pyarrow>=15.0
+# stream_client.py（WebSocket 回放）需要
+websockets>=13

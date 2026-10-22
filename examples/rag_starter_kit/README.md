@@ -1,7 +1,8 @@
 # Z72 RAG 維修助手 starter kit
 
 給學生專題用的入門包：windMindOM 模擬 Z72 風場產生的**範例資料包**、讀取程式、一個陽春的**基準助手**，
-以及**評分程式**。介面規格以 [資料介面合約 v1](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
+以及**評分程式**。介面規格以 [資料介面合約 v1.1](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
+資料有兩種拿法：**資料包檔案**（離線）與 **WebSocket 回放**（即時，見下方「即時回放」）。
 
 ## 內容
 
@@ -14,6 +15,7 @@ rag_starter_kit/
   pack_reader.py              讀資料包（pandas）：raw、10 分鐘統計、事件、「只看當下以前」的工具（raw_until / stats_until / events_until）
   baseline_assistant.py       基準助手：看到警報才用關鍵字猜元件（要超越它）
   score.py                    評分程式（只用標準函式庫）
+  stream_client.py            WebSocket 回放的範例客戶端：基準助手的即時版
   requirements.txt
 ```
 
@@ -90,9 +92,45 @@ case：5　偵測到：5（100.0 %）
 - 對不到任何故障的判斷算誤報。
 - 預測檔請存成 UTF-8（PowerShell 5 的 `>` 會存成 UTF-16）。
 
+## 即時回放（WebSocket）
+
+老師開一個回放、給你 **token**。資料依模擬時鐘播出：
+- 讀值、事件、10 分鐘統計，內容與資料包逐筆相同。
+- 你在同一條連線送出判斷。
+- 伺服器以「收到判斷時的模擬時間」蓋 `ts`。你不用（也不能）自己填時間，這樣才保證沒有偷看未來。
+
+```bash
+python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --check    # 先確認 token（不開始計時）
+python stream_client.py ws://<伺服器>:8000/ws/replay --token <token>
+python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record received.jsonl   # 另存收到的訊息
+```
+
+- **兩種回放**：
+  - **練習**：每次連線從頭播，寫程式時用。
+  - **正式（evaluation）**：單次直播，從第一次連線開始計時，不能暫停或倒帶。斷線重連會補送已過去的資料，但時間不會倒回。
+    想先確認 token 能用，請加 `--check`（`?check=true`），不會開始計時。
+- **速度**由老師決定（例：60 倍＝ 1 秒運算對應 1 分鐘模擬時間）。回放不會等你：收得慢或想得久，判斷時間就晚。
+  `stream_client.py` 示範「一個工作只收訊息、另一個做判斷」。
+- 判斷的格式同 `predictions.jsonl` 的一行，加上 `"type": "prediction"`。可以帶 `id`，伺服器回 `ack` 時原樣附上：
+  ```json
+  {"type": "prediction", "id": 1, "turbine_id": "WT002", "category": "real_fault", "component": "main_bearing", "manual_refs": [262]}
+  ```
+  格式錯的會被退回（`ack` 的 `accepted: false` 與 `errors`）。情境播完後送的判斷不收。
+- **連不上或被拒絕**：`stream_client.py` 會印出關閉碼與伺服器的說明。常見的有：
+  - 4401：token 錯。
+  - 4403：回放已撤銷或過期。
+  - 4410：正式回放已結束。
+- **被斷線**：伺服器每 20 秒 ping 一次。程式整段卡在同步的大模型呼叫裡太久，會被斷線。判斷請放到另一個執行緒，或用非同步呼叫。
+- **proxy**：`stream_client.py` 預設直連伺服器，不經過環境變數設定的 proxy；需要時加 `--use-env-proxy`。
+- 訊息種類、欄位與關閉碼見合約 §12。
+
 ## 正式評測
 
-老師會給新的盲測版資料包（格式相同，但沒有 `answers/`）。你交 `predictions.jsonl`，老師用同一個 `score.py` 評分：
+老師會給新的盲測版資料包（格式相同，但沒有 `answers/`），或一個正式回放的 token。
+- **用資料包**：你交 `predictions.jsonl`。
+- **用回放**：判斷已經在伺服器上，老師直接下載（`tools/replay_runs.py <db> predictions <回放 id>`）。
+
+老師用同一個 `score.py` 評分：
 
 ```bash
 # 評分端：--answers 可直接給評分端版資料包目錄（內含 ground_truth.json）或答案目錄

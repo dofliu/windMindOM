@@ -107,6 +107,8 @@ def main():
         host=args.host,
         port=port,
         reload=args.reload,
+        # 受測端送來的 WebSocket 訊息上限（回放的預測每則 ≤ 16 KB，WMOM-20261021-06）；預設 16 MiB 太寬
+        ws_max_size=1024 * 1024,
     )
 
 
