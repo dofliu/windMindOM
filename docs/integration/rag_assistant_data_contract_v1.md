@@ -100,7 +100,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 |---|---|---|
 | `timestamp` | `timestamp[us, tz=UTC]` | 取樣時間 |
 | `turbine_id` | string | 機組 |
-| `<Bachmann tag 名>` × 100 | 依 PLC 型別：REAL32 → float32、SINT16 → int16、UINT16 → uint16、BOOL → bool | 讀值；缺值為 null |
+| `<Bachmann tag 名>` × 102 | 依 PLC 型別：REAL32 → float32、SINT16 → int16、UINT16 → uint16、BOOL → bool | 讀值；缺值為 null |
 
 依 `(timestamp, turbine_id)` 排序。欄名含方括號者（`Z72PLC__UI_Mbus_Contact[2]`）在 SQL 引擎要加引號。運轉狀態欄 `Z72PLC__UI_Loc_WTUR_State_TurSt` 為 Bachmann TurSt：1 Shutdown、2 Standby、3 Wait Restart、4 Pre-Production、5 Synchronization、6 Production、7 Emergency Stop、8 Restart、9 Normal Stop。
 
@@ -318,7 +318,7 @@ case：
 
 - **建回放**（主管）：`POST /api/scenarios/{id}/replay-runs`，或 CLI `python tools/replay_runs.py <風場 DB> create <情境 id>`。回應中的 `token` 只出現這一次。參數：
   - `mode`：
-    - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410）。**要先試 token 請用 `?check=true`**：只回報回放狀態，不開始計時。
+    - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410；播完後的 `close_grace_s` 秒內仍連得上，只會收到 `finished`，給途中的判斷拿 ack）。**要先試 token 請用 `?check=true`**：只回報回放狀態，不開始計時。
     - `practice`：每次連線各自從頭播，給受測端開發用。
     - **用 OPC UA 讀資料時**（§13）：正式評測在出題端啟動 OPC UA server 時就開始計時，WebSocket 連線加入同一個時鐘。
     - **同一個情境不能同時有兩種模式**（未撤銷的回放）：練習回放可以先看完正式評測的整段資料。伺服器預設拒絕（409），確定要並存才帶 `allow_overlap: true`。
@@ -329,9 +329,9 @@ case：
   - `expires_in_hours`：token 有效時數（預設 7 天）；`label`：備註（受測端看不到）。
 - **受測端連線**：token 放 `Authorization: Bearer <token>` 標頭（建議），或 `?token=<token>`（會留在伺服器的存取紀錄）。受測端不開 windMindOM 帳號，token 只能連這一個回放（DEC-20261021-03）。
 - **只送預測**（v1.2）：`?stream=false` 不送 `reading` / `event` / `stats`，只收預測（資料改從 OPC UA 讀，§13）。照樣先送 `control started`（`stream.data` 為 `false`），資料播完時送 `control finished`；預測的規則與 `ts` 相同。
-  - 正式評測：同一個時鐘（OPC UA server 啟動時開播）。
+  - 正式評測：同一個時鐘（OPC UA server 啟動時開播）。OPC UA server 還沒開播時拒絕（4412）：只收預測的連線不會開始計時，稍後再連。
   - 練習：時鐘用 OPC UA server 這次開播時記下的起點（不是各連線從頭播）；還沒以 OPC UA 播出時拒絕（4412），這次播出已結束也拒絕（4410）。一般的練習連線（送資料）照舊各自從頭播。
-- **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id>` 下載 `predictions.jsonl`，與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
+- **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id> -o predictions.jsonl` 下載 `predictions.jsonl`（請用 `-o` 寫檔：Windows 主控台的編碼印不出部分字元），與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
 - **撤銷**：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`。之後不能再連線、送預測；開著的連線幾秒內以 4403 關閉。token 到期同樣處理。
 - **刪除情境**：刪除時一併刪除它的回放與預測。回放收過預測（評測結果）時，`DELETE /api/scenarios/{id}` 預設拒絕（409），先下載預測再帶 `force=true`。
 - 範例程式：[`examples/rag_starter_kit/stream_client.py`](../../examples/rag_starter_kit/stream_client.py)（基準助手的即時版）。
@@ -365,7 +365,7 @@ case：
 | 4404 | 情境不能回放（例：資料不完整、讀值超過 200 萬筆） |
 | 4409 | 這個回放的連線已滿（每個回放最多 4 條） |
 | 4410 | 單次回放已結束（練習回放用 `stream=false` 時：這次 OPC UA 播出已結束） |
-| 4412 | 練習回放用 `stream=false`，但還沒以 OPC UA 播出（v1.2） |
+| 4412 | 用 `stream=false`，但還沒以 OPC UA 播出（v1.2；正式評測也適用，見 §12.1） |
 | 1011 | 伺服器錯誤 |
 
 ### 12.3 受測端 → 伺服器
@@ -423,7 +423,7 @@ case：
 | `Z72.H{nn}.WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNacAvg10m` | Float | 真實 tag，模擬器沒有輸出：server 以 `WSpeedNac` 的 10 分鐘移動平均算出（節點說明寫明 derived） |
 | `Z72.H{nn}.Z72PLC__ActiveAlarm[0..20]` | Int16 | 目前成立的警報碼（A） |
 | `Z72.H{nn}.Z72PLC__ActiveTrip1[0..20]` / `ActiveTrip2[0..20]` | Int16 | 目前成立的跳機碼（T1 / T2；鎖存中的也在） |
-| `WindMindOM.Source` / `Status` / `SimTime` / `PackId` / `Mode` / `Speed` | String / String / DateTime / String / String / Double | 模擬器狀態（不是真實 PLC 的 tag）：`Source`＝`replay` / `live`；`Status`＝`running` / `finished` / `revoked` / `expired` / `idle`；`SimTime`＝目前模擬時間（UTC） |
+| `WindMindOM.Source` / `Status` / `SimTime` / `PackId` / `Mode` / `Speed` | String / String / DateTime / String / String / Double | 模擬器狀態（不是真實 PLC 的 tag）：`Source`＝`replay` / `live`；`Status`＝`running` / `finished` / `revoked` / `expired` / `missing`（回放被刪除）/ `idle`；`SimTime`＝目前模擬時間（UTC） |
 
 - **站號**：`H{nn}` 是機組 ID 的數字補兩位（`WT001` → `H01`，同真實讀取腳本），對應 WebSocket 開播訊息的 `turbines`。
 - **瀏覽**：`Objects/Z72/H01/WTUR/Z72PLC__UI_Loc_WTUR_State_TurSt`（BrowseName＝tag 名），事件碼陣列在 `Objects/Z72/H01/` 底下。

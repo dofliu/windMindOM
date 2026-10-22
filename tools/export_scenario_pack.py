@@ -1,7 +1,8 @@
 """情境資料包匯出 CLI（WMOM-20261021-05，EPIC-DS Phase 3a ① 檔案）。
 
-從風場 DB 把一個命名情境匯出成資料包目錄（設計文件 §5.1）。預設是盲測版（不含答案），給受測端；
-`--ground-truth` 另附 `ground_truth.json`，只給評分端。
+從風場 DB 把一個命名情境匯出成資料包目錄（設計文件 §5.1）。預設是盲測版（不含答案），給受測端，
+放在 `<out>/<pack_id>/`；`--ground-truth` 另附 `ground_truth.json`，只給評分端，放在另一個目錄
+`<out>/<pack_id>-full/`（兩版不共用目錄：給受測端的目錄不會時有時無答案）。
 
 範例：
   # 列出 DB 裡可匯出的情境
@@ -48,7 +49,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="匯出情境資料包（EPIC-DS §5.1）")
     parser.add_argument("db", type=Path, help="風場 SQLite DB 路徑")
     parser.add_argument("scenario_id", type=int, nargs="?", help="情境 session id")
-    parser.add_argument("--out", type=Path, default=Path("."), help="輸出目錄（資料包放在其下的 <pack_id>/）")
+    parser.add_argument("--out", type=Path, default=Path("."),
+                        help="輸出目錄（盲測版放在其下的 <pack_id>/，評分端版放在 <pack_id>-full/）")
     parser.add_argument("--ground-truth", action="store_true", help="附 ground_truth.json（評分端版）")
     parser.add_argument("--zip", action="store_true", help="另壓成 <pack_id>.zip")
     parser.add_argument("--list", action="store_true", help="列出 DB 裡的情境")
@@ -70,7 +72,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.error("需要 scenario_id（或用 --list 列出情境）")
 
     pack_id = pack_id_for(args.scenario_id)
-    pack_dir = args.out / pack_id
+    pack_dir = args.out / (f"{pack_id}-full" if args.ground_truth else pack_id)
     try:
         manifest = export_scenario_pack(storage, args.scenario_id, pack_dir,
                                         include_ground_truth=args.ground_truth)
@@ -83,7 +85,7 @@ def main(argv: Optional[List[str]] = None) -> int:
           f"{'含' if args.ground_truth else '不含'}標準答案")
     if args.zip:
         zip_path = args.out / f"{pack_id}{'-full' if args.ground_truth else ''}.zip"
-        write_pack_zip(pack_dir, zip_path, args.ground_truth)
+        write_pack_zip(pack_dir, zip_path, args.ground_truth, pack_id=pack_id)
         print(f"zip：{zip_path}")
     return 0
 

@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, TextIO
 
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from baseline_assistant import BaselineAssistant
 
@@ -49,7 +49,7 @@ CLOSE_CODES: Dict[int, str] = {
     4404: "情境不能回放",
     4409: "這個回放的連線已滿",
     4410: "單次回放已結束",
-    4412: "練習回放還沒以 OPC UA 播出（stream=false）",
+    4412: "還沒以 OPC UA 播出（stream=false）：稍後再連",
 }
 
 
@@ -146,7 +146,10 @@ async def _think(ws: ClientConnection, inbox: "asyncio.Queue[Optional[JsonObject
             judgement = assistant.on_event(message)
             if judgement is not None:
                 sent += 1
-                await ws.send(json.dumps({"type": "prediction", "id": sent, **judgement}, ensure_ascii=False))
+                try:
+                    await ws.send(json.dumps({"type": "prediction", "id": sent, **judgement}, ensure_ascii=False))
+                except ConnectionClosed:  # 伺服器已關閉連線（撤銷、到期、錯誤）：關閉碼由 _receive 記下
+                    return
                 if verbose:
                     print(f"  {message['ts']} {message['turbine_id']} {message['event_type']} "
                           f"{message['alarm_code']} → 送出判斷 #{sent} {judgement['component']}")
@@ -209,9 +212,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         summary = asyncio.run(run(args.url, args.token, backfill=not args.no_backfill, check=args.check,
                                   record=args.record, verbose=not args.quiet, use_env_proxy=args.use_env_proxy))
-    except OSError as exc:  # 連不上（位址、埠、防火牆、proxy）
+    except (OSError, WebSocketException) as exc:  # 連不上（位址、埠、防火牆、proxy）或握手失敗（網址 / 路徑錯）
         print(f"連不上 {args.url}：{exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        return 0
     code = summary.close_code
     print(f"連線關閉：{code}（{CLOSE_CODES.get(code or 0, '其他')}）")
     print("收到：" + "、".join(f"{k} {v}" for k, v in sorted(summary.counts.items())))

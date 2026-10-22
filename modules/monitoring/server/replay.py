@@ -265,7 +265,6 @@ class ScenarioReplay:
         Returns:
             dict。
         """
-        wind_profile = self._config.get("wind_profile")
         return {
             "contract_version": CONTRACT_VERSION,
             "pack_id": self.pack_id,
@@ -278,7 +277,7 @@ class ScenarioReplay:
             "stats_convention": sp.stats_convention(self.columns),
             "duration_hours": self._config.get("duration_hours"),
             "site_timezone": self._config.get("site_timezone"),
-            "wind_profile": wind_profile if wind_profile in sp.KNOWN_WIND_PROFILES else None,
+            "wind_profile": sp.scenario_wind_profile(self._config),
             "rated_power_kw": self._scenario.get("rated_power_kw"),
         }
 

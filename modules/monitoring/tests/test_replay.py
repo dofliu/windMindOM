@@ -578,6 +578,53 @@ def test_kit_stream_client_against_a_real_server(generated: Dict[str, object], m
     assert checked.counts == {"control": 1} and checked.close_code == 1000
 
 
+def test_kit_stream_client_reports_a_close_while_judging(capsys: pytest.CaptureFixture[str]) -> None:
+    """判斷送出前連線已被關閉（例：出題端撤銷 4403）：印出關閉碼與統計，不是 traceback；網址錯也一樣。"""
+    import socket
+    import threading
+
+    from websockets.asyncio.server import ServerConnection, serve
+
+    import stream_client
+
+    started = {"type": "control", "status": "started", "sim_ts": "2026-03-02T01:00:10Z",
+               "stream": {"pack_id": "z72-fake", "mode": "evaluation", "speed": 60, "sim_start": "a", "sim_end": "b",
+                          "turbines": ["WT001"], "data": True}}
+    event = {"type": "event", "ts": "2026-03-02T02:00:10Z", "turbine_id": "WT001", "event_type": "alarm_raised",
+             "alarm_code": 262, "alarm_level": "A", "alarm_text": "Main bearing 1 temperature high"}
+
+    async def handler(ws: ServerConnection) -> None:
+        await ws.send(json.dumps(started))
+        await ws.send(json.dumps(event))
+        await ws.close(code=4403)
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    ready, stop = threading.Event(), threading.Event()
+
+    def serve_forever() -> None:
+        async def main() -> None:
+            async with serve(handler, "127.0.0.1", port):
+                ready.set()
+                while not stop.is_set():
+                    await asyncio.sleep(0.05)
+        asyncio.run(main())
+
+    thread = threading.Thread(target=serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert ready.wait(10)
+        exit_code = stream_client.main([f"ws://127.0.0.1:{port}/ws/replay", "--token", "x", "-q"])
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+    out = capsys.readouterr().out
+    assert exit_code == 1 and "連線關閉：4403" in out
+    assert stream_client.main(["http://127.0.0.1:1/ws/replay", "--token", "x"]) == 1, "網址錯：訊息，不是 traceback"
+    assert "連不上" in capsys.readouterr().err
+
+
 def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp_path: Path,
                                                capsys: pytest.CaptureFixture[str]) -> None:
     import replay_runs

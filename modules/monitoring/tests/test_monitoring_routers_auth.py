@@ -152,3 +152,16 @@ def test_blind_pack_follows_the_read_gate(client, monkeypatch, tmp_path):
     assert client.get("/api/scenarios/1/pack").status_code == 401
     assert client.get("/api/scenarios/1/pack", headers=_bearer("employee")).status_code == 404
     assert client.get("/api/scenarios/1/pack/full", headers=_bearer("supervisor")).status_code == 404
+
+
+def test_out_of_range_ids_and_limits_are_rejected_before_the_database(client):
+    """超出 SQLite 整數範圍的 id、負數 limit（SQLite 視為不限）在 FastAPI 驗證就擋下（422），不是 500 / 撈整個情境。"""
+    from server.routers import replay as replay_ep
+
+    client.app.include_router(replay_ep.router)
+    huge = 10**20
+    for path in (f"/api/scenarios/{huge}", f"/api/scenarios/{huge}/pack", f"/api/scenarios/{huge}/ground-truth",
+                 f"/api/scenarios/{huge}/replay-runs", f"/api/replay-runs/{huge}/predictions",
+                 "/api/scenarios/1/turbines/WT001/history?limit=-1", "/api/scenarios?limit=0"):
+        assert client.get(path, headers=_bearer("supervisor")).status_code == 422, path
+    assert client.get(f"/api/scenarios/compare?ids=1,{huge}").status_code == 400

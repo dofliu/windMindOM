@@ -10,7 +10,7 @@
 ```
 rag_starter_kit/
   packs/                      範例資料包（盲測版，跟正式評測拿到的格式一樣）
-    z72-starter-01/  02/  03/
+    z72-starter-01/  02/  03/  04/
   answers/                    範例的標準答案（劇透！先別看，跑完再拿來評分）
   vocabulary.json             元件 / 類別 / 事件種類詞彙（預測的 component 必須用這裡的 ID）
   pack_reader.py              讀資料包（pandas）：raw、10 分鐘統計、事件、「只看當下以前」的工具（raw_until / stats_until / events_until）
@@ -129,7 +129,7 @@ python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record
   - 4401：token 錯。
   - 4403：回放已撤銷或過期。
   - 4410：正式回放已結束。
-  - 4412：練習回放用 `stream=false`，但老師還沒以 OPC UA 播出。
+  - 4412：用 `stream=false`，但老師還沒以 OPC UA 播出（稍後再連）。
 - **被斷線**：伺服器每 20 秒 ping 一次。程式整段卡在同步的大模型呼叫裡太久，會被斷線。判斷請放到另一個執行緒，或用非同步呼叫。
 - **proxy**：`stream_client.py` 預設直連伺服器，不經過環境變數設定的 proxy；需要時加 `--use-env-proxy`。
 - 訊息種類、欄位與關閉碼見合約 §12。
@@ -147,7 +147,7 @@ python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record
 - 模擬器狀態在 `WindMindOM.*`（`Status`：`running` / `finished` / `revoked` …、`SimTime`、`PackId`）。
 - **判斷照樣經 WebSocket 送**：同一個 token 連 `ws://<伺服器>:8000/ws/replay?stream=false`（只收判斷、不再送資料），
   伺服器一樣蓋 `ts`，時鐘與 OPC UA 相同：正式回放在老師啟動 OPC UA server 時就開始計時；練習回放用老師這次啟動
-  OPC UA server 的時間（還沒啟動會被拒絕，關閉碼 4412）。
+  OPC UA server 的時間。兩者在 OPC UA server 啟動前都會被拒絕（關閉碼 4412），不會先開始計時。
 
 ```bash
 python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/ --ws ws://<伺服器>:8000/ws/replay --token <token>

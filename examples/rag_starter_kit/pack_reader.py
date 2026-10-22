@@ -86,7 +86,7 @@ class Pack:
     def events(self) -> List[Dict[str, object]]:
         """可觀測事件（依時間排序；同一時刻依發生順序）。"""
         text = (self.path / "events.jsonl").read_text(encoding="utf-8")
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
+        return [json.loads(line) for line in text.split("\n") if line.strip()]
 
     def raw(self, turbine_id: Optional[str] = None, columns: Optional[List[str]] = None) -> pd.DataFrame:
         """原始時序（``timestamp`` 為 UTC、欄名＝Bachmann tag 名、缺值為 NaN / <NA>）。

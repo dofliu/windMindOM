@@ -944,10 +944,16 @@ def test_named_scenario_without_schedule_starts_from_a_clean_fault_state(broker)
 
 
 def test_scenario_history_can_return_only_observable_events(broker):
-    """給盲測的外部消費端：observable_only 拿掉寫明故障的注入 / 跳機標記。"""
+    """observable_only：拿掉寫明故障的注入 / 跳機標記，其餘轉成資料包的事件格式（不含製程值 / 設定值 / 內部停機原因）。"""
+    from server.scenario_pack import EVENT_KEYS
+
     sid = _overspeed_scenario(broker)
     full = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000))["events"]
     blind = asyncio.run(scenarios_ep.get_scenario_turbine_history(sid, "WT001", 2000, observable_only=True))["events"]
     assert any(e["source"] == "scenario" for e in full)
-    assert blind and all(is_observable_event(e) for e in blind)
-    assert {e["source"] for e in blind} == {"plc", "simulator"}
+    observable = [e for e in full if is_observable_event(e)]
+    assert blind and len(blind) == len(observable)
+    assert all(tuple(e) == EVENT_KEYS for e in blind), "只有合約 §4 的欄位"
+    assert {e["event_type"] for e in blind} >= {"trip", "state_change"}
+    text = json.dumps(blind)
+    assert "setpoint" not in text and "shutdownCause" not in text and "overspeed_software" not in text

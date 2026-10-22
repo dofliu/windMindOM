@@ -285,6 +285,9 @@ async def generate_bulk(body: dict):
       fault_schedule: 選填。Scenario 模式的故障排程（DEC-20260718-01）。每筆
         ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?}``
         於指定 sim-time 注入，讓批次資料集包含該故障的發展（見 ``_parse_fault_schedule``）。
+      wind_profile: 選填。風況標籤（風況本身以 ``POST /api/config/wind`` 套用）；情境另記生成時實際套用的
+        profile（``wind_profile_applied``），資料包 / 回放輸出的是後者。
+      name: 選填。情境名稱（存成可調閱的專屬情境 session）。
 
     The data is written to SQLite via the normal storage pipeline.
     This runs synchronously and may take minutes for large durations.
@@ -317,7 +320,11 @@ async def generate_bulk(body: dict):
     # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
     scenario_name = body.get("name")
     scenario_name = scenario_name.strip() if isinstance(scenario_name, str) else ""
+    # 風況 profile 只是標籤（前端先以 POST /api/config/wind 套用再帶同名）；資料包 / 回放輸出的是生成時實際套用的
+    # profile（wind_profile_applied），標籤與實際不符時不會寫錯。非字串會讓資料包 / 回放讀不出，擋下
     wind_profile = body.get("wind_profile")
+    if wind_profile is not None and not isinstance(wind_profile, str):
+        raise HTTPException(400, "wind_profile 必須是風況 profile 名稱（字串）")
 
     if scenario_name:
         # 把當下機型的額定功率釘進情境 session——情境是凍結資料集，容量因數的分母應反映「生成當時的
@@ -336,6 +343,8 @@ async def generate_bulk(body: dict):
                 "kind": b.storage.SCENARIO_KIND,
                 "name": scenario_name,
                 "wind_profile": wind_profile,
+                # 生成時實際套用的風況（手動風速 / 自動為 manual / auto）：資料包 / 回放輸出這個，不信標籤
+                "wind_profile_applied": b.simulator.wind_model.get_status()["profile"] or "auto",
                 # 日夜 / 季節循環所用的風場時區：情境可重現的必要資訊（WMOM-20261021-11）
                 "site_timezone": b.simulator.wind_model.site_timezone_name,
                 # 本情境的事件帶 session_id（WMOM-20261021-04）：調閱 / 摘要以 session 隔離，

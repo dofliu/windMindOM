@@ -224,7 +224,7 @@ class Z72OpcUaServer:
         columns: 讀值欄位（同資料包）。
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT,
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
                  columns: Optional[Sequence[sp.PackColumn]] = None) -> None:
         """建立（還沒開始監聽，見 ``start``）。
 
@@ -512,7 +512,7 @@ class ReplayFeeder:
     async def run(self, tick_s: Optional[float] = None) -> None:
         """依時鐘更新直到資料播完（或回放被撤銷 / 到期 / 刪除）。
 
-        單次更新失敗（例：DB 暫時鎖住）只記錄、下一輪再試：正式評測的時鐘不會停。
+        單次更新或回放狀態檢查失敗（例：DB 暫時鎖住）只記錄、下一輪再試：正式評測的時鐘不會停。
 
         Args:
             tick_s: 更新間隔（實際秒）；None＝``self.tick_s``。
@@ -521,12 +521,16 @@ class ReplayFeeder:
         checked_at = rp.wall_time()
         while not self.done:
             if self._check_run is not None and rp.wall_time() - checked_at >= RUN_RECHECK_S:
-                checked_at = rp.wall_time()
-                reason = await self._check_run()
-                if reason is not None:
-                    self.stop_reason = reason
-                    await self._server.set_status(Status=reason)
-                    return
+                try:
+                    reason = await self._check_run()
+                except Exception:  # noqa: BLE001  查不到就下一輪再查（不更新 checked_at）
+                    logger.exception("OPC UA replay run check failed")
+                else:
+                    checked_at = rp.wall_time()
+                    if reason is not None:
+                        self.stop_reason = reason
+                        await self._server.set_status(Status=reason)
+                        return
             try:
                 await self.advance_to(self._clock.sim_now())
             except Exception:  # noqa: BLE001  單次失敗不中斷播出
