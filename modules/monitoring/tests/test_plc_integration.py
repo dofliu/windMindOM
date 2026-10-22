@@ -11,7 +11,7 @@ tripped」整條鏈，以及健康風場不會被訊號判定誤跳：
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Tuple
 
@@ -24,6 +24,7 @@ if str(MONITORING_ROOT) not in sys.path:
 
 import pytest
 
+import simulator.engine as engine_mod
 from simulator.engine import WindFarmSimulator
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.plc_protection import PlcEvent
@@ -113,7 +114,10 @@ def test_alarm_precedes_trip_for_bearing_wear_ramp() -> None:
     assert kinds.index(("alarm_raised", 262)) < kinds.index(("trip", 240))
 
 
-def test_healthy_farm_has_no_signal_judged_events() -> None:
+def test_healthy_farm_has_no_signal_judged_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 釘住起點：日夜 / 季節循環依模擬時刻，否則每次跑的風況不同（12 h 多起點見 test_healthy_blade_sync.py）
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(engine_mod, "utc_now", lambda: t0)
     sim = WindFarmSimulator(turbine_count=3)
     events: List[PlcEvent] = []
 

@@ -28,8 +28,8 @@ from simulator.physics.vibration_spectral import SpectralVibrationModel
 from simulator.physics.fatigue_model import FatigueModel, FatigueSpec
 from simulator.physics.plc_protection import PlcProtection
 
-# 各葉片變槳的健康誤差（WMOM-20261021-12）：零點校正誤差 σ、穩定發電時的伺服死區與編碼器雜訊；
-# 起動（狀態 5）/ 緊急順槳（狀態 7）的追蹤誤差較大。健康機組葉片間差異須遠小於手冊的 1° 設定值
+# 各葉片變槳的健康誤差（WMOM-20261021-12）：零點校正誤差 σ、伺服死區與編碼器雜訊；起動（狀態 5）/
+# 緊急順槳（狀態 7）的追蹤誤差較大，其餘狀態用小的值。健康機組葉片間差異須遠小於手冊的 1° 設定值
 _PITCH_OFFSET_SIGMA_DEG = 0.06
 _PITCH_DEADBAND_DEG = 0.10
 _PITCH_NOISE_DEG = 0.04
@@ -1279,8 +1279,8 @@ class TurbinePhysicsModel:
         command = max(-max_rate * dt, min(max_rate * dt, diff))
         self.pitch_angle += command
 
-        # 各葉片獨立伺服追蹤共同指令。穩態誤差（死區＋編碼器雜訊）要遠小於手冊的葉片差異設定值
-        # （5 s > 1°），否則健康機組會誤跳 T2 335–337（WMOM-20261021-12）；起動 / 緊急順槳時誤差較大，
+        # 各葉片獨立伺服追蹤共同指令。起動 / 緊急順槳以外的誤差（死區＋編碼器雜訊）要遠小於手冊的葉片差異
+        # 設定值（5 s > 1°），否則健康機組會誤跳 T2 335–337（WMOM-20261021-12）；起動 / 緊急順槳時誤差較大，
         # 但 PLC 只在穩定發電時判定。只改雜訊 σ、不改抽樣次數：主 _rng 序列不位移
         transient = self.tur_state in (5, 7)
         deadband = _PITCH_DEADBAND_TRANSIENT_DEG if transient else _PITCH_DEADBAND_DEG

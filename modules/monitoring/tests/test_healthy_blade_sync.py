@@ -7,8 +7,10 @@ PLC 規則與手冊一致（瞬間 > 8°、3 s > 3°、5 s > 1°），根因在�
 
 1. 機制：14 支機組種子（預設風場大小）在紊流強、橫跨 Region 2/3 的風速下各跑 12 h，
    以 PLC 的判定方式（延遲從第一個越限樣本起算）量葉片差異，要離設定值留足餘裕
-2. 整合：健康風場以批次路徑（5 s 物理子步）跑 12 h、多個起點（含原始重現點），
-   不得有任何訊號判定的 PLC 事件
+2. 整合：健康風場以批次路徑（5 s 物理子步）從原始重現點跑 12 h，另從冬季夜間、夏季清晨各跑 6 h，
+   不得有任何訊號判定的 PLC 事件。葉片誤差是各機組種子的隨機漫步，與起點、風況幾乎無關（修正前三個起點
+   都在 +7:04:45 由 WT002 跳同一次 336），所以葉片同步的覆蓋靠 1. 的 14 支種子；其他起點看的是季節 /
+   日夜風況與氣溫下其他規則（溫度、偏航煞車、風向標）也不誤跳
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ import numpy as np
 import pytest
 
 import simulator.engine as engine_mod
-import wind_model as wind_model_mod
 from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
 from simulator.physics.turbine_physics import TurbinePhysicsModel
@@ -39,8 +40,9 @@ from simulator.physics.turbine_physics import TurbinePhysicsModel
 PRODUCING = 6
 DEFAULT_FARM_TURBINES = 14
 
-# 判定餘裕：5 s 規則看「連續 5 s 都越限」，健康機組這個量要明顯低於 1°（修正前 1.02°、修正後 0.49°）；
-# 3 s / 瞬間規則的設定值 3° / 8° 遠高於健康機組的瞬間峰值（修正後 0.86°，發生在變槳速率受限的陣風）
+# 判定餘裕：5 s 規則看「連續 5 s 都越限」，健康機組這個量要明顯低於 1°（修正前 1.02°、修正後 0.49°，
+# 與紊流強度幾乎無關——由零點誤差與死區決定）；3 s / 瞬間規則的設定值 3° / 8° 遠高於健康機組的瞬間峰值
+#（本測試 TI 12% 修正後 0.86°；陣風 TI 30% 約 1.2–1.8°，發生在變槳速率受限時，各葉片伺服速率差 0.92–0.98 倍）
 SUSTAINED_5S_LIMIT_DEG = 0.7
 SUSTAINED_3S_LIMIT_DEG = 1.5
 PEAK_LIMIT_DEG = 2.0
@@ -57,11 +59,21 @@ class _SustainedTracker:
     """
 
     def __init__(self, delay_s: float, dt: float) -> None:
+        """建立追蹤器。
+
+        Args:
+            delay_s: 規則的延時（秒）。
+            dt: 樣本間隔（秒）。
+        """
         self._window: Deque[float] = deque(maxlen=math.ceil(delay_s / dt - 1e-9) + 1)
         self.worst = 0.0
 
     def push(self, value: float) -> None:
-        """加入一個樣本並更新 ``worst``。"""
+        """加入一個樣本並更新 ``worst``。
+
+        Args:
+            value: 本樣本的葉片差異（度）。
+        """
         self._window.append(value)
         if len(self._window) == self._window.maxlen:
             self.worst = max(self.worst, min(self._window))
@@ -121,20 +133,20 @@ def test_blade_calibration_offsets_are_small() -> None:
         assert spread < 0.4, (seed, offsets)
 
 
-@pytest.mark.parametrize("start", [
-    "2026-04-10T09:00:00+00:00",  # 原始重現點：修正前 16:04:45 WT002 跳 T2 336
-    "2026-01-15T18:00:00+00:00",  # 冬季夜間起跑
-    "2026-07-20T04:00:00+00:00",  # 夏季清晨起跑
+@pytest.mark.parametrize(("start", "hours"), [
+    ("2026-04-10T09:00:00+00:00", 12.0),  # 原始重現點：修正前 16:04:45 WT002 跳 T2 336
+    ("2026-01-15T18:00:00+00:00", 6.0),   # 冬季夜間起跑
+    ("2026-07-20T04:00:00+00:00", 6.0),   # 夏季清晨起跑
 ])
-def test_healthy_farm_runs_12h_without_signal_judged_events(start: str,
-                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    """健康風場批次產生 12 h（time_step 60 → 5 s 物理子步）不得有任何訊號判定的 PLC 事件。
+def test_healthy_farm_long_run_has_no_signal_judged_events(start: str, hours: float,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """健康風場批次產生（time_step 60 → 5 s 物理子步）不得有任何訊號判定的 PLC 事件。
 
-    兩個時鐘都要釘住：引擎的起始時刻與風況模型的自動風況（同 ``tools/build_rag_starter_kit.py``）。
+    釘住引擎的起始時刻（``generate_bulk`` 以 ``utc_now()`` 為起點）；自動風況依模擬時刻計算，
+    不讀 ``wind_model.utc_now``（只有 ``set_override`` / ``set_profile`` 會讀），本測試不需另外釘。
     """
     t0 = datetime.fromisoformat(start).astimezone(timezone.utc)
     monkeypatch.setattr(engine_mod, "utc_now", lambda: t0)
-    monkeypatch.setattr(wind_model_mod, "utc_now", lambda: t0)
     sim = WindFarmSimulator(turbine_count=3)
     events: List[BulkEvent] = []
     producing_minutes = 0
@@ -143,9 +155,9 @@ def test_healthy_farm_runs_12h_without_signal_judged_events(start: str,
         nonlocal producing_minutes
         producing_minutes += sum(1 for r in readings if r["scada"].get("WTUR_TurSt") == PRODUCING)
 
-    sim.generate_bulk(duration_hours=12.0, time_step=60.0, callback=count_producing, on_events=events.extend)
+    sim.generate_bulk(duration_hours=hours, time_step=60.0, callback=count_producing, on_events=events.extend)
     signal_events = [(e.timestamp.isoformat(), e.turbine_id, e.kind, e.plc_event.code)
                      for e in events if e.plc_event is not None and e.plc_event.source == "signal"]
     assert signal_events == []
     # 前置條件：大部分時間在穩定發電（葉片差異規則有在判定），而不是整段停機
-    assert producing_minutes >= 0.5 * 3 * 12 * 60, producing_minutes
+    assert producing_minutes >= 0.5 * 3 * hours * 60, producing_minutes
