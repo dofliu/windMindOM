@@ -395,6 +395,23 @@ def test_evaluation_starts_at_server_start_and_ws_joins_without_data(generated: 
         opcua_cli.load_run(storage, 999_999)
 
 
+def test_cli_refuses_an_evaluation_without_enforced_login(generated: Dict[str, object],
+                                                         monkeypatch: pytest.MonkeyPatch,
+                                                         capsys: pytest.CaptureFixture[str]) -> None:
+    """正式評測要伺服器強制登入（DEC-20261022-05）：沒開 WMOM_AUTH_ENFORCE 時 OPC UA CLI 不開播。"""
+    import opcua_server as opcua_cli
+
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    run, _ = rp.create_run(storage, int(generated["scenario_id"]), mode="evaluation",  # type: ignore[call-overload]
+                           speed=EVAL_SPEED, allow_overlap=True)
+    monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
+    assert opcua_cli.main([str(generated["db"]), str(run["id"]), "--host", "127.0.0.1",
+                           "--port", str(_free_port())]) == 1
+    assert "WMOM_AUTH_ENFORCE" in capsys.readouterr().err
+    assert storage.get_replay_run(int(run["id"]))["started_at"] is None, "沒開播"  # type: ignore[index, arg-type]
+    storage.revoke_replay_run(int(run["id"]), iso_utc())  # type: ignore[arg-type]
+
+
 def test_cli_plays_a_practice_run_to_the_end(generated: Dict[str, object], capsys: pytest.CaptureFixture[str],
                                              tmp_path: Path) -> None:
     import opcua_server as opcua_cli

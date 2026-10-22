@@ -242,11 +242,25 @@ def test_validate_prediction_rejects_malformed_items(item: dict, reason: str) ->
 def client(generated: Dict[str, object], monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
     monkeypatch.delenv("WMOM_DEV_MODE", raising=False)
-    monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")  # 正式評測的前提（DEC-20261022-05）
     monkeypatch.setattr(replay_ep, "get_broker", lambda: generated["broker"])
     app = FastAPI()
     app.include_router(replay_ep.router)
     return TestClient(app)
+
+
+def test_evaluation_requires_a_server_that_enforces_login(client: TestClient, generated: Dict[str, object],
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """沒開 WMOM_AUTH_ENFORCE：正式評測拒絕建立（409）；練習回放照建，但回應帶警告。"""
+    monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
+    sid = generated["scenario_id"]
+    resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation", "allow_overlap": True},
+                       headers=_bearer())
+    assert resp.status_code == 409 and "WMOM_AUTH_ENFORCE" in resp.json()["detail"]
+    practice = _create(client, sid, mode="practice")
+    assert "WMOM_AUTH_ENFORCE" in practice["warning"]
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
+    assert "warning" not in _create(client, sid, mode="practice")
 
 
 def _bearer(role: str = "supervisor") -> Dict[str, str]:
@@ -666,11 +680,20 @@ def test_farm_cannot_be_switched_during_a_running_evaluation(generated: Dict[str
 
 
 def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp_path: Path,
-                                               capsys: pytest.CaptureFixture[str]) -> None:
+                                               capsys: pytest.CaptureFixture[str],
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
     import replay_runs
 
     db = str(generated["tmp"] / "farm.db")  # type: ignore[operator]
     sid = str(generated["scenario_id"])
+    monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
+    # 沒有強制登入：正式評測不建（預設模式就是正式評測）；練習照建、但提醒
+    assert replay_runs.main([db, "create", sid, "--allow-overlap"]) == 1
+    assert "WMOM_AUTH_ENFORCE" in capsys.readouterr().err
+    assert replay_runs.main([db, "create", sid, "--mode", "practice", "--speed", "600", "--label", "第3組",
+                             "--allow-overlap"]) == 0
+    assert "WMOM_AUTH_ENFORCE" in capsys.readouterr().err
+    monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     assert replay_runs.main([db, "create", sid, "--mode", "practice", "--speed", "600", "--label", "第3組",
                              "--allow-overlap"]) == 0
     out = capsys.readouterr().out
@@ -985,8 +1008,18 @@ def test_evaluation_speed_is_capped_by_what_the_server_can_keep_up_with(client: 
                                                                         generated: Dict[str, object]) -> None:
     # 3 台、每 10 s 一筆：上限 1000 × 10 / 3 ≈ 3333×；練習回放不受此限（只到 MAX_SPEED）
     sid = generated["scenario_id"]
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    for leftover in storage.unrevoked_evaluation_runs():  # 同模組其他測試留下、還沒播完的正式評測
+        storage.revoke_replay_run(int(leftover["id"]), iso_utc())
     resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation", "speed": 5000,
                                                                   "allow_overlap": True}, headers=_bearer())
     assert resp.status_code == 422 and "3333.33×" in resp.json()["detail"]
-    assert _create(client, sid, mode="evaluation", speed=3000)["run"]["speed"] == 3000  # type: ignore[arg-type]
+    first = _create(client, sid, mode="evaluation", speed=3000)["run"]  # 900 筆 / 秒
+    assert first["speed"] == 3000  # type: ignore[index]
     assert _create(client, sid, mode="practice", speed=rp.MAX_SPEED)["run"]["speed"] == rp.MAX_SPEED  # type: ignore[arg-type]
+    # 上限是整台伺服器的：未結束的正式評測加總（練習不算）；撤銷後才建得了
+    resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation", "speed": 500,
+                                                                  "allow_overlap": True}, headers=_bearer())
+    assert resp.status_code == 409 and f"#{first['id']}" in resp.json()["detail"]  # type: ignore[index]
+    storage.revoke_replay_run(int(first["id"]), iso_utc())  # type: ignore[index, arg-type]
+    assert _create(client, sid, mode="evaluation", speed=500)["run"]["speed"] == 500  # type: ignore[arg-type]

@@ -80,6 +80,17 @@ MAX_ACTIONS = 20
 VOCABULARY_PATH = Path(__file__).resolve().parents[3] / "shared" / "data" / "rag_assistant_vocabulary.json"
 
 
+# 正式評測的前提：伺服器強制登入（DEC-20261022-05）。沒開時受測端不用帳號就能從 API 讀到情境清單與故障排程
+EVALUATION_NEEDS_AUTH = (
+    "正式評測要在伺服器強制登入時才能建立（WMOM_AUTH_ENFORCE=true）：否則連得到這台伺服器的人不用帳號就能從 "
+    "API 讀到情境清單與故障排程"
+)
+PRACTICE_WITHOUT_AUTH = (
+    "伺服器沒有強制登入（WMOM_AUTH_ENFORCE）：連得到這台伺服器的人都看得到情境清單與故障排程，"
+    "練習回放只用在不計分的情境"
+)
+
+
 class ReplayRunConflict(ValueError):
     """同一個情境已有另一種模式的回放（練習回放可以先看完正式評測的資料，DEC-20261022-02）。"""
 
@@ -467,7 +478,8 @@ def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", 
 
     Raises:
         ScenarioPackError: 情境不存在或不能回放。
-        ReplayRunConflict: 同情境已有另一種模式的回放（``allow_overlap`` 為 False 時）。
+        ReplayRunConflict: 同情境已有另一種模式的回放（``allow_overlap`` 為 False 時）；或未結束的正式評測加上
+            這一個超過伺服器的讀值上限（``EVAL_MAX_READINGS_PER_S``）。
         ValueError: 參數超出範圍。
     """
     if mode not in REPLAY_MODES:
@@ -485,6 +497,16 @@ def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", 
         if speed > limit:
             raise ValueError(f"正式評測的速度上限是 {limit:g}×（{turbines} 台機組、每 {period:g} 秒一筆：伺服器每秒最多穩定送 "
                              f"{EVAL_MAX_READINGS_PER_S:g} 筆讀值，跟不上時落後的時間會算在受測端頭上）")
+        # 上限是整台伺服器的：未結束（還沒開播 / 進行中）的正式評測加總也不能超過（DEC-20261022-05）
+        busy = [(view, evaluation_rate(storage, int(str(view["scenario_id"])), float(str(view["speed"]))))
+                for view in open_evaluations(storage)]
+        total = turbines * speed / period + sum(rate for _, rate in busy)
+        if total > EVAL_MAX_READINGS_PER_S:
+            listed = "、".join(f"#{view['id']}（{rate:.0f} 筆 / 秒）" for view, rate in busy)
+            raise ReplayRunConflict(
+                f"未結束的正式評測 {listed} 加上這一個共 {total:.0f} 筆讀值 / 秒，超過伺服器上限 "
+                f"{EVAL_MAX_READINGS_PER_S:g}：降低速度、等其他評測結束或撤銷沒在用的評測再建"
+            )
     if not allow_overlap:
         others = [r for r in storage.list_replay_runs(scenario_id) if r["mode"] != mode and not r["revoked_at"]]
         if others:
@@ -498,6 +520,38 @@ def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", 
     run = storage.create_replay_run(scenario_id, token_digest(token), mode, float(speed), label, iso_utc(now),
                                     created_by, iso_utc(now + timedelta(hours=expires_in_hours)))
     return run, token
+
+
+def evaluation_rate(storage: Storage, scenario_id: int, speed: float) -> float:
+    """正式評測要送的讀值速率（筆 / 秒）＝機組數 × 速度 ÷ 取樣週期。
+
+    Args:
+        storage: 情境所在的 storage。
+        scenario_id: 情境 session id。
+        speed: 回放速度。
+
+    Returns:
+        每秒讀值筆數；情境已不存在時回 0。
+    """
+    scenario = storage.get_scenario(scenario_id)
+    if scenario is None:
+        return 0.0
+    config = scenario.get("config")
+    period = sp.positive_number(config.get("time_step") if isinstance(config, dict) else None) or 10.0
+    return len(storage.scenario_turbine_ids(scenario_id)) * speed / period
+
+
+def open_evaluations(storage: Storage) -> List[Dict[str, JsonValue]]:
+    """未結束的正式評測（``run_view`` 的 ``status`` 為 ``not_started`` 或 ``running``）。
+
+    Args:
+        storage: 風場 storage。
+
+    Returns:
+        回放的 ``run_view`` 清單。
+    """
+    views = [run_view(storage, run) for run in storage.unrevoked_evaluation_runs()]
+    return [view for view in views if view["status"] in ("not_started", "running")]
 
 
 def run_view(storage: Storage, run: Dict[str, JsonValue]) -> Dict[str, JsonValue]:

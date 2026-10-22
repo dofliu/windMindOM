@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query,
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from modules.auth.dependencies import Actor, require_roles
+from modules.auth.dependencies import Actor, is_auth_enforced, require_roles
 from modules.auth.roles import Role
 from server import replay as rp
 from server import scenario_pack as sp
@@ -81,8 +81,15 @@ async def create_replay_run(scenario_id: ScenarioId, body: ReplayRunCreate,
         actor: 建立者（主管）。
 
     Returns:
-        ``{"run", "token", "ws_path"}``（``Cache-Control: no-store``）。
+        ``{"run", "token", "ws_path"}``（``Cache-Control: no-store``）；伺服器沒有強制登入時另有 ``warning``。
+
+    Raises:
+        HTTPException: 409——正式評測但伺服器沒有強制登入（``WMOM_AUTH_ENFORCE``）、同情境已有另一種模式的回放、
+            未結束的正式評測加總超過伺服器上限；404 / 409 / 413——情境不能回放；422——參數超出範圍。
     """
+    enforced = is_auth_enforced()
+    if body.mode == "evaluation" and not enforced:
+        raise HTTPException(status_code=409, detail=rp.EVALUATION_NEEDS_AUTH)
     storage = _storage()
     try:
         run, token = await asyncio.to_thread(
@@ -96,8 +103,10 @@ async def create_replay_run(scenario_id: ScenarioId, body: ReplayRunCreate,
     except ValueError as exc:  # 例：正式評測的速度超過伺服器能穩定送出的上限
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     view = await asyncio.to_thread(rp.run_view, storage, run)
-    return JSONResponse(status_code=201, content={"run": view, "token": token, "ws_path": "/ws/replay"},
-                        headers={"Cache-Control": "no-store"})
+    content: Dict[str, object] = {"run": view, "token": token, "ws_path": "/ws/replay"}
+    if not enforced:
+        content["warning"] = rp.PRACTICE_WITHOUT_AUTH
+    return JSONResponse(status_code=201, content=content, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/scenarios/{scenario_id}/replay-runs",

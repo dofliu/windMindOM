@@ -1444,6 +1444,19 @@ class Storage:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def unrevoked_evaluation_runs(self) -> List[dict]:
+        """未撤銷的正式評測（含還沒開播的；是否已播完 / 到期由 ``replay.run_view`` 判斷）。
+
+        Returns:
+            回放 dict 清單（新的在前）。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            f"SELECT {self._REPLAY_RUN_COLUMNS} FROM replay_runs WHERE mode = 'evaluation' "
+            "AND revoked_at IS NULL ORDER BY id DESC",
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def count_scenario_replay_predictions(self, scenario_id: int) -> int:
         """某情境所有回放收到的預測筆數（刪除情境前確認評測結果已匯出用）。
 

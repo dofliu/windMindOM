@@ -384,9 +384,20 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > scenarios generated earlier fall back to the simulated time window (`true`). Live event queries
 > (`/api/turbines/{id}/history`, `/api/export/events`, maintenance comparisons) exclude scenario
 > sessions. A scenario summary's per-turbine `faultEvents` counts PLC alarms raised and trips only.
-> `.../history?observable_only=true` drops everything that is not an observable event (PLC events and
-> operating-state changes). Named scenarios always start with the runtime faults cleared, and their raw
-> readings are kept until the scenario is deleted (not subject to the 3-day raw retention).
+> `.../history?observable_only=true` returns only observable events (PLC events and operating-state
+> changes) in the data pack's event format (no process values, set points or internal stop causes;
+> WMOM-20261022-01). Named scenarios always start with the runtime faults cleared and with turbines that
+> carry live PLC residue (active codes, latches, maintenance lock, stopping, restart limit reached) reset;
+> their raw readings are kept until the scenario is deleted (not subject to the 3-day raw retention).
+>
+> **Batches run in a worker thread (WMOM-20261022-01, DEC-20261022-05).** `generate-bulk` and
+> `test-plans/{plan_id}/run` no longer block the server: replays, OPC UA and queries keep running.
+> Only one batch runs at a time (a second one gets 409), and while it runs the routes that change the
+> simulator answer 409 (`/api/source/select`, `/api/farms/{id}/activate`, `/api/config/datasource`,
+> `/simulation`, `/simulation/time-scale`, `/wind`, `/wind/clear`, `/grid`, `/grid/clear`,
+> `/storage/maintenance`, `/turbine-spec`, `/api/control/command`, `/curtail`, `/api/faults/inject`,
+> `/clear`, `DELETE /api/scenarios/{id}`). `wind_profile` in the body must be a string; the scenario also
+> records the profile actually applied (`wind_profile_applied`), which is what packs and replays report.
 >
 > `GET /api/scenarios/{id}/ground-truth` (supervisor; always requires a token, even when
 > `WMOM_AUTH_ENFORCE` is off) returns the scenario's answer key
@@ -414,7 +425,8 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > Errors: 404 unknown scenario; 409 scenario generated before WMOM-20261021-04, failed, or without
 > readings; 413 more than 2,000,000 raw rows (use the CLI); 429 two exports already running.
 > CLI: `python tools/export_scenario_pack.py <db> <scenario_id> --out packs/ [--ground-truth] [--zip]`
-> (`--list` lists the scenarios in a DB). Format details: `docs/product/EPIC-DS_realistic_data_source.md`
+> (`--list` lists the scenarios in a DB; the blind pack goes to `<out>/<pack_id>/`, the `--ground-truth`
+> version to `<out>/<pack_id>-full/`). Format details: `docs/product/EPIC-DS_realistic_data_source.md`
 > §5.1 / §6.8.
 
 #### POST `/api/control/command`

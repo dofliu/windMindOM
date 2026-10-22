@@ -1,7 +1,8 @@
 """情境 WebSocket 回放的出題端 CLI（WMOM-20261021-06，EPIC-DS Phase 3b ② 串流）。
 
 直接操作風場 DB（不必登入），與 REST 端點 ``/api/scenarios/{id}/replay-runs`` 相同。受測端連線時伺服器
-必須在跑，且以同一個風場為目前風場（回放存在那個風場的 DB）。
+必須在跑，且以同一個風場為目前風場（回放存在那個風場的 DB）。正式評測要伺服器強制登入
+（``WMOM_AUTH_ENFORCE=true``，DEC-20261022-05）：CLI 讀同一個環境變數，請在與伺服器相同的設定下執行。
 
 範例：
   # 建立單次回放（60 倍速），印出 token——只會出現這一次
@@ -33,6 +34,7 @@ for _path in (REPO_ROOT, MONITORING_ROOT):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from modules.auth.dependencies import is_auth_enforced  # noqa: E402
 from server import replay as rp  # noqa: E402
 from server.scenario_pack import ScenarioPackError  # noqa: E402
 from server.storage import Storage  # noqa: E402
@@ -86,6 +88,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.label is not None and len(args.label) > 100:
             print("--label 最多 100 字", file=sys.stderr)
             return 2
+        # 伺服器是否強制登入看環境變數：CLI 與伺服器要用同一套設定（同一台電腦、同一個 .env）
+        if args.mode == "evaluation" and not is_auth_enforced():
+            print(rp.EVALUATION_NEEDS_AUTH, file=sys.stderr)
+            return 1
+        if not is_auth_enforced():
+            print(f"注意：{rp.PRACTICE_WITHOUT_AUTH}", file=sys.stderr)
         try:
             run, token = rp.create_run(storage, args.scenario_id, mode=args.mode, speed=args.speed, label=args.label,
                                        expires_in_hours=args.expires_hours, created_by="cli",
