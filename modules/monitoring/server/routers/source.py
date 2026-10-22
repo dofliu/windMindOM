@@ -16,6 +16,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server.batch_state import reject_during_batch
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/source", tags=["source"])
@@ -50,7 +51,7 @@ async def source_status():
 @router.post(
     "/select",
     # 選來源＝任何登入者（這是登入後的必經入口，含現場工程師）
-    dependencies=[Depends(require_authenticated())],
+    dependencies=[Depends(reject_during_batch), Depends(require_authenticated())],
 )
 async def select_source(req: SourceSelect, request: Request):
     """選定並啟動資料來源。

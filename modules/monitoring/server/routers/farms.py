@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
+from server.batch_state import reject_during_batch
 
 router = APIRouter(prefix="/api/farms", tags=["farms"])
 
@@ -180,7 +181,7 @@ async def delete_farm(farm_id: str):
 @router.post(
     "/{farm_id}/activate",
     # WMOM-20260716-05h-2：切換啟用 farm＝主管
-    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
 )
 async def activate_farm(farm_id: str):
     """Switch the simulator to this wind farm.

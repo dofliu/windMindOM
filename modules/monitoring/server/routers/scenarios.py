@@ -37,6 +37,7 @@ from starlette.background import BackgroundTask
 
 from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
+from server.batch_state import reject_during_batch
 from server.data_broker import _map_state
 from server.models import FarmStatus, TurbineReading, TurbineStatus
 from server.storage import Storage, is_observable_event
@@ -776,7 +777,7 @@ async def get_scenario_ground_truth(scenario_id: ScenarioId) -> dict:
     "/{scenario_id}",
     # 刪除情境＝系統管理員（不可逆、會清 5 張表的資料列）——對齊 farms/config/modbus
     # 破壞性端點的既定慣例（皆 ADMIN）。
-    dependencies=[Depends(require_role(Role.ADMIN))],
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.ADMIN))],
 )
 async def delete_scenario(scenario_id: ScenarioId, force: bool = False):
     """刪除情境 session 及其所有資料列；非情境 session 不受影響（回 404）。
