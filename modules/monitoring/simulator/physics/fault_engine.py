@@ -120,11 +120,12 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             {"type": "T1", "code": 240, "desc": "Bearing 1 temperature very high"},
         ],
         component="main_bearing",
-        root_cause_zh="主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動逐步上升，越過 85 °C 警報、95 °C 跳機。",
-        root_cause_en="Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature and nacelle vibration climb past the 85 °C alarm and 95 °C trip setpoints.",
+        root_cause_zh="主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動、峰度逐步上升，越過 85 °C 警報、95 °C 跳機；共用潤滑與傳熱，軸承溫度 2 也跟著升溫（幅度約三成）。",
+        root_cause_en="Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature, nacelle vibration and kurtosis climb past the 85 °C alarm and 95 °C trip setpoints; through shared lubrication and heat conduction bearing temperature 2 rises too (by about a third as much).",
         difficulty="easy",
         key_signals=(
             "WGEN_GnBrgTmp1",
+            "WGEN_GnBrgTmp2",
             "WNAC_VibMsNacXDir",
             "WNAC_VibMsNacYDir",
             "WVIB_Kurtosis",
@@ -368,16 +369,20 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WGEN_GnCurMs": {"max_offset": 15.0, "curve": "linear"},           # slight current increase
         },
         alarm_codes=[
+            # 整個繞組變熱：同一繞組的兩支 Pt100（溫度 1 / 2）都可能先越過設定（WMOM-20261021-08-a）
             {"type": "A", "code": 264, "desc": "Generator stator temperature 1 high"},
+            {"type": "A", "code": 265, "desc": "Generator stator temperature 2 high"},
             {"type": "T1", "code": 244, "desc": "Generator stator temperature 1 very high"},
+            {"type": "T1", "code": 245, "desc": "Generator stator temperature 2 very high"},
         ],
         auto_trip_severity=0.85,
         component="generator_stator",
-        root_cause_zh="發電機定子繞組絕緣劣化：負載下額外 I²R 損耗且散熱變差，定子溫度隨負載升高得比健康機組快（溫度—功率斜率改變），高負載時越過警報（264）與跳機（244）設定，低負載時看不出來。",
-        root_cause_en="Generator stator winding insulation degradation: extra I²R losses under load and poorer heat conduction make stator temperature rise faster with load than on a healthy turbine (changed temperature-vs-power slope), crossing the alarm (264) and trip (244) setpoints at high load but not at low load.",
+        root_cause_zh="發電機定子繞組絕緣劣化：負載下額外 I²R 損耗且散熱變差，整個繞組的溫度（定子溫度 1、2）隨負載升高得比健康機組快（溫度—功率斜率改變），高負載時越過警報（264 / 265）與跳機（244 / 245）設定，低負載時看不出來。",
+        root_cause_en="Generator stator winding insulation degradation: extra I²R losses under load and poorer heat conduction make the whole winding (stator temperatures 1 and 2) rise faster with load than on a healthy turbine (changed temperature-vs-power slope), crossing the alarm (264 / 265) and trip (244 / 245) setpoints at high load but not at low load.",
         difficulty="medium",
         key_signals=(
             "WGEN_GnStaTmp1",
+            "WGEN_GnStaTmp2",
             "WGEN_GnAirTmp1",
         ),
         expected_actions_zh=(
@@ -581,7 +586,7 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         id="main_bearing_temp_sensor_drift",
         name_en="Main Bearing 1 Temperature Sensor Drift",
         name_zh="主軸承溫度 1 感測器漂移",
-        description_en="The bearing 1 Pt100 reading drifts upward while the bearing itself is healthy. Raises the same alarm and trip as real bearing wear; bearing 2 temperature, vibration and kurtosis stay normal.",
+        description_en="The bearing 1 Pt100 reading drifts upward while the bearing itself is healthy. Raises the same alarm and trip as real bearing wear; bearing 2 temperature, vibration and kurtosis stay normal (real wear lifts them).",
         description_zh="軸承溫度 1 的 Pt100 讀值逐漸往上漂，軸承本身正常。觸發與軸承磨耗相同的警報 / 跳機；軸承溫度 2、振動與峰度都正常。",
         affected_tags={
             "WGEN_GnBrgTmp1": {"max_offset": 60.0, "curve": "linear"},
@@ -592,8 +597,8 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         ],
         component="main_bearing",
         category="sensor_fault",
-        root_cause_zh="主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——同一軸承的另一支溫度（軸承溫度 2）、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的潤滑劣化會隨轉速增加摩擦熱、伴隨振動上升）。",
-        root_cause_en="Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real lubrication failure adds friction heat with speed and raises vibration).",
+        root_cause_zh="主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——軸承溫度 2、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的主軸承磨耗會隨轉速增加摩擦熱，軸承溫度 2 跟著升溫、振動與峰度上升）。",
+        root_cause_en="Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real main bearing wear adds friction heat with speed, lifts bearing temperature 2 too and raises vibration and kurtosis).",
         difficulty="hard",
         key_signals=(
             "WGEN_GnBrgTmp1",

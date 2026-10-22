@@ -90,7 +90,10 @@ class ProtectionRule:
         hysteresis: 解除遲滯：成立後須回到 setpoint ∓ hysteresis 之外才解除。
         delay_s: 條件須持續的秒數（0＝瞬間）。
         producing_only: 只在發電狀態判定（例：停機時冷卻泵停止，靜水壓本來就低）。
-        gate: 選填，``signals`` 中的旗標鍵；旗標為 0 時不判定（例：葉片差異只在穩定發電時判定）。
+        gate: 選填，``signals`` 中的旗標鍵；旗標為 0 時不判定（例：葉片差異只在穩定發電時判定）。已成立的
+            規則不受影響（判定窗關閉不等於條件解除）。
+        valid: 選填，``signals`` 中的讀值有效旗標鍵；旗標為 0（斷線 / 超出範圍）時規則立即不成立——
+            失效的讀值不能維持溫度過高、壓力過低、葉片差異（WMOM-20261021-08-a）。
     """
 
     code: int
@@ -101,6 +104,7 @@ class ProtectionRule:
     delay_s: float = 0.0
     producing_only: bool = False
     gate: Optional[str] = None
+    valid: Optional[str] = None
 
 
 @dataclass
@@ -149,11 +153,27 @@ class PlcEvent:
 
 
 def _in_range(value: float, valid: Tuple[float, float]) -> bool:
+    """讀值是否在有效範圍內（含端點）。
+
+    Args:
+        value: 讀值。
+        valid: ``(下限, 上限)``。
+
+    Returns:
+        是否有效。
+    """
     return valid[0] <= value <= valid[1]
 
 
 def _in_range_flag(valid: Tuple[float, float]) -> Callable[[float], float]:
-    """讀值有效旗標（1.0 有效、0.0 斷線 / 超出範圍），給溫度規則的 gate 用。"""
+    """讀值有效旗標的函式（1.0 有效、0.0 斷線 / 超出範圍），給規則的 ``valid`` 用。
+
+    Args:
+        valid: ``(下限, 上限)``。
+
+    Returns:
+        讀值 → 旗標。
+    """
     return lambda value: 1.0 if _in_range(value, valid) else 0.0
 
 
@@ -171,14 +191,14 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
     s_delay = 2.0   # 感測器訊號故障（斷線 / 超出範圍）的確認延時
     rules: List[ProtectionRule] = [
         # 主軸承 1 / 2、定子 1 / 2（設定值：manual）；讀值無效（斷線）時不判定（gate）
-        ProtectionRule(262, "bearing_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, gate="bearing_temp_ok"),
-        ProtectionRule(240, "bearing_temp", True, spec.gen_bearing_trip, 5.0, t_delay, gate="bearing_temp_ok"),
-        ProtectionRule(263, "bearing2_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, gate="bearing2_temp_ok"),
-        ProtectionRule(241, "bearing2_temp", True, spec.gen_bearing_trip, 5.0, t_delay, gate="bearing2_temp_ok"),
-        ProtectionRule(264, "stator_temp", True, spec.gen_stator_alarm, 3.0, a_delay, gate="stator_temp_ok"),
-        ProtectionRule(244, "stator_temp", True, spec.gen_stator_trip, 5.0, t_delay, gate="stator_temp_ok"),
-        ProtectionRule(265, "stator2_temp", True, spec.gen_stator_alarm, 3.0, a_delay, gate="stator2_temp_ok"),
-        ProtectionRule(245, "stator2_temp", True, spec.gen_stator_trip, 5.0, t_delay, gate="stator2_temp_ok"),
+        ProtectionRule(262, "bearing_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, valid="bearing_temp_ok"),
+        ProtectionRule(240, "bearing_temp", True, spec.gen_bearing_trip, 5.0, t_delay, valid="bearing_temp_ok"),
+        ProtectionRule(263, "bearing2_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, valid="bearing2_temp_ok"),
+        ProtectionRule(241, "bearing2_temp", True, spec.gen_bearing_trip, 5.0, t_delay, valid="bearing2_temp_ok"),
+        ProtectionRule(264, "stator_temp", True, spec.gen_stator_alarm, 3.0, a_delay, valid="stator_temp_ok"),
+        ProtectionRule(244, "stator_temp", True, spec.gen_stator_trip, 5.0, t_delay, valid="stator_temp_ok"),
+        ProtectionRule(265, "stator2_temp", True, spec.gen_stator_alarm, 3.0, a_delay, valid="stator2_temp_ok"),
+        ProtectionRule(245, "stator2_temp", True, spec.gen_stator_trip, 5.0, t_delay, valid="stator2_temp_ok"),
         ProtectionRule(273, "nacelle_temp", True, spec.nacelle_air_alarm, 2.0, a_delay),
         ProtectionRule(256, "nacelle_cab_temp", True, spec.nacelle_cab_trip, 3.0, t_delay),
         # 變壓器 / 變頻器冷卻（設定值：assumed；ABB 跳機同時送出變頻器跳機要求 021）
@@ -194,9 +214,9 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
                        producing_only=True),
         # 偏航煞車（manual）
         ProtectionRule(260, "yaw_brake_pressure", False, spec.yaw_pressure_alarm, 5.0, a_delay,
-                       gate="yaw_brake_settled"),
+                       gate="yaw_brake_settled", valid="yaw_pressure_ok"),
         ProtectionRule(228, "yaw_brake_pressure", False, spec.yaw_pressure_trip, 5.0, t_delay,
-                       gate="yaw_brake_settled"),
+                       gate="yaw_brake_settled", valid="yaw_pressure_ok"),
         ProtectionRule(261, "seals_leak", True, 0.5, 0.0, a_delay),
         # 風向標 1-2 差異（manual；濾波與風速條件在 signals 內處理）
         ProtectionRule(233, "vane_discrepancy", True, spec.vane_discrepancy_deg, 3.0, 0.0),
@@ -214,12 +234,13 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
                                  (328, "blade3_angle", ang_lo, ang_hi)):
         rules.append(ProtectionRule(code, signal, True, hi, 0.0, s_delay))
         rules.append(ProtectionRule(code, signal, False, lo, 0.0, s_delay))
-    # 葉片同步差異（manual：瞬間 > 8°、3 s > 3°、5 s > 1°），只在穩定發電、三支編碼器都有效時判定
-    for code, signal in ((335, "blade_disc_12"), (336, "blade_disc_13"), (337, "blade_disc_23")):
+    # 葉片同步差異（manual：瞬間 > 8°、3 s > 3°、5 s > 1°），只在穩定發電、該對葉片的編碼器都有效時判定
+    for code, pair in ((335, "12"), (336, "13"), (337, "23")):
         for setpoint, delay in ((spec.blade_discrepancy_instant_deg, 0.0),
                                 (spec.blade_discrepancy_3s_deg, 3.0),
                                 (spec.blade_discrepancy_5s_deg, 5.0)):
-            rules.append(ProtectionRule(code, signal, True, setpoint, 0.3, delay, gate="pitch_settled"))
+            rules.append(ProtectionRule(code, f"blade_disc_{pair}", True, setpoint, 0.3, delay, gate="pitch_settled",
+                                        valid=f"blades_{pair}_ok"))
     return tuple(rules)
 
 
@@ -395,9 +416,8 @@ class PlcProtection:
             vane_disc = 0.0
         spec = self.spec
         pt_ok = _in_range_flag(spec.pt100_valid_range_c)
-        angles_ok = all(_in_range(a, spec.blade_angle_valid_range_deg) for a in (b1, b2, b3))
+        blade_ok = [_in_range(a, spec.blade_angle_valid_range_deg) for a in (b1, b2, b3)]
         yaw_pressure = output["WYAW_YwBrkHyPrs"]
-        yaw_pressure_ok = _in_range(yaw_pressure, spec.yaw_pressure_valid_range_bar)
         self.signals = {
             "bearing_temp": output["WGEN_GnBrgTmp1"],
             "bearing_temp_ok": pt_ok(output["WGEN_GnBrgTmp1"]),
@@ -417,6 +437,7 @@ class PlcProtection:
             "converter_cab_temp": output["WCNV_CnvCabinTmp"],
             "static_water_pressure": output["WCNV_IGCTWtrPres1"],
             "yaw_brake_pressure": yaw_pressure,
+            "yaw_pressure_ok": 1.0 if _in_range(yaw_pressure, spec.yaw_pressure_valid_range_bar) else 0.0,
             "seals_leak": output["WYAW_YwBrkSealsLeak"],
             "vane_discrepancy": vane_disc,
             "blade_disc_12": abs(b1 - b2),
@@ -425,14 +446,20 @@ class PlcProtection:
             "vibration": max(output["WNAC_VibMsNacXDir"], output["WNAC_VibMsNacYDir"]),
             "grid_voltage_pu": output["WCNV_VtgMsCnvGd1"]
             / (self.spec.nominal_voltage / math.sqrt(3.0) / 1000.0),
-            # 編碼器讀值無效時不判定葉片差異（由 326-328 報編碼器故障）
-            "pitch_settled": 1.0 if self._producing_s >= _PITCH_SETTLE_S and angles_ok else 0.0,
-            # 壓力讀值無效（斷線）時不判定低壓（由 229 報感測器故障）
-            "yaw_brake_settled": 1.0 if self._brake_applied_s >= _YAW_BRAKE_SETTLE_S and yaw_pressure_ok else 0.0,
+            # 編碼器讀值無效時不判定含該葉片的差異（由 326-328 報編碼器故障）
+            "blades_12_ok": 1.0 if blade_ok[0] and blade_ok[1] else 0.0,
+            "blades_13_ok": 1.0 if blade_ok[0] and blade_ok[2] else 0.0,
+            "blades_23_ok": 1.0 if blade_ok[1] and blade_ok[2] else 0.0,
+            "pitch_settled": 1.0 if self._producing_s >= _PITCH_SETTLE_S else 0.0,
+            "yaw_brake_settled": 1.0 if self._brake_applied_s >= _YAW_BRAKE_SETTLE_S else 0.0,
         }
 
     def _rule_on(self, idx: int, rule: ProtectionRule, dt: float, producing: bool) -> bool:
         st = self._rule_state[idx]
+        if rule.valid is not None and self.signals[rule.valid] < 0.5:
+            st.on = False
+            st.elapsed = None
+            return False
         value = self.signals[rule.signal]
         if st.on:
             # 已成立：只依遲滯解除。判定窗關閉（停機減速、偏航中）不等於條件解除
@@ -459,7 +486,8 @@ class PlcProtection:
         """判定一步，回傳本步新跳機的 ``(code, level)``（呼叫端依等級要求停機）。
 
         Args:
-            output: 感測器模型之前的製程值（鍵同 SCADA tag）。
+            output: 感測器模型之前的製程值（鍵同 SCADA tag）；被注入感測器故障的那支感測器是它的故障讀值
+                （WMOM-20261021-08-a）。
             sim_time: 機組模擬時間（秒）。
             dt: 時間步長（秒）。
             producing: 機組是否在發電狀態（TurSt 6）。

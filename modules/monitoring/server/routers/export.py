@@ -19,7 +19,7 @@ def get_broker():
 SCADA_CSV_COLUMNS = [
     "WTUR_TurSt", "WTUR_TotPwrAt",
     "WGEN_GnPwrMs", "WGEN_GnSpd", "WGEN_GnVtgMs", "WGEN_GnCurMs",
-    "WGEN_GnStaTmp1", "WGEN_GnAirTmp1", "WGEN_GnBrgTmp1",
+    "WGEN_GnStaTmp1", "WGEN_GnAirTmp1", "WGEN_GnBrgTmp1", "WGEN_GnStaTmp2", "WGEN_GnBrgTmp2",
     "WROT_RotSpd", "WROT_PtAngValBl1", "WROT_PtAngValBl2", "WROT_PtAngValBl3",
     "WROT_RotTmp", "WROT_RotCabTmp", "WROT_LckngPnPos", "WROT_RotLckd", "WROT_SrvcBrkAct",
     "WCNV_CnvCabinTmp", "WCNV_CnvDClVtg", "WCNV_CnvGdPwrAt", "WCNV_CnvGnFrq",

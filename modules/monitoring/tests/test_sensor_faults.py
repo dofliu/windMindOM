@@ -44,8 +44,9 @@ EXPECTED: Dict[str, Tuple[Set[int], Set[int]]] = {
 }
 
 
-def _run(scenario_id: str, minutes: float = 40.0) -> Tuple[List[PlcEvent], Dict[str, float]]:
-    """併網發電後注入滿嚴重度的故障，跑 ``minutes`` 分鐘；回傳 PLC 事件與最後一筆 SCADA。"""
+def _run(scenario_id: str, minutes: float = 40.0, severity_rate: float = 0.0,
+         initial_severity: float = 1.0) -> Tuple[List[PlcEvent], Dict[str, float]]:
+    """併網發電後注入故障（預設滿嚴重度），跑 ``minutes`` 分鐘；回傳 PLC 事件與最後一筆 SCADA。"""
     sim = WindFarmSimulator(turbine_count=1)
     sim.wind_model.set_override(wind_speed=15.0, wind_direction=180.0, ambient_temp=25.0)
     model = sim.turbines["WT001"]
@@ -55,7 +56,8 @@ def _run(scenario_id: str, minutes: float = 40.0) -> Tuple[List[PlcEvent], Dict[
         i += 1
         assert i < 400, "前置條件：機組應併網發電"
     model.plc.drain_events()
-    assert sim.fault_engine.inject(scenario_id, "WT001", severity_rate=0.0, initial_severity=1.0)
+    assert sim.fault_engine.inject(scenario_id, "WT001", severity_rate=severity_rate,
+                                   initial_severity=initial_severity)
     events: List[PlcEvent] = []
     for _ in range(int(minutes * 60 / DT)):
         sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
@@ -76,12 +78,34 @@ def test_sensor_fault_raises_only_its_own_codes(scenario_id: str) -> None:
 
 
 def test_drift_alarm_precedes_trip_like_the_real_fault() -> None:
-    events, scada = _run("main_bearing_temp_sensor_drift")
+    # 從嚴重度 0 慢慢漂（約 40 分鐘到滿）：先警報、後跳機，同真故障
+    events, scada = _run("main_bearing_temp_sensor_drift", minutes=60.0, severity_rate=0.0004, initial_severity=0.0)
     order = [e.code for e in events if e.kind in ("alarm_raised", "trip")]
     assert order.index(262) < order.index(240)
-    # 第二支感測器與振動正常：分辨感測器與真的軸承故障的依據
+    # 第二支感測器正常：分辨感測器與真的軸承故障的依據（真故障時軸承溫度 2 也升溫）
     assert scada["WGEN_GnBrgTmp2"] < SPEC.gen_bearing_alarm
     assert scada["WGEN_GnBrgTmp1"] - scada["WGEN_GnBrgTmp2"] > 20.0
+
+
+def test_second_bearing_sensor_tells_drift_from_real_wear() -> None:
+    """同樣在軸承溫度 1 跳機（240）的那一刻：真故障的軸承溫度 2 已明顯升溫，感測器故障的沒有。"""
+    def at_trip(scenario_id: str) -> float:
+        sim = WindFarmSimulator(turbine_count=1)
+        sim.wind_model.set_override(wind_speed=15.0, wind_direction=180.0, ambient_temp=25.0)
+        model = sim.turbines["WT001"]
+        for i in range(400):
+            sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
+        baseline = sim.latest_data["WT001"]["scada"]["WGEN_GnBrgTmp2"]
+        model.plc.drain_events()
+        assert sim.fault_engine.inject(scenario_id, "WT001", severity_rate=0.0004, initial_severity=0.0)
+        for j in range(400, 400 + int(2 * 3600 / DT)):
+            sim._run_one_step(T0 + timedelta(seconds=j * DT), DT)
+            if any(e.kind == "trip" and e.code == 240 for e in model.plc.drain_events()):
+                return float(sim.latest_data["WT001"]["scada"]["WGEN_GnBrgTmp2"]) - baseline
+        raise AssertionError(f"{scenario_id} 沒有跳機")
+
+    assert at_trip("bearing_wear") > 8.0
+    assert abs(at_trip("main_bearing_temp_sensor_drift")) < 2.0
 
 
 @pytest.mark.parametrize("scenario_id, codes", [
@@ -120,7 +144,7 @@ def test_broken_wire_trips_after_the_confirmation_delay_and_suppresses_over_limi
     t, events = _drive(plc, 120, 0.0)
     assert events == []
     t, events = _drive(plc, 2, t, WGEN_GnBrgTmp1=SPEC.pt100_broken_wire_c)
-    assert [e.code for e in events] == [], "確認延時 2 s：第 2 個越限樣本才成立"
+    assert [e.code for e in events] == [], "確認延時 2 s：從第一個越限樣本起算，第 3 個樣本才成立"
     t, events = _drive(plc, 30, t, WGEN_GnBrgTmp1=SPEC.pt100_broken_wire_c)
     assert [(e.kind, e.code) for e in events] == [("trip", 242)], "只報感測器故障，不報溫度過高"
     assert events[0].value == SPEC.pt100_broken_wire_c and events[0].setpoint == SPEC.pt100_valid_range_c[1]
@@ -142,3 +166,50 @@ def test_out_of_range_low_readings_and_gates() -> None:
     t, _ = _drive(plc, 120, 0.0)
     _, events = _drive(plc, 30, t, WGEN_GnBrgTmp2=SPEC.gen_bearing_trip + 1.0)
     assert {(e.kind, e.code) for e in events} == {("alarm_raised", 263), ("trip", 241)}
+
+
+def test_invalid_reading_releases_rules_that_were_already_on() -> None:
+    """已成立的溫度警報：讀值斷線後立即解除（失效的讀值不能維持警報），改報感測器故障。"""
+    plc = PlcProtection(SPEC)
+    t, _ = _drive(plc, 120, 0.0)
+    t, events = _drive(plc, 15, t, WGEN_GnBrgTmp1=SPEC.gen_bearing_alarm + 2.0)
+    assert [(e.kind, e.code) for e in events] == [("alarm_raised", 262)]
+    t, events = _drive(plc, 5, t, WGEN_GnBrgTmp1=SPEC.pt100_broken_wire_c)
+    assert [(e.kind, e.code) for e in events] == [("alarm_cleared", 262), ("trip", 242)]
+    assert set(plc.active_codes()) == {242}
+
+
+def test_encoder_fault_on_blade_1_still_judges_blades_2_and_3() -> None:
+    plc = PlcProtection(SPEC)
+    t, _ = _drive(plc, 120, 0.0)
+    _, events = _drive(plc, 10, t, WROT_PtAngValBl1=SPEC.blade_encoder_fault_deg, WROT_PtAngValBl3=9.0)
+    assert {e.code for e in events if e.kind == "trip"} == {326, 337}, "葉片 2-3 差異只看有效的兩支編碼器"
+
+
+def test_tripped_sensor_fault_holds_the_turbine_until_repaired() -> None:
+    """跳機後維修鎖擋重啟；維護清除故障後讀值恢復、跳機解除、機組重新發電。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    sim.wind_model.set_override(wind_speed=15.0, wind_direction=180.0, ambient_temp=25.0)
+    model = sim.turbines["WT001"]
+    i = 0
+    for i in range(200):
+        sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
+    # 剛好到 SENSOR_BREAK_SEVERITY（>=）就斷線
+    assert sim.fault_engine.inject("yaw_brake_pressure_sensor_fault", "WT001", severity_rate=0.0,
+                                   initial_severity=0.5)
+    events: List[PlcEvent] = []
+    for i in range(i + 1, i + 120):
+        sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
+        events += model.plc.drain_events()
+    fault = sim.fault_engine.active_faults[0]
+    assert fault.tripped and fault.trip_code == 229 and model.maintenance_lock
+    assert model.tur_state != PRODUCING
+    sim.fault_engine.clear()
+    for i in range(i + 1, i + 240):
+        sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
+        events += model.plc.drain_events()
+    assert ("trip_cleared", 229) in [(e.kind, e.code) for e in events]
+    assert model.tur_state == PRODUCING and not model.maintenance_lock
+    reading = sim.latest_data["WT001"]["scada"]["WYAW_YwBrkHyPrs"]
+    lo, hi = SPEC.yaw_pressure_valid_range_bar
+    assert lo <= reading <= hi and reading != SPEC.yaw_pressure_broken_wire_bar, "修好後讀值回到正常範圍"

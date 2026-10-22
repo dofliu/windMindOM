@@ -262,9 +262,11 @@ class TurbinePhysicsModel:
         self._aux_rng = np.random.RandomState(None if seed is None else (seed + 104729) % (2 ** 32))
         self._vane2_bias = self._aux_rng.uniform(-2.0, 2.0)
         self._cnv_grid_phase_scale = [1.0 + self._aux_rng.normal(0.0, 0.004) for _ in range(3)]
+        # Second Pt100s (WGEN_GnStaTmp2 / WGEN_GnBrgTmp2, WMOM-20261021-08-a) get their own stream: drawing them
+        # from self._aux_rng would shift the noise of the existing aux sensors (vane 2, grid voltages).
+        self._rtd_rng = np.random.RandomState(None if seed is None else (seed + 7919) % (2 ** 32))
         # Stator Pt100 #2 sits in another slot of the same winding: fixed per-turbine offset
-        # (WGEN_GnStaTmp2, WMOM-20261021-08-a); drawn after the existing aux draws so they keep their values
-        self._stator_rtd2_offset = float(np.clip(self._aux_rng.normal(0.0, 0.8), -2.0, 2.0))
+        self._stator_rtd2_offset = float(np.clip(self._rtd_rng.normal(0.0, 0.8), -2.0, 2.0))
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -1092,6 +1094,7 @@ class TurbinePhysicsModel:
         for tag, (mode, value) in sensor_faults.items():
             if mode == "pinned" and tag in sensorized:
                 sensorized[tag] = value  # a broken wire / failed encoder reads a constant, no noise
+                self._sensor_last[tag] = value  # a later stuck-sensor event must not replay a clipped reading
 
         # The PLC judges the process values (pre sensor model): the sensor model's noise /
         # drift / stuck values are SCADA-acquisition artefacts tuned for trend realism and
@@ -1575,8 +1578,10 @@ class TurbinePhysicsModel:
     _AUX_SENSOR_TAGS = frozenset({
         "WYAW_YwVn2AlgnAvg5s",
         "WCNV_VtgMsCnvGd1", "WCNV_VtgMsCnvGd2", "WCNV_VtgMsCnvGd3",
-        "WGEN_GnStaTmp2", "WGEN_GnBrgTmp2",  # WMOM-20261021-08-a
     })
+    # Second Pt100s (WMOM-20261021-08-a): noise from self._rtd_rng, so neither the main nor the aux
+    # stream shifts
+    _RTD_SENSOR_TAGS = frozenset({"WGEN_GnStaTmp2", "WGEN_GnBrgTmp2"})
 
     @staticmethod
     def _apply_sensor_faults(output: Dict[str, float],
@@ -1621,7 +1626,8 @@ class TurbinePhysicsModel:
                              "WLOD_RulHours"}
         sensorized: Dict[str, float] = {}
         for tag, value in output.items():
-            rng = self._aux_rng if tag in self._AUX_SENSOR_TAGS else self._rng
+            rng = (self._rtd_rng if tag in self._RTD_SENSOR_TAGS
+                   else self._aux_rng if tag in self._AUX_SENSOR_TAGS else self._rng)
             if tag in _integer_tags:
                 # round(inf/nan) → OverflowError；非有限值歸零（WMOM-20260718-10）。
                 sensorized[tag] = round(value) if math.isfinite(value) else 0

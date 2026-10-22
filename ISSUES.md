@@ -1562,7 +1562,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **新增真實 tag**：`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`（116 → 118；資料包 102 欄）與 PLC 規則 263 / 241 / 243、265 / 245 / 251。
   - **PLC**：讀值超出有效範圍 → 感測器故障碼；失效的讀值不參與越限判定。
   - **knowledge** baseline 語料補 3 段；**starter kit** 加 `z72-starter-04`、基準助手的類別規則；**合約 v1.3**。
-  - **測試**：`test_sensor_faults.py` 12 項、`test_fault_threshold_reach.py` +11 項（含「故障機組除了那支感測器逐位元等於健康機組」）；既有守門自動涵蓋。
+  - **code review**（Needs revision → 全修）：M1 軸承溫度 2 原本分不出真故障與感測器故障 → 主軸承磨耗時軸承 2 升溫約三成；S1 新感測器改用獨立 `_rtd_rng`（既有 tag 逐位元不變）；S2 `ProtectionRule.valid`（失效讀值立即解除已成立的規則）；S3 測試改慢速漂移；定子繞組劣化補預期碼 265 / 245。
+  - **測試**：`test_sensor_faults.py` 16 項、`test_fault_threshold_reach.py` +12 項（含「故障機組除了那支感測器逐位元等於健康機組」）；既有守門自動涵蓋。
   - 設計、已知限制見設計文件 §6.13。
 - **Depends on**: WMOM-20261021-04
 

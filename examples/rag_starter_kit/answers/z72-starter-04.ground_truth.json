@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-23T02:00:10.000000Z",
  "sim_end": "2026-03-23T07:00:00.000000Z",
- "generated_at": "2026-10-22T09:59:45.492244Z",
+ "generated_at": "2026-10-22T10:35:09.252784Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -28,8 +28,8 @@
    "fault_name_en": "Generator Bearing Wear",
    "fault_name_zh": "發電機軸承磨損",
    "component": "main_bearing",
-   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動逐步上升，越過 85 °C 警報、95 °C 跳機。",
-   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature and nacelle vibration climb past the 85 °C alarm and 95 °C trip setpoints.",
+   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動、峰度逐步上升，越過 85 °C 警報、95 °C 跳機；共用潤滑與傳熱，軸承溫度 2 也跟著升溫（幅度約三成）。",
+   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature, nacelle vibration and kurtosis climb past the 85 °C alarm and 95 °C trip setpoints; through shared lubrication and heat conduction bearing temperature 2 rises too (by about a third as much).",
    "expected_alarm_codes": [
     262,
     240
@@ -85,6 +85,7 @@
    ],
    "key_signals": [
     "WGEN_GnBrgTmp1",
+    "WGEN_GnBrgTmp2",
     "WNAC_VibMsNacXDir",
     "WNAC_VibMsNacYDir",
     "WVIB_Kurtosis"
@@ -124,8 +125,8 @@
    "fault_name_en": "Main Bearing 1 Temperature Sensor Drift",
    "fault_name_zh": "主軸承溫度 1 感測器漂移",
    "component": "main_bearing",
-   "root_cause": "主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——同一軸承的另一支溫度（軸承溫度 2）、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的潤滑劣化會隨轉速增加摩擦熱、伴隨振動上升）。",
-   "root_cause_en": "Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real lubrication failure adds friction heat with speed and raises vibration).",
+   "root_cause": "主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——軸承溫度 2、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的主軸承磨耗會隨轉速增加摩擦熱，軸承溫度 2 跟著升溫、振動與峰度上升）。",
+   "root_cause_en": "Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real main bearing wear adds friction heat with speed, lifts bearing temperature 2 too and raises vibration and kurtosis).",
    "expected_alarm_codes": [
     262,
     240

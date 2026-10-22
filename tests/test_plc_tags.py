@@ -1,7 +1,7 @@
 """Z72 真實 PLC tag 清單（WMOM-20261021-05，EPIC-DS Phase 3a）。
 
 情境資料包的 tag 字典以 `shared/data/z72_plc_tags.json` 判定每個模擬 tag 是真實 Bachmann tag 還是
-自創（synthetic）。這裡守住：清單與 xlsx 一致、判定規則、模擬器 116 個 tag 的真實 / 自創分布。
+自創（synthetic）。這裡守住：清單與 xlsx 一致、判定規則、模擬器 118 個 tag 的真實 / 自創分布。
 """
 
 from __future__ import annotations

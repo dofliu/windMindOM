@@ -275,7 +275,7 @@ def test_broken_sensors_read_a_constant_out_of_range_value() -> None:
 
 
 def test_second_sensors_follow_the_same_component() -> None:
-    """軸承溫度 2 / 定子溫度 2：健康時貼近溫度 1；真故障時一起變化（軸承 2 只升一點，定子 2 一起升）。"""
+    """軸承溫度 2 / 定子溫度 2：健康時貼近溫度 1；真故障時一起變化（軸承 2 升約三成，定子 2 一起升）。"""
     healthy, _ = _run(None, 0.0, 14.0, 25.0)
     assert abs(_mean(healthy, _tag("WGEN_GnBrgTmp2")) - _mean(healthy, _tag("WGEN_GnBrgTmp1"))) < 3.0
     assert abs(_mean(healthy, _tag("WGEN_GnStaTmp2")) - _mean(healthy, _tag("WGEN_GnStaTmp1"))) < 3.0
@@ -286,7 +286,7 @@ def test_second_sensors_follow_the_same_component() -> None:
     bearing, _ = _run("bearing_wear", 1.0, 14.0, 25.0)
     rise_b1 = _mean(bearing, _tag("WGEN_GnBrgTmp1")) - _mean(healthy, _tag("WGEN_GnBrgTmp1"))
     rise_b2 = _mean(bearing, _tag("WGEN_GnBrgTmp2")) - _mean(healthy, _tag("WGEN_GnBrgTmp2"))
-    assert 0.0 < rise_b2 < 0.5 * rise_b1, "軸承 1 磨耗，軸承 2 只因傳熱略升"
+    assert 0.2 * rise_b1 < rise_b2 < 0.5 * rise_b1, "軸承 1 磨耗，軸承 2 也跟著升（約三成）——與感測器故障分得出來"
     assert _mean(bearing, _tag("WGEN_GnBrgTmp2")) < SPEC.gen_bearing_alarm
 
 
@@ -309,6 +309,23 @@ def test_new_sensors_draw_only_from_aux_rng() -> None:
         assert {k: v for k, v in oa.items() if k not in aux} == {k: v for k, v in ob.items() if k not in aux}
         aux_differs = aux_differs or any(oa[k] != ob[k] for k in aux)
     assert aux_differs
+
+
+def test_second_pt100s_have_their_own_rng_stream() -> None:
+    """軸承 / 定子溫度 2 的雜訊走 ``_rtd_rng``：換掉它只改變這兩個 tag，主 RNG 與既有 aux 感測器都不受影響。"""
+    a = TurbinePhysicsModel(seed=5)
+    b = TurbinePhysicsModel(seed=5)
+    b._rtd_rng = np.random.RandomState(999)
+    rtd = TurbinePhysicsModel._RTD_SENSOR_TAGS
+    assert not rtd & TurbinePhysicsModel._AUX_SENSOR_TAGS
+    differs = False
+    for i in range(300):
+        wind = 11.0 + (i % 40) * 0.05
+        oa = a.step(wind_speed=wind, wind_direction=180.0, ambient_temp=20.0, dt=1.0)
+        ob = b.step(wind_speed=wind, wind_direction=180.0, ambient_temp=20.0, dt=1.0)
+        assert {k: v for k, v in oa.items() if k not in rtd} == {k: v for k, v in ob.items() if k not in rtd}
+        differs = differs or any(oa[k] != ob[k] for k in rtd)
+    assert differs
 
 
 def test_resistance_scale_raises_steady_state_and_never_lowers_it() -> None:

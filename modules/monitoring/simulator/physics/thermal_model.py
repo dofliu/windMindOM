@@ -51,6 +51,10 @@ class ThermalElement:
         self.temperature = temp
 
 
+# 主軸承故障（軸承 1 的故障熱與潤滑劣化）分到軸承 2 的比例（WMOM-20261021-08-a）
+_BEARING2_FAULT_SHARE = 0.4
+
+
 @dataclass
 class ThermalSystemConfig:
     """Calibrated thermal parameters for Z72-2000-MV turbine.
@@ -74,7 +78,7 @@ class ThermalSystemConfig:
     gen_air: tuple = (0.55, 450, 30.0)       # ~80°C at rated
     gen_bearing: tuple = (0.35, 900, 30.0)   # ~55°C at rated (alarm@85)
     # Bearing 2 (WGEN_GnBrgTmp2, PLC events 263 / 241 / 243): same element, slightly less
-    # friction heat; only conduction from bearing 1's fault heat (WMOM-20261021-08-a)
+    # friction heat; shares part of bearing 1's fault heat and lubrication degradation (WMOM-20261021-08-a)
     gen_bearing2: tuple = (0.35, 900, 30.0)  # ~52°C at rated
 
     cnv_cabinet: tuple = (0.28, 500, 28.0)   # ~39°C at rated
@@ -205,14 +209,16 @@ class ThermalSystem:
             resistance_scale=r_scale("bearing"),
         )
 
-        # 軸承 2：同樣的摩擦熱來源（略少），軸承 1 的故障熱只有一小部分經軸傳過來；軸承 1 的潤滑劣化
-        # （cooling_degradation "bearing"）不影響軸承 2
+        # 軸承 2：同樣的摩擦熱來源（略少）。主軸承磨耗時（故障熱與潤滑劣化在軸承 1）軸承 2 也跟著升溫，
+        # 幅度約軸承 1 的三成（共用潤滑系統、經軸傳熱）：真故障兩支一起升、感測器故障只有一支，才分得出來
+        # （WMOM-20261021-08-a）
         gen_brg2_t = self.gen_bearing2.step(
-            heat_gen * 0.10 + heat_bearing_base * 0.90 + extra_heat.get("bearing", 0.0) * 0.12
+            heat_gen * 0.10 + heat_bearing_base * 0.90 + extra_heat.get("bearing", 0.0) * _BEARING2_FAULT_SHARE
             + max(0.0, gen_sta_t - ambient_temp) * 0.03,
             bearing_env,
             dt,
             cooling_factor=0.8 + exposed_cooling * 0.35,
+            resistance_scale=1.0 + _BEARING2_FAULT_SHARE * (r_scale("bearing") - 1.0),
         )
 
         cnv_cab_t = self.cnv_cabinet.step(
