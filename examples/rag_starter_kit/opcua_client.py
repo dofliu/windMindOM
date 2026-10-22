@@ -14,7 +14,7 @@
 
 需要 ``asyncua`` 與 ``websockets``（``pip install -r requirements.txt``）。用法::
 
-    python opcua_client.py opc.tcp://<host>:4840/windmindom/ --ws ws://<host>:8000/ws/replay --token <token>
+    python opcua_client.py opc.tcp://<host>:4840/windmindom/ --ws ws://<host>:8100/ws/replay --token <token>
     python opcua_client.py opc.tcp://<host>:4840/windmindom/        # 只看（不送判斷；即時模擬也可以）
 
 token 也可以放環境變數 ``WMOM_REPLAY_TOKEN``。
@@ -269,7 +269,7 @@ async def run(endpoint: str, ws_url: Optional[str] = None, token: Optional[str] 
 
     Args:
         endpoint: ``opc.tcp://<host>:4840/windmindom/``。
-        ws_url: ``ws://<host>:8000/ws/replay``；None＝只看、不送判斷。
+        ws_url: ``ws://<host>:8100/ws/replay``；None＝只看、不送判斷。
         token: 回放 token（有 ``ws_url`` 時必填）。
         poll_s: 讀的間隔（實際秒）。
         verbose: 印出每個事件與判斷。
@@ -332,7 +332,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """
     parser = argparse.ArgumentParser(description="OPC UA 的受測端範例（讀 Z72 tag、經 WS 送判斷）")
     parser.add_argument("endpoint", help="opc.tcp://<host>:4840/windmindom/")
-    parser.add_argument("--ws", help="ws://<host>:8000/ws/replay（不給＝只看、不送判斷）")
+    parser.add_argument("--ws", help="ws://<host>:8100/ws/replay（不給＝只看、不送判斷）")
     parser.add_argument("--token", default=os.environ.get("WMOM_REPLAY_TOKEN"), help="回放 token")
     parser.add_argument("--poll", type=float, default=1.0, help="讀的間隔（秒，預設 1）")
     parser.add_argument("--use-env-proxy", action="store_true", help="WS 經過環境變數設定的 HTTP proxy（預設直連）")

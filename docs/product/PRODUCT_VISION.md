@@ -4,6 +4,14 @@
 > 對應決策：[`decision_log.md`](decision_log.md) DEC-20260502-06
 > 相關文件：[`MVP_ARCHITECTURE.md`](MVP_ARCHITECTURE.md) / [`ROADMAP.md`](ROADMAP.md)
 
+> **2026-10-21 方向調整（[DEC-20261021-01](decision_log.md)）**：本文的產品定位、ICP 與功能設計仍然有效；**商業時程**（M6 PoC、第一筆合約、「2026-Q4 第一個運維廠商客戶」）與真實風場 / OPC 介接**暫緩、不設恢復日期**，保留為歷史，不再作為排程依據。
+>
+> 現行主線是 **EPIC-DS 擬真資料源**：模擬器產生附標準答案的擬真 Z72 運轉資料，經資料包、WebSocket 回放、OPC UA 三條管道，餵給學生專題建立的 RAG 即時維修助手做驗證。
+>
+> - 設計：[`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)
+> - 介面合約：[`../integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)
+> - 現況：[`../architecture/windMindOM-architecture.md`](../architecture/windMindOM-architecture.md)
+
 ---
 
 ## TL;DR

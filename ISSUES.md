@@ -17,10 +17,11 @@
 | in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 142 |
-| **total** | **153** |
+| done | 143 |
+| **total** | **154** |
 
-最後更新：2026-10-22（**WMOM-20261022-01 done**（EPIC-DS 全面檢查，-08 其餘子項前）：三路 code review（🔴 2、🟡 18、🟢 14）＋真伺服器端到端 47 項；修非 Z72 機型被 Z72 溫度保護跳機、Live 殘留 PLC 狀態漏進情境、評測 stream=false 搶先開播等；劉老師決定（DEC-20261022-05）正式評測要伺服器強制登入、批次生成移到背景執行緒、建立正式評測檢查總速率、手冊保真度另開 **WMOM-20261022-02（open，排在 -08 其餘子項前）**。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 142 = 153。詳見 `work-logs/2026-10/2026-10-22-epic-ds-verification.md`）。
+最後更新：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
+前次最後更新：2026-10-22（**WMOM-20261022-01 done**（EPIC-DS 全面檢查，-08 其餘子項前）：三路 code review（🔴 2、🟡 18、🟢 14）＋真伺服器端到端 47 項；修非 Z72 機型被 Z72 溫度保護跳機、Live 殘留 PLC 狀態漏進情境、評測 stream=false 搶先開播等；劉老師決定（DEC-20261022-05）正式評測要伺服器強制登入、批次生成移到背景執行緒、建立正式評測檢查總速率、手冊保真度另開 **WMOM-20261022-02（open，排在 -08 其餘子項前）**。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 142 = 153。詳見 `work-logs/2026-10/2026-10-22-epic-ds-verification.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
@@ -1726,6 +1727,25 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - `yaw_sensor_drift`：漂移 18° 加上機組個體差（bias1 − bias2 < −3°）時差異到不了 15°，233 永遠不出現（種子 33 / 34 / 119…）；守門測試只測 seed 7。
 - **Deliverable**: PLC / spec 設定值與註解、A039、yaw drift、多種子守門測試、設計文件 §6.3 表格重量、範例資料包重建、合約說明
 - **Depends on**: WMOM-20261022-01
+
+### WMOM-20261022-03 — 架構全貌圖更新與專案文件同步（EPIC-DS 之後）
+
+- **Status**: done（2026-10-22）
+- **Milestone**: EPIC-DS（文件）
+- **Priority**: medium
+- **Estimate**: 0.5 天
+- **Owner**: Claude
+- **Description**: 劉老師要求「用一個架構圖說明專案功能與目前狀況，並更新專案文件」。`docs/architecture/windMindOM-architecture.md` 停在 2026-05（M3、v0.8.1 初版），README 還沒有 EPIC-DS、測試數與文件地圖過時，PRODUCT_VISION 沒提 2026-10-21 的方向調整。
+- **Deliverable**: 架構說明頁（artifact）、架構文件改寫（全貌圖、EPIC-DS 資料流、儲存結構、時程）、README、PRODUCT_VISION / ROADMAP 註記、work-log
+- **Depends on**: WMOM-20261022-01
+- **完成紀錄（2026-10-22）**：
+  - 架構說明頁（互動頁，含全貌圖、EPIC-DS 資料流與盲測邊界、六模組現況、各階段進度、正式評測規則）。
+  - `docs/architecture/windMindOM-architecture.md` 全面改寫：9 張 mermaid 圖都經 mermaid-cli 渲染檢查；儲存結構改用實際表名。
+  - README：EPIC-DS 主線、三條管道、環境變數、測試數、文件地圖、repo 結構。
+  - PRODUCT_VISION 頂部加 DEC-20261021-01 方向調整說明。
+  - ROADMAP 的 EPIC-DS 表加狀態欄，並補上 -10 / -11 / -12、全面檢查與手冊保真度。
+  - 順手修正：starter kit 的 `stream_client.py` / `opcua_client.py` / README 與 `tools/opcua_server.py` 範例網址的 port 寫成 8000，backend 預設是 8100。
+  - work-log：`work-logs/2026-10/2026-10-22-architecture-docs.md`
 
 ---
 
