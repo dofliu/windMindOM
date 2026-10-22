@@ -138,6 +138,7 @@ class Storage:
       - sessions:            tracks simulation/data source configs
       - history_events:      可觀測事件 + 操作 / 注入標記（``session_id`` 隔離，WMOM-20261021-04）
       - scenario_ground_truth: 情境的標準答案（與可觀測事件分開存，盲測，WMOM-20261021-04）
+      - replay_runs / replay_predictions: 情境 WebSocket 回放與受測端的預測（WMOM-20261021-06）
     """
 
     def __init__(self, db_path: str = str(DB_PATH), migrate_timestamps: bool = True):
@@ -369,6 +370,39 @@ class Storage:
             )
         """)
 
+        # ── 情境回放（WMOM-20261021-06）──
+        # 受測端以回放 token 連線（不開帳號，DEC-20261021-03）；只存 token 的 sha256。
+        # evaluation 回放的時鐘從第一次連線（started_at）起算，重啟伺服器也接得上
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS replay_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id INTEGER NOT NULL,
+                token_sha256 TEXT NOT NULL UNIQUE,
+                mode TEXT NOT NULL,
+                speed REAL NOT NULL,
+                label TEXT,
+                created_at TEXT NOT NULL,
+                created_by TEXT,
+                expires_at TEXT NOT NULL,
+                started_at TEXT,
+                connections INTEGER NOT NULL DEFAULT 0,
+                revoked_at TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_runs_scenario ON replay_runs (scenario_id)")
+        # 受測端經 WS 送來的預測；sim_ts 是伺服器收到時的回放模擬時間（時間因果由伺服器保證）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS replay_predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                connection_no INTEGER NOT NULL,
+                received_at TEXT NOT NULL,
+                sim_ts TEXT NOT NULL,
+                prediction_json TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_predictions_run ON replay_predictions (run_id, id)")
+
         conn.commit()
         if self._migrate_timestamps:
             self._migrate_timestamps_to_utc(conn)
@@ -588,6 +622,9 @@ class Storage:
                       "turbine_data_10m", "turbine_snapshots",
                       "history_events", "scenario_ground_truth"):
             conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (scenario_id,))
+        conn.execute("DELETE FROM replay_predictions WHERE run_id IN "
+                     "(SELECT id FROM replay_runs WHERE scenario_id = ?)", (scenario_id,))
+        conn.execute("DELETE FROM replay_runs WHERE scenario_id = ?", (scenario_id,))
         conn.execute("DELETE FROM sessions WHERE id = ?", (scenario_id,))
         conn.commit()
         return True
@@ -1247,6 +1284,236 @@ class Storage:
                     pass
             events.append(event)
         return events
+
+    def session_reading_index(self, session_id: int) -> List[tuple]:
+        """某 session 全部讀值的 ``(id, timestamp)``，依時間、機組排序（回放分頁用，WMOM-20261021-06）。
+
+        只讀索引欄位，不讀 ``scada_json``：回放依這個順序分頁取讀值，每頁一個短查詢，不必在執行緒間
+        共用 cursor。
+
+        Args:
+            session_id: session id。
+
+        Returns:
+            ``[(id, timestamp), ...]``。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, timestamp FROM turbine_data WHERE session_id = ? ORDER BY timestamp, turbine_id, id",
+            (session_id,),
+        ).fetchall()
+        return [(int(row[0]), str(row[1])) for row in rows]
+
+    def session_reading_bounds(self, session_id: int) -> Optional[tuple]:
+        """某 session 第一筆 / 最後一筆讀值的時間（回放結束時刻用）。
+
+        Args:
+            session_id: session id。
+
+        Returns:
+            ``(first, last)`` 時間字串；沒有讀值回 None。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT MIN(timestamp), MAX(timestamp) FROM turbine_data WHERE session_id = ?", (session_id,),
+        ).fetchone()
+        return (str(row[0]), str(row[1])) if row and row[0] is not None else None
+
+    def readings_by_ids(self, ids: List[int]) -> List[sqlite3.Row]:
+        """依 id 取讀值（順序同 ``ids``；回放分頁用）。
+
+        Args:
+            ids: ``turbine_data`` 的 id（一次幾百筆）。
+
+        Returns:
+            ``(id, timestamp, turbine_id, scada_json)`` 列；不存在的 id 略過。
+        """
+        if not ids:
+            return []
+        conn = self._get_conn()
+        found: Dict[int, sqlite3.Row] = {}
+        for start in range(0, len(ids), 900):  # SQLite 參數上限
+            chunk = ids[start:start + 900]
+            placeholders = ",".join("?" * len(chunk))
+            for row in conn.execute(
+                f"SELECT id, timestamp, turbine_id, scada_json FROM turbine_data WHERE id IN ({placeholders})",
+                chunk,
+            ):
+                found[int(row["id"])] = row
+        return [found[i] for i in ids if i in found]
+
+    # ── 情境回放（WMOM-20261021-06）──
+
+    def create_replay_run(self, scenario_id: int, token_sha256: str, mode: str, speed: float,
+                          label: Optional[str], created_at: str, created_by: Optional[str],
+                          expires_at: str) -> dict:
+        """建立一個回放。
+
+        Args:
+            scenario_id: 情境 session id。
+            token_sha256: 回放 token 的 sha256（token 本身不存）。
+            mode: ``evaluation`` / ``practice``。
+            speed: 回放速度（模擬秒 / 實際秒）。
+            label: 出題者的備註。
+            created_at: 建立時間（``iso_utc``）。
+            created_by: 建立者（使用者 id）。
+            expires_at: token 到期時間（``iso_utc``）。
+
+        Returns:
+            回放 dict（同 ``get_replay_run``）。
+        """
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "INSERT INTO replay_runs (scenario_id, token_sha256, mode, speed, label, created_at, created_by, "
+            "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (scenario_id, token_sha256, mode, speed, label, created_at, created_by, expires_at),
+        )
+        conn.commit()
+        assert cursor.lastrowid is not None
+        run = self.get_replay_run(cursor.lastrowid)
+        assert run is not None
+        return run
+
+    _REPLAY_RUN_COLUMNS = ("id, scenario_id, mode, speed, label, created_at, created_by, expires_at, started_at, "
+                           "connections, revoked_at, "
+                           "(SELECT COUNT(*) FROM replay_predictions p WHERE p.run_id = replay_runs.id) AS predictions")
+
+    def get_replay_run(self, run_id: int) -> Optional[dict]:
+        """取一個回放（不含 token）。
+
+        Args:
+            run_id: 回放 id。
+
+        Returns:
+            回放 dict（含已收到的預測筆數 ``predictions``）或 None。
+        """
+        conn = self._get_conn()
+        row = conn.execute(f"SELECT {self._REPLAY_RUN_COLUMNS} FROM replay_runs WHERE id = ?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def find_replay_run(self, token_sha256: str) -> Optional[dict]:
+        """以 token 的 sha256 找回放。
+
+        Args:
+            token_sha256: token 的 sha256。
+
+        Returns:
+            回放 dict 或 None。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            f"SELECT {self._REPLAY_RUN_COLUMNS} FROM replay_runs WHERE token_sha256 = ?", (token_sha256,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_replay_runs(self, scenario_id: int) -> List[dict]:
+        """某情境的回放，新的在前。
+
+        Args:
+            scenario_id: 情境 session id。
+
+        Returns:
+            回放 dict 清單。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            f"SELECT {self._REPLAY_RUN_COLUMNS} FROM replay_runs WHERE scenario_id = ? ORDER BY id DESC",
+            (scenario_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def revoke_replay_run(self, run_id: int, revoked_at: str) -> bool:
+        """撤銷回放（之後不能再連線、送預測）；已撤銷的不改時間。
+
+        Args:
+            run_id: 回放 id。
+            revoked_at: 撤銷時間（``iso_utc``）。
+
+        Returns:
+            回放是否存在。
+        """
+        conn = self._get_conn()
+        conn.execute("UPDATE replay_runs SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?", (revoked_at, run_id))
+        conn.commit()
+        return conn.execute("SELECT 1 FROM replay_runs WHERE id = ?", (run_id,)).fetchone() is not None
+
+    def start_replay_run(self, run_id: int, started_at: str) -> str:
+        """回放的開始時間：第一次呼叫時寫入 ``started_at``，之後回傳同一個值（原子操作）。
+
+        Args:
+            run_id: 回放 id。
+            started_at: 這次連線的時間（``iso_utc``）。
+
+        Returns:
+            回放實際的開始時間。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "UPDATE replay_runs SET started_at = COALESCE(started_at, ?) WHERE id = ? RETURNING started_at",
+            (started_at, run_id),
+        ).fetchone()
+        conn.commit()
+        return str(row[0])
+
+    def next_replay_connection(self, run_id: int) -> int:
+        """連線序號（1 起算；原子遞增）。
+
+        Args:
+            run_id: 回放 id。
+
+        Returns:
+            這次連線的序號。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "UPDATE replay_runs SET connections = connections + 1 WHERE id = ? RETURNING connections", (run_id,),
+        ).fetchone()
+        conn.commit()
+        return int(row[0])
+
+    def add_replay_prediction(self, run_id: int, connection_no: int, received_at: str, sim_ts: str,
+                              prediction: dict) -> int:
+        """存一筆預測。
+
+        Args:
+            run_id: 回放 id。
+            connection_no: 連線序號。
+            received_at: 收到的實際時間（``iso_utc``）。
+            sim_ts: 收到時的回放模擬時間（合約格式 ``...Z``）。
+            prediction: 合約 §6 格式的預測（``ts`` 已是 ``sim_ts``）。
+
+        Returns:
+            新預測的 id。
+        """
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "INSERT INTO replay_predictions (run_id, connection_no, received_at, sim_ts, prediction_json) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (run_id, connection_no, received_at, sim_ts, json.dumps(prediction, ensure_ascii=False)),
+        )
+        conn.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    def replay_predictions(self, run_id: int, connection_no: Optional[int] = None) -> List[dict]:
+        """某回放收到的預測，依收到順序。
+
+        Args:
+            run_id: 回放 id。
+            connection_no: 只取某次連線的（練習模式每次連線各自從頭播）；None＝全部。
+
+        Returns:
+            ``{"id", "connection_no", "received_at", "sim_ts", "prediction"}`` 清單。
+        """
+        conn = self._get_conn()
+        sql = "SELECT id, connection_no, received_at, sim_ts, prediction_json FROM replay_predictions WHERE run_id = ?"
+        params: list = [run_id]
+        if connection_no is not None:
+            sql += " AND connection_no = ?"
+            params.append(connection_no)
+        rows = conn.execute(sql + " ORDER BY id", params).fetchall()
+        return [{"id": row["id"], "connection_no": row["connection_no"], "received_at": row["received_at"],
+                 "sim_ts": row["sim_ts"], "prediction": json.loads(row["prediction_json"])} for row in rows]
 
     def scenario_turbine_ids(self, session_id: int) -> List[str]:
         """情境（session）內出現過資料的機組 id 清單，依字母序排序（PR C Phase 1 情境掛載用）。

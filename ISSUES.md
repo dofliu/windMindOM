@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 9 |
+| open | 8 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 138 |
+| done | 139 |
 | **total** | **150** |
 
-最後更新：2026-10-22（**WMOM-20261021-12 done**：健康機組長時間偶發 T2 336 的根因是物理——葉片零點校正誤差 σ 0.12°加上伺服死區 / 雜訊，尾端碰到手冊的 5 s > 1°；PLC 規則與手冊一致，不改規則、不列 nuisance（DEC-20261022-01）。零點 σ 0.12 → 0.06°、起動 / 緊急順槳以外的死區 0.10° / 雜訊 0.04°；新增健康風場長時間守門測試（原始重現點 12 h ＋ 冬季夜間 / 夏季清晨各 6 h）與 14 種子 × 12 h 葉片同步機制測試；starter kit 重產（基準成績不變）。
+最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
+前次最後更新：2026-10-22（**WMOM-20261021-12 done**：健康機組長時間偶發 T2 336 的根因是物理——葉片零點校正誤差 σ 0.12°加上伺服死區 / 雜訊，尾端碰到手冊的 5 s > 1°；PLC 規則與手冊一致，不改規則、不列 nuisance（DEC-20261022-01）。零點 σ 0.12 → 0.06°、起動 / 緊急順槳以外的死區 0.10° / 雜訊 0.04°；新增健康風場長時間守門測試（原始重現點 12 h ＋ 冬季夜間 / 夏季清晨各 6 h）與 14 種子 × 12 h 葉片同步機制測試；starter kit 重產（基準成績不變）。
 逐條解析 header 核實：open 9 / in_progress 1 / deferred 2 / done 138 = 150。詳見 `work-logs/2026-10/2026-10-22-healthy-blade-sync.md`）。
 前次最後更新：2026-10-21 深夜（**WMOM-20261021-09 done**（EPIC-DS Phase 3d）：RAG 學生專題 starter kit——介面合約 v1 定稿
 （`docs/integration/rag_assistant_data_contract_v1.md`：受測端 predictions.jsonl、評分定義，評分欄位經劉老師確認）、
@@ -1461,13 +1462,34 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-06 — Phase 3b：② 串流——凍結情境 WebSocket 回放
 
-- **Status**: open
+- **Status**: done（2026-10-22）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 1.5 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-22
 - **Description**: 新增可依 speed（1x / 加速）回放凍結情境的回放器，與 `ws://{host}/ws/replay/{scenario_id}` 端點；訊息含 reading / event / control 三型（設計文件 §5.2），不推送 ground truth。回放器同時供 Phase 3c OPC UA server 使用。
 - **Deliverable**: 回放器模組、WS 端點、測試
+- **完成紀錄**:
+  - **劉老師確認**（2026-10-22，DEC-20261022-02）：
+    - 單次直播（evaluation，時鐘從第一次連線起算、不能暫停 / 倒帶）＋練習模式（practice，每次連線從頭播）。
+    - 速度由出題端建回放時固定。
+    - 預測走同一條 WS，伺服器以收到時的模擬時間蓋 `ts`。
+    - 受測端以回放 token 連線（不開帳號）。
+  - **回放器** `modules/monitoring/server/replay.py`（-07 共用）：
+    - `ScenarioReplay` 依時間產生 `reading` / `event` / `stats` 訊息，與盲測版資料包逐筆相同（REAL32 讀回 float32 逐位元相同），不含答案。
+    - 讀值以 id 分頁取，10 分鐘統計與匯出器共用 `StatsBuilder`。
+    - `ReplayClock`；預測檢查（機組、類別、詞彙、手冊引用、文字長度）。
+  - **端點** `server/routers/replay.py`：
+    - REST（主管）：建回放（token 只回一次，DB 存 sha256）、列表與狀態、撤銷、下載 `predictions.jsonl`。
+    - WS `/ws/replay`：started / reading / event / stats / finished / ack / pong / error；關閉碼 4401 / 4403 / 4404 / 4409 / 4410。
+    - 情境結束後的預測退回；每則訊息 64 KB、每個回放 4 條連線、20000 筆預測。
+  - **DB**：`replay_runs`、`replay_predictions`；刪除情境時一併刪除。
+  - **CLI** `tools/replay_runs.py`：create / list / revoke / predictions。
+  - **starter kit**：`stream_client.py`（基準助手的即時版，收與想分開）、README「即時回放」、`websockets>=13`。
+  - **合約 v1.1**：新增 §12；`CONTRACT_VERSION` 1.1、vocabulary 1.1；範例資料包重產（資料檔不變）。
+  - **測試**：`test_replay.py` 40 項（含 kit 客戶端對真的 uvicorn 伺服器、CLI）。
+  - **完整 backend**：1778 → __N__ passed / 7 skipped / 1 xfailed。
+  - 設計、已知限制見設計文件 §6.11。
 - **Depends on**: WMOM-20261021-04
 
 ### WMOM-20261021-07 — Phase 3c：③ OPC UA server——模仿 Bachmann Z72 tag
@@ -1641,7 +1663,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 1b+ | ~~WMOM-20261021-12~~ ✅ | 健康機組長時間偶發葉片同步差異 T2 336（修物理：葉片同步誤差） | 🔵 |
 | 2 | ~~WMOM-20261021-04~~ ✅ | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | ~~WMOM-20261021-05~~ ✅ | ① 情境資料包匯出（含 10-min stats） | 🔵 |
-| 3b | WMOM-20261021-06 | ② WebSocket 回放串流 | 🔵 |
+| 3b | ~~WMOM-20261021-06~~ ✅ | ② WebSocket 回放串流（回放 token、單次直播＋練習、伺服器蓋 ts；合約 v1.1） | 🔵 |
 | 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
 | 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
 | 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本） | 🔵 |

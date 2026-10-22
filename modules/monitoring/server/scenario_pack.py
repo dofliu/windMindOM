@@ -39,6 +39,7 @@ import warnings
 import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
@@ -413,7 +414,7 @@ class _Window:
 
 
 @dataclass
-class _StatsRow:
+class StatsRow:
     """一個完成的 10 分鐘窗（統計值以 float32 保存，與輸出精度相同）。"""
 
     start_s: int
@@ -443,12 +444,12 @@ def _circular_mean_std(degrees: np.ndarray) -> Tuple[float, float]:
 
 
 @dataclass
-class _StatsBuilder:
+class StatsBuilder:
     """逐窗計算 10 分鐘統計（每台機組的讀值依時間進來，窗滿就算，不保留 raw）。"""
 
     columns: Sequence[PackColumn]
     open_windows: Dict[str, _Window] = field(default_factory=dict)
-    out_rows: List[_StatsRow] = field(default_factory=list)
+    out_rows: List[StatsRow] = field(default_factory=list)
     _last_epoch: Dict[str, float] = field(default_factory=dict)
     _steps: Counter[float] = field(default_factory=Counter)  # 相鄰讀值間隔（秒，取到 ms）→ 次數
 
@@ -479,6 +480,39 @@ class _StatsBuilder:
         self.open_windows.clear()
         self.out_rows.sort(key=lambda r: (r.start_s, r.turbine_id))
 
+    def close_before(self, epoch_s: float) -> List[StatsRow]:
+        """算完並取出所有結束時間 ≤ ``epoch_s`` 的窗（串流回放用，WMOM-20261021-06）。
+
+        讀值依時間進來：時間 t 的讀值加入前呼叫 ``close_before(t)``，結束於 t 以前的窗就不會再有讀值。
+
+        Args:
+            epoch_s: 目前的時間（epoch 秒）。
+
+        Returns:
+            完成的窗（依窗起點、機組排序）；取出後不留在 ``out_rows``。
+        """
+        for turbine_id, window in list(self.open_windows.items()):
+            if window.start_s + STATS_WINDOW_S <= epoch_s:
+                self._flush(turbine_id, window)
+                del self.open_windows[turbine_id]
+        return self._take_rows()
+
+    def close_all(self) -> List[StatsRow]:
+        """資料結束：算完並取出剩下的窗（多半是殘缺窗）。
+
+        Returns:
+            完成的窗（依窗起點、機組排序）。
+        """
+        for turbine_id, window in list(self.open_windows.items()):
+            self._flush(turbine_id, window)
+        self.open_windows.clear()
+        return self._take_rows()
+
+    def _take_rows(self) -> List[StatsRow]:
+        rows = sorted(self.out_rows, key=lambda r: (r.start_s, r.turbine_id))
+        self.out_rows = []
+        return rows
+
     def _flush(self, turbine_id: str, window: _Window) -> None:
         data = np.vstack(window.rows)
         # 整窗都是缺值時 nanmean / nanmin 會警告（結果 NaN → 輸出 null），不洗版
@@ -491,7 +525,7 @@ class _StatsBuilder:
         for c, col in enumerate(self.columns):
             if col.is_circular:
                 avg[c], std[c] = _circular_mean_std(data[:, c])
-        self.out_rows.append(_StatsRow(
+        self.out_rows.append(StatsRow(
             start_s=window.start_s, turbine_id=turbine_id, n_samples=len(data),
             avg=avg.astype(np.float32), mn=mn.astype(np.float32), mx=mx.astype(np.float32),
             std=std.astype(np.float32),
@@ -531,6 +565,72 @@ class _StatsBuilder:
         return pa.Table.from_arrays(arrays, names=names)
 
 
+def json_values(values: np.ndarray, columns: Sequence[PackColumn], suffix: str = "") -> Dict[str, JsonValue]:
+    """一列數值（NaN＝缺值）→ JSON 值，型別與資料包的 Parquet 相同（串流回放用，WMOM-20261021-06）。
+
+    REAL32 取 float32 的最短十進位表示（讀回 float32 與 Parquet 的值逐位元相同）；整數依 PLC 型別
+    取整（與 ``_to_arrow`` 一樣用 ``np.rint``）；BOOL 為非零。
+
+    Args:
+        values: 依 ``columns`` 順序的數值。
+        columns: 欄位定義。
+        suffix: 欄名後綴（10 分鐘統計的 ``_avg`` / ``_min`` …；空字串＝raw 讀值）。
+
+    Returns:
+        ``{欄名 + suffix: 值}``，缺值為 None。
+    """
+    values = np.asarray(values, dtype=np.float64)
+    as_f32 = values.astype(np.float32).astype(str)
+    out: Dict[str, JsonValue] = {}
+    for c, col in enumerate(columns):
+        value = float(values[c])
+        if math.isnan(value):
+            out[col.name + suffix] = None
+        elif col.arrow_type == pa.float32():
+            out[col.name + suffix] = float(as_f32[c])
+        elif col.arrow_type == pa.bool_():
+            out[col.name + suffix] = value != 0.0
+        else:
+            out[col.name + suffix] = int(np.rint(value))
+    return out
+
+
+def stats_message(row: StatsRow, columns: Sequence[PackColumn],
+                  sample_period_s: Optional[float]) -> Dict[str, JsonValue]:
+    """一個 10 分鐘窗 → 串流回放的 ``stats`` 訊息（欄名、型別與 ``stats_10min.parquet`` 相同）。
+
+    Args:
+        row: 完成的窗。
+        columns: 欄位定義。
+        sample_period_s: 取樣週期（判定殘缺窗）；None＝無法判定，``is_partial`` 為 None。
+
+    Returns:
+        ``{"type": "stats", window_start, window_end, turbine_id, n_samples, is_partial, values}``。
+    """
+    full = int(math.floor(STATS_WINDOW_S / sample_period_s + 1e-9)) if sample_period_s else None
+    by_suffix = {suffix: json_values(source, columns, f"_{suffix}")
+                 for suffix, source in (("avg", row.avg), ("min", row.mn), ("max", row.mx), ("std", row.std))}
+    values: Dict[str, JsonValue] = {}
+    for col in columns:  # 欄位順序與 stats_10min.parquet 相同；離散 tag 只有 min / max
+        for suffix in (("avg", "min", "max", "std") if col.is_analog else ("min", "max")):
+            key = f"{col.name}_{suffix}"
+            values[key] = by_suffix[suffix][key]
+    start = row.start_s
+    return {
+        "type": "stats",
+        "window_start": _epoch_z(start),
+        "window_end": _epoch_z(start + STATS_WINDOW_S),
+        "turbine_id": row.turbine_id,
+        "n_samples": row.n_samples,
+        "is_partial": None if full is None else row.n_samples < full,
+        "values": values,
+    }
+
+
+def _epoch_z(epoch_s: int) -> str:
+    return datetime.fromtimestamp(epoch_s, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 def _to_arrow(values: np.ndarray, arrow_type: pa.DataType) -> pa.Array:
     """數值陣列（NaN＝缺值）→ 指定型別的 Arrow 陣列（缺值為 null；整數超出範圍會報錯）。"""
     values = np.asarray(values, dtype=np.float64)
@@ -549,7 +649,7 @@ def _raw_schema(columns: Sequence[PackColumn]) -> pa.Schema:
     return pa.schema(fields)
 
 
-def _scada_values(scada_json: Optional[str], ids: Sequence[str]) -> np.ndarray:
+def scada_values(scada_json: Optional[str], ids: Sequence[str]) -> np.ndarray:
     """一筆讀值的 tag 值（缺、非數值、非有限值 → NaN）。"""
     out = np.full(len(ids), np.nan)
     if not scada_json:
@@ -596,7 +696,7 @@ def _write_raw_and_stats(storage: Storage, scenario_id: int, columns: Sequence[P
         摘要（呼叫端已確認情境有讀值）。
     """
     schema = _raw_schema(columns)
-    stats = _StatsBuilder(columns=columns)
+    stats = StatsBuilder(columns=columns)
     turbines: Set[str] = set()
     first_ts: Optional[str] = None
     last_ts: Optional[str] = None
@@ -615,7 +715,7 @@ def _write_raw_and_stats(storage: Storage, scenario_id: int, columns: Sequence[P
                 tid = str(row["turbine_id"])
                 turbine_col.append(tid)
                 turbines.add(tid)
-                matrix[r] = _scada_values(row["scada_json"], ids)
+                matrix[r] = scada_values(row["scada_json"], ids)
                 stats.add(epoch, tid, matrix[r].copy())
                 if first_ts is None:
                     first_ts = row["timestamp"]
@@ -661,7 +761,7 @@ def _file_digest(path: Path) -> Dict[str, JsonValue]:
     return {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
 
 
-def _load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Optional[int]) -> Dict[str, JsonValue]:
+def load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Optional[int]) -> Dict[str, JsonValue]:
     """取情境並確認可以匯出。
 
     Raises:
@@ -692,7 +792,7 @@ def _load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Opti
     return scenario
 
 
-def _positive_number(value: JsonValue) -> Optional[float]:
+def positive_number(value: JsonValue) -> Optional[float]:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
 
 
@@ -703,7 +803,7 @@ def _write_pack_files(storage: Storage, scenario: Dict[str, JsonValue], scenario
     assert isinstance(config, dict)
     columns = pack_columns()
     raw = _write_raw_and_stats(storage, scenario_id, columns, out_dir / FILE_RAW, out_dir / FILE_STATS,
-                               _positive_number(config.get("time_step")))
+                               positive_number(config.get("time_step")))
 
     events: List[Dict[str, JsonValue]] = []
     dropped = 0
@@ -789,7 +889,7 @@ def export_scenario_pack(storage: Storage, scenario_id: int, out_dir: Path, *, i
         ValueError: ``pack_id`` 格式不對（小寫英數與 ``-``，3–63 字，頭尾為英數）。
     """
     pack_id = _checked_pack_id(pack_id, scenario_id)
-    scenario = _load_exportable_scenario(storage, scenario_id, max_rows)
+    scenario = load_exportable_scenario(storage, scenario_id, max_rows)
     ground_truth: Optional[Dict[str, JsonValue]] = None
     if include_ground_truth:
         ground_truth = storage.get_ground_truth(scenario_id)

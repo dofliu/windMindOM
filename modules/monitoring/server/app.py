@@ -188,6 +188,7 @@ from server.routers.control import router as control_router  # noqa: E402
 from server.routers.maintenance import router as maintenance_router  # noqa: E402
 from server.routers.farms import router as farms_router  # noqa: E402
 from server.routers.scenarios import router as scenarios_router  # noqa: E402
+from server.routers.replay import router as replay_router  # noqa: E402
 from server.routers.source import router as source_router  # noqa: E402
 
 # WMOM-20260504-07 + -20260509-05: cost module routers (M2 cost API + ledger query)
@@ -226,6 +227,7 @@ app.include_router(control_router)
 app.include_router(maintenance_router)
 app.include_router(farms_router)
 app.include_router(scenarios_router)
+app.include_router(replay_router)
 app.include_router(source_router)
 app.include_router(cost_router)
 app.include_router(cost_ledger_router)

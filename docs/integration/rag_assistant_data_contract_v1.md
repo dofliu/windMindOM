@@ -1,6 +1,6 @@
-# windMindOM × RAG 維修助手：資料介面合約 v1.0
+# windMindOM × RAG 維修助手：資料介面合約 v1.1
 
-> **版本**：1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
+> **版本**：1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
 > **評分欄位**經劉老師確認（2026-10-21）：診斷以「元件 + 類別」自動評分、手冊引用以事件碼評、時效報延遲與早期預警、各項指標分列不合成總分。
 > **範例與工具**：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)（範例資料包、讀取程式、基準助手、評分程式）。
 
@@ -22,7 +22,10 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 - **受測端**只拿得到資料包（加上 Z72 手冊與本合約）；輸出 `predictions.jsonl`。
 - **評分端**以標準答案（`GET /api/scenarios/{id}/pack/full` 或 CLI `--ground-truth`）和 `score.py` 評分：`python score.py --answers <評分端版資料包目錄或答案目錄> --predictions predictions.jsonl`（目錄下的 `ground_truth.json` / `*.ground_truth.json` 都會讀）。
 - **給受測端的只有** `examples/rag_starter_kit/` 目錄與盲測版資料包。不要給整個 repo：故障庫（`fault_engine.py`）、產生工具與標準答案都在裡面。
-- v1 的交付管道是**檔案**。之後的 WebSocket 回放（WMOM-20261021-06）與 OPC UA（-07）沿用本合約的事件（§4）與預測（§6）格式。
+- **交付管道**：
+  - **檔案**（v1.0）：資料包。
+  - **WebSocket 回放**（v1.1，§12）：同一份資料依模擬時鐘即時播出，受測端在同一條連線送預測，`ts` 由伺服器以收到時的模擬時間蓋上，時間因果由伺服器保證。
+  - OPC UA（-07）之後沿用本合約的事件（§4）與預測（§6）格式。
 
 ## 2. 版本規則
 
@@ -50,7 +53,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `contract_version` | str | `"1.0"` |
+| `contract_version` | str | `"1.1"`（讀取端只檢查主版本） |
 | `pack_id` | str | 資料包 ID |
 | `turbine_model` | str | `"Z72"` |
 | `turbines` | list[str] | 機組 ID（`WT001`…） |
@@ -166,7 +169,9 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 {"pack_id": "z72-starter-01", "turbine_id": "WT002", "ts": "2026-03-02T01:40:00Z", "category": "real_fault", "component": "main_bearing", "manual_refs": [262, 240], "root_cause": "主軸承溫度相對同風場機組持續上升，疑潤滑劣化", "actions": ["檢查主軸承潤滑與油脂"], "confidence": 0.7}
 ```
 
-**時間因果**：離線評分無法檢查助手有沒有偷看 `ts` 之後的資料，請自律（`pack_reader.Pack.raw_until` / `stats_until` / `events_until` 示範「只看當下以前」）。正式評測可要求繳交程式、由評分端重跑；WebSocket 回放（-06）上線後，以收到資料的時刻為準。
+**時間因果**：
+- **檔案**：離線評分無法檢查助手有沒有偷看 `ts` 之後的資料，請自律（`pack_reader.Pack.raw_until` / `stats_until` / `events_until` 示範「只看當下以前」）。正式評測可要求繳交程式、由評分端重跑。
+- **WebSocket 回放**（§12）：`ts` 由伺服器以收到預測時的模擬時間蓋上，受測端不用填（填了也不採用）。
 
 **檔案**：UTF-8（可帶 BOM）。PowerShell 5 的 `>` 會存成 UTF-16，評分程式會拒絕。
 
@@ -280,3 +285,81 @@ case：
 |---|---|---|
 | 0.1 | 2026-10-21 | 設計文件 §5 草案；-04 標準答案、-05 資料包實作 |
 | 1.0 | 2026-10-21 | 定稿（WMOM-20261021-09，DEC-20261021-04）：資料包 / 事件 / 標準答案格式沿用 -05；新增受測端輸出（§6）、評分定義（§8）、詞彙檔（§9）；`contract_version` 改為 `"1.0"`。0.1 時存下的標準答案欄位相同，**匯出成資料包時**標成 1.0（只轉換 0.1 這個舊標籤）；`GET /api/scenarios/{id}/ground-truth` 回傳存下的原值 |
+| 1.1 | 2026-10-22 | 新增 WebSocket 回放（§12，WMOM-20261021-06，DEC-20261022-02）：讀值 / 事件 / 10 分鐘統計與資料包逐筆相同，受測端在同一條連線送預測、`ts` 由伺服器蓋上。資料包與標準答案格式不變（只有 `contract_version` 標成 1.1） |
+
+## 12. WebSocket 回放（v1.1）
+
+### 12.1 流程
+
+```
+出題端                                   受測端（RAG 維修助手）
+──────                                   ────────────────────
+建回放（REST / CLI）→ 拿到 token ── 交付 ──▶ 連 ws://{host}:{port}/ws/replay
+                                          ◀── control started（說明、tag 字典、警報目錄）
+                                          ◀── reading / event / stats（依模擬時鐘）
+                                          ──▶ prediction（隨時）
+                                          ◀── ack（蓋上的 ts）
+                                          ◀── control finished
+下載 predictions.jsonl → score.py
+```
+
+- **建回放**（主管）：`POST /api/scenarios/{id}/replay-runs`，或 CLI `python tools/replay_runs.py <風場 DB> create <情境 id>`。回應中的 `token` 只出現這一次。參數：
+  - `mode`：
+    - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410）。
+    - `practice`：每次連線各自從頭播，給受測端開發用。
+  - `speed`：模擬秒 / 實際秒，0.1–10000，預設 60（1 秒運算＝1 分鐘模擬時間）。由出題端決定，受測端不能改：每個受測者每模擬秒的運算時間相同。
+  - `expires_in_hours`：token 有效時數（預設 7 天）；`label`：備註（受測端看不到）。
+- **受測端連線**：token 放 `Authorization: Bearer <token>` 標頭（建議），或 `?token=<token>`（會留在伺服器的存取紀錄）。受測端不開 windMindOM 帳號，token 只能連這一個回放（DEC-20261021-03）。
+- **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id>` 下載 `predictions.jsonl`，與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
+- 撤銷：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`，之後不能再連線、送預測。
+- 範例程式：[`examples/rag_starter_kit/stream_client.py`](../../examples/rag_starter_kit/stream_client.py)（基準助手的即時版）。
+
+### 12.2 伺服器 → 受測端
+
+每則訊息是一個 JSON 物件，`type` 決定種類：
+
+| `type` | 何時 | 內容 |
+|---|---|---|
+| `control`（`status: "started"`） | 連上後第一則 | `sim_ts`：目前模擬時間；`stream`：`contract_version`、`pack_id`、`turbine_model`、`turbines`、`sim_start` / `sim_end`、`sample_period_s`、`stats_window_s`、`stats_convention`、`duration_hours`、`site_timezone`、`wind_profile`、`rated_power_kw`（同 manifest，§3.2）與 `mode`、`speed`、`connection_no`、`backfill`、`close_grace_s`；`tag_dictionary`：同 `tag_dictionary.json` 的 `tags`；`alarm_catalog`：同 `alarm_catalog.json` |
+| `reading` | 每台機組每次取樣 | `ts`、`turbine_id`、`values`：`{Bachmann tag 名: 值}`，型別同 Parquet（§3.5；REAL32 為 float32 的最短十進位表示，缺值 null） |
+| `event` | 事件發生時 | `events.jsonl` 的全部欄位（§4） |
+| `stats` | 10 分鐘窗結束時（最後的殘缺窗在資料結束時） | `window_start`、`window_end`、`turbine_id`、`n_samples`、`is_partial`、`values`：`{<tag>_avg / _min / _max / _std: 值}`（同 §3.6） |
+| `control`（`status: "finished"`） | 資料播完 | `sim_ts`；`closing_in_s`：伺服器幾秒後關閉連線 |
+| `ack` | 收到 `prediction` | `accepted`、`ts`（伺服器蓋上的模擬時間）、`errors`（退回原因）、`ref`（受測端給的 `id`） |
+| `pong` | 收到 `ping` | `sim_ts` |
+| `error` | 訊息格式錯；或連線被拒（帶 `code`，隨後關閉） | `message` |
+
+- **順序**：依模擬時間。同一時刻：先送結束於此刻的 10 分鐘統計，再送事件，最後送讀值。
+- **內容與資料包逐筆相同**（`reading` ↔ `timeseries_raw.parquet`、`event` ↔ `events.jsonl`、`stats` ↔ `stats_10min.parquet`），不含任何標準答案。
+
+**關閉碼**：
+
+| 碼 | 意義 |
+|---|---|
+| 1000 | 正常結束（`finished` 後 `closing_in_s` 秒） |
+| 4401 | 缺 token 或 token 無效 |
+| 4403 | 回放已撤銷或 token 已到期 |
+| 4404 | 情境已刪除或不能回放 |
+| 4409 | 這個回放的連線已滿（每個回放最多 4 條） |
+| 4410 | 單次回放已結束 |
+| 1011 | 伺服器錯誤 |
+
+### 12.3 受測端 → 伺服器
+
+- **`prediction`**：§6 的欄位加上 `"type": "prediction"`，可另帶 `id`（`ack` 原樣回傳）。`ts` 與 `pack_id` 不用填（填了也不採用）。
+  ```json
+  {"type": "prediction", "id": 17, "turbine_id": "WT002", "category": "real_fault", "component": "main_bearing", "manual_refs": [262, 240], "root_cause": "...", "actions": ["..."], "confidence": 0.7}
+  ```
+  伺服器當場檢查，格式錯的退回（`ack` 的 `accepted: false` 與 `errors`）、不存：
+  - `turbine_id` 必須是這次回放的機組。
+  - 故障診斷的 `component` 必須在詞彙內（§9）。
+  - `manual_refs` 最多 50 個整數；`actions` 最多 20 項；文字最多 4000 字；`confidence` 0–1。
+- **`ping`**：伺服器回 `pong` 與目前模擬時間。
+- 每則訊息最多 64 KB；每個回放最多收 20000 筆預測。
+
+### 12.4 時間因果與時效
+
+- `ts`＝伺服器**收到**預測時的模擬時間＝`sim_start` +（經過的實際秒數 × `speed`）。伺服器照時鐘送資料，不會等受測端。收得慢或想得久，`ts` 就晚（延遲變大、早期預警變少），但不會早於受測端看到的資料。
+- **建議**：一個工作只負責收訊息，另一個做判斷（`stream_client.py` 示範）。判斷時阻塞了接收，訊息會堆在連線裡，看到的資料就落後於「現在」。
+- **情境結束後的預測不收**：模擬時間超過 `sim_end` 後收到的預測一律退回。評分時它們也對不到任何 case（§8 規則 3）。
+- 檔案與回放的評分規則相同（§8）。差別只在 `ts` 由誰決定。
