@@ -54,7 +54,7 @@
   "raw_rows": 10800,
   "stats_rows": 185,
   "partial_windows": 10,
-  "events": 241,
+  "events": 240,
   "events_dropped": 0
  },
  "files": {
@@ -67,17 +67,17 @@
    "bytes": 101606
   },
   "timeseries_raw.parquet": {
-   "sha256": "52afe8e3988fa76602035a1cb0ea14144de6f8cf8cf992c106e88e5ab904e1c4",
-   "bytes": 1237273
+   "sha256": "b969ec31b41b4ae4fec1d61c339d79a272fe40d701ab48b73de284661c04af5f",
+   "bytes": 1233561
   },
   "stats_10min.parquet": {
-   "sha256": "5d1fdfee40adab4e34ebef1e06ff328b39769ebdfe12b83b656c4e553d4ffdea",
-   "bytes": 346325
+   "sha256": "c358d054a99979c9de91954fcfe8b0191ed58025a8e28bb14c8820907f5e94de",
+   "bytes": 345954
   },
   "events.jsonl": {
-   "sha256": "25e59c55cea57de03696ecf0a90e094e886dea77a11d894782574afa8d645493",
-   "bytes": 74005
+   "sha256": "eb46ef2a63ca0c3194e64e20df7c27e868b2bdc99078ad568433a32e0e86e79c",
+   "bytes": 73673
   }
  },
- "exported_at": "2026-10-21T17:50:08.947342Z"
+ "exported_at": "2026-10-22T05:13:51.140937Z"
 }

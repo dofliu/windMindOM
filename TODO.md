@@ -16,11 +16,11 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-10-21（**方向調整 DEC-20261021-01**：商業時程與真實風場 / OPC 暫緩；**現行主線 EPIC-DS 擬真資料源**——
+最後更新：2026-10-22（`-12` done：健康機組葉片同步誤差修正、12 h 多起點守門測試，DEC-20261022-01）。前次：2026-10-21（**方向調整 DEC-20261021-01**：商業時程與真實風場 / OPC 暫緩；**現行主線 EPIC-DS 擬真資料源**——
 模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手（學生專題）。
 設計：`docs/product/EPIC-DS_realistic_data_source.md`。**WMOM-20261021-02（Phase 1a）已完成**：Z72 真實警報目錄 + 情境改真實碼。
 **下個 session 起依此挑題**（2026-10-21 深夜更新：Phase 1b 三段、`-10` 切出風速、`-11` 風場時區、`-04` 標準答案、`-05` 資料包、`-09` starter kit + 合約 v1 都已完成）：
-- ▶️ 依序：小題 `-12`（健康機組偶發 T2 336）→ `-06`（WS 回放）→ `-07`（OPC UA server）→ `-08`（難度與多樣性）
+- ▶️ 依序：`-06`（WS 回放）→ `-07`（OPC UA server）→ `-08`（難度與多樣性）
 - 📦 學生專題可以開始用：合約 `docs/integration/rag_assistant_data_contract_v1.md`、`examples/rag_starter_kit/`
 - ⏸️ `WMOM-20260503-05`（客戶接觸）、`WMOM-20260509-F6`（PG row-lock）、M6 現場項目：deferred，不要再排
 
