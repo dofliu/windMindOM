@@ -12,15 +12,16 @@
   ``Mode``、``Speed``。
 
 NodeId 是字串（namespace ``urn:windmindom:z72sim``、識別字＝DA 的 item ID），可以直接用 item ID 讀，也可以從
-``Objects/Z72/H01/WMET/...`` 瀏覽。匿名、唯讀（變數不可寫）、不加密（教室 / 實驗室網路用）。
+``Objects/Z72/H01/WMET/...`` 瀏覽。只接受匿名登入、唯讀（變數不可寫、不能加刪節點；asyncua 內建的 admin
+帳號關閉）、不加密：只開在教室 / 實驗室網路。
 
 資料來源（DEC-20261022-03）：
 
 - ``ReplayFeeder``：一個回放（``ScenarioReplay`` + ``ReplayClock``，由 ``tools/opcua_server.py`` 啟動）。
-  正式評測在 server 啟動時開播（寫入 ``replay_runs.started_at``），之後的 WS 連線加入同一個時鐘：
-  受測端用 OPC UA 讀資料、用 WS（``?stream=false``）送判斷。
+  server 建好節點、開始監聽後開播：正式評測寫入 ``replay_runs.started_at``、練習寫入同一欄當成本次播出的
+  起點；WS 以 ``?stream=false`` 連線時加入同一個時鐘——受測端用 OPC UA 讀資料、用 WS 送判斷。
 - ``LiveFeeder``：即時模擬（broker 的 simulator，每秒讀一次最新讀值與 PLC 狀態）；主程式以
-  ``WMOM_OPCUA_ENABLE=true`` 開啟。
+  ``WMOM_OPCUA_ENABLE=true`` 開啟（``server/opcua_config.py``）。產生情境（批次）期間不更新。
 
 OPC UA 是「目前值」介面（同真實 PLC）：每次更新只寫各機組最新的一筆讀值（``SourceTimestamp``＝該筆的
 模擬時間）。要每一筆讀值與 10 分鐘統計，用 WS 回放或資料包。
@@ -30,33 +31,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Deque, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import (Awaitable, Callable, Deque, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple)
 
 import numpy as np
-from asyncua import Server, ua
+from asyncua import Node, Server, ua
+from asyncua.crypto.permission_rules import User, UserRole
 
 try:
     from ..simulator.physics.plc_protection import ACTIVE_LIST_SLOTS, ActiveEventLists
-    from ..simulator.time_utils import parse_iso
+    from ..simulator.time_utils import parse_iso, utc_now
+    from . import opcua_config as oc
     from . import replay as rp
     from . import scenario_pack as sp
 except ImportError:  # sys.path 注入模式（modules/monitoring 在 sys.path）
     from simulator.physics.plc_protection import ACTIVE_LIST_SLOTS, ActiveEventLists  # type: ignore[no-redef]
-    from simulator.time_utils import parse_iso  # type: ignore[no-redef]
+    from simulator.time_utils import parse_iso, utc_now  # type: ignore[no-redef]
+    from server import opcua_config as oc  # type: ignore[no-redef]
     from server import replay as rp  # type: ignore[no-redef]
     from server import scenario_pack as sp  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
 NAMESPACE_URI = "urn:windmindom:z72sim"
-DEFAULT_PORT = 4840
+DEFAULT_PORT = oc.DEFAULT_PORT
 ENDPOINT_PATH = "/windmindom/"
-# 回放更新節點的間隔（實際秒）：OPC UA 是目前值介面，客戶端通常每秒讀一次
-REPLAY_TICK_S = 0.2
+# 回放更新節點的間隔（實際秒）：一個取樣週期對應的實際時間，夾在 0.05–0.2 s（OPC UA 是目前值介面）
+REPLAY_TICK_MAX_S = 0.2
+REPLAY_TICK_MIN_S = 0.05
 LIVE_POLL_S = 1.0
 # 每隔幾秒（實際時間）重讀回放狀態：撤銷 / 到期就停止更新
 RUN_RECHECK_S = 5.0
@@ -98,13 +102,45 @@ def plc_station(turbine_id: str) -> str:
 
 
 def value_item_id(turbine_id: str, column: sp.PackColumn) -> str:
-    """讀值節點的 item ID（例 ``Z72.H01.WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNac``）。"""
+    """讀值節點的 item ID。
+
+    Args:
+        turbine_id: 機組 ID。
+        column: 資料包欄位。
+
+    Returns:
+        例 ``Z72.H01.WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNac``。
+    """
     return f"Z72.{plc_station(turbine_id)}.{column.tag.opc_tag}"
 
 
 def list_item_id(turbine_id: str, level: str, index: int) -> str:
-    """事件碼陣列元素的 item ID（例 ``Z72.H01.Z72PLC__ActiveAlarm[0]``）。"""
+    """事件碼陣列元素的 item ID。
+
+    Args:
+        turbine_id: 機組 ID。
+        level: ``A`` / ``T1`` / ``T2``。
+        index: 陣列索引（0–20）。
+
+    Returns:
+        例 ``Z72.H01.Z72PLC__ActiveAlarm[0]``。
+    """
     return f"Z72.{plc_station(turbine_id)}.{LIST_TAGS[level]}[{index}]"
+
+
+def replay_tick_s(sample_period_s: Optional[float], speed: float) -> float:
+    """回放更新節點的間隔：一個取樣週期對應的實際秒數，夾在 ``REPLAY_TICK_MIN_S``–``REPLAY_TICK_MAX_S``。
+
+    Args:
+        sample_period_s: 取樣週期（模擬秒；None＝未知）。
+        speed: 回放速度。
+
+    Returns:
+        實際秒。
+    """
+    if not sample_period_s or speed <= 0:
+        return REPLAY_TICK_MAX_S
+    return min(REPLAY_TICK_MAX_S, max(REPLAY_TICK_MIN_S, sample_period_s / speed))
 
 
 class RollingMean:
@@ -112,17 +148,33 @@ class RollingMean:
 
     def __init__(self, window_s: float = AVG_WINDOW_S) -> None:
         self._window_s = window_s
-        self._samples: Deque[tuple] = deque()
+        self._samples: Deque[Tuple[float, float]] = deque()
         self._sum = 0.0
+        self._last_epoch: Optional[float] = None
 
     def add(self, epoch_s: float, value: Optional[float]) -> Optional[float]:
-        """加入一筆（缺值不加入）並回傳目前的平均（float32 精度；還沒有任何值時 None）。"""
+        """加入一筆（缺值不加入）並回傳目前的平均（float32 精度；還沒有任何值時 None）。
+
+        時間倒退（例：產生情境後即時模擬回到現在）時先清空，重新累積。
+
+        Args:
+            epoch_s: 這筆的時間（epoch 秒）。
+            value: 值；None＝缺值。
+
+        Returns:
+            平均或 None。
+        """
+        if self._last_epoch is not None and epoch_s < self._last_epoch:
+            self._samples.clear()
+            self._sum = 0.0
+        self._last_epoch = epoch_s
         if value is not None:
             self._samples.append((epoch_s, float(value)))
             self._sum += float(value)
         while self._samples and self._samples[0][0] <= epoch_s - self._window_s:
             self._sum -= self._samples.popleft()[1]
         if not self._samples:
+            self._sum = 0.0
             return None
         # 同資料包 REAL32：float32 的最短十進位表示
         return float(str(np.float32(self._sum / len(self._samples))))
@@ -147,11 +199,20 @@ def _data_value(value: Optional[ua.Variant] = None, status: Optional[int] = None
     )
 
 
+class _ReadOnlyUserManager:
+    """每個 session 都是一般使用者（唯讀）：不認帳號密碼，也沒有 asyncua 內建的 admin。"""
+
+    def get_user(self, iserver: object, username: Optional[str] = None, password: Optional[str] = None,
+                 certificate: object = None) -> User:
+        """回傳唯讀使用者（asyncua 的 UserManager 介面）。"""
+        return User(role=UserRole.User)
+
+
 @dataclass
 class _TurbineNodes:
     values: Dict[str, ua.NodeId]
     lists: Dict[str, List[ua.NodeId]]
-    last_lists: Dict[str, List[int]]
+    last_lists: Optional[Dict[str, List[int]]]  # None＝還沒寫過（第一次全部寫）
 
 
 class Z72OpcUaServer:
@@ -175,11 +236,12 @@ class Z72OpcUaServer:
         self.host = host
         self.port = port
         self.columns = list(columns) if columns is not None else sp.pack_columns()
-        self._server = Server()
+        self._server = Server(user_manager=_ReadOnlyUserManager())  # type: ignore[arg-type]  # 鴨子型別的 UserManager
         self._idx = 0
-        self._z72: Optional[object] = None
+        self._z72: Optional[Node] = None
         self._status: Dict[str, ua.NodeId] = {}
         self._turbines: Dict[str, _TurbineNodes] = {}
+        self._stations: Dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     def _node_id(self, identifier: str, namespace: Optional[int] = None) -> ua.NodeId:
@@ -196,8 +258,15 @@ class Z72OpcUaServer:
         """``urn:windmindom:z72sim`` 的 namespace index（``start`` 之後才有效）。"""
         return self._idx
 
+    @property
+    def turbine_ids(self) -> List[str]:
+        """已建節點的機組。"""
+        return list(self._turbines)
+
     async def start(self, turbines: Sequence[str] = ()) -> None:
         """建立 namespace 與固定節點（與 ``turbines`` 的節點），開始監聽。
+
+        只接受匿名登入、不加密；``allow_remote_admin`` 關閉，任何 session 都是唯讀的一般使用者。
 
         Args:
             turbines: 先建好節點的機組（回放：連上就看得到全部機組；之後也可以 ``ensure_turbine``）。
@@ -206,6 +275,8 @@ class Z72OpcUaServer:
         self._server.set_endpoint(self.endpoint)
         self._server.set_server_name("windMindOM Z72 simulator")
         self._server.set_security_policy([ua.SecurityPolicyType.NoSecurity])
+        self._server.set_identity_tokens([ua.AnonymousIdentityToken])
+        self._server.allow_remote_admin(False)
         self._idx = await self._server.register_namespace(NAMESPACE_URI)
         objects = self._server.nodes.objects
         self._z72 = await objects.add_folder(self._node_id("Z72", self._idx), ua.QualifiedName("Z72", self._idx))
@@ -232,43 +303,39 @@ class Z72OpcUaServer:
 
         Args:
             turbine_id: 機組 ID。
+
+        Raises:
+            ValueError: 與已建的機組對到同一個站號（例 ``WT01`` 與 ``WT001``）。
         """
         async with self._lock:
             if turbine_id in self._turbines or self._z72 is None:
                 return
             station = plc_station(turbine_id)
-            folder = await self._z72.add_folder(  # type: ignore[attr-defined]  # asyncua Node
+            if station in self._stations:
+                raise ValueError(f"turbine {turbine_id!r} maps to {station}, already used by "
+                                 f"{self._stations[station]!r}")
+            folder = await self._z72.add_folder(
                 self._node_id(f"Z72.{station}", self._idx), ua.QualifiedName(station, self._idx))
-            groups: Dict[str, object] = {}
+            groups: Dict[str, Node] = {}
             values: Dict[str, ua.NodeId] = {}
             for column in self.columns:
                 group_name = column.tag.opc_tag.split(".", 1)[0]
-                group = groups.get(group_name)
-                if group is None:
-                    group = groups[group_name] = await folder.add_folder(
+                if group_name not in groups:
+                    groups[group_name] = await folder.add_folder(
                         self._node_id(f"Z72.{station}.{group_name}", self._idx), ua.QualifiedName(group_name, self._idx))
                 variant = _variant(column)
-                node = await group.add_variable(  # type: ignore[attr-defined]  # asyncua Node
+                node = await groups[group_name].add_variable(
                     self._node_id(value_item_id(turbine_id, column), self._idx), ua.QualifiedName(column.name, self._idx),
                     _INITIAL[variant], varianttype=variant)
-                await self._server.write_attribute_value(
-                    node.nodeid, ua.DataValue(ua.Variant(ua.LocalizedText(_description(column)))),
-                    ua.AttributeIds.Description)
-                await self._server.write_attribute_value(node.nodeid, _data_value(
-                    ua.Variant(_INITIAL[variant], variant), status=ua.StatusCodes.BadWaitingForInitialData))
+                await self._describe_waiting(node, _description(column), ua.Variant(_INITIAL[variant], variant))
                 values[column.name] = node.nodeid
-            wmet = groups.get("WMET")
-            if wmet is None:
-                wmet = await folder.add_folder(
+            if "WMET" not in groups:
+                groups["WMET"] = await folder.add_folder(
                     self._node_id(f"Z72.{station}.WMET", self._idx), ua.QualifiedName("WMET", self._idx))
-            node = await wmet.add_variable(  # type: ignore[attr-defined]  # asyncua Node
+            node = await groups["WMET"].add_variable(
                 self._node_id(f"Z72.{station}.WMET.{WSPEED_AVG10M_TAG}", self._idx),
                 ua.QualifiedName(WSPEED_AVG10M_TAG, self._idx), 0.0, varianttype=ua.VariantType.Float)
-            await self._server.write_attribute_value(
-                node.nodeid, ua.DataValue(ua.Variant(ua.LocalizedText(WSPEED_AVG10M_DESCRIPTION))),
-                ua.AttributeIds.Description)
-            await self._server.write_attribute_value(node.nodeid, _data_value(
-                ua.Variant(0.0, ua.VariantType.Float), status=ua.StatusCodes.BadWaitingForInitialData))
+            await self._describe_waiting(node, WSPEED_AVG10M_DESCRIPTION, ua.Variant(0.0, ua.VariantType.Float))
             values[WSPEED_AVG10M_TAG] = node.nodeid
             lists: Dict[str, List[ua.NodeId]] = {}
             for level, tag in LIST_TAGS.items():
@@ -277,9 +344,17 @@ class Z72OpcUaServer:
                     node = await folder.add_variable(
                         self._node_id(list_item_id(turbine_id, level, index), self._idx),
                         ua.QualifiedName(f"{tag}[{index}]", self._idx), 0, varianttype=ua.VariantType.Int16)
+                    await self._server.write_attribute_value(node.nodeid, _data_value(
+                        ua.Variant(0, ua.VariantType.Int16), status=ua.StatusCodes.BadWaitingForInitialData))
                     lists[level].append(node.nodeid)
-            self._turbines[turbine_id] = _TurbineNodes(values=values, lists=lists,
-                                                       last_lists={level: [] for level in LIST_TAGS})
+            self._turbines[turbine_id] = _TurbineNodes(values=values, lists=lists, last_lists=None)
+            self._stations[station] = turbine_id
+
+    async def _describe_waiting(self, node: Node, description: str, initial: ua.Variant) -> None:
+        await self._server.write_attribute_value(
+            node.nodeid, ua.DataValue(ua.Variant(ua.LocalizedText(description))), ua.AttributeIds.Description)
+        await self._server.write_attribute_value(
+            node.nodeid, _data_value(initial, status=ua.StatusCodes.BadWaitingForInitialData))
 
     async def write_values(self, turbine_id: str, values: Mapping[str, object], source_ts: datetime) -> None:
         """寫一台機組的讀值。
@@ -291,7 +366,7 @@ class Z72OpcUaServer:
             source_ts: 這筆讀值的模擬時間。
         """
         nodes = self._turbines[turbine_id]
-        server_ts = datetime.now(timezone.utc)
+        server_ts = utc_now()
         typed = [(column.name, _variant(column)) for column in self.columns]
         typed.append((WSPEED_AVG10M_TAG, ua.VariantType.Float))
         for name, variant in typed:
@@ -303,7 +378,7 @@ class Z72OpcUaServer:
             await self._server.write_attribute_value(nodes.values[name], data)
 
     async def write_lists(self, turbine_id: str, lists: Mapping[str, Sequence[int]], source_ts: datetime) -> None:
-        """寫一台機組的事件碼陣列（只寫有變動的元素）。
+        """寫一台機組的事件碼陣列（第一次全部寫，之後只寫有變動的元素）。
 
         Args:
             turbine_id: 機組 ID（先 ``ensure_turbine``）。
@@ -311,16 +386,34 @@ class Z72OpcUaServer:
             source_ts: 模擬時間。
         """
         nodes = self._turbines[turbine_id]
-        server_ts = datetime.now(timezone.utc)
+        server_ts = utc_now()
+        last = nodes.last_lists
         for level in LIST_TAGS:
             codes = list(lists.get(level, []))[:ACTIVE_LIST_SLOTS]
             padded = codes + [0] * (ACTIVE_LIST_SLOTS - len(codes))
-            previous = nodes.last_lists[level] + [0] * (ACTIVE_LIST_SLOTS - len(nodes.last_lists[level]))
+            previous: List[Optional[int]] = [None] * ACTIVE_LIST_SLOTS
+            if last is not None:
+                previous = [*last[level], *([0] * (ACTIVE_LIST_SLOTS - len(last[level])))]
             for index, (code, old) in enumerate(zip(padded, previous, strict=True)):
                 if code != old:
                     await self._server.write_attribute_value(nodes.lists[level][index], _data_value(
                         ua.Variant(code, ua.VariantType.Int16), source_ts=source_ts, server_ts=server_ts))
-            nodes.last_lists[level] = codes
+        nodes.last_lists = {level: list(lists.get(level, []))[:ACTIVE_LIST_SLOTS] for level in LIST_TAGS}
+
+    async def clear_turbine(self, turbine_id: str) -> None:
+        """一台機組不再有資料（例：即時模擬換了風場）：讀值與事件碼陣列都改成 BadNoData。
+
+        Args:
+            turbine_id: 機組 ID。
+        """
+        nodes = self._turbines.get(turbine_id)
+        if nodes is None:
+            return
+        server_ts = utc_now()
+        no_data = _data_value(status=ua.StatusCodes.BadNoData, server_ts=server_ts)
+        for node_id in list(nodes.values.values()) + [n for level in nodes.lists.values() for n in level]:
+            await self._server.write_attribute_value(node_id, no_data)
+        nodes.last_lists = None
 
     async def set_status(self, **fields: object) -> None:
         """更新 ``WindMindOM.*`` 狀態節點（``Source`` / ``Status`` / ``SimTime`` / ``PackId`` / ``Mode`` / ``Speed``）。"""
@@ -340,10 +433,10 @@ class ReplayFeeder:
         Args:
             server: 已 ``start`` 的 server。
             replay: 回放資料來源。
-            clock: 回放時鐘（正式評測與 WS 共用 ``replay_runs.started_at``）。
+            clock: 回放時鐘（與 WS ``?stream=false`` 共用 ``replay_runs.started_at``）。
             mode: ``evaluation`` / ``practice``（寫進狀態節點）。
             speed: 回放速度（寫進狀態節點）。
-            check_run: 定期呼叫；回傳非 None（停止原因，例：``revoked``）時停止更新。
+            check_run: 定期呼叫；回傳非 None（停止原因：``revoked`` / ``expired`` / ``missing``）時停止更新。
         """
         self._server = server
         self._replay = replay
@@ -354,8 +447,14 @@ class ReplayFeeder:
         self._buffer: Deque[rp.ReplayFrame] = deque()
         self._lists = {tid: ActiveEventLists() for tid in replay.turbines}
         self._wind_avg = {tid: RollingMean() for tid in replay.turbines}
+        self._lists_written = False  # 第一次推進時寫入全部機組的事件碼陣列（開播後沒事件也要讀得到 0）
         self.done = False
         self.stop_reason: Optional[str] = None
+
+    @property
+    def tick_s(self) -> float:
+        """依取樣週期與速度決定的更新間隔（實際秒）。"""
+        return replay_tick_s(self._replay.sample_period_s, self._speed)
 
     async def setup(self) -> None:
         """建立全部機組的節點、寫入回放說明。"""
@@ -399,6 +498,10 @@ class ReplayFeeder:
                     changed[turbine_id] = frame.due
         for turbine_id, (values, ts) in latest.items():
             await self._server.write_values(turbine_id, values, ts)
+        if not self._lists_written:
+            for turbine_id in self._lists:
+                changed.setdefault(turbine_id, min(sim_ts, self._replay.sim_end))
+            self._lists_written = True
         for turbine_id, due in changed.items():
             await self._server.write_lists(turbine_id, self._lists[turbine_id].snapshot(), due)
         if not self._buffer and self._replay.done:
@@ -406,12 +509,15 @@ class ReplayFeeder:
         await self._server.set_status(SimTime=min(sim_ts, self._replay.sim_end) if self.done else sim_ts,
                                       Status="finished" if self.done else "running")
 
-    async def run(self, tick_s: float = REPLAY_TICK_S) -> None:
-        """依時鐘更新直到資料播完（或回放被撤銷 / 到期）。
+    async def run(self, tick_s: Optional[float] = None) -> None:
+        """依時鐘更新直到資料播完（或回放被撤銷 / 到期 / 刪除）。
+
+        單次更新失敗（例：DB 暫時鎖住）只記錄、下一輪再試：正式評測的時鐘不會停。
 
         Args:
-            tick_s: 更新間隔（實際秒）。
+            tick_s: 更新間隔（實際秒）；None＝``self.tick_s``。
         """
+        interval = self.tick_s if tick_s is None else tick_s
         checked_at = rp.wall_time()
         while not self.done:
             if self._check_run is not None and rp.wall_time() - checked_at >= RUN_RECHECK_S:
@@ -421,15 +527,57 @@ class ReplayFeeder:
                     self.stop_reason = reason
                     await self._server.set_status(Status=reason)
                     return
-            await self.advance_to(self._clock.sim_now())
+            try:
+                await self.advance_to(self._clock.sim_now())
+            except Exception:  # noqa: BLE001  單次失敗不中斷播出
+                logger.exception("OPC UA replay update failed")
             if not self.done:
-                await asyncio.sleep(tick_s)
+                await asyncio.sleep(interval)
+
+
+class _PlcView(Protocol):
+    @property
+    def active_lists(self) -> ActiveEventLists: ...
+
+
+class _ModelView(Protocol):
+    @property
+    def plc(self) -> _PlcView: ...
+
+
+class LiveSimulator(Protocol):
+    """``LiveFeeder`` 讀的 simulator 介面（``WindFarmSimulator``）。"""
+
+    @property
+    def turbines(self) -> Mapping[str, _ModelView]: ...
+
+    @property
+    def is_bulk_running(self) -> bool: ...
+
+    @property
+    def bulk_runs(self) -> int: ...
+
+    def get_current_data(self) -> Dict[str, Dict]: ...
+
+
+class LiveSource(Protocol):
+    """``LiveFeeder`` 讀的 broker 介面（``DataBroker``）。"""
+
+    @property
+    def simulator(self) -> Optional[LiveSimulator]: ...
+
+    @property
+    def source_kind(self) -> Optional[str]: ...
 
 
 class LiveFeeder:
-    """把即時模擬（broker 的 simulator）的最新讀值與 PLC 狀態寫進 OPC UA 節點。"""
+    """把即時模擬（broker 的 simulator）的最新讀值與 PLC 狀態寫進 OPC UA 節點。
 
-    def __init__(self, server: Z72OpcUaServer, broker: object) -> None:
+    不發布批次（產生情境）的資料：批次期間只標 ``idle``；批次結束後，先略過當下還留在 ``latest_data`` 的
+    讀值（可能是批次最後一步），等即時模擬寫入新的讀值再發布。
+    """
+
+    def __init__(self, server: Z72OpcUaServer, broker: LiveSource) -> None:
         """建立。
 
         Args:
@@ -439,22 +587,46 @@ class LiveFeeder:
         self._server = server
         self._broker = broker
         self._tag_ids = [col.tag.id for col in server.columns]
+        self._sim_key: Optional[Tuple[int, int]] = None  # (id(simulator), bulk_runs)
+        self._skip_stamps: Dict[str, str] = {}
         self._last_ts: Dict[str, str] = {}
         self._wind_avg: Dict[str, RollingMean] = {}
+        self._published: Set[str] = set()
+
+    async def _idle(self) -> None:
+        await self._server.set_status(Source="live", Status="idle", PackId="", Mode="live")
 
     async def update(self) -> None:
         """讀一次即時模擬：每台機組的最新讀值（有新的才寫）與 PLC 的事件碼清單。"""
-        simulator = getattr(self._broker, "simulator", None)
-        if simulator is None or getattr(self._broker, "source_kind", None) != "simulation":
-            await self._server.set_status(Source="live", Status="idle")
+        simulator = self._broker.simulator
+        if simulator is None or self._broker.source_kind != "simulation" or simulator.is_bulk_running:
+            await self._idle()
             return
+        data = simulator.get_current_data()
+        key = (id(simulator), simulator.bulk_runs)
+        if key != self._sim_key:
+            # 換了 simulator（換風場 / 來源）或跑過批次：重來，當下留著的讀值可能是批次的，先不發布
+            fresh_sim = self._sim_key is None or self._sim_key[0] != key[0]
+            self._sim_key = key
+            self._last_ts.clear()
+            self._wind_avg.clear()
+            self._skip_stamps = {} if fresh_sim and key[1] == 0 else \
+                {tid: str(r.get("timestamp")) for tid, r in data.items() if r}
+        models = dict(simulator.turbines)
+        for turbine_id in sorted(self._published - set(models)):
+            await self._server.clear_turbine(turbine_id)
+            self._published.discard(turbine_id)
         newest: Optional[datetime] = None
-        for turbine_id, model in list(simulator.turbines.items()):
-            reading = simulator.latest_data.get(turbine_id)
+        for turbine_id, model in models.items():
+            reading = data.get(turbine_id)
             if not reading or not isinstance(reading.get("scada"), dict):
                 continue
-            await self._server.ensure_turbine(turbine_id)
             stamp = str(reading["timestamp"])
+            if self._skip_stamps.get(turbine_id) == stamp:
+                continue
+            self._skip_stamps.pop(turbine_id, None)
+            await self._server.ensure_turbine(turbine_id)
+            self._published.add(turbine_id)
             ts = parse_iso(stamp)
             if self._last_ts.get(turbine_id) != stamp:
                 self._last_ts[turbine_id] = stamp
@@ -463,13 +635,13 @@ class LiveFeeder:
                 values[WSPEED_AVG10M_TAG] = self._wind_avg.setdefault(turbine_id, RollingMean()).add(
                     ts.timestamp(), float(wind) if isinstance(wind, (int, float)) else None)
                 await self._server.write_values(turbine_id, values, ts)
+            # 模擬執行緒同時在改清單；snapshot 只複製三個 list（GIL 下逐一複製不會讀到壞掉的 list）
             await self._server.write_lists(turbine_id, model.plc.active_lists.snapshot(), ts)
             newest = ts if newest is None or ts > newest else newest
-        fields: Dict[str, object] = {"Source": "live", "Status": "running" if newest else "idle", "PackId": "",
-                                     "Mode": "live"}
-        if newest is not None:
-            fields["SimTime"] = newest
-        await self._server.set_status(**fields)
+        if newest is None:
+            await self._idle()
+            return
+        await self._server.set_status(Source="live", Status="running", PackId="", Mode="live", SimTime=newest)
 
     async def run(self, poll_s: float = LIVE_POLL_S) -> None:
         """每 ``poll_s`` 秒更新一次，直到被取消。
@@ -493,35 +665,29 @@ class LiveOpcUa:
     task: "asyncio.Task[None]"
 
     async def stop(self) -> None:
-        """停止更新與監聽。"""
+        """停止更新與監聽（等更新的 task 結束，但不吞掉呼叫端自己被取消）。"""
         self.task.cancel()
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.wait([self.task])
         await self.server.stop()
 
 
-def _truthy(value: Optional[str]) -> bool:
-    return (value or "").strip().lower() in ("1", "true", "yes", "on")
-
-
-async def start_live_from_env(broker: object) -> Optional[LiveOpcUa]:
+async def start_live_from_env(broker: LiveSource, env: Optional[Mapping[str, str]] = None) -> Optional[LiveOpcUa]:
     """``WMOM_OPCUA_ENABLE=true`` 時起即時模擬的 OPC UA server（``WMOM_OPCUA_HOST`` / ``WMOM_OPCUA_PORT``）。
 
-    選配功能：起不來（埠被占用等）只記警告，不擋主程式。
+    選配功能：起不來（埠被占用、設定錯誤等）只記警告，不擋主程式。預設只聽 ``127.0.0.1``。
 
     Args:
         broker: ``DataBroker``。
+        env: 環境變數；None＝``os.environ``。
 
     Returns:
         執行中的 server，或 None（沒開啟 / 起不來）。
     """
-    if not _truthy(os.environ.get("WMOM_OPCUA_ENABLE")):
+    if not oc.opcua_enabled(env):
         return None
-    server = Z72OpcUaServer(host=os.environ.get("WMOM_OPCUA_HOST", "0.0.0.0"),
-                            port=int(os.environ.get("WMOM_OPCUA_PORT", str(DEFAULT_PORT))))
     try:
+        host, port = oc.live_bind(env)
+        server = Z72OpcUaServer(host=host, port=port)
         await server.start()
     except Exception as exc:  # noqa: BLE001
         logger.warning("OPC UA server not started: %s", exc)

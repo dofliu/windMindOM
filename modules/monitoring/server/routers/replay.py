@@ -394,7 +394,8 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, sen
     """已佔到連線名額後：載入回放、決定時鐘（單次回放在這裡開始計時）。
 
     Raises:
-        ReplayError: 單次回放已結束（4410）、情境不能回放（4404）。
+        ReplayError: 單次回放 / 練習的 OPC UA 播出已結束（4410）、情境不能回放（4404）、練習回放用
+            ``stream=false`` 但還沒以 OPC UA 播出（4412）。
     """
     run_id = int(run["id"])
     if run["mode"] == "evaluation" and run["started_at"]:
@@ -415,6 +416,13 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, sen
         clock = rp.ReplayClock(replay.sim_start, float(run["speed"]), parse_iso(started_at).timestamp())
         if now > clock.wall_at(replay.sim_end) + rp.CLOSE_GRACE_S:
             raise rp.ReplayError("單次回放已結束", 4410)
+    elif not send_data:
+        # 練習回放以 OPC UA 播出：時鐘用 OPC UA server 開播時記下的起點，預測的時間才對得上 OPC UA 的資料
+        if not run["started_at"]:
+            raise rp.ReplayError("練習回放還沒有以 OPC UA 播出：stream=false 要先啟動 tools/opcua_server.py", 4412)
+        clock = rp.ReplayClock(replay.sim_start, float(run["speed"]), parse_iso(str(run["started_at"])).timestamp())
+        if now > clock.wall_at(replay.sim_end) + rp.CLOSE_GRACE_S:
+            raise rp.ReplayError("這次 OPC UA 播出已結束：重新啟動 OPC UA server 再練習", 4410)
     else:
         clock = rp.ReplayClock(replay.sim_start, float(run["speed"]), now)
     connection_no = await asyncio.to_thread(storage.next_replay_connection, run_id)
@@ -431,7 +439,8 @@ async def replay_websocket(ws: WebSocket, backfill: bool = True, check: bool = F
         ws: 連線。
         backfill: 單次回放已開始後才連上時，是否先補送已經過去的資料（預設是；時間不會倒回）。
         check: 只檢查 token、回報回放狀態後關閉（不開始計時、不佔連線名額）。
-        stream: False＝不送 reading / event / stats，只收判斷（資料用 OPC UA 讀，合約 §13）。
+        stream: False＝不送 reading / event / stats，只收判斷（資料用 OPC UA 讀，合約 §13）；練習回放的時鐘
+            改用 OPC UA server 開播時記下的起點。
     """
     await ws.accept()
     storage = _storage()

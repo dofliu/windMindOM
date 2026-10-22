@@ -83,6 +83,8 @@ class WindFarmSimulator:
 
         self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
+        # generate_bulk 啟動次數：即時模擬的外部讀取端（OPC UA LiveFeeder）據此辨認批次留下的狀態
+        self.bulk_runs = 0
         self._thread: Optional[threading.Thread] = None
         # 讓 _loop 每步之間的睡眠可被 stop() 立刻中斷（WMOM-20260720-08 (2)，比照
         # DataBroker._maintenance_wake 同款修法）：不用 time.sleep()，否則 stop() 撞上該次
@@ -448,6 +450,7 @@ class WindFarmSimulator:
         # 為 False）批次仍應執行；且「停 Live」與「跑批次」不再共用旗標互相干擾（見 stop_live_loop
         # 的 borrow-corpse 隱患）。stop() 會清此旗標以保留「關閉時中止批次」的語意。
         self._bulk_running = True
+        self.bulk_runs += 1
         prev_on_fault_tripped = self._on_fault_tripped
         self._on_fault_tripped = on_fault_tripped
         # 狀態轉換偵測的前一個 WTUR_TurSt（第一個子步只建立基準、不出事件）
@@ -588,6 +591,11 @@ class WindFarmSimulator:
             },
             'total_power': scada.get("WTUR_TotPwrAt", 0) * 1000,  # kW → W
         }
+
+    @property
+    def is_bulk_running(self) -> bool:
+        """``generate_bulk`` 是否正在跑（期間 ``latest_data`` / PLC 狀態是批次的模擬時間，不是即時）。"""
+        return self._bulk_running
 
     def get_current_data(self) -> Dict[str, Dict]:
         """Return the latest SCADA output for all turbines (thread-safe snapshot)."""

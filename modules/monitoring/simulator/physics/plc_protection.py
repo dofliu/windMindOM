@@ -219,12 +219,14 @@ class ActiveEventLists:
     依成立順序排列、同一個碼只出現一次。規則：
     - ``alarm_raised`` 加入 A 清單、``alarm_cleared`` 移除。
     - ``trip`` 依等級加入 T1 / T2 清單、``trip_cleared`` 移除；``restart_blocked`` 仍保留（鎖存＋封鎖）。
-    - 操作員復位（``operator_reset``；資料包事件為 ``reset``）清除兩個跳機清單：條件仍成立的跳機下一步會
-      再送 ``trip``、再加入。
+    - 操作員復位（``operator_reset``；資料包事件為 ``reset``）本身不動清單：``PlcProtection.operator_reset``
+      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，清單照舊。
+      物理層保護停機的跳機（例：351）在機組再起動時以 ``trip_cleared`` 解除。
     - 資訊事件（I）不在任何清單。
 
-    即時模擬由 ``PlcProtection`` 在送出事件時更新；回放則由事件流重建，兩邊規則相同。真實 PLC 陣列內的
-    排列方式手冊沒有寫，這裡假設依成立順序、空位為 0。
+    即時模擬由 ``PlcProtection`` 在送出事件時更新；回放則由事件流重建，兩邊規則相同，且與
+    ``PlcProtection.active_codes()`` 一致（``test_opcua_server.py`` 逐步檢查）。真實 PLC 陣列內的排列方式
+    手冊沒有寫，這裡假設依成立順序、空位為 0。
     """
 
     def __init__(self) -> None:
@@ -249,11 +251,6 @@ class ActiveEventLists:
             return self._add(level, code)
         if kind == "trip_cleared":
             return self._remove(("T1", "T2"), code)
-        if kind in ("operator_reset", "reset"):
-            changed = bool(self._lists["T1"] or self._lists["T2"])
-            self._lists["T1"].clear()
-            self._lists["T2"].clear()
-            return changed
         return False
 
     def snapshot(self) -> Dict[str, List[int]]:
@@ -565,19 +562,24 @@ class PlcProtection:
     def operator_reset(self, sim_time: float) -> None:
         """操作員復位：解除全部鎖存 / 封鎖的跳機；條件仍成立者下一步會再跳。
 
+        送出 ``operator_reset``（事件 008）後，每個被解除的跳機再送 ``trip_cleared``（OPC 的 ActiveTrip
+        陣列據此移除；物理層保護停機的跳機不在此解除）。
+
         Args:
             sim_time: 機組模擬時間（秒）。
         """
         if not self.enabled:
             return
-        cleared = False
-        for st in self._codes.values():
+        released: List[int] = []
+        for code, st in self._codes.items():
             if st.latched:
                 st.latched = False
                 st.blocked = False
-                cleared = True
-        if cleared:
+                released.append(code)
+        if released:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
+            for code in released:
+                self._emit(sim_time, "trip_cleared", code, None, None, source="operator")
 
     def _emit(self, sim_time: float, kind: str, code: int, value: Optional[float],
               setpoint: Optional[float], source: str = "signal") -> None:

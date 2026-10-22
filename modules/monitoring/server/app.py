@@ -56,8 +56,9 @@ async def lifespan(app: FastAPI):
 
     # 選配：即時模擬的 OPC UA server（模仿 Bachmann Z72 tag，WMOM-20261021-07）；WMOM_OPCUA_ENABLE=true 才起，
     # 也才載入 asyncua（沒開就不影響啟動）
+    from server.opcua_config import opcua_enabled
     opcua = None
-    if os.environ.get("WMOM_OPCUA_ENABLE", "").strip().lower() in ("1", "true", "yes", "on"):
+    if opcua_enabled():
         from server.opcua_server import start_live_from_env
         opcua = await start_live_from_env(broker)
         if opcua is not None:
@@ -67,12 +68,14 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     task.cancel()
-    if opcua is not None:
-        await opcua.stop()
-    if broker.simulator and broker.simulator.modbus_server:
-        broker.simulator.modbus_server.stop()
-    broker.stop()
-    print("[Server] Shutdown complete")
+    try:
+        if opcua is not None:
+            await opcua.stop()
+    finally:
+        if broker.simulator and broker.simulator.modbus_server:
+            broker.simulator.modbus_server.stop()
+        broker.stop()
+        print("[Server] Shutdown complete")
 
 
 def _stop_modbus() -> None:

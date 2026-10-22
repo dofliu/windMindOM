@@ -6,7 +6,7 @@
 
 - **正式評測（evaluation）**：server 一啟動就開播（寫入回放的開始時間），之後的 WS 連線加入同一個時鐘；
   回放已開始（例：server 重啟）就接著播。播完後不能再開。
-- **練習（practice）**：每次啟動都從頭播。
+- **練習（practice）**：每次啟動都從頭播；起點記在回放上，WS ``?stream=false`` 以它對時。
 
 範例：
   # 先建回放（印出 token 與回放 id）
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,14 +42,18 @@ from server.storage import Storage  # noqa: E402
 from simulator.time_utils import iso_utc, parse_iso  # noqa: E402
 
 
-def _unusable(run: Optional[dict]) -> Optional[str]:
-    """回放不能再播的原因（不存在 / 撤銷 / 到期），可以播回 None。"""
+# 回放被撤銷 / 到期 / 刪除後，server 再開幾秒讓客戶端讀到 WindMindOM.Status
+STOP_LINGER_S = 10.0
+
+
+def _unusable(run: Optional[dict]) -> Optional[Tuple[str, str]]:
+    """回放不能再播的原因：``(代碼, 說明)``，代碼 ∈ ``missing`` / ``revoked`` / ``expired``；可以播回 None。"""
     if run is None:
-        return "回放不存在"
+        return "missing", "回放不存在"
     if run["revoked_at"]:
-        return "回放已撤銷"
+        return "revoked", "回放已撤銷"
     if parse_iso(run["expires_at"]).timestamp() < rp.wall_time():
-        return "回放 token 已到期"
+        return "expired", "回放 token 已到期"
     return None
 
 
@@ -68,7 +73,7 @@ def load_run(storage: Storage, run_id: int) -> Tuple[dict, rp.ScenarioReplay]:
     run = storage.get_replay_run(run_id)
     reason = _unusable(run)
     if reason is not None:
-        raise ValueError(reason)
+        raise ValueError(reason[1])
     assert run is not None
     try:
         replay = rp.ScenarioReplay(storage, int(run["scenario_id"]))
@@ -87,7 +92,10 @@ def _clock(run: dict, replay: rp.ScenarioReplay, wall_start: float) -> rp.Replay
 
 
 def start_clock(storage: Storage, run: dict, replay: rp.ScenarioReplay) -> rp.ReplayClock:
-    """開播：正式評測寫入開始時間（已開始就沿用，WS 連線共用同一個時鐘）；練習從現在播。
+    """開播。
+
+    - 正式評測：寫入開始時間（已開始就沿用），WS 連線共用同一個時鐘。
+    - 練習：從現在播，並把起點記在回放上（每次啟動都覆寫），WS ``?stream=false`` 用它對時。
 
     Args:
         storage: 風場 DB。
@@ -101,17 +109,29 @@ def start_clock(storage: Storage, run: dict, replay: rp.ScenarioReplay) -> rp.Re
         ValueError: 單次回放已結束。
     """
     now = rp.wall_time()
+    now_iso = iso_utc(datetime.fromtimestamp(now, tz=timezone.utc))
     if run["mode"] != "evaluation":
-        return _clock(run, replay, now)
-    started_at = storage.start_replay_run(int(run["id"]), iso_utc(datetime.fromtimestamp(now, tz=timezone.utc)))
+        storage.anchor_practice_run(int(run["id"]), now_iso)
+        return _clock(run, replay, parse_iso(now_iso).timestamp())
+    started_at = storage.start_replay_run(int(run["id"]), now_iso)
     return _clock(run, replay, parse_iso(started_at).timestamp())
+
+
+def _connect_hint(host: str, port: int) -> str:
+    if host not in ("0.0.0.0", "::", ""):
+        return ""
+    return f"（受測端請用這台電腦的 IP 或主機名稱連線，例 opc.tcp://{socket.gethostname()}:{port}{ou.ENDPOINT_PATH}）"
 
 
 async def serve(storage: Storage, run_id: int, host: str, port: int, exit_when_finished: bool) -> int:
     """起 server 並播出回放（節點建好、開始監聽之後才開播）。
 
     Returns:
-        exit code（0 播完、1 回放被撤銷 / 到期）。
+        exit code（0 播完、1 回放被撤銷 / 到期 / 刪除）。
+
+    Raises:
+        ValueError: 回放不能播。
+        OSError: 埠被占用等，server 起不來。
     """
     run, replay = load_run(storage, run_id)
     server = ou.Z72OpcUaServer(host=host, port=port)
@@ -121,16 +141,17 @@ async def serve(storage: Storage, run_id: int, host: str, port: int, exit_when_f
 
         async def check_run() -> Optional[str]:
             reason = _unusable(await asyncio.to_thread(storage.get_replay_run, run_id))
-            return None if reason is None else ("revoked" if "撤銷" in reason else "expired")
+            return None if reason is None else reason[0]
 
         feeder = ou.ReplayFeeder(server, replay, clock, str(run["mode"]), float(run["speed"]), check_run=check_run)
         await feeder.setup()
-        print(f"OPC UA：{server.endpoint}（namespace {ou.NAMESPACE_URI}）")
+        print(f"OPC UA：{server.endpoint}（namespace {ou.NAMESPACE_URI}）{_connect_hint(host, port)}")
         print(f"回放 #{run_id}：{replay.pack_id}（{run['mode']}，{run['speed']:g}x），"
               f"{rp.z(replay.sim_start)} → {rp.z(replay.sim_end)}；目前模擬時間 {rp.z(clock.sim_now())}")
         await feeder.run()
         if feeder.stop_reason is not None:
-            print(f"回放已停止：{feeder.stop_reason}", file=sys.stderr)
+            print(f"回放已停止：{feeder.stop_reason}（{STOP_LINGER_S:g} 秒後關閉 server）", file=sys.stderr)
+            await asyncio.sleep(STOP_LINGER_S)
             return 1
         print(f"資料播完（模擬時間 {rp.z(replay.sim_end)}）")
         if not exit_when_finished:
@@ -145,7 +166,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """CLI 進入點。
 
     Returns:
-        exit code（0 成功、1 回放不能播 / 被撤銷、2 參數錯誤）。
+        exit code（0 成功、1 回放不能播 / 被撤銷 / server 起不來、2 參數錯誤）。
     """
     parser = argparse.ArgumentParser(description="以 OPC UA 播出情境回放（模仿 Bachmann Z72 tag）")
     parser.add_argument("db", type=Path, help="風場 SQLite DB 路徑")
@@ -163,6 +184,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                                  args.exit_when_finished))
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except OSError as exc:  # 埠被占用、位址不對
+        print(f"OPC UA server 起不來（{args.host}:{args.port}）：{exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 0

@@ -39,6 +39,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import simulator.engine as engine_mod  # noqa: E402
+from server import opcua_config as oc  # noqa: E402
 from server import opcua_server as ou  # noqa: E402
 from server import replay as rp  # noqa: E402
 from server import scenario_pack as sp  # noqa: E402
@@ -48,8 +49,9 @@ from server.routers import replay as replay_ep  # noqa: E402
 from server.storage import Storage  # noqa: E402
 from shared.alarm_codes import all_alarms  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
+from simulator.physics.fault_engine import TestPlanStep as PlanStep  # noqa: E402
 from simulator.physics.plc_protection import ACTIVE_LIST_SLOTS, ActiveEventLists  # noqa: E402
-from simulator.time_utils import iso_utc, parse_iso  # noqa: E402
+from simulator.time_utils import iso_utc, parse_iso, utc_now  # noqa: E402
 
 T0 = datetime(2026, 1, 15, 3, 0, tzinfo=timezone.utc)
 READER = PROJECT_ROOT / "shared" / "plc_clients" / "bachmann" / "opc_data_reader.py"
@@ -161,7 +163,7 @@ def _same(column_type: str, read: object, expected: object) -> bool:
 # ── 1. 規則 ───────────────────────────────────────────────────────────────────
 
 
-def test_active_event_lists_follow_raise_clear_trip_and_reset() -> None:
+def test_active_event_lists_follow_raise_clear_and_trip() -> None:
     lists = ActiveEventLists()
     assert lists.apply("alarm_raised", 262, "A") and not lists.apply("alarm_raised", 262, "A"), "同一個碼只出現一次"
     assert lists.apply("alarm_raised", 115, "A")
@@ -171,8 +173,8 @@ def test_active_event_lists_follow_raise_clear_trip_and_reset() -> None:
     assert lists.snapshot() == {"A": [262, 115], "T1": [100], "T2": [336]}
     assert lists.apply("alarm_cleared", 262, "A") and lists.apply("trip_cleared", 100, None)
     assert lists.snapshot() == {"A": [115], "T1": [], "T2": [336]}
-    assert lists.apply("reset", 8, None) and not lists.apply("operator_reset", 8, None)
-    assert lists.snapshot() == {"A": [115], "T1": [], "T2": []}, "復位清跳機、不清警報"
+    assert not lists.apply("reset", 8, None) and not lists.apply("operator_reset", 8, None)
+    assert lists.snapshot() == {"A": [115], "T1": [], "T2": [336]}, "復位本身不動清單（解除的跳機另有 trip_cleared）"
     snapshot = lists.snapshot()
     snapshot["A"].append(1)
     assert lists.snapshot()["A"] == [115], "snapshot 是複本"
@@ -187,6 +189,16 @@ def test_rolling_mean_keeps_ten_minutes_and_skips_missing() -> None:
     assert mean.add(600.0, 30.0) == 25.0, "左開：剛好 600 s 前的那筆移出"
     assert mean.add(1300.0, 7.3) == 7.3 and repr(mean.add(1300.0, None)) == "7.3", "float32 最短表示"
     assert mean.add(5000.0, None) is None
+    later = ou.RollingMean()
+    assert later.add(10_000.0, 30.0) == 30.0
+    assert later.add(100.0, 5.0) == 5.0, "時間倒退（批次後回到即時）：重新累積，不留未來的樣本"
+
+
+def test_replay_tick_follows_the_sample_period() -> None:
+    assert ou.replay_tick_s(10.0, 60.0) == pytest.approx(10.0 / 60.0)
+    assert ou.replay_tick_s(10.0, 1.0) == ou.REPLAY_TICK_MAX_S
+    assert ou.replay_tick_s(10.0, 3000.0) == ou.REPLAY_TICK_MIN_S
+    assert ou.replay_tick_s(None, 60.0) == ou.REPLAY_TICK_MAX_S
 
 
 def test_plc_station_and_item_ids() -> None:
@@ -386,7 +398,9 @@ def test_cli_plays_a_practice_run_to_the_end(generated: Dict[str, object], capsy
     assert opcua_cli.main(args + ["--exit-when-finished"]) == 0
     out = capsys.readouterr().out
     assert "opc.tcp://127.0.0.1:" in out and "資料播完" in out
-    assert storage.get_replay_run(int(run["id"]))["started_at"] is None, "練習模式不寫開始時間"  # type: ignore[arg-type, index]
+    row = storage.get_replay_run(int(run["id"]))  # type: ignore[arg-type]
+    assert row is not None and row["started_at"] is not None, "練習模式記下這次播出的起點（WS stream=false 對時用）"
+    assert rp.run_view(storage, row)["status"] == "ready", "練習回放的狀態不受影響"
     storage.revoke_replay_run(int(run["id"]), iso_utc())  # type: ignore[arg-type]
     assert opcua_cli.main(args) == 1 and "回放已撤銷" in capsys.readouterr().err
     assert opcua_cli.main([str(tmp_path / "missing.db"), "1"]) == 2
@@ -442,7 +456,7 @@ def test_live_feeder_writes_the_latest_readings_and_plc_lists() -> None:
                 assert (await _read(client, idx, "Z72.H02.Z72PLC__ActiveAlarm[0]")).Value.Value == alarm.code
                 assert (await _read(client, idx, "Z72.H02.Z72PLC__ActiveTrip2[0]")).Value.Value == trip.code
                 assert (await _read(client, idx, "Z72.H01.Z72PLC__ActiveAlarm[0]")).Value.Value == 0
-                plc.active_lists.apply("operator_reset", 8, None)
+                plc.active_lists.apply("trip_cleared", trip.code, None)
                 await feeder.update()
                 assert (await _read(client, idx, "Z72.H02.Z72PLC__ActiveTrip2[0]")).Value.Value == 0
                 assert (await _read(client, idx, "Z72.H02.Z72PLC__ActiveAlarm[0]")).Value.Value == alarm.code
@@ -465,13 +479,12 @@ def test_live_plc_lists_match_the_lists_rebuilt_from_events(generated: Dict[str,
     for tid, model in sim.turbines.items():
         assert model.plc.active_lists.snapshot() == lists.get(tid, {"A": [], "T1": [], "T2": []}), tid
     assert lists["WT002"]["T1"], "情境結束時 WT002 的超速跳機仍成立（鎖存）"
-    model = sim.turbines["WT002"]
-    model.plc.reset()
-    assert model.plc.active_lists.snapshot() == {"A": [], "T1": [], "T2": []}
 
 
 def test_start_live_from_env(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     broker = _live_broker(turbines=1)
+    assert oc.live_bind({}) == ("127.0.0.1", 4840), "即時模擬的 OPC UA 預設只聽本機"
+    assert oc.opcua_enabled({"WMOM_OPCUA_ENABLE": "on"}) and not oc.opcua_enabled({})
     monkeypatch.delenv("WMOM_OPCUA_ENABLE", raising=False)
     assert asyncio.run(ou.start_live_from_env(broker)) is None, "預設不開"
     port = _free_port()
@@ -577,3 +590,238 @@ def test_kit_list_events_turn_list_changes_into_events() -> None:
     assert events[0]["alarm_text"] == "Main bearing temperature high" and events[2]["alarm_text"] == ""
     assert opcua_client._turbine_for("H02", ["WT001", "WT002"]) == "WT002"
     assert opcua_client._turbine_for("H07", []) == "H07"
+
+
+# ── code review 補測 ──────────────────────────────────────────────────────────
+
+
+def test_admin_login_cannot_write_or_change_the_address_space() -> None:
+    """asyncua 預設任何帳號名 admin 的 session 都是管理員：這裡只收匿名、admin 也關掉。"""
+    outcome: List[str] = []
+
+    async def main() -> None:
+        server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
+        await server.start(turbines=["WT001"])
+        idx = server.namespace_index
+        try:
+            client = Client(server.endpoint)
+            client.set_user("admin")
+            client.set_password("anything")
+            try:
+                await client.connect()
+            except Exception:  # noqa: BLE001  只收匿名：帳號登入在建立 session 時就被拒
+                outcome.append("login refused")
+            else:
+                try:
+                    with pytest.raises(ua.UaStatusCodeError):
+                        await client.get_node(ua.NodeId("WindMindOM.Source", idx)).write_value(
+                            ua.DataValue(ua.Variant("hacked", ua.VariantType.String)))
+                    with pytest.raises(ua.UaStatusCodeError):
+                        await client.nodes.objects.add_folder(ua.NodeId("Evil", idx), ua.QualifiedName("Evil", idx))
+                    outcome.append("writes refused")
+                finally:
+                    await client.disconnect()
+            async with Client(server.endpoint) as anon:
+                assert (await _read(anon, idx, "WindMindOM.Source")).Value.Value == "idle"
+                with pytest.raises(ua.UaStatusCodeError):
+                    await anon.nodes.objects.add_folder(ua.NodeId("Evil", idx), ua.QualifiedName("Evil", idx))
+                with pytest.raises(ua.UaStatusCodeError):
+                    await anon.get_node(ua.NodeId("Z72.H01.Z72PLC__ActiveTrip1[0]", idx)).write_value(
+                        ua.DataValue(ua.Variant(351, ua.VariantType.Int16)))
+        finally:
+            await server.stop()
+
+    asyncio.run(main())
+    assert outcome in (["login refused"], ["writes refused"])
+
+
+def test_live_feeder_does_not_publish_bulk_generation() -> None:
+    """產生情境（批次）跑在同一個 simulator：期間只標 idle，結束後留在 latest_data 的批次讀值也不發布。"""
+    broker = _live_broker()
+    sim: WindFarmSimulator = broker.simulator
+    power = next(c for c in sp.pack_columns() if c.name == "Z72PLC__UI_Loc_WTUR_Analogue_TotPwrAt")
+
+    async def main() -> None:
+        server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
+        await server.start()
+        idx = server.namespace_index
+        try:
+            feeder = ou.LiveFeeder(server, broker)  # type: ignore[arg-type]  # SimpleNamespace 當 broker
+            await feeder.update()
+            async with Client(server.endpoint) as client:
+                first = await _read(client, idx, ou.value_item_id("WT002", power))
+                sim_time = (await _read(client, idx, "WindMindOM.SimTime")).Value.Value
+                sim._bulk_running = True
+                await feeder.update()
+                assert (await _read(client, idx, "WindMindOM.Status")).Value.Value == "idle"
+                sim._bulk_running = False
+                sim.generate_bulk(0.5, time_step=10.0, fault_schedule=[
+                    PlanStep(offset_seconds=0, scenario_id="generator_overspeed", turbine_id="WT002",
+                                 severity_rate=0.05, initial_severity=0.9)])
+                await feeder.update()
+                after_bulk = await _read(client, idx, ou.value_item_id("WT002", power))
+                assert after_bulk.SourceTimestamp == first.SourceTimestamp, "批次最後一步的讀值不發布"
+                assert (await _read(client, idx, "WindMindOM.SimTime")).Value.Value == sim_time
+                assert (await _read(client, idx, "WindMindOM.Status")).Value.Value == "idle"
+                # 即時模擬寫入新的讀值後才恢復發布；10 分鐘平均重新累積（不混入批次的未來時間）
+                live_ts = utc_now()
+                sim._run_one_step(live_ts, 1.0)
+                await feeder.update()
+                resumed = await _read(client, idx, ou.value_item_id("WT002", power))
+                assert resumed.SourceTimestamp == parse_iso(sim.latest_data["WT002"]["timestamp"])
+                wind = sp.json_values(sp.scada_dict_values(sim.latest_data["WT002"]["scada"],
+                                                           [c.tag.id for c in sp.pack_columns()]),
+                                      sp.pack_columns())[ou.WSPEED_TAG]
+                avg = await _read(client, idx, f"Z72.H02.WMET.{ou.WSPEED_AVG10M_TAG}")
+                assert avg.Value.Value == pytest.approx(float(wind), rel=1e-6)  # type: ignore[arg-type]
+                assert (await _read(client, idx, "WindMindOM.Status")).Value.Value == "running"
+        finally:
+            await server.stop()
+
+    asyncio.run(main())
+
+
+def test_live_feeder_clears_turbines_that_disappear() -> None:
+    broker = _live_broker(turbines=2)
+
+    async def main() -> None:
+        server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
+        await server.start()
+        idx = server.namespace_index
+        try:
+            feeder = ou.LiveFeeder(server, broker)  # type: ignore[arg-type]
+            await feeder.update()
+            broker.simulator = _live_broker(turbines=1).simulator  # 換了風場：只剩 1 台
+            await feeder.update()
+            async with Client(server.endpoint) as client:
+                gone = await _read(client, idx, f"Z72.H02.WMET.{ou.WSPEED_TAG}")
+                kept = await _read(client, idx, f"Z72.H01.WMET.{ou.WSPEED_TAG}")
+                trip = await _read(client, idx, "Z72.H02.Z72PLC__ActiveTrip1[0]")
+            assert gone.StatusCode.value == ua.StatusCodes.BadNoData and kept.StatusCode.is_good()
+            assert trip.StatusCode.value == ua.StatusCodes.BadNoData
+        finally:
+            await server.stop()
+
+    asyncio.run(main())
+
+
+def test_station_collisions_are_rejected() -> None:
+    async def main() -> None:
+        server = ou.Z72OpcUaServer(host="127.0.0.1", port=_free_port())
+        await server.start(turbines=["WT001"])
+        try:
+            with pytest.raises(ValueError, match="H01"):
+                await server.ensure_turbine("WT01")
+            assert server.turbine_ids == ["WT001"]
+        finally:
+            await server.stop()
+
+    asyncio.run(main())
+
+
+def test_plc_lists_match_active_codes_at_every_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """事件碼陣列＝PLC 目前成立的警報與鎖存中的跳機（每一步都對），含操作員復位與維護清除故障。"""
+    monkeypatch.setattr(engine_mod, "utc_now", lambda: T0)
+    sim = WindFarmSimulator(turbine_count=3)
+    sim.wind_model.set_override(wind_speed=14.0)
+    mismatches: List[tuple] = []
+    seen: Dict[str, int] = {"A": 0, "T1": 0, "T2": 0}
+    steps = [0]
+
+    def check(readings: List[dict]) -> None:
+        steps[0] += 1
+        if steps[0] == 150:
+            sim.turbines["WT001"].cmd_reset()  # 操作員復位：鎖存的跳機解除，條件仍成立就再跳
+        for tid, model in sim.turbines.items():
+            codes = model.plc.active_codes()
+            expected = {level: sorted(c for c, lv in codes.items() if lv == level) for level in seen}
+            got = {level: sorted(v) for level, v in model.plc.active_lists.snapshot().items()}
+            if got != expected:
+                mismatches.append((steps[0], tid, got, expected))
+            for level in seen:
+                seen[level] += bool(got[level])
+
+    sim.generate_bulk(1.0, time_step=10.0, callback=check, fault_schedule=[
+        PlanStep(offset_seconds=0, scenario_id="bearing_wear", turbine_id="WT001", severity_rate=0.004,
+                     initial_severity=0.5),
+        PlanStep(offset_seconds=600, scenario_id="generator_overspeed", turbine_id="WT002", severity_rate=0.02),
+    ])
+    sim.fault_engine.clear()  # 維護清除故障：PLC maintenance_release（不解除鎖存）
+    sim.generate_bulk(0.5, time_step=10.0, callback=check)
+    assert mismatches == []
+    assert seen["A"] and seen["T1"], seen
+
+
+def test_practice_stream_false_uses_the_opc_clock(generated: Dict[str, object],
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """練習回放以 OPC UA 播出時，WS ``stream=false`` 的時鐘＝OPC UA server 開播時記下的起點。"""
+    import opcua_server as opcua_cli
+
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setattr(replay_ep, "get_broker", lambda: generated["broker"])
+    run, token = rp.create_run(storage, int(generated["scenario_id"]), mode="practice",  # type: ignore[call-overload]
+                               speed=600.0, allow_overlap=True)
+    run_id = int(run["id"])  # type: ignore[arg-type]
+    headers = {"Authorization": f"Bearer {token}"}
+    app = FastAPI()
+    app.include_router(replay_ep.router)
+    client = TestClient(app)
+    with client.websocket_connect("/ws/replay?stream=false", headers=headers) as ws:
+        error = ws.receive_json()
+    assert error["code"] == 4412, "還沒以 OPC UA 播出：不能用 stream=false"
+
+    run_row, replay = opcua_cli.load_run(storage, run_id)
+    clock = opcua_cli.start_clock(storage, run_row, replay)
+    import time
+    time.sleep(0.5)  # OPC UA 已經播了 5 分鐘模擬時間
+    with client.websocket_connect("/ws/replay?stream=false", headers=headers) as ws:
+        before = clock.sim_now()
+        started = ws.receive_json()
+        after = clock.sim_now()
+        assert before <= parse_iso(started["sim_ts"]) <= after, "與 OPC UA 同一個時鐘，不是從頭"
+        assert started["stream"]["data"] is False and started["stream"]["mode"] == "practice"
+        ws.send_json({"type": "prediction", "id": 1, "turbine_id": "WT001", "category": "real_fault",
+                      "component": "main_bearing"})
+        ack = ws.receive_json()
+    assert ack["accepted"] and parse_iso(ack["ts"]) >= before
+    # 一般的練習連線（送資料）照舊從頭播
+    with client.websocket_connect("/ws/replay", headers=headers) as ws:
+        started = ws.receive_json()
+    assert parse_iso(started["sim_ts"]) < replay.sim_start + timedelta(minutes=2)
+    assert rp.run_view(storage, storage.get_replay_run(run_id))["status"] == "ready"  # type: ignore[arg-type]
+    # 這次 OPC UA 播出已結束
+    storage.anchor_practice_run(run_id, iso_utc(datetime.now(timezone.utc) - timedelta(days=1)))
+    with client.websocket_connect("/ws/replay?stream=false", headers=headers) as ws:
+        error = ws.receive_json()
+    assert error["code"] == 4410
+    assert not storage.anchor_practice_run(999_999, iso_utc()), "只改練習回放"
+
+
+def test_cli_stops_on_revoke_and_reports_a_busy_port(generated: Dict[str, object], monkeypatch: pytest.MonkeyPatch,
+                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    import opcua_server as opcua_cli
+
+    monkeypatch.setattr(ou, "RUN_RECHECK_S", 0.05)
+    monkeypatch.setattr(opcua_cli, "STOP_LINGER_S", 0.0)
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    run, _ = rp.create_run(storage, int(generated["scenario_id"]), mode="practice", speed=60.0,  # type: ignore[call-overload]
+                           allow_overlap=True)
+    run_id = int(run["id"])  # type: ignore[arg-type]
+
+    async def main() -> int:
+        task = asyncio.create_task(opcua_cli.serve(storage, run_id, "127.0.0.1", _free_port(), True))
+        await asyncio.sleep(1.0)
+        await asyncio.to_thread(storage.revoke_replay_run, run_id, iso_utc())
+        return await asyncio.wait_for(task, 20)
+
+    assert asyncio.run(main()) == 1
+    assert "回放已停止：revoked" in capsys.readouterr().err
+    other, _ = rp.create_run(storage, int(generated["scenario_id"]), mode="practice", speed=60.0,  # type: ignore[call-overload]
+                             allow_overlap=True)
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        code = opcua_cli.main([str(generated["db"]), str(other["id"]), "--host", "127.0.0.1", "--port", str(port)])
+    assert code == 1 and "OPC UA server 起不來" in capsys.readouterr().err

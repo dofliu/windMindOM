@@ -1494,6 +1494,25 @@ class Storage:
             row = conn.execute("SELECT started_at FROM replay_runs WHERE id = ?", (run_id,)).fetchone()
         return str(row[0])
 
+    def anchor_practice_run(self, run_id: int, started_at: str) -> bool:
+        """練習回放以 OPC UA 播出時，記下這次播出的起點（每次啟動 OPC UA server 都覆寫）。
+
+        WS 以 ``?stream=false`` 連線時用它當時鐘，預測的模擬時間才會對上 OPC UA 上的資料（WMOM-20261021-07）。
+        一般的 WS 練習連線（送資料）不看這一欄，仍各自從頭播。
+
+        Args:
+            run_id: 回放 id（只改練習模式的回放）。
+            started_at: 播出起點（``iso_utc``）。
+
+        Returns:
+            是否有寫入（不是練習回放時 False）。
+        """
+        conn = self._get_conn()
+        with conn:
+            cur = conn.execute("UPDATE replay_runs SET started_at = ? WHERE id = ? AND mode = 'practice'",
+                               (started_at, run_id))
+        return cur.rowcount == 1
+
     def next_replay_connection(self, run_id: int) -> int:
         """連線序號（1 起算；原子遞增）。
 

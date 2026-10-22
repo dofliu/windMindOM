@@ -27,12 +27,13 @@ import asyncio
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from asyncua import Client, Node, ua
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from baseline_assistant import BaselineAssistant
 from stream_client import CLOSE_CODES, Summary, connect_options, with_params
@@ -48,7 +49,26 @@ WATCH: Dict[str, str] = {
     "wind": "WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNac",
     "wind_10m": "WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNacAvg10m",
 }
-END_STATUSES = ("finished", "revoked", "expired")
+END_STATUSES = ("finished", "revoked", "expired", "missing")
+# 連線中斷時 asyncua 可能丟的例外
+OPC_ERRORS = (OSError, ConnectionError, asyncio.TimeoutError, ua.UaError)
+
+
+@dataclass
+class TurbineSnapshot:
+    """一台機組讀到的目前值。"""
+
+    values: Dict[str, Optional[float]]  # WATCH 的值（還沒有值 / BadNoData 為 None）
+    lists: Dict[str, List[int]]          # {"A": [...], "T1": [...], "T2": [...]}（不含空位 0）
+
+
+@dataclass
+class Snapshot:
+    """一次讀到的全部目前值。"""
+
+    status: Optional[str]          # WindMindOM.Status
+    sim_time: Optional[datetime]   # WindMindOM.SimTime（UTC）
+    turbines: Dict[str, TurbineSnapshot]
 
 
 def node(client: Client, idx: int, item_id: str) -> Node:
@@ -83,7 +103,7 @@ def list_events(turbine_id: str, before: Dict[str, List[int]], after: Dict[str, 
 
 
 class Watcher:
-    """讀 OPC UA 節點（每台機組：``WATCH`` 的值 + 三個事件碼陣列）。"""
+    """讀 OPC UA 節點（每台機組：``WATCH`` 的值 + 三個事件碼陣列），一次一個 Read 請求。"""
 
     def __init__(self, client: Client, idx: int, stations: Sequence[str]) -> None:
         self._client = client
@@ -95,24 +115,30 @@ class Watcher:
             self._nodes += [node(client, idx, f"Z72.{station}.{tag}[{i}]")
                             for tag in LISTS.values() for i in range(SLOTS)]
 
-    async def read(self) -> Dict[str, object]:
-        """讀一次（一個 OPC UA Read 請求）。
+    async def read(self) -> Snapshot:
+        """讀一次。
 
         Returns:
-            ``{"status", "sim_time", "turbines": {站號: {"values": {...}, "lists": {...}}}}``；
-            還沒有值的節點為 None。
+            目前值（還沒有值的節點為 None）。
         """
         data = await self._client.read_attributes(self._status + self._nodes)
-        values = [d.Value.Value if d.StatusCode is not None and d.StatusCode.is_good() and d.Value is not None else None for d in data]
+        values: List[object] = []
+        for item in data:
+            good = item.StatusCode is not None and item.StatusCode.is_good() and item.Value is not None
+            values.append(item.Value.Value if good and item.Value is not None else None)
         status, sim_time = values[0], values[1]
         per = len(WATCH) + len(LISTS) * SLOTS
-        turbines: Dict[str, object] = {}
+        turbines: Dict[str, TurbineSnapshot] = {}
         for n, station in enumerate(self.stations):
             row = values[2 + n * per: 2 + (n + 1) * per]
-            lists = {level: [int(c) for c in row[len(WATCH) + k * SLOTS: len(WATCH) + (k + 1) * SLOTS] if c]
+            watched = {name: float(v) if isinstance(v, (int, float)) else None for name, v in zip(WATCH, row)}
+            lists = {level: [int(c) for c in row[len(WATCH) + k * SLOTS: len(WATCH) + (k + 1) * SLOTS]
+                             if isinstance(c, int) and c]
                      for k, level in enumerate(LISTS)}
-            turbines[station] = {"values": dict(zip(WATCH, row[:len(WATCH)])), "lists": lists}
-        return {"status": status, "sim_time": sim_time, "turbines": turbines}
+            turbines[station] = TurbineSnapshot(values=watched, lists=lists)
+        return Snapshot(status=status if isinstance(status, str) else None,
+                        sim_time=sim_time.replace(tzinfo=timezone.utc) if isinstance(sim_time, datetime) else None,
+                        turbines=turbines)
 
 
 async def connect_opcua(client: Client) -> Tuple[int, Dict[str, object], List[str]]:
@@ -157,6 +183,55 @@ async def _receive(ws: ClientConnection, summary: Summary, done: asyncio.Event, 
         done.set()
 
 
+async def _watch(watcher: Watcher, summary: Summary, ws: Optional[ClientConnection], done: asyncio.Event,
+                 catalog: Dict[int, JsonObject], turbines: Sequence[str], poll_s: float, verbose: bool,
+                 max_polls: Optional[int]) -> int:
+    """定期讀 OPC UA，事件碼陣列有變化就判斷、送出（有 WS 時）。
+
+    Returns:
+        送出的判斷數。
+    """
+    assistant = BaselineAssistant()
+    previous: Dict[str, Dict[str, List[int]]] = {}
+    sent = polls = 0
+    while not done.is_set() and (max_polls is None or polls < max_polls):
+        try:
+            snapshot = await watcher.read()
+        except OPC_ERRORS:
+            if done.is_set():  # 回放已結束、OPC UA server 也剛好關了
+                break
+            raise
+        polls += 1
+        summary.counts["opcua_read"] = polls
+        ts = (snapshot.sim_time or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        for station, current in snapshot.turbines.items():
+            turbine = _turbine_for(station, turbines)
+            for event in list_events(turbine, previous.get(station, {}), current.lists, catalog, ts):
+                summary.counts["opcua_event"] = summary.counts.get("opcua_event", 0) + 1
+                # 判斷放到另一個執行緒：換成同步的大模型呼叫也不會卡住讀值與 WS 的 ping
+                judgement = await asyncio.to_thread(assistant.on_event, event) if ws is not None else None
+                if verbose:
+                    note = f" → 送出判斷 #{sent + 1} {judgement['component']}" if judgement else ""
+                    print(f"  {ts} {turbine} {event['event_type']} {event['alarm_code']} {event['alarm_text']}"
+                          f"（TurSt {current.values['state']}）{note}")
+                if judgement is not None and ws is not None:
+                    try:
+                        await ws.send(json.dumps({"type": "prediction", "id": sent + 1, **judgement},
+                                                 ensure_ascii=False))
+                    except ConnectionClosed:  # 回放被撤銷 / 結束：_receive 會記下關閉碼
+                        return sent
+                    sent += 1
+            previous[station] = current.lists
+        if ws is None and snapshot.status in END_STATUSES:
+            print(f"回放狀態：{snapshot.status}")
+            break
+        try:
+            await asyncio.wait_for(done.wait(), poll_s)
+        except asyncio.TimeoutError:
+            pass
+    return sent
+
+
 async def run(endpoint: str, ws_url: Optional[str] = None, token: Optional[str] = None, *, poll_s: float = 1.0,
               verbose: bool = True, use_env_proxy: bool = False, max_polls: Optional[int] = None) -> Summary:
     """讀 OPC UA 直到回放結束（有 WS 時送判斷）。
@@ -174,19 +249,20 @@ async def run(endpoint: str, ws_url: Optional[str] = None, token: Optional[str] 
         統計（``counts["opcua_read"]`` 是讀的次數，``counts["opcua_event"]`` 是由陣列變化得到的事件數）。
     """
     summary = Summary()
-    async with Client(endpoint) as client:
+    client = Client(endpoint)
+    await client.connect()
+    ws: Optional[ClientConnection] = None
+    receiver: Optional["asyncio.Task[None]"] = None
+    try:
         idx, status, stations = await connect_opcua(client)
         print(f"OPC UA：{status['Source']}（{status['Status']}），資料包 {status['PackId'] or '-'}，"
               f"機組 {', '.join(stations)}")
-        watcher = Watcher(client, idx, stations)
-        ws: Optional[ClientConnection] = None
         done = asyncio.Event()
-        receiver: Optional["asyncio.Task[None]"] = None
         catalog: Dict[int, JsonObject] = {}
         turbines: List[str] = []
         if ws_url is not None:
-            ws = await connect(with_params(ws_url, ["stream=false"]),
-                               **connect_options(token or "", use_env_proxy))  # type: ignore[arg-type]  # 依 websockets 版本組成
+            options = connect_options(token or "", use_env_proxy)
+            ws = await connect(with_params(ws_url, ["stream=false"]), **options)  # type: ignore[arg-type]  # 依 websockets 版本組成
             first = json.loads(await ws.recv())
             summary.add(first)
             if first.get("type") != "control":
@@ -197,49 +273,23 @@ async def run(endpoint: str, ws_url: Optional[str] = None, token: Optional[str] 
             catalog = {int(e["code"]): e for e in first["alarm_catalog"]["events"]}
             turbines = list(first["stream"]["turbines"])
             receiver = asyncio.create_task(_receive(ws, summary, done, verbose))
-        assistant = BaselineAssistant()
-        previous: Dict[str, Dict[str, List[int]]] = {}
-        sent = polls = 0
-        try:
-            while not done.is_set() and (max_polls is None or polls < max_polls):
-                snapshot = await watcher.read()
-                polls += 1
-                summary.counts["opcua_read"] = polls
-                sim_time = snapshot["sim_time"]
-                ts = (sim_time.replace(tzinfo=timezone.utc) if isinstance(sim_time, datetime)
-                      else datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                for station, current in snapshot["turbines"].items():  # type: ignore[attr-defined]
-                    turbine = _turbine_for(station, turbines)
-                    for event in list_events(turbine, previous.get(station, {}), current["lists"], catalog, ts):
-                        summary.counts["opcua_event"] = summary.counts.get("opcua_event", 0) + 1
-                        judgement = assistant.on_event(event) if ws is not None else None
-                        if verbose:
-                            print(f"  {ts} {turbine} {event['event_type']} {event['alarm_code']} "
-                                  f"{event['alarm_text']}（TurSt {current['values']['state']}）"
-                                  + (f" → 送出判斷 #{sent + 1} {judgement['component']}" if judgement else ""))
-                        if judgement is not None and ws is not None:
-                            sent += 1
-                            await ws.send(json.dumps({"type": "prediction", "id": sent, **judgement},
-                                                     ensure_ascii=False))
-                    previous[station] = current["lists"]
-                if ws is None and snapshot["status"] in END_STATUSES:
-                    print(f"回放狀態：{snapshot['status']}")
+        sent = await _watch(Watcher(client, idx, stations), summary, ws, done, catalog, turbines, poll_s, verbose,
+                            max_polls)
+        if ws is not None:
+            # 送出的判斷都拿到 ack 再離開（伺服器在資料播完後還會開一小段時間收 ack）
+            for _ in range(100):
+                if summary.counts.get("ack", 0) >= sent or ws.close_code is not None:
                     break
-                try:
-                    await asyncio.wait_for(done.wait(), poll_s)
-                except asyncio.TimeoutError:
-                    pass
-            if ws is not None:
-                # 送出的判斷都拿到 ack 再離開（伺服器在資料播完後還會開一小段時間收 ack）
-                for _ in range(100):
-                    if summary.counts.get("ack", 0) >= sent or ws.close_code is not None:
-                        break
-                    await asyncio.sleep(0.05)
-        finally:
-            if ws is not None:
-                await ws.close()
-            if receiver is not None:
-                await receiver
+                await asyncio.sleep(0.05)
+    finally:
+        if ws is not None:
+            await ws.close()
+        if receiver is not None:
+            await receiver
+        try:
+            await client.disconnect()
+        except OPC_ERRORS:  # server 已經關了
+            pass
     return summary
 
 
@@ -266,7 +316,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         summary = asyncio.run(run(args.endpoint, args.ws, args.token, poll_s=args.poll, verbose=not args.quiet,
                                   use_env_proxy=args.use_env_proxy))
-    except (OSError, asyncio.TimeoutError, ua.UaError) as exc:  # 連不上（位址、埠、防火牆）
+    except (*OPC_ERRORS, WebSocketException) as exc:  # 連不上（位址、埠、防火牆）或 WS 握手失敗
         print(f"連不上：{exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

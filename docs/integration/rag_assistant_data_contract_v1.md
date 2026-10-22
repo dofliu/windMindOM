@@ -317,6 +317,8 @@ case：
   - `expires_in_hours`：token 有效時數（預設 7 天）；`label`：備註（受測端看不到）。
 - **受測端連線**：token 放 `Authorization: Bearer <token>` 標頭（建議），或 `?token=<token>`（會留在伺服器的存取紀錄）。受測端不開 windMindOM 帳號，token 只能連這一個回放（DEC-20261021-03）。
 - **只送預測**（v1.2）：`?stream=false` 不送 `reading` / `event` / `stats`，只收預測（資料改從 OPC UA 讀，§13）。照樣先送 `control started`（`stream.data` 為 `false`），資料播完時送 `control finished`；預測的規則與 `ts` 相同。
+  - 正式評測：同一個時鐘（OPC UA server 啟動時開播）。
+  - 練習：時鐘用 OPC UA server 這次開播時記下的起點（不是各連線從頭播）；還沒以 OPC UA 播出時拒絕（4412），這次播出已結束也拒絕（4410）。一般的練習連線（送資料）照舊各自從頭播。
 - **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id>` 下載 `predictions.jsonl`，與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
 - **撤銷**：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`。之後不能再連線、送預測；開著的連線幾秒內以 4403 關閉。token 到期同樣處理。
 - **刪除情境**：刪除時一併刪除它的回放與預測。回放收過預測（評測結果）時，`DELETE /api/scenarios/{id}` 預設拒絕（409），先下載預測再帶 `force=true`。
@@ -350,7 +352,8 @@ case：
 | 4403 | 回放已撤銷或 token 已到期（連線中撤銷 / 到期也會在幾秒內以此碼關閉） |
 | 4404 | 情境不能回放（例：資料不完整、讀值超過 200 萬筆） |
 | 4409 | 這個回放的連線已滿（每個回放最多 4 條） |
-| 4410 | 單次回放已結束 |
+| 4410 | 單次回放已結束（練習回放用 `stream=false` 時：這次 OPC UA 播出已結束） |
+| 4412 | 練習回放用 `stream=false`，但還沒以 OPC UA 播出（v1.2） |
 | 1011 | 伺服器錯誤 |
 
 ### 12.3 受測端 → 伺服器
@@ -386,16 +389,19 @@ case：
 
 ### 13.1 連線與資料來源
 
-- **端點**：`opc.tcp://{host}:{port}/windmindom/`（預設埠 4840）。匿名、唯讀（寫入一律拒絕）、不加密（教室 / 實驗室網路用）。
+- **端點**：`opc.tcp://{host}:{port}/windmindom/`（預設埠 4840）。只接受匿名登入（帳號密碼登入一律拒絕）、唯讀（寫值、加刪節點一律拒絕）、不加密：只開在教室 / 實驗室網路。
 - **namespace**：`urn:windmindom:z72sim`。NodeId 是字串：`ns=<namespace index>;s=<item ID>`。
 - **回放**（評測 / 練習）：出題端以 CLI 播出一個回放（§12 建立的同一個回放）：
   ```bash
   python tools/opcua_server.py <風場 DB> <回放 id> [--host 0.0.0.0] [--port 4840] [--exit-when-finished]
   ```
   - 正式評測（`evaluation`）：server 建好節點、開始監聽時就開播（寫入回放的開始時間）；之後的 WebSocket 連線加入同一個時鐘。server 重啟會接著播（不重來）；播完後不能再開。
-  - 練習（`practice`）：每次啟動都從頭播。
-  - 回放被撤銷或到期：幾秒內停止更新，`WindMindOM.Status` 改為 `revoked` / `expired`。
-- **即時模擬**：主程式以環境變數 `WMOM_OPCUA_ENABLE=true`（`WMOM_OPCUA_HOST`、`WMOM_OPCUA_PORT`）開啟，每秒寫入即時模擬的最新讀值與 PLC 狀態。沒有標準答案，給開發與展示用。
+  - 練習（`practice`）：每次啟動都從頭播，並把起點記在回放上（WebSocket `?stream=false` 用它對時，§12.1）。
+  - 回放被撤銷、到期或刪除：幾秒內停止更新，`WindMindOM.Status` 改為 `revoked` / `expired` / `missing`，再過 10 秒關閉 server。
+  - OPC UA server 與 WebSocket 伺服器要在同一台電腦（或時鐘對準）：開始時間是絕對時間，兩台電腦差 Δ 秒，資料與預測的時間就差 Δ × 速度。
+- **即時模擬**：主程式以環境變數 `WMOM_OPCUA_ENABLE=true` 開啟，每秒寫入即時模擬的最新讀值與 PLC 狀態。沒有標準答案，給開發與展示用。
+  - 預設只聽本機（`WMOM_OPCUA_HOST` 預設 `127.0.0.1`）；要給其他電腦連須明確設定（例 `0.0.0.0`），`WMOM_OPCUA_PORT` 預設 4840。
+  - 產生情境（批次）期間不更新（`Status`＝`idle`），批次最後一步的讀值也不發布。但批次與即時模擬共用模型：批次注入的故障之後仍留在即時模擬裡（維護中心清除前都看得到）。**有受測端連著即時 OPC UA 時，不要在同一個主程式產生考題。**
 
 ### 13.2 節點
 
@@ -409,16 +415,17 @@ case：
 
 - **站號**：`H{nn}` 是機組 ID 的數字補兩位（`WT001` → `H01`，同真實讀取腳本），對應 WebSocket 開播訊息的 `turbines`。
 - **瀏覽**：`Objects/Z72/H01/WTUR/Z72PLC__UI_Loc_WTUR_State_TurSt`（BrowseName＝tag 名），事件碼陣列在 `Objects/Z72/H01/` 底下。
-- **讀值**：每次更新寫入各機組**最新一筆**讀值；`SourceTimestamp`＝該筆的模擬時間，`ServerTimestamp`＝寫入的實際時間。缺值的 StatusCode 為 `BadNoData`；開播前為 `BadWaitingForInitialData`。值與 WebSocket `reading` / `timeseries_raw.parquet` 相同（REAL32 讀回 float32 逐位元相同）。
+- **讀值**：每次更新寫入各機組**最新一筆**讀值；`SourceTimestamp`＝該筆的模擬時間，`ServerTimestamp`＝寫入的實際時間。缺值的 StatusCode 為 `BadNoData`；開播前（事件碼陣列也是）為 `BadWaitingForInitialData`；即時模擬換了風場、某台機組不見時，它的節點改為 `BadNoData`。值與 WebSocket `reading` / `timeseries_raw.parquet` 相同（REAL32 讀回 float32 逐位元相同）。
 - **事件碼陣列**（SINT16[21]，同真實 PLC）：依成立順序排列、空位為 0。規則（與 `events.jsonl` 一致）：
   - `alarm_raised`（A）加入 `ActiveAlarm`、`alarm_cleared` 移除。
   - `trip` 依等級加入 `ActiveTrip1` / `ActiveTrip2`、`trip_cleared` 移除；`restart_blocked` 不移除（鎖存）。
-  - 操作員復位（`reset`）清空兩個跳機陣列；條件仍成立的跳機會再成立。資訊事件（I）不在任何陣列。
+  - 操作員復位（`reset`）本身不改陣列：被解除的跳機各有一筆 `trip_cleared`（條件仍成立的會再 `trip`）；維護清除故障時的復位不解除鎖存，陣列照舊。資訊事件（I）不在任何陣列。
+  - 陣列＝PLC 目前成立的警報與鎖存中的跳機（即時模擬每一步都與 PLC 狀態一致，回放由事件流重建、規則相同）。
   - 真實 PLC 陣列的排列方式手冊沒有寫；這是模擬的約定。
 
 ### 13.3 與 WebSocket / 資料包的差別
 
 - **只有目前值**：兩次讀取之間出現又消失的警報、每一筆讀值、10 分鐘統計、`state_change` 事件都讀不到。要完整資料用 WebSocket 回放或資料包（內容相同）。
-- 更新間隔：回放每 0.2 實際秒（速度 60× 時約 12 模擬秒，與 10 秒取樣相當），即時模擬每 1 秒。
+- 更新間隔：回放每「一個取樣週期 ÷ 速度」實際秒，夾在 0.05–0.2 秒（60× 時約 0.17 秒＝一筆取樣；3000× 時 0.05 秒＝150 模擬秒）；即時模擬每 1 秒。速度越快，越多短暫的警報讀不到。
 - **預測**：連 WebSocket `?stream=false`（同一個 token），格式與 `ts` 規則同 §12.3–12.4。判斷的時間依據是伺服器收到預測時的模擬時間，與受測端讀到的 `SourceTimestamp` 無關。
 - 範例程式：[`examples/rag_starter_kit/opcua_client.py`](../../examples/rag_starter_kit/opcua_client.py)（讀目前值、比較前後兩次的事件碼陣列，新的碼交給基準助手、經 WebSocket 送出）。
