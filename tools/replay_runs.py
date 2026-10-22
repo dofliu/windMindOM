@@ -55,7 +55,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     Returns:
         exit code（0 成功、1 情境不能回放 / 回放不存在、2 參數錯誤）。
     """
-    parser = argparse.ArgumentParser(description="情境 WebSocket 回放（合約 v1.1 §12）")
+    parser = argparse.ArgumentParser(description="情境 WebSocket 回放（合約 v1.2 §12）")
     parser.add_argument("db", type=Path, help="風場 SQLite DB 路徑")
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create", help="建立回放並印出 token")

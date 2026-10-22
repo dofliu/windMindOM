@@ -137,7 +137,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 
 ### 5.2 串流：WebSocket 回放
 
-> **已實作**（WMOM-20261021-06，§6.11）：實際介面見合約 v1.1 §12。和草案不同的地方：
+> **已實作**（WMOM-20261021-06，§6.11）：實際介面見合約 v1.2 §12。和草案不同的地方：
 > - 端點是 `ws://{host}/ws/replay`，以回放 token 選情境，不帶 scenario_id。
 > - 速度由出題端建回放時決定。
 > - 受測端在同一條連線送預測，伺服器蓋 `ts`。
@@ -148,6 +148,11 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - 不推送 ground truth。
 
 ### 5.3 OPC UA：模仿 Bachmann Z72 tag
+
+> **已實作**（WMOM-20261021-07，§6.12）：實際介面見合約 v1.2 §13。和草案不同的地方：
+> - 事件碼陣列是 `[0..20]`（PLC 的 SINT16[21]，真實讀取腳本只讀前 10 個）。
+> - 另有 `WSpeedNacAvg10m`（server 算的 10 分鐘平均）與 `WindMindOM.*` 狀態節點。
+> - 預測經 WS `?stream=false` 送；正式評測在出題端啟動 server 時開播。
 
 - Endpoint：`opc.tcp://{host}:4840/windmindom/`，namespace URI `urn:windmindom:z72sim`
 - 節點路徑對齊真實 PLC 讀取腳本（`shared/plc_clients/bachmann/opc_data_reader.py`）：
@@ -173,8 +178,8 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | 1b-c ✅ | WMOM-20261021-03-c | **UTC tz-aware 時間戳**（2026-10-21 done） |
 | 2 ✅ | WMOM-20261021-04 | **標準答案 + 情境事件**：故障情境 metadata（根因/元件/預期警報序列/手冊條目/處置）；bulk 路徑產生事件；`history_events` 加 `session_id`；ground truth 落庫（2026-10-21 done，§6.7） |
 | 3a ✅ | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；移除 `farms.py` 壞端點（2026-10-21 done，§6.8） |
-| 3b | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道） |
-| 3c | WMOM-20261021-07 | **③ OPC UA server**：模仿 Bachmann tag（`asyncua`），接 3b 回放器 |
+| 3b ✅ | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道）（2026-10-22 done，§6.11） |
+| 3c ✅ | WMOM-20261021-07 | **③ OPC UA server**：模仿 Bachmann tag（`asyncua`），接 3b 回放器與即時模擬（2026-10-22 done，§6.12） |
 | 3d ✅ | WMOM-20261021-09 | **學生專題 starter kit**：介面合約 v1 定稿 + 範例資料包 + 讀取範例程式（2026-10-21 done，§6.9） |
 | 4 | WMOM-20261021-08 | **難度與多樣性**：警報連鎖與重啟限制、感測器故障（標記）、多重故障、誤報、健康負樣本、早期徵兆案例；故障庫往 Z72 常見事件擴充 |
 | 5 | （parking lot） | 只修會改變特徵訊號的物理：10-min std 合理化、yaw error → 發電損失等；高保真物理不做 |
@@ -670,6 +675,68 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 4. **沒有前端頁面**：建回放用 REST 或 CLI；Docker 映像不含 `tools/`，容器內用 REST。
 5. **受測端慢就晚**：高速回放（例：10000×）時，受測端每慢 0.1 秒就晚 1000 秒模擬時間。正式評測的速度要依受測端的運算時間選。
 6. **取樣週期的來源**：回放的 `sample_period_s` 取情境設定的 `time_step`；資料包取資料推得的值，沒有才用 `time_step`。批次生成的情境兩者相同；人工寫入的 session 若不同，`is_partial` 可能不一致。
+
+### 6.12 Phase 3c OPC UA server（WMOM-20261021-07，2026-10-22）
+
+**定案**（劉老師確認，DEC-20261022-03）：
+
+| 項目 | 決定 |
+|---|---|
+| 資料來源 | 回放（CLI 綁一個 §6.11 的回放，正式評測與 WS 共用時鐘）＋ 即時模擬（主程式 `WMOM_OPCUA_ENABLE=true`） |
+| 合成 tag | 全部掛上，節點說明標示 `synthetic` |
+| 連線身分 | 匿名唯讀 |
+| 正式評測開播 | 出題端啟動 server 時（節點建好、開始監聽後） |
+
+合約升為 v1.2（新增 §13；WS 加 `?stream=false`、開播訊息加 `stream.data`），資料包與標準答案格式不變。
+
+**server** `modules/monitoring/server/opcua_server.py`（`asyncua`）：
+- `Z72OpcUaServer`：namespace `urn:windmindom:z72sim`，字串 NodeId＝真實 OPC DA 的 item ID。
+  - 讀值 `Z72.H{nn}.{group}.Z72PLC__UI_Loc_*`：欄位與資料包同一組，型別依 PLC（REAL32 → Float …），缺值 `BadNoData`、開播前 `BadWaitingForInitialData`，`SourceTimestamp`＝模擬時間。
+  - `WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNacAvg10m`：真實讀取腳本會讀、模擬器沒有輸出的真實 tag，由 server 以 `WSpeedNac` 的 10 分鐘移動平均（`RollingMean`）算出。
+  - 事件碼陣列 `Z72PLC__ActiveAlarm[0..20]` / `ActiveTrip1` / `ActiveTrip2`（Int16，只寫有變動的元素）。
+  - `WindMindOM.*` 狀態：`Source`、`Status`、`SimTime`、`PackId`、`Mode`、`Speed`。
+- 只收匿名 identity token、關閉 asyncua 內建 admin、唯讀 user manager：任何 session 都不能寫值或加刪節點。
+- `ReplayFeeder`：依時鐘每「取樣週期 ÷ 速度」實際秒（夾在 0.05–0.2 s）推進，各機組只寫最新一筆讀值；事件流重建事件碼陣列（第一次推進寫入全部機組）。每 5 秒重讀回放，撤銷 / 到期 / 刪除就停止；單次更新失敗只記錄、下一輪再試。
+- `LiveFeeder`：每秒讀 simulator 的 `get_current_data()` 與 `model.plc.active_lists`；不是即時模擬（產生情境 / 真實 OPC）或批次正在跑時只標示 `idle`；跑過批次或換了 simulator 就重來（批次留下的讀值不發布、10 分鐘平均重新累積、不見的機組改 `BadNoData`）。
+- `start_live_from_env`（`server/opcua_config.py` 判斷開關，沒開不載入 asyncua）：選配，預設只聽 `127.0.0.1`，起不來（埠被占用等）只記警告。
+
+**事件碼陣列** `simulator/physics/plc_protection.py` 的 `ActiveEventLists`：依成立順序、同一個碼只出現一次；`alarm_raised` / `alarm_cleared` 增刪 A，`trip` 依等級加入 T1 / T2、`trip_cleared` 移除、`restart_blocked` 不動（鎖存）。操作員復位本身不動清單：`PlcProtection.operator_reset` 為每個解除的鎖存另送 `trip_cleared`（維護清除故障的復位不解除鎖存）。`PlcProtection._emit` 送事件時同步更新；回放用同一個類別從事件流重建。清單每一步都等於 `PlcProtection.active_codes()`（測試逐步檢查）。
+
+**CLI** `tools/opcua_server.py <db> <回放 id>`：`load_run` 檢查回放（不存在 / 撤銷 / 到期 / 單次已播完）→ 建好全部機組的節點並開始監聽 → `start_clock`（正式評測寫入 `started_at`、已開始就沿用；練習把這次的起點寫進 `started_at`）→ 播到結束（`--exit-when-finished` 結束，預設保留最後的值）。撤銷 / 到期 / 刪除時狀態節點保留 10 秒再關；埠被占用回 exit 1。
+
+**WS** `/ws/replay?stream=false`：只收預測、不送資料，等到情境結束送 `finished`；期間照樣每 5 秒重讀回放。練習回放的時鐘用 OPC UA 這次開播的起點（還沒播出 4412、這次已播完 4410）。
+
+**starter kit**：
+- `opcua_client.py`：用字串 NodeId 讀目前值與事件碼陣列（一個 Read 請求），比較前後兩次的陣列得到事件、交給基準助手，經 WS `?stream=false` 送預測。
+- `stream_client.py` 抽出 `with_params` / `connect_options` 共用。README 新增「OPC UA」；`requirements.txt` 加 `asyncua>=1.1`。
+- 範例資料包重產：只有 `contract_version` 改成 1.2，資料檔逐位元不變。
+
+**測試** `modules/monitoring/tests/test_opcua_server.py`（20 項，一律用 asyncua client 讀回；初版 12 項如下，review 補測見下）：
+- `ActiveEventLists` 規則、`RollingMean`、站號與 item ID。
+- 回放：節點型別、合成 tag 標示、瀏覽路徑；6 個檢查點的讀值（float32 比對）/ `SourceTimestamp` / 10 分鐘平均 / 事件碼陣列 / 狀態節點與回放訊息一致；真實讀取腳本（`BASE_TAGS`）的每個 item ID 都讀得到；寫入被拒。
+- 撤銷時停止更新；正式評測：載入不開播、啟動時寫入開始時間、重啟沿用、WS `stream=false` 加入同一個時鐘且只收 ack；播完 / 撤銷 / 不存在都擋。
+- 即時模擬：讀值與 PLC 清單、復位、非即時模擬標 idle；即時模擬的清單與回放重建的清單一致（同一次批次生成）；環境變數開關與埠被占用。
+- CLI；kit 客戶端對真的 OPC UA + uvicorn WS 伺服器跑完一次（600×），預測含 `main_bearing`。
+
+**code review**（Needs revision → 全修）：
+- **M1 帳號填 admin 就能寫**：asyncua 預設的 user manager 把帳號名 admin 當管理員（不檢查密碼），可以改值、加刪節點。改為只收匿名 identity token、關閉 `allow_remote_admin`、自訂唯讀 user manager；測試 admin 登入被拒、匿名寫值 / 加節點被拒。
+- **M2 即時 OPC UA 會播出產生中的考題**：批次與即時模擬共用 simulator，`latest_data` / PLC 清單是批次的未來時間與注入的故障。改為批次期間 `idle`、批次後先略過留著的讀值；預設只聽本機；文件寫明批次的故障會留在即時模擬裡。
+- **M3 練習回放的 OPC UA 與 WS 時鐘不同**：練習的 WS 連線各自從連上起算，與 OPC UA 的開播時間差多久、預測時間就錯多少。改為 OPC UA 開播時把起點記在回放上，`stream=false` 的練習連線用它（還沒播出 4412）。
+- **S4 移動平均假設時間不倒退**：批次後回到現在，未來的樣本永遠移不出去。時間倒退就清空；換 simulator / 跑過批次時 LiveFeeder 重來，不見的機組改 `BadNoData`。
+- **S5 事件碼陣列與 PLC 鎖存不一致**：維護清除故障的復位（`maintenance_release`）也送 `operator_reset`，舊規則把跳機陣列清空，但鎖存還在；操作員復位不解除物理層保護停機（351）卻也被清掉。改為操作員復位為每個解除的鎖存送 `trip_cleared`、清單不再在復位時清空；新增「每一步陣列＝`active_codes()`」測試（含操作員復位與維護清除）。
+- **S6–S7、S10 CLI**：撤銷時狀態節點保留 10 秒；停止原因改用代碼（`missing` / `revoked` / `expired`）；埠被占用 exit 1；`0.0.0.0` 時提示用主機名稱連線。
+- **S8 kit 客戶端**：判斷改在另一個執行緒（換成同步的大模型呼叫也不卡）；送預測時連線已關、WS 握手失敗、回放結束時 OPC UA server 剛好關掉都不吐 traceback；讀值改用 dataclass。
+- **S9、S11–S14**：`LiveFeeder` 改用 `get_current_data()`（有鎖）與 Protocol 型別；`_z72` / 樣本的型別；即時 OPC UA 預設 `127.0.0.1`；主程式關機時 `try/finally`、開關判斷集中在 `opcua_config.py`、`LiveOpcUa.stop` 不吞掉呼叫端的取消；`utc_now()`、docstring；測試不再改模組共用的 fixture。
+- **Nice-to-have 採用**：更新間隔依取樣週期與速度；單次更新失敗不中斷播出；站號衝突（`WT01` 與 `WT001`）明確報錯；事件碼陣列開播前也是 `BadWaitingForInitialData`；文件寫明 OPC UA 與 WS 要同一台電腦（或時鐘對準）；asyncua 版本限定 `>=2.1,<3`。
+- **review 補測**：admin 登入、批次期間與批次後、機組不見、站號衝突、每一步陣列＝PLC 狀態、練習回放的 `stream=false` 對時與 4412 / 4410、CLI 撤銷中途停止與埠被占用、更新間隔。
+
+**已知限制**：
+1. **只有目前值**：回放每「取樣週期 ÷ 速度」更新一次（夾在 0.05–0.2 s）；速度越快，越多短暫的警報讀不到（3000× 時約 150 模擬秒）。
+2. **陣列排列是模擬的約定**：手冊沒寫真實 PLC 陣列的排法。
+3. **一個 server 播一個回放**；正式評測從出題端啟動起算，受測端晚連就少看一段。
+4. **匿名、不加密**：只給教室 / 實驗室網路；沒有 session 數上限。
+6. **即時模擬延續批次的故障**：產生情境與即時模擬共用模型，批次注入的故障之後仍在即時模擬裡（既有行為）。有受測端連著即時 OPC UA 時不要在同一個主程式出題。
+5. **舊的 `modules/monitoring/opcua_interface.py`**（python-opcua、自訂路徑）沒有接線，維持不動。
 
 ## 7. 不做的事
 

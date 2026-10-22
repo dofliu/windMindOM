@@ -209,6 +209,69 @@ def raisable_codes(spec: "TurbineSpec") -> FrozenSet[int]:
     return frozenset(r.code for r in build_rules(spec)) | frozenset(PROTECTION_TRIP_CODES)
 
 
+# 真實 PLC 的 Z72PLC__ActiveAlarm / ActiveTrip1 / ActiveTrip2 陣列長度（tag 清單 xlsx：21 個 SINT16）
+ACTIVE_LIST_SLOTS = 21
+
+
+class ActiveEventLists:
+    """依事件維護目前成立的警報 / 跳機碼（OPC 的 ActiveAlarm / ActiveTrip1 / ActiveTrip2 陣列，WMOM-20261021-07）。
+
+    依成立順序排列、同一個碼只出現一次。規則：
+    - ``alarm_raised`` 加入 A 清單、``alarm_cleared`` 移除。
+    - ``trip`` 依等級加入 T1 / T2 清單、``trip_cleared`` 移除；``restart_blocked`` 仍保留（鎖存＋封鎖）。
+    - 操作員復位（``operator_reset``；資料包事件為 ``reset``）本身不動清單：``PlcProtection.operator_reset``
+      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，清單照舊。
+      物理層保護停機的跳機（例：351）在機組再起動時以 ``trip_cleared`` 解除。
+    - 資訊事件（I）不在任何清單。
+
+    即時模擬由 ``PlcProtection`` 在送出事件時更新；回放則由事件流重建，兩邊規則相同，且與
+    ``PlcProtection.active_codes()`` 一致（``test_opcua_server.py`` 逐步檢查）。真實 PLC 陣列內的排列方式
+    手冊沒有寫，這裡假設依成立順序、空位為 0。
+    """
+
+    def __init__(self) -> None:
+        self._lists: Dict[str, List[int]] = {"A": [], "T1": [], "T2": []}
+
+    def apply(self, kind: str, code: int, level: Optional[str]) -> bool:
+        """套用一個事件。
+
+        Args:
+            kind: 事件種類（PLC 事件的 ``kind`` 或資料包事件的 ``event_type``）。
+            code: 事件碼。
+            level: 等級（``A`` / ``T1`` / ``T2`` / ``I``）。
+
+        Returns:
+            清單是否改變。
+        """
+        if kind == "alarm_raised" and level == "A":
+            return self._add("A", code)
+        if kind == "alarm_cleared":
+            return self._remove(("A",), code)
+        if kind == "trip" and level in ("T1", "T2"):
+            return self._add(level, code)
+        if kind == "trip_cleared":
+            return self._remove(("T1", "T2"), code)
+        return False
+
+    def snapshot(self) -> Dict[str, List[int]]:
+        """目前的清單（複本）。"""
+        return {level: list(codes) for level, codes in self._lists.items()}
+
+    def _add(self, level: str, code: int) -> bool:
+        if code in self._lists[level]:
+            return False
+        self._lists[level].append(code)
+        return True
+
+    def _remove(self, levels: Tuple[str, ...], code: int) -> bool:
+        changed = False
+        for level in levels:
+            if code in self._lists[level]:
+                self._lists[level].remove(code)
+                changed = True
+        return changed
+
+
 class PlcProtection:
     """單台機組的 Z72 PLC 保護層。"""
 
@@ -239,6 +302,8 @@ class PlcProtection:
         # 本停機週期已記過切出風速事件（I201）；機組再次起動時清除（WMOM-20261021-10）
         self._cut_out_noted = False
         self._events: Deque[PlcEvent] = deque(maxlen=_EVENT_QUEUE_MAX)
+        # 目前成立的警報 / 跳機碼（OPC UA server 的 ActiveAlarm / ActiveTrip 陣列，WMOM-20261021-07）
+        self.active_lists = ActiveEventLists()
         self._last_trip_codes: Tuple[int, ...] = ()
         self._pending_trip_codes: List[int] = []
         self._vane1_f: Optional[float] = None
@@ -497,23 +562,29 @@ class PlcProtection:
     def operator_reset(self, sim_time: float) -> None:
         """操作員復位：解除全部鎖存 / 封鎖的跳機；條件仍成立者下一步會再跳。
 
+        送出 ``operator_reset``（事件 008）後，每個被解除的跳機再送 ``trip_cleared``（OPC 的 ActiveTrip
+        陣列據此移除；物理層保護停機的跳機不在此解除）。
+
         Args:
             sim_time: 機組模擬時間（秒）。
         """
         if not self.enabled:
             return
-        cleared = False
-        for st in self._codes.values():
+        released: List[int] = []
+        for code, st in self._codes.items():
             if st.latched:
                 st.latched = False
                 st.blocked = False
-                cleared = True
-        if cleared:
+                released.append(code)
+        if released:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
+            for code in released:
+                self._emit(sim_time, "trip_cleared", code, None, None, source="operator")
 
     def _emit(self, sim_time: float, kind: str, code: int, value: Optional[float],
               setpoint: Optional[float], source: str = "signal") -> None:
         alarm = self._alarm[code]
+        self.active_lists.apply(kind, code, alarm.level)
         self._events.append(PlcEvent(
             sim_time=round(sim_time, 3), kind=kind, code=code, level=alarm.level, text=alarm.text,
             plc_tag=alarm.plc_tag, event_id=alarm.event_id, value=value, setpoint=setpoint, source=source,

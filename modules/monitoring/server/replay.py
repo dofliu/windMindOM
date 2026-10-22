@@ -89,7 +89,7 @@ class ReplayError(ValueError):
 
     Attributes:
         close_code: WebSocket 關閉碼（4401 token 無效、4403 撤銷 / 到期、4404 情境不能回放、
-            4409 連線數已滿、4410 單次回放已結束）。
+            4409 連線數已滿、4410 單次回放已結束、4412 練習回放還沒以 OPC UA 播出）。
     """
 
     def __init__(self, message: str, close_code: int) -> None:

@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 8 |
+| open | 7 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 139 |
+| done | 140 |
 | **total** | **150** |
 
-最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
+最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
+前次最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-12 done**：健康機組長時間偶發 T2 336 的根因是物理——葉片零點校正誤差 σ 0.12°加上伺服死區 / 雜訊，尾端碰到手冊的 5 s > 1°；PLC 規則與手冊一致，不改規則、不列 nuisance（DEC-20261022-01）。零點 σ 0.12 → 0.06°、起動 / 緊急順槳以外的死區 0.10° / 雜訊 0.04°；新增健康風場長時間守門測試（原始重現點 12 h ＋ 冬季夜間 / 夏季清晨各 6 h）與 14 種子 × 12 h 葉片同步機制測試；starter kit 重產（基準成績不變）。
 逐條解析 header 核實：open 9 / in_progress 1 / deferred 2 / done 138 = 150。詳見 `work-logs/2026-10/2026-10-22-healthy-blade-sync.md`）。
 前次最後更新：2026-10-21 深夜（**WMOM-20261021-09 done**（EPIC-DS Phase 3d）：RAG 學生專題 starter kit——介面合約 v1 定稿
@@ -1506,13 +1507,31 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-07 — Phase 3c：③ OPC UA server——模仿 Bachmann Z72 tag
 
-- **Status**: open
+- **Status**: done（2026-10-22）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 2 天
-- **Owner**: -
+- **Owner**: Claude
 - **Description**: 以 `asyncua` 實作 OPC UA server，節點路徑對齊真實讀取腳本 `shared/plc_clients/bachmann/opc_data_reader.py`（`Z72.H{n}.{group}.Z72PLC__UI_Loc_*`、`Z72PLC__ActiveAlarm[0..9]`、`ActiveTrip1/2[0..9]`），資料來自 3b 回放器或 live 模擬。legacy `modules/monitoring/opcua_interface.py`（`opcua` 套件、11 個通用變數、未接線）不沿用。
 - **Deliverable**: OPC UA server 模組、啟動設定、用 `asyncua` client 讀回的整合測試
+- **完成紀錄**:
+  - **劉老師確認**（2026-10-22，DEC-20261022-03）：回放＋即時模擬兩種來源、合成 tag 全部掛上並標示、匿名唯讀、正式評測在出題端啟動 server 時開播。
+  - **server** `modules/monitoring/server/opcua_server.py`：
+    - NodeId＝真實 OPC DA item ID；讀值欄位與盲測版資料包同一組（型別依 PLC、合成 tag 節點說明標示）。
+    - `WSpeedNacAvg10m`：真實讀取腳本會讀、模擬器沒有輸出，server 以 `WSpeedNac` 的 10 分鐘移動平均算出。
+    - 事件碼陣列 `ActiveAlarm` / `ActiveTrip1` / `ActiveTrip2`[0..20]；`WindMindOM.*` 狀態節點。
+    - 只收匿名、關閉內建 admin、唯讀 user manager。
+    - `ReplayFeeder`（回放）、`LiveFeeder`（即時模擬，批次期間與批次留下的讀值不發布）。
+  - **事件碼陣列** `plc_protection.ActiveEventLists`：即時模擬與回放同一套規則；操作員復位為每個解除的鎖存送 `trip_cleared`。
+  - **CLI** `tools/opcua_server.py`：建好節點、開始監聽後開播（正式評測寫入 `started_at`；練習記下這次的起點）。
+  - **WS** `/ws/replay?stream=false`：只收預測；練習回放的時鐘用 OPC UA 的起點（還沒播出 4412）。
+  - **主程式**：`WMOM_OPCUA_ENABLE=true` 起即時模擬的 OPC UA（`server/opcua_config.py`，預設只聽 `127.0.0.1`）。
+  - **starter kit**：`opcua_client.py`、README「OPC UA」、`asyncua>=2.1,<3`。
+  - **合約 v1.2**：新增 §13、§12 `stream=false` 與 4412；`CONTRACT_VERSION` / vocabulary 1.2；範例資料包重產（資料檔不變）。
+  - **與原描述不同**：事件碼陣列是 `[0..20]`（PLC 的 SINT16[21]，真實讀取腳本只讀前 10 個）。
+  - **code review**（Needs revision → 全修，見設計文件 §6.12）：M1 admin 登入可寫、M2 即時 OPC UA 播出產生中的考題、M3 練習回放的 OPC UA 與 WS 時鐘不同；S4–S14（移動平均時間倒退、事件碼陣列與鎖存、CLI、kit 客戶端、型別、預設位址、關機）。
+  - **測試**：`test_opcua_server.py` 20 項（一律用 asyncua client 讀回，含 kit 客戶端對真的 OPC UA + uvicorn WS 伺服器）。
+  - 設計、已知限制見設計文件 §6.12。
 - **Depends on**: WMOM-20261021-06
 
 ### WMOM-20261021-08 — Phase 4：情境難度與多樣性
@@ -1676,7 +1695,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 2 | ~~WMOM-20261021-04~~ ✅ | 標準答案 metadata + 情境路徑事件 + `session_id` | 🔵 |
 | 3a | ~~WMOM-20261021-05~~ ✅ | ① 情境資料包匯出（含 10-min stats） | 🔵 |
 | 3b | ~~WMOM-20261021-06~~ ✅ | ② WebSocket 回放串流（回放 token、單次直播＋練習、伺服器蓋 ts；合約 v1.1） | 🔵 |
-| 3c | WMOM-20261021-07 | ③ OPC UA server（模仿 Bachmann tag） | 🔵 |
+| 3c | ~~WMOM-20261021-07~~ ✅ | ③ OPC UA server（模仿 Bachmann tag；回放＋即時模擬，合約 v1.2） | 🔵 |
 | 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
 | 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本） | 🔵 |
 
