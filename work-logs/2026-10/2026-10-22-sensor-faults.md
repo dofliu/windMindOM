@@ -85,6 +85,7 @@
 - `modules/monitoring/tests/test_sensor_faults.py`（新，16 項）：每個感測器故障只送自己的碼；漂移先警報後跳機、第二支感測器正常；跳機當下軸承 2 分得出真故障與感測器故障；真故障不送感測器故障碼；PLC 斷線規則（確認延時、修好解除、低於範圍、已成立規則的解除、每對葉片）；跳機 → 維修鎖 → 清除 → 復機。
 - `tests/physics/test_fault_threshold_reach.py`（+12 項）：第二支 Pt100 的獨立 RNG；健康炎熱天第二支感測器不越限；漂移滿嚴重度越過跳機、0.5 還沒；故障機組除了那支感測器逐位元等於健康機組；斷線讀值固定、嚴重度 0.4 還正常；第二支感測器跟著同元件。
 - 既有守門自動涵蓋新情境：每個情境都會跳機（`test_plc_integration.py`）、key signal 偏離健康、答案欄位齊全、預期碼可由 PLC 送出、語料碼一致。
+- **完整 backend**：1853 → 1949 passed / 7 skipped / 1 xfailed（新情境讓參數化測試多出約 70 項）；frontend 沒有改動。
 - 更新：`test_plc_tags.py`（118 / 47）、`test_scenario_pack.py`（102 欄）、`test_fault_ground_truth.py`（感測器故障集合、同元件兩種類別）、`test_plc_protection.py`（基準值加兩個 tag）、`test_rag_starter_kit.py`（第四個資料包、基準成績）。
 
 ## 5. 產出清單
