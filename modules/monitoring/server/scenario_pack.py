@@ -318,7 +318,8 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
     Returns:
         合約格式的事件（``EVENT_KEYS`` 全部都有，不適用者為 None）；無法對應者回 None。
     """
-    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    raw_payload = event.get("payload")
+    payload: Dict[str, JsonValue] = raw_payload if isinstance(raw_payload, dict) else {}
     out: Dict[str, JsonValue] = dict.fromkeys(EVENT_KEYS)
     out["ts"] = iso_z(str(event["timestamp"]))
     out["turbine_id"] = event.get("turbine_id")
@@ -335,7 +336,7 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
             plc_tag=payload.get("plcTag"),
         )
         return out
-    from_state, to_state = payload.get("fromState"), payload.get("toState")
+    from_state, to_state, cause = payload.get("fromState"), payload.get("toState"), payload.get("shutdownCause")
     if not isinstance(from_state, int) or not isinstance(to_state, int):
         return None
     out.update(
@@ -344,7 +345,7 @@ def pack_event(event: Dict[str, JsonValue]) -> Optional[Dict[str, JsonValue]]:
         to_state=to_state,
         from_state_name=STATE_NAMES.get(from_state),
         to_state_name=STATE_NAMES.get(to_state),
-        stop_reason=stop_reason(payload.get("shutdownCause")) if to_state in _STOP_STATES else None,
+        stop_reason=stop_reason(cause if isinstance(cause, str) else None) if to_state in _STOP_STATES else None,
     )
     return out
 
@@ -792,7 +793,8 @@ def load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Optio
     scenario = storage.get_scenario(scenario_id)
     if scenario is None:
         raise ScenarioPackError(f"Scenario {scenario_id} not found", status_code=404)
-    config = scenario.get("config") if isinstance(scenario.get("config"), dict) else {}
+    raw_config = scenario.get("config")
+    config: Dict[str, JsonValue] = raw_config if isinstance(raw_config, dict) else {}
     if config.get("status") != "ok":
         raise ScenarioPackError(f"Scenario {scenario_id} did not finish generating (status={config.get('status')!r})")
     if config.get("events_session_isolated") is not True:

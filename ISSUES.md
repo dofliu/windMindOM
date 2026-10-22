@@ -1693,6 +1693,21 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ---
 
+## 📌 2026-10-22 session 新增 issue（EPIC-DS 全面檢查）
+
+### WMOM-20261022-01 — EPIC-DS 全面程式碼檢查 + 功能驗證（-08 其餘子項前）
+
+- **Status**: in_progress
+- **Milestone**: EPIC-DS
+- **Priority**: high
+- **Estimate**: 0.5-1 天
+- **Owner**: Claude
+- **Description**: 劉老師要求在做 -08 其餘子項前，先對 EPIC-DS 至今的程式（Phase 1a–4-a，約 70 個 Python 檔）做一次整體程式碼檢查與功能測試驗證。各 issue 合併前都個別 review 過，這次找跨模組才看得出來的問題、文件與程式不一致，並以真伺服器跑過三條管道（① 資料包 ② WS 回放 ③ OPC UA）到評分。
+- **Deliverable**: 三路 code review 結果與修正、完整 backend / frontend 測試、靜態檢查、端到端驗證紀錄、work-log
+- **Depends on**: WMOM-20261021-08-a
+
+---
+
 ## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
 
 > **2026-10-21 起現行主線為 EPIC-DS**（DEC-20261021-01）；EPIC-M6 deferred。
