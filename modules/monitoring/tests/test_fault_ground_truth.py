@@ -75,8 +75,14 @@ def test_sensor_and_external_categories_match_the_physics() -> None:
     assert FAULT_SCENARIOS["yaw_sensor_drift"].category == "sensor_fault"
     assert FAULT_SCENARIOS["blade_icing"].origin == "environmental"
     assert FAULT_SCENARIOS["grid_voltage_sag"].origin == "external_grid"
-    others = {sid for sid, sc in FAULT_SCENARIOS.items() if sc.category == "sensor_fault"}
-    assert others == {"yaw_sensor_drift"}
+    sensor = {sid for sid, sc in FAULT_SCENARIOS.items() if sc.category == "sensor_fault"}
+    assert sensor == {"yaw_sensor_drift", "main_bearing_temp_sensor_drift", "stator_temp_sensor_drift",
+                      "main_bearing_temp_sensor_wire_break", "blade1_pitch_encoder_fault",
+                      "yaw_brake_pressure_sensor_fault"}
+    # 感測器故障與真故障同元件、不同類別（WMOM-20261021-08-a）：只看警報碼猜不出類別
+    real = {sc.component for sc in FAULT_SCENARIOS.values() if sc.category == "real_fault"}
+    assert {"main_bearing", "generator_stator", "pitch_system_blade_1", "yaw_brake_hydraulics"} <= real
+    assert {FAULT_SCENARIOS[s].component for s in sensor} - {"wind_vane_1"} <= real
 
 
 # ── 2. 手冊條目 ───────────────────────────────────────────────────────────────

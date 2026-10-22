@@ -1,0 +1,290 @@
+{
+ "contract_version": "1.3",
+ "kind": "scenario_ground_truth",
+ "scenario_id": 2,
+ "scenario_name": "感測器故障 vs 真故障：主軸承磨耗與主軸承溫度量測回路劣化同時發生（同樣的 262 / 240），另一台偏航壓力感測器斷線",
+ "turbine_model": "Z72",
+ "site_timezone": "Asia/Taipei",
+ "sim_start": "2026-03-23T02:00:10.000000Z",
+ "sim_end": "2026-03-23T07:00:00.000000Z",
+ "generated_at": "2026-10-22T10:35:09.252784Z",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004"
+ ],
+ "healthy_turbines": [
+  "WT002"
+ ],
+ "cases": [
+  {
+   "case_id": "C001",
+   "turbine_id": "WT001",
+   "category": "real_fault",
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "bearing_wear",
+   "fault_name_en": "Generator Bearing Wear",
+   "fault_name_zh": "發電機軸承磨損",
+   "component": "main_bearing",
+   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動、峰度逐步上升，越過 85 °C 警報、95 °C 跳機；共用潤滑與傳熱，軸承溫度 2 也跟著升溫（幅度約三成）。",
+   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature, nacelle vibration and kurtosis climb past the 85 °C alarm and 95 °C trip setpoints; through shared lubrication and heat conduction bearing temperature 2 rises too (by about a third as much).",
+   "expected_alarm_codes": [
+    262,
+    240
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 262,
+     "level": "A",
+     "text": "Main bearing 1 temperature high"
+    },
+    {
+     "code": 240,
+     "level": "T1",
+     "text": "Bearing 1 temperature very high"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 262,
+     "event_id": "A_262",
+     "level": "A",
+     "text": "Main bearing 1 temperature high",
+     "page": 111,
+     "cause": "Main bearing temperature 1 is high and might culminate into a trip",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 240,
+     "event_id": "T_240",
+     "level": "T1",
+     "text": "Bearing 1 temperature very high",
+     "page": 110,
+     "cause": "Bearing temperature 1 is very high",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查主軸承潤滑（油脂量 / 油質）（手冊）",
+    "檢查軸承冷卻風扇（手冊）",
+    "比對振動頻譜（峰度、高頻帶）評估軸承損傷，必要時安排更換"
+   ],
+   "expected_actions_en": [
+    "Check main bearing lubrication (manual).",
+    "Check the cooling fan (manual).",
+    "Review vibration spectra (kurtosis, high-frequency band) for bearing damage; plan replacement if needed."
+   ],
+   "key_signals": [
+    "WGEN_GnBrgTmp1",
+    "WGEN_GnBrgTmp2",
+    "WNAC_VibMsNacXDir",
+    "WNAC_VibMsNacYDir",
+    "WVIB_Kurtosis"
+   ],
+   "simulation_notes": [
+    "模擬的量測 tag 是 WGEN_GnBrgTmp1（發電機軸承溫度），PLC 以它判定事件 262 / 240（Main bearing 1）；情境名稱沿用 Generator Bearing Wear。"
+   ],
+   "simulation_notes_en": [
+    "The simulated measurement tag is WGEN_GnBrgTmp1 (generator bearing temperature); the PLC uses it for events 262 / 240 (Main bearing 1). The scenario keeps its legacy name Generator Bearing Wear."
+   ],
+   "onset_ts": "2026-03-23T02:20:00.000000Z",
+   "first_alarm_ts": "2026-03-23T02:59:40.000000Z",
+   "first_alarm_code": 262,
+   "trip_ts": "2026-03-23T03:02:15.000000Z",
+   "trip_code": 240,
+   "observed_alarm_codes": [
+    262,
+    240
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 1200.0,
+    "severity_rate": 0.0004,
+    "initial_severity": 0.0
+   },
+   "final_severity": 1.0,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C002",
+   "turbine_id": "WT003",
+   "category": "sensor_fault",
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "main_bearing_temp_sensor_drift",
+   "fault_name_en": "Main Bearing 1 Temperature Sensor Drift",
+   "fault_name_zh": "主軸承溫度 1 感測器漂移",
+   "component": "main_bearing",
+   "root_cause": "主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——軸承溫度 2、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的主軸承磨耗會隨轉速增加摩擦熱，軸承溫度 2 跟著升溫、振動與峰度上升）。",
+   "root_cause_en": "Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real main bearing wear adds friction heat with speed, lifts bearing temperature 2 too and raises vibration and kurtosis).",
+   "expected_alarm_codes": [
+    262,
+    240
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 262,
+     "level": "A",
+     "text": "Main bearing 1 temperature high"
+    },
+    {
+     "code": 240,
+     "level": "T1",
+     "text": "Bearing 1 temperature very high"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 262,
+     "event_id": "A_262",
+     "level": "A",
+     "text": "Main bearing 1 temperature high",
+     "page": 111,
+     "cause": "Main bearing temperature 1 is high and might culminate into a trip",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 240,
+     "event_id": "T_240",
+     "level": "T1",
+     "text": "Bearing 1 temperature very high",
+     "page": 110,
+     "cause": "Bearing temperature 1 is very high",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "比對軸承溫度 1 與軸承溫度 2、振動與峰度：只有溫度 1 偏高、其他正常時，先懷疑感測器而不是軸承",
+    "依手冊檢查主軸承潤滑與冷卻風扇（手冊），排除真的過熱",
+    "檢查軸承溫度 1 的 Pt100 端子與配線（量測回路電阻），以參考溫度計比對，必要時更換感測器",
+    "讀值恢復正常後再復機，不必更換軸承"
+   ],
+   "expected_actions_en": [
+    "Compare bearing temperature 1 with bearing temperature 2, vibration and kurtosis: if only temperature 1 is high and the rest is normal, suspect the sensor before the bearing.",
+    "Check main bearing lubrication and the cooling fan per the manual (manual) to rule out real overheating.",
+    "Check the bearing temperature 1 Pt100 terminals and wiring (loop resistance), compare against a reference thermometer and replace the sensor if needed.",
+    "Restart once the reading is plausible again; the bearing does not need replacing."
+   ],
+   "key_signals": [
+    "WGEN_GnBrgTmp1"
+   ],
+   "simulation_notes": [
+    "讀值＝實際溫度＋偏移，偏移隨嚴重度線性增加到 60 °C；機組停機冷卻時讀值一樣下降（偏移不變）。真實的接觸電阻劣化通常歷時數週到數月。"
+   ],
+   "simulation_notes_en": [
+    "Reading = real temperature + an offset that grows linearly with severity up to 60 °C; when the turbine stops and cools the reading falls too (the offset stays). Real contact degradation usually takes weeks to months."
+   ],
+   "onset_ts": "2026-03-23T02:25:00.000000Z",
+   "first_alarm_ts": "2026-03-23T02:53:45.000000Z",
+   "first_alarm_code": 262,
+   "trip_ts": "2026-03-23T03:00:35.000000Z",
+   "trip_code": 240,
+   "observed_alarm_codes": [
+    262,
+    240
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 1500.0,
+    "severity_rate": 0.0004,
+    "initial_severity": 0.0
+   },
+   "final_severity": 0.854,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C003",
+   "turbine_id": "WT004",
+   "category": "sensor_fault",
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "yaw_brake_pressure_sensor_fault",
+   "fault_name_en": "Yaw Brake Pressure Sensor Broken Wire",
+   "fault_name_zh": "偏航煞車壓力感測器斷線",
+   "component": "yaw_brake_hydraulics",
+   "root_cause": "偏航煞車液壓壓力傳送器配線斷開（感測器故障）：I/O 模組偵測到斷線，讀值掉到量測範圍以下，PLC 送出偏航煞車壓力感測器故障（229）跳機；液壓系統本身正常——沒有洩漏偵測（261）、偏航沒有滑移（真漏油是壓力逐日下降，先出 260 再出 228）。",
+   "root_cause_en": "Broken wiring of the yaw brake hydraulic pressure transmitter (sensor fault): the I/O module senses a broken wire, the reading falls below the measuring range and the PLC trips with yaw brake pressure sensor fault (229); the hydraulics are fine — no leakage detection (261) and no yaw slippage (a real leak lowers pressure over days and raises 260 before 228).",
+   "expected_alarm_codes": [
+    229
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 229,
+     "level": "T1",
+     "text": "Yaw brake pressure sensor fault"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 229,
+     "event_id": "T_229",
+     "level": "T1",
+     "text": "Yaw brake pressure sensor fault",
+     "page": 109,
+     "cause": "The I/O module has sensed a broken wire",
+     "rectification": "Check wiring to the hydraulic pressure sensor",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查液壓壓力感測器的配線（手冊）",
+    "以液壓動力單元上的壓力錶確認實際系統壓力正常",
+    "修復配線或更換壓力傳送器後復機"
+   ],
+   "expected_actions_en": [
+    "Check the wiring to the hydraulic pressure sensor (manual).",
+    "Confirm the real system pressure on the hydraulic power unit's gauge is normal.",
+    "Repair the wiring or replace the pressure transmitter, then restart."
+   ],
+   "key_signals": [
+    "WYAW_YwBrkHyPrs"
+   ],
+   "simulation_notes": [
+    "斷線在嚴重度到 0.5 時發生，之前讀值正常；斷線後讀值固定為 −62.5 bar（4-20 mA、0-250 bar 傳送器在 0 mA 時的讀值，模擬假設）。"
+   ],
+   "simulation_notes_en": [
+    "The wire breaks when severity reaches 0.5 and the reading is normal before that; afterwards it is pinned at −62.5 bar (the reading of a 4-20 mA, 0-250 bar transmitter at 0 mA, a simulator assumption)."
+   ],
+   "onset_ts": "2026-03-23T04:00:00.000000Z",
+   "first_alarm_ts": "2026-03-23T04:08:25.000000Z",
+   "first_alarm_code": 229,
+   "trip_ts": "2026-03-23T04:08:25.000000Z",
+   "trip_code": 229,
+   "observed_alarm_codes": [
+    229
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 7200.0,
+    "severity_rate": 0.001,
+    "initial_severity": 0.0
+   },
+   "final_severity": 0.505,
+   "superseded": false,
+   "pre_existing": false
+  }
+ ],
+ "unattributed_events": [],
+ "pack_id": "z72-starter-04"
+}

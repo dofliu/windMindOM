@@ -1,5 +1,5 @@
 {
- "contract_version": "1.2",
+ "contract_version": "1.3",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "入門：一台機組主軸承磨耗，額定風速",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-02T01:00:10.000000Z",
  "sim_end": "2026-03-02T05:00:00.000000Z",
- "generated_at": "2026-10-22T08:43:28.757223Z",
+ "generated_at": "2026-10-22T10:33:35.437885Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -28,8 +28,8 @@
    "fault_name_en": "Generator Bearing Wear",
    "fault_name_zh": "發電機軸承磨損",
    "component": "main_bearing",
-   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動逐步上升，越過 85 °C 警報、95 °C 跳機。",
-   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature and nacelle vibration climb past the 85 °C alarm and 95 °C trip setpoints.",
+   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動、峰度逐步上升，越過 85 °C 警報、95 °C 跳機；共用潤滑與傳熱，軸承溫度 2 也跟著升溫（幅度約三成）。",
+   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature, nacelle vibration and kurtosis climb past the 85 °C alarm and 95 °C trip setpoints; through shared lubrication and heat conduction bearing temperature 2 rises too (by about a third as much).",
    "expected_alarm_codes": [
     262,
     240
@@ -85,6 +85,7 @@
    ],
    "key_signals": [
     "WGEN_GnBrgTmp1",
+    "WGEN_GnBrgTmp2",
     "WNAC_VibMsNacXDir",
     "WNAC_VibMsNacYDir",
     "WVIB_Kurtosis"

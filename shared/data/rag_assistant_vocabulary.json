@@ -1,5 +1,5 @@
 {
- "contract_version": "1.2",
+ "contract_version": "1.3",
  "description": "Closed vocabularies of the windMindOM RAG assistant data contract v1 (docs/integration/rag_assistant_data_contract_v1.md).",
  "component_groups": [
   {

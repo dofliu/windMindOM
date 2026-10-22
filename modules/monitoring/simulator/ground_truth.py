@@ -29,7 +29,7 @@ from shared.alarm_codes import get_alarm  # noqa: E402
 
 # 介面合約版本：v1 定稿見 docs/integration/rag_assistant_data_contract_v1.md（WMOM-20261021-09）。
 # 加欄位升次版本（1.x），改名 / 刪欄位 / 改語意升主版本
-CONTRACT_VERSION = "1.2"
+CONTRACT_VERSION = "1.3"
 MANUAL_DOC = "Z72 User Manual"
 MANUAL_SECTION = "Appendix C"
 _ABB_MARKER = "See [ABB]"

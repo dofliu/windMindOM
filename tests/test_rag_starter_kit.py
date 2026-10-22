@@ -29,7 +29,7 @@ from simulator.ground_truth import CONTRACT_VERSION  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 
 KIT = PROJECT_ROOT / "examples" / "rag_starter_kit"
-PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03"]
+PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04"]
 
 
 def _load(name: str) -> ModuleType:
@@ -361,8 +361,11 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     predictions, invalid = score.read_predictions(output.read_text(encoding="utf-8").splitlines(), COMPONENTS)
     assert invalid == [] and predictions
     report = score.score(score.load_answers([KIT / "answers"]), predictions, COMPONENTS)
-    assert (report.cases, report.detected) == (5, 5)
-    assert (report.component_accuracy, report.component_group_accuracy, report.category_accuracy) == (0.8, 1.0, 0.8)
+    assert (report.cases, report.detected) == (8, 8)
+    assert (report.component_accuracy, report.component_group_accuracy, report.category_accuracy) == (0.875, 1.0, 0.75)
+    # 讀值像真故障的感測器故障（風向標漂移、軸承溫度量測回路）判錯類別；有專屬碼的（229）判對
+    wrong = {(r.pack_id, r.turbine_id) for r in report.case_results if not r.category_correct}
+    assert wrong == {("z72-starter-03", "WT003"), ("z72-starter-04", "WT003")}
     assert (report.manual_hit_at_1, report.early_warnings, report.false_alarm_predictions) == (1.0, 0, 0)
     assert report.latency_median_s == 0.0
 

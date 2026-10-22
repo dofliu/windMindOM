@@ -1,7 +1,7 @@
 """Z72 真實 PLC tag 清單（WMOM-20261021-05，EPIC-DS Phase 3a）。
 
 情境資料包的 tag 字典以 `shared/data/z72_plc_tags.json` 判定每個模擬 tag 是真實 Bachmann tag 還是
-自創（synthetic）。這裡守住：清單與 xlsx 一致、判定規則、模擬器 116 個 tag 的真實 / 自創分布。
+自創（synthetic）。這裡守住：清單與 xlsx 一致、判定規則、模擬器 118 個 tag 的真實 / 自創分布。
 """
 
 from __future__ import annotations
@@ -28,12 +28,13 @@ def test_known_real_and_synthetic_tags() -> None:
     assert len(real_plc_tags()) >= 1500
 
 
-def test_simulator_tags_split_into_45_real_and_71_synthetic() -> None:
-    """-03-a 起 116 個 tag：45 個真實 Bachmann tag（含 -03-a 補的 5 個）、71 個依命名規則自創。"""
+def test_simulator_tags_split_into_47_real_and_71_synthetic() -> None:
+    """118 個 tag：47 個真實 Bachmann tag（含 -03-a 補的 5 個、-08-a 補的軸承 / 定子溫度 2）、71 個依命名規則自創。"""
     real = [t.id for t in SCADA_REGISTRY.all_tags if is_real_plc_tag(t.opc_tag)]
-    assert len(SCADA_REGISTRY.all_tags) == 116
-    assert len(real) == 45
-    for tag_id in ("WYAW_YwVn2AlgnAvg5s", "WCNV_VtgMsCnvGd1", "WYAW_YwBrkSealsLeak", "WGEN_GnBrgTmp1"):
+    assert len(SCADA_REGISTRY.all_tags) == 118
+    assert len(real) == 47
+    for tag_id in ("WYAW_YwVn2AlgnAvg5s", "WCNV_VtgMsCnvGd1", "WYAW_YwBrkSealsLeak", "WGEN_GnBrgTmp1",
+                   "WGEN_GnBrgTmp2", "WGEN_GnStaTmp2"):
         assert tag_id in real
 
 

@@ -93,7 +93,7 @@ REGISTER_MAP: List[tuple] = [
 
     # ── Temperature registers (HR 501-517) ──
     (501, "WGEN_GnStaTmp1", 10, "發電機定子溫度1 (×10 °C)"),
-    (502, "_gen_stator_tmp2", 10, "發電機定子溫度2"),
+    (502, "WGEN_GnStaTmp2", 10, "發電機定子溫度2 (×10 °C)"),
     (503, "_gen_stator_tmp3", 10, "發電機定子溫度3"),
     (504, "_gen_stator_tmp4", 10, "發電機定子溫度4"),
     (505, "_gen_stator_tmp5", 10, "發電機定子溫度5"),
@@ -101,7 +101,7 @@ REGISTER_MAP: List[tuple] = [
     (507, "WGEN_GnAirTmp1", 10, "發電機空氣溫度1 (×10 °C)"),
     (508, "_gen_air_tmp2", 10, "發電機空氣溫度2"),
     (509, "WGEN_GnBrgTmp1", 10, "主軸承溫度1 (×10 °C)"),
-    (510, "_main_brg_tmp2", 10, "主軸承溫度2"),
+    (510, "WGEN_GnBrgTmp2", 10, "主軸承溫度2 (×10 °C)"),
     (511, "WROT_RotTmp", 10, "輪轂溫度 (×10 °C)"),
     (512, "WROT_RotCabTmp", 10, "輪轂控制櫃溫度 (×10 °C)"),
     (513, "WNAC_NacTmp", 10, "機艙溫度 (×10 °C)"),

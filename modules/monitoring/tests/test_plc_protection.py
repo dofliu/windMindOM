@@ -35,6 +35,7 @@ HEALTHY: Dict[str, float] = {
     "WROT_PtAngValBl1": -1.0, "WROT_PtAngValBl2": -1.0, "WROT_PtAngValBl3": -1.0,
     "WYAW_YwVn1AlgnAvg5s": 0.0, "WYAW_YwVn2AlgnAvg5s": 0.0, "WMET_WSpeedNac": 10.0,
     "WGEN_GnBrgTmp1": 45.0, "WGEN_GnStaTmp1": 70.0, "WNAC_NacTmp": 30.0, "WNAC_NacCabTmp": 36.0,
+    "WGEN_GnBrgTmp2": 44.0, "WGEN_GnStaTmp2": 70.5,
     "WGDC_TrfCoreTmp": 40.0, "WCNV_IGCTWtrTmp": 35.0, "WCNV_CnvCabinTmp": 44.0,
     "WCNV_IGCTWtrPres1": 3.5, "WYAW_YwBrkHyPrs": 210.0, "WYAW_YwBrkSealsLeak": 0.0,
     "WNAC_VibMsNacXDir": 1.0, "WNAC_VibMsNacYDir": 1.0, "WCNV_VtgMsCnvGd1": NOMINAL_LN_KV,
