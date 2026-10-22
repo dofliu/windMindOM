@@ -226,18 +226,21 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 現行主線（2026-10-21 起）— EPIC-DS 擬真資料源
 
-> 依 [DEC-20261021-01](decision_log.md)；詳細設計、介面合約 v0 見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)。不設日期，依序推進。
+> 依 [DEC-20261021-01](decision_log.md)；詳細設計見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)，介面合約 v1.3 見 [`rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)。不設日期，依序推進。狀態以 [`STATUS.yaml`](../../STATUS.yaml) 為準（2026-10-22：約 92%）。
 
-| Phase | Issue | 交付 |
-|---|---|---|
-| 1a | WMOM-20261021-02 | Z72 真實警報目錄（xlsx 314 筆 + 手冊 Appendix C）→ `shared/alarm_codes.py`；11 個故障情境改用真實碼 |
-| 1b | WMOM-20261021-03 | 接上溫度門檻、修 7↔3 狀態跳動、UTC tz-aware 時間戳 |
-| 2 | WMOM-20261021-04 | 故障情境標準答案 metadata + 情境（bulk）路徑產生事件 + `session_id` |
-| 3a | WMOM-20261021-05 | ① 檔案：情境資料包匯出（含 10-min stats） |
-| 3d | WMOM-20261021-09 | 學生專題 starter kit：介面合約 v1 + 範例資料包 |
-| 3b | WMOM-20261021-06 | ② 串流：凍結情境 WebSocket 回放（含事件通道） |
-| 3c | WMOM-20261021-07 | ③ OPC UA server：模仿 Bachmann Z72 tag |
-| 4 | WMOM-20261021-08 | 難度與多樣性：警報連鎖、感測器故障、多重故障、誤報、負樣本、早期徵兆 |
+| Phase | Issue | 交付 | 狀態 |
+|---|---|---|---|
+| 1a | WMOM-20261021-02 | Z72 真實警報目錄（xlsx 314 筆 + 手冊 Appendix C）→ `shared/alarm_codes.py`；11 個故障情境改用真實碼 | ✅ |
+| 1b | WMOM-20261021-03（a / b / c） | 故障物理校正到真實保護設定值、PLC 保護層（警報 / 跳機由訊號觸發、鎖存與重啟上限、修 7↔3）、UTC tz-aware 時間戳 | ✅ |
+| 1b | WMOM-20261021-10 / -11 / -12 | 切出風速依手冊（10 分鐘 / 5 秒平均）、風場時區、健康機組葉片同步誤差 | ✅ |
+| 2 | WMOM-20261021-04 | 故障情境標準答案 metadata + 情境（bulk）路徑產生事件 + `session_id` + `scenario_ground_truth` | ✅ |
+| 3a | WMOM-20261021-05 | ① 檔案：情境資料包匯出（含 10-min stats） | ✅ |
+| 3d | WMOM-20261021-09 | 學生專題 starter kit：介面合約 v1 + 範例資料包 | ✅ |
+| 3b | WMOM-20261021-06 | ② 串流：凍結情境 WebSocket 回放（含事件通道、單次正式評測） | ✅ |
+| 3c | WMOM-20261021-07 | ③ OPC UA server：模仿 Bachmann Z72 tag（回放 + 即時模擬） | ✅ |
+| 檢查 | WMOM-20261022-01 | 全面程式碼檢查 + 三條管道端到端驗證（DEC-20261022-05：正式評測強制登入、批次背景執行、總速率上限） | ✅ |
+| 4 | WMOM-20261021-08 | 難度與多樣性：**-08-a 感測器故障 vs 真故障 ✅**；其餘（誤報 / 健康負樣本、多重故障 + 早期徵兆、故障庫擴充）待劉老師挑順序 | 🟡 |
+| 4 前 | WMOM-20261022-02 | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（排在 -08 其餘子項前） | ⏭️ 下一步 |
 
 Done criteria：學生端只靠介面合約 + 範例資料包，就能用三條管道任一條取得資料並以 `ground_truth.json` 評分。
 

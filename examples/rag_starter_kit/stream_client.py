@@ -14,9 +14,9 @@
 
 需要 ``websockets``（``pip install -r requirements.txt``）。用法::
 
-    python stream_client.py ws://<host>:8000/ws/replay --token <出題端給的 token>
-    python stream_client.py ws://<host>:8000/ws/replay --token <token> --check     # 只檢查 token，不開始計時
-    python stream_client.py ws://<host>:8000/ws/replay --token <token> --record received.jsonl
+    python stream_client.py ws://<host>:8100/ws/replay --token <出題端給的 token>
+    python stream_client.py ws://<host>:8100/ws/replay --token <token> --check     # 只檢查 token，不開始計時
+    python stream_client.py ws://<host>:8100/ws/replay --token <token> --record received.jsonl
 
 token 也可以放環境變數 ``WMOM_REPLAY_TOKEN``。預設不經過環境變數設定的 HTTP proxy（直連伺服器）；
 校園網路需要 proxy 時加 ``--use-env-proxy``。

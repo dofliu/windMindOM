@@ -109,9 +109,9 @@ case：8　偵測到：8（100.0 %）
 - 伺服器以「收到判斷時的模擬時間」蓋 `ts`。你不用（也不能）自己填時間，這樣才保證沒有偷看未來。
 
 ```bash
-python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --check    # 先確認 token（不開始計時）
-python stream_client.py ws://<伺服器>:8000/ws/replay --token <token>
-python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record received.jsonl   # 另存收到的訊息
+python stream_client.py ws://<伺服器>:8100/ws/replay --token <token> --check    # 先確認 token（不開始計時）
+python stream_client.py ws://<伺服器>:8100/ws/replay --token <token>
+python stream_client.py ws://<伺服器>:8100/ws/replay --token <token> --record received.jsonl   # 另存收到的訊息
 ```
 
 - **兩種回放**：
@@ -145,12 +145,12 @@ python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record
   要每一筆讀值與 10 分鐘統計，用 WebSocket 回放或資料包。
 - 合成 tag（真實 PLC 沒有的）一樣掛著，節點說明寫 `synthetic`；`WSpeedNacAvg10m` 由 server 從 `WSpeedNac` 算 10 分鐘平均。
 - 模擬器狀態在 `WindMindOM.*`（`Status`：`running` / `finished` / `revoked` …、`SimTime`、`PackId`）。
-- **判斷照樣經 WebSocket 送**：同一個 token 連 `ws://<伺服器>:8000/ws/replay?stream=false`（只收判斷、不再送資料），
+- **判斷照樣經 WebSocket 送**：同一個 token 連 `ws://<伺服器>:8100/ws/replay?stream=false`（只收判斷、不再送資料），
   伺服器一樣蓋 `ts`，時鐘與 OPC UA 相同：正式回放在老師啟動 OPC UA server 時就開始計時；練習回放用老師這次啟動
   OPC UA server 的時間。兩者在 OPC UA server 啟動前都會被拒絕（關閉碼 4412），不會先開始計時。
 
 ```bash
-python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/ --ws ws://<伺服器>:8000/ws/replay --token <token>
+python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/ --ws ws://<伺服器>:8100/ws/replay --token <token>
 python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/          # 只看（不送判斷）
 ```
 

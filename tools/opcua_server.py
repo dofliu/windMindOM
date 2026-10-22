@@ -2,7 +2,7 @@
 
 模仿 Bachmann Z72 的 tag（``Z72.H{nn}.{group}.Z72PLC__UI_Loc_*``、``Z72PLC__ActiveAlarm[0..20]`` …），
 資料來自一個回放（``tools/replay_runs.py create`` 建立）。受測端用 OPC UA 讀資料，判斷照樣經 WS 送：
-``ws://<host>:8000/ws/replay?stream=false``（同一個回放 token，伺服器蓋 ``ts``）。
+``ws://<host>:8100/ws/replay?stream=false``（同一個回放 token，伺服器蓋 ``ts``）。
 
 - **正式評測（evaluation）**：server 一啟動就開播（寫入回放的開始時間），之後的 WS 連線加入同一個時鐘；
   回放已開始（例：server 重啟）就接著播。播完後不能再開。
