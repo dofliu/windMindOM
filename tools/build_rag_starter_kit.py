@@ -107,6 +107,19 @@ STARTER_PACKS: List[StarterPack] = [
             {"scenario_id": "pitch_imbalance", "turbine_id": "WT005", "offset_seconds": 5400, "severity_rate": 0.001},
         ),
     ),
+    StarterPack(
+        pack_id="z72-starter-04",
+        title="感測器故障 vs 真故障：主軸承磨耗與主軸承溫度量測回路劣化同時發生（同樣的 262 / 240），另一台偏航壓力感測器斷線",
+        start=datetime(2026, 3, 23, 2, 0, tzinfo=timezone.utc),
+        turbines=4, hours=5.0, wind_profile="rated",
+        faults=(
+            {"scenario_id": "bearing_wear", "turbine_id": "WT001", "offset_seconds": 1200, "severity_rate": 0.0004},
+            {"scenario_id": "main_bearing_temp_sensor_drift", "turbine_id": "WT003", "offset_seconds": 1500,
+             "severity_rate": 0.0004},
+            {"scenario_id": "yaw_brake_pressure_sensor_fault", "turbine_id": "WT004", "offset_seconds": 7200,
+             "severity_rate": 0.001},
+        ),
+    ),
 ]
 
 

@@ -87,6 +87,10 @@ class _RollingMean:
         return self._duration >= self.window_s - 1e-9
 
 
+# 斷線 / 編碼器故障這類「一壞就壞」的感測器故障在嚴重度到這裡時發生（之前讀值正常；WMOM-20261021-08-a）
+SENSOR_BREAK_SEVERITY = 0.5
+
+
 @dataclass
 class TurbineSpec:
     """Configurable wind turbine specifications."""
@@ -172,6 +176,19 @@ class TurbineSpec:
     cooling_static_pressure_low_bar: float = 2.5  # assumed, event 432 (WCNV_IGCTWtrPres1, producing)
     tower_vibration_trip_mm_s: float = 7.0        # assumed, event 236 (WNAC_VibMsNac X/Y)
 
+    # Z72 sensor-signal faults (WMOM-20261021-08-a). The manual's sensor fault events (242/243 bearing
+    # temperature, 250/251 stator temperature, 229 yaw brake pressure sensor: "the I/O module has sensed
+    # a broken wire"; 326-328 encoder: "blade angle ... outside range") fire when a measured signal
+    # leaves its valid range; the PLC then ignores that signal in its over / under limit rules. The
+    # ranges and the broken-wire readings are assumed (the manual gives no numbers), wide enough that
+    # healthy and real-fault process values never leave them.
+    pt100_valid_range_c: Tuple[float, float] = (-40.0, 250.0)          # assumed, events 242/243/250/251
+    pt100_broken_wire_c: float = 850.0                                   # assumed: an open Pt100 reads full scale
+    yaw_pressure_valid_range_bar: Tuple[float, float] = (-5.0, 260.0)  # assumed, event 229 (4-20 mA, 0-250 bar)
+    yaw_pressure_broken_wire_bar: float = -62.5                          # 0 mA on a 4-20 mA, 0-250 bar transmitter
+    blade_angle_valid_range_deg: Tuple[float, float] = (-10.0, 100.0)  # assumed, events 326-328
+    blade_encoder_fault_deg: float = 135.0                               # assumed: faulty encoder reads out of range
+
     # Z72 grid (60Hz system)
     grid_frequency_nominal: float = 60.0
 
@@ -245,6 +262,9 @@ class TurbinePhysicsModel:
         self._aux_rng = np.random.RandomState(None if seed is None else (seed + 104729) % (2 ** 32))
         self._vane2_bias = self._aux_rng.uniform(-2.0, 2.0)
         self._cnv_grid_phase_scale = [1.0 + self._aux_rng.normal(0.0, 0.004) for _ in range(3)]
+        # Stator Pt100 #2 sits in another slot of the same winding: fixed per-turbine offset
+        # (WGEN_GnStaTmp2, WMOM-20261021-08-a); drawn after the existing aux draws so they keep their values
+        self._stator_rtd2_offset = float(np.clip(self._aux_rng.normal(0.0, 0.8), -2.0, 2.0))
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -933,6 +953,8 @@ class TurbinePhysicsModel:
             "WGEN_GnStaTmp1": temps["gen_stator"],
             "WGEN_GnAirTmp1": temps["gen_air"],
             "WGEN_GnBrgTmp1": temps["gen_bearing"],
+            "WGEN_GnStaTmp2": round(temps["gen_stator"] + self._stator_rtd2_offset, 2),
+            "WGEN_GnBrgTmp2": temps["gen_bearing2"],
             "WROT_RotSpd": round(self.rotor_speed, 3),
             "WROT_PtAngValBl1": round(self._pitch_bl[0], 2),
             "WROT_PtAngValBl2": round(self._pitch_bl[1], 2),
@@ -1062,13 +1084,21 @@ class TurbinePhysicsModel:
         # with operating-condition coupling. This ensures ML models must
         # learn physically grounded fault signatures.
 
-        sensorized = self._apply_sensor_model(output)
+        # Injected sensor faults (WMOM-20261021-08-a) change what one sensor measures — the
+        # process (physics, control) is untouched. Both the PLC and SCADA see the faulty reading.
+        sensor_faults: Dict[str, Tuple[str, float]] = fault_physics["sensor_faults"]  # type: ignore[assignment]  # 見 _get_fault_physics
+        measured = self._apply_sensor_faults(output, sensor_faults)
+        sensorized = self._apply_sensor_model(measured)
+        for tag, (mode, value) in sensor_faults.items():
+            if mode == "pinned" and tag in sensorized:
+                sensorized[tag] = value  # a broken wire / failed encoder reads a constant, no noise
 
         # The PLC judges the process values (pre sensor model): the sensor model's noise /
         # drift / stuck values are SCADA-acquisition artefacts tuned for trend realism and
-        # too large for protection logic (see plc_protection docstring). T1 = normal servo
+        # too large for protection logic (see plc_protection docstring). Injected sensor faults
+        # are the exception: the faulty sensor's reading is what the PLC gets. T1 = normal servo
         # stop, T2 = emergency pitch (_request_stop never downgrades a pending emergency).
-        for code, level in self.plc.evaluate(output, self._sim_time, dt, producing=self.tur_state == 6,
+        for code, level in self.plc.evaluate(measured, self._sim_time, dt, producing=self.tur_state == 6,
                                              yawing=bool(yaw_out.get("is_yawing", 0.0))):
             self._request_stop("emergency" if level == "T2" else "normal", f"plc:{code}")
         return sensorized
@@ -1545,7 +1575,30 @@ class TurbinePhysicsModel:
     _AUX_SENSOR_TAGS = frozenset({
         "WYAW_YwVn2AlgnAvg5s",
         "WCNV_VtgMsCnvGd1", "WCNV_VtgMsCnvGd2", "WCNV_VtgMsCnvGd3",
+        "WGEN_GnStaTmp2", "WGEN_GnBrgTmp2",  # WMOM-20261021-08-a
     })
+
+    @staticmethod
+    def _apply_sensor_faults(output: Dict[str, float],
+                             sensor_faults: Dict[str, Tuple[str, float]]) -> Dict[str, float]:
+        """注入的感測器故障 → 該感測器的量測值（WMOM-20261021-08-a）。
+
+        Args:
+            output: 製程值。
+            sensor_faults: ``{tag: (模式, 值)}``；``offset`` 在製程值上加偏移（漂移），``pinned`` 固定讀值
+                （斷線 / 編碼器故障）。
+
+        Returns:
+            量測值；沒有感測器故障時就是 ``output`` 本身（健康機組不受影響）。
+        """
+        if not sensor_faults:
+            return output
+        measured = dict(output)
+        for tag, (mode, value) in sensor_faults.items():
+            if tag not in measured:
+                continue
+            measured[tag] = value if mode == "pinned" else round(measured[tag] + value, 2)
+        return measured
 
     def _apply_sensor_model(self, output: Dict[str, float]) -> Dict[str, float]:
         # Tags that should not be filtered through the sensor model
@@ -1678,6 +1731,9 @@ class TurbinePhysicsModel:
             "grid_voltage_scale": 1.0,
             # Yaw brake leakage-detector line pressure (bar); Z72 event 261 at > 3 bar
             "yaw_leak_detector_bar": 0.0,
+            # Injected sensor faults (WMOM-20261021-08-a): {tag: ("offset", Δ) | ("pinned", reading)}.
+            # Only the measurement changes; the process stays healthy.
+            "sensor_faults": {},
         }
 
         # Operating condition factors for load-dependent fault coupling.
@@ -1758,6 +1814,26 @@ class TurbinePhysicsModel:
                 fault_physics["vane1_drift_deg"] += yaw_deg
                 cos_loss = math.cos(math.radians(min(30.0, abs(yaw_deg))))
                 fault_physics["wind_scale"] *= max(0.75, cos_loss)
+
+            # ── 感測器故障（WMOM-20261021-08-a）：只改那支感測器的量測值，製程照常 ──
+            # 讀值像真故障：Pt100 量測回路接觸電阻增加（約 0.385 Ω/°C），讀值 = 製程值 + 隨嚴重度線性增加的
+            # 偏移；PLC 照樣以讀值判定 262 / 240、264 / 244（同主軸承磨耗 / 定子劣化的碼）。滿嚴重度在高負載
+            # （14 m/s）越過跳機設定、嚴重度 0.5 還不到警報設定。
+            elif scenario_id == "main_bearing_temp_sensor_drift":
+                fault_physics["sensor_faults"]["WGEN_GnBrgTmp1"] = ("offset", 60.0 * severity)
+            elif scenario_id == "stator_temp_sensor_drift":
+                fault_physics["sensor_faults"]["WGEN_GnStaTmp1"] = ("offset", 100.0 * severity)
+            # 專屬故障碼：斷線（I/O 模組偵測到）/ 編碼器讀值超出範圍，嚴重度到 SENSOR_BREAK_SEVERITY 時發生
+            elif scenario_id == "main_bearing_temp_sensor_wire_break":
+                if severity >= SENSOR_BREAK_SEVERITY:
+                    fault_physics["sensor_faults"]["WGEN_GnBrgTmp1"] = ("pinned", self.spec.pt100_broken_wire_c)
+            elif scenario_id == "blade1_pitch_encoder_fault":
+                if severity >= SENSOR_BREAK_SEVERITY:
+                    fault_physics["sensor_faults"]["WROT_PtAngValBl1"] = ("pinned", self.spec.blade_encoder_fault_deg)
+            elif scenario_id == "yaw_brake_pressure_sensor_fault":
+                if severity >= SENSOR_BREAK_SEVERITY:
+                    fault_physics["sensor_faults"]["WYAW_YwBrkHyPrs"] = (
+                        "pinned", self.spec.yaw_pressure_broken_wire_bar)
 
             # ── stator_winding_degradation ───────────────────────────
             # Insulation resistance decreases. Extra I²R losses at load.

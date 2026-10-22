@@ -570,6 +570,215 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "Restart only once temperatures are back in the operating range (manual).",
         ),
     ),
+
+    # ══════════════════════════════════════════════════════════════════
+    # 感測器故障（WMOM-20261021-08-a）：只改那支感測器的量測值，機器本身正常
+    # 標準答案的 component 是被量測的元件、category 是 sensor_fault（與真故障同元件、不同類別）
+    # ══════════════════════════════════════════════════════════════════
+
+    # 讀值像真故障：與 bearing_wear 同樣的警報 / 跳機碼，要靠其他訊號分辨
+    "main_bearing_temp_sensor_drift": FaultScenario(
+        id="main_bearing_temp_sensor_drift",
+        name_en="Main Bearing 1 Temperature Sensor Drift",
+        name_zh="主軸承溫度 1 感測器漂移",
+        description_en="The bearing 1 Pt100 reading drifts upward while the bearing itself is healthy. Raises the same alarm and trip as real bearing wear; bearing 2 temperature, vibration and kurtosis stay normal.",
+        description_zh="軸承溫度 1 的 Pt100 讀值逐漸往上漂，軸承本身正常。觸發與軸承磨耗相同的警報 / 跳機；軸承溫度 2、振動與峰度都正常。",
+        affected_tags={
+            "WGEN_GnBrgTmp1": {"max_offset": 60.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "A", "code": 262, "desc": "Main bearing 1 temperature high"},
+            {"type": "T1", "code": 240, "desc": "Bearing 1 temperature very high"},
+        ],
+        component="main_bearing",
+        category="sensor_fault",
+        root_cause_zh="主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——同一軸承的另一支溫度（軸承溫度 2）、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的潤滑劣化會隨轉速增加摩擦熱、伴隨振動上升）。",
+        root_cause_en="Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real lubrication failure adds friction heat with speed and raises vibration).",
+        difficulty="hard",
+        key_signals=(
+            "WGEN_GnBrgTmp1",
+        ),
+        expected_actions_zh=(
+            "比對軸承溫度 1 與軸承溫度 2、振動與峰度：只有溫度 1 偏高、其他正常時，先懷疑感測器而不是軸承",
+            "依手冊檢查主軸承潤滑與冷卻風扇（手冊），排除真的過熱",
+            "檢查軸承溫度 1 的 Pt100 端子與配線（量測回路電阻），以參考溫度計比對，必要時更換感測器",
+            "讀值恢復正常後再復機，不必更換軸承",
+        ),
+        expected_actions_en=(
+            "Compare bearing temperature 1 with bearing temperature 2, vibration and kurtosis: if only temperature 1 is high and the rest is normal, suspect the sensor before the bearing.",
+            "Check main bearing lubrication and the cooling fan per the manual (manual) to rule out real overheating.",
+            "Check the bearing temperature 1 Pt100 terminals and wiring (loop resistance), compare against a reference thermometer and replace the sensor if needed.",
+            "Restart once the reading is plausible again; the bearing does not need replacing.",
+        ),
+        simulation_notes_zh=(
+            "讀值＝實際溫度＋偏移，偏移隨嚴重度線性增加到 60 °C；機組停機冷卻時讀值一樣下降（偏移不變）。真實的接觸電阻劣化通常歷時數週到數月。",
+        ),
+        simulation_notes_en=(
+            "Reading = real temperature + an offset that grows linearly with severity up to 60 °C; when the turbine stops and cools the reading falls too (the offset stays). Real contact degradation usually takes weeks to months.",
+        ),
+    ),
+
+    # 讀值像真故障：與 stator_winding_degradation 同樣的警報 / 跳機碼
+    "stator_temp_sensor_drift": FaultScenario(
+        id="stator_temp_sensor_drift",
+        name_en="Generator Stator Temperature 1 Sensor Drift",
+        name_zh="發電機定子溫度 1 感測器漂移",
+        description_en="The stator temperature 1 Pt100 reading drifts upward while the winding is healthy. Raises the same alarm and trip as winding degradation at high load; stator temperature 2 and air-gap temperature stay normal.",
+        description_zh="定子溫度 1 的 Pt100 讀值逐漸往上漂，繞組本身正常。高負載時觸發與繞組劣化相同的警報 / 跳機；定子溫度 2 與氣隙溫度都正常。",
+        affected_tags={
+            "WGEN_GnStaTmp1": {"max_offset": 100.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "A", "code": 264, "desc": "Generator stator temperature 1 high"},
+            {"type": "T1", "code": 244, "desc": "Generator stator temperature 1 very high"},
+        ],
+        component="generator_stator",
+        category="sensor_fault",
+        root_cause_zh="發電機定子溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高、偏差逐漸變大，高負載時越過警報（264）與跳機（244）設定；繞組本身正常——同一繞組另一個槽的定子溫度 2、氣隙溫度都沒有變化（真的絕緣劣化會讓整個繞組變熱，兩支定子溫度與氣隙溫度一起上升）。",
+        root_cause_en="Rising contact resistance in the generator stator temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset and crosses the alarm (264) and trip (244) setpoints at high load; the winding is fine — stator temperature 2 in another slot of the same winding and the air-gap temperature do not change (real insulation degradation heats the whole winding, so both stator temperatures and the air gap rise together).",
+        difficulty="hard",
+        key_signals=(
+            "WGEN_GnStaTmp1",
+        ),
+        expected_actions_zh=(
+            "確認是否外氣溫很高且產能很高（手冊）",
+            "比對定子溫度 1 與定子溫度 2、氣隙溫度：只有溫度 1 偏高時，先懷疑感測器而不是繞組",
+            "檢查定子溫度 1 的 Pt100 端子與配線（量測回路電阻），必要時改用備用的定子溫度感測器",
+            "讀值恢復正常後再復機，不必做繞組維修",
+        ),
+        expected_actions_en=(
+            "Check whether the outside temperature is very high in combination with very high production (manual).",
+            "Compare stator temperature 1 with stator temperature 2 and the air-gap temperature: if only temperature 1 is high, suspect the sensor before the winding.",
+            "Check the stator temperature 1 Pt100 terminals and wiring (loop resistance), or switch to a spare stator temperature sensor.",
+            "Restart once the reading is plausible again; no winding repair is needed.",
+        ),
+        simulation_notes_zh=(
+            "讀值＝實際溫度＋偏移，偏移隨嚴重度線性增加到 100 °C；低負載時實際溫度低，讀值仍可能在警報設定以下。真實的接觸電阻劣化通常歷時數週到數月。",
+        ),
+        simulation_notes_en=(
+            "Reading = real temperature + an offset that grows linearly with severity up to 100 °C; at low load the real temperature is low, so the reading may stay below the alarm setpoint. Real contact degradation usually takes weeks to months.",
+        ),
+    ),
+
+    # 專屬故障碼：I/O 模組偵測到斷線
+    "main_bearing_temp_sensor_wire_break": FaultScenario(
+        id="main_bearing_temp_sensor_wire_break",
+        name_en="Main Bearing 1 Temperature Sensor Broken Wire",
+        name_zh="主軸承溫度 1 感測器斷線",
+        description_en="The wiring of the bearing 1 Pt100 breaks: the I/O module flags a broken wire and the reading jumps to full scale. The PLC trips with the dedicated bearing temperature fault event.",
+        description_zh="軸承溫度 1 的 Pt100 配線斷開：I/O 模組偵測到斷線，讀值跳到滿刻度。PLC 以專屬的軸承溫度故障事件跳機。",
+        affected_tags={
+            "WGEN_GnBrgTmp1": {"max_offset": 800.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "T1", "code": 242, "desc": "Bearing 1 temperature fault"},
+        ],
+        auto_trip_severity=0.5,
+        component="main_bearing",
+        category="sensor_fault",
+        root_cause_zh="主軸承溫度 1 的 Pt100 感測器配線斷開（感測器故障）：I/O 模組偵測到斷線，讀值跳到滿刻度，PLC 送出軸承溫度 1 故障（242）跳機；軸承本身正常，軸承溫度 2 與振動都沒有變化。",
+        root_cause_en="Broken wiring of the main bearing temperature 1 Pt100 sensor (sensor fault): the I/O module senses a broken wire, the reading jumps to full scale and the PLC trips with bearing 1 temperature fault (242); the bearing itself is fine and bearing temperature 2 and vibration do not change.",
+        difficulty="easy",
+        key_signals=(
+            "WGEN_GnBrgTmp1",
+        ),
+        expected_actions_zh=(
+            "檢查軸承溫度 1 的 Pt100 配線（手冊）",
+            "量測感測器電阻確認是配線還是感測器本身開路，修復或更換",
+            "確認讀值恢復合理範圍後復機",
+        ),
+        expected_actions_en=(
+            "Check the wiring to the bearing temperature 1 Pt100 sensor (manual).",
+            "Measure the sensor resistance to tell a broken wire from an open sensor element; repair or replace.",
+            "Restart once the reading is back in a plausible range.",
+        ),
+        simulation_notes_zh=(
+            "斷線在嚴重度到 0.5 時發生，之前讀值正常；斷線後讀值固定為 850 °C（模擬假設的 Pt100 開路滿刻度讀值，實際依 I/O 模組設定）。",
+        ),
+        simulation_notes_en=(
+            "The wire breaks when severity reaches 0.5 and the reading is normal before that; afterwards it is pinned at 850 °C (a simulator assumption for an open Pt100 at full scale; real modules depend on their configuration).",
+        ),
+    ),
+
+    # 專屬故障碼：編碼器讀值超出範圍
+    "blade1_pitch_encoder_fault": FaultScenario(
+        id="blade1_pitch_encoder_fault",
+        name_en="Blade 1 Pitch Encoder Fault",
+        name_zh="葉片 1 變槳編碼器故障",
+        description_en="The blade 1 pitch encoder fails and reports an angle outside its range while the blade itself is positioned normally. The PLC trips with an emergency stop on the encoder fault event.",
+        description_zh="葉片 1 的變槳編碼器故障，回報超出範圍的角度，葉片本身位置正常。PLC 以編碼器故障事件緊急停機。",
+        affected_tags={
+            "WROT_PtAngValBl1": {"max_offset": 135.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "T2", "code": 326, "desc": "Encoder blade 1 fault"},
+        ],
+        auto_trip_severity=0.5,
+        component="pitch_system_blade_1",
+        category="sensor_fault",
+        root_cause_zh="葉片 1 變槳角度編碼器故障（感測器故障）：編碼器回報的角度超出有效範圍，PLC 送出葉片 1 編碼器故障（326）緊急停機；葉片 1 的實際位置與變槳驅動正常，另外兩支葉片的角度一致。",
+        root_cause_en="Blade 1 pitch angle encoder fault (sensor fault): the encoder reports an angle outside its valid range and the PLC trips with an emergency stop on encoder blade 1 fault (326); blade 1's actual position and its pitch drive are fine, and the other two blades agree with each other.",
+        difficulty="easy",
+        key_signals=(
+            "WROT_PtAngValBl1",
+        ),
+        expected_actions_zh=(
+            "檢查葉片 1 編碼器的配線（手冊）",
+            "檢查葉片 1 編碼器的校正（手冊）",
+            "以手動變槳確認葉片 1 實際角度與另外兩支一致後，更換或重新校正編碼器再復機",
+        ),
+        expected_actions_en=(
+            "Check the wiring to the encoder of blade 1 (manual).",
+            "Check the calibration of the blade 1 encoder (manual).",
+            "Pitch blade 1 by hand to confirm its real angle matches the other two, then replace or recalibrate the encoder before restarting.",
+        ),
+        simulation_notes_zh=(
+            "故障在嚴重度到 0.5 時發生，之前讀值正常；故障後讀值固定為 135°（模擬假設的超出範圍讀值）。變槳控制仍照實際角度運作，只有量測值錯。",
+        ),
+        simulation_notes_en=(
+            "The fault occurs when severity reaches 0.5 and the reading is normal before that; afterwards it is pinned at 135° (a simulator assumption for an out-of-range reading). Pitch control keeps working on the real angle; only the measurement is wrong.",
+        ),
+    ),
+
+    # 專屬故障碼：壓力感測器斷線；與 hydraulic_leak 同元件
+    "yaw_brake_pressure_sensor_fault": FaultScenario(
+        id="yaw_brake_pressure_sensor_fault",
+        name_en="Yaw Brake Pressure Sensor Broken Wire",
+        name_zh="偏航煞車壓力感測器斷線",
+        description_en="The wiring of the yaw brake hydraulic pressure transmitter breaks: the reading drops below the 4-20 mA range. The PLC trips with the dedicated pressure sensor fault event instead of the low-pressure events of a real leak.",
+        description_zh="偏航煞車液壓壓力傳送器的配線斷開：讀值掉到 4-20 mA 範圍以下。PLC 以專屬的壓力感測器故障事件跳機，而不是真漏油時的壓力低事件。",
+        affected_tags={
+            "WYAW_YwBrkHyPrs": {"max_offset": -270.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "T1", "code": 229, "desc": "Yaw brake pressure sensor fault"},
+        ],
+        auto_trip_severity=0.5,
+        component="yaw_brake_hydraulics",
+        category="sensor_fault",
+        root_cause_zh="偏航煞車液壓壓力傳送器配線斷開（感測器故障）：I/O 模組偵測到斷線，讀值掉到量測範圍以下，PLC 送出偏航煞車壓力感測器故障（229）跳機；液壓系統本身正常——沒有洩漏偵測（261）、偏航沒有滑移（真漏油是壓力逐日下降，先出 260 再出 228）。",
+        root_cause_en="Broken wiring of the yaw brake hydraulic pressure transmitter (sensor fault): the I/O module senses a broken wire, the reading falls below the measuring range and the PLC trips with yaw brake pressure sensor fault (229); the hydraulics are fine — no leakage detection (261) and no yaw slippage (a real leak lowers pressure over days and raises 260 before 228).",
+        difficulty="easy",
+        key_signals=(
+            "WYAW_YwBrkHyPrs",
+        ),
+        expected_actions_zh=(
+            "檢查液壓壓力感測器的配線（手冊）",
+            "以液壓動力單元上的壓力錶確認實際系統壓力正常",
+            "修復配線或更換壓力傳送器後復機",
+        ),
+        expected_actions_en=(
+            "Check the wiring to the hydraulic pressure sensor (manual).",
+            "Confirm the real system pressure on the hydraulic power unit's gauge is normal.",
+            "Repair the wiring or replace the pressure transmitter, then restart.",
+        ),
+        simulation_notes_zh=(
+            "斷線在嚴重度到 0.5 時發生，之前讀值正常；斷線後讀值固定為 −62.5 bar（4-20 mA、0-250 bar 傳送器在 0 mA 時的讀值，模擬假設）。",
+        ),
+        simulation_notes_en=(
+            "The wire breaks when severity reaches 0.5 and the reading is normal before that; afterwards it is pinned at −62.5 bar (the reading of a 4-20 mA, 0-250 bar transmitter at 0 mA, a simulator assumption).",
+        ),
+    ),
 }
 
 

@@ -69,6 +69,14 @@ _TAGS: List[ScadaTag] = [
     ScadaTag("WGEN_GnBrgTmp1", "WGEN.Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp1",
              "WGEN", "REAL32", "°C", "Generator Bearing Temp", "發電機軸承溫度",
              20, 120, "HldReg[509]"),
+    # 第二支 Pt100（真實 Z72 tag；PLC 事件 265 / 245 / 251、263 / 241 / 243）：分辨感測器故障與真故障用
+    # （WMOM-20261021-08-a）
+    ScadaTag("WGEN_GnStaTmp2", "WGEN.Z72PLC__UI_Loc_WGEN_Analogue_GnStaTmp2",
+             "WGEN", "REAL32", "°C", "Generator Stator Temp 2", "發電機定子溫度2",
+             20, 160, "HldReg[502]"),
+    ScadaTag("WGEN_GnBrgTmp2", "WGEN.Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp2",
+             "WGEN", "REAL32", "°C", "Generator Bearing Temp 2", "發電機軸承溫度2",
+             20, 120, "HldReg[510]"),
 
     # ══════════════════════════════════════════════════════════════════════
     # WROT — Rotor / Pitch

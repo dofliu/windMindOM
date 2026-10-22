@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
-| in_progress | 1 |
+| open | 6 |
+| in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 140 |
-| **total** | **150** |
+| done | 141 |
+| **total** | **151** |
 
-最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
+最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
+前次最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-06 done**（EPIC-DS Phase 3b ② 串流）：凍結情境 WebSocket 回放——回放器 `server/replay.py`（與盲測版資料包逐筆相同，-07 共用）、`/ws/replay`（回放 token、單次直播＋練習模式、出題端定速度、預測走同一條連線由伺服器蓋 ts，劉老師確認，DEC-20261022-02）、REST 與 CLI `tools/replay_runs.py`（建回放 / 列表 / 撤銷 / 下載預測給 score.py）、starter kit `stream_client.py`；合約 v1.1（§12）。逐條解析 header 核實：open 8 / in_progress 1 / deferred 2 / done 139 = 150。詳見 `work-logs/2026-10/2026-10-22-ws-replay.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-12 done**：健康機組長時間偶發 T2 336 的根因是物理——葉片零點校正誤差 σ 0.12°加上伺服死區 / 雜訊，尾端碰到手冊的 5 s > 1°；PLC 規則與手冊一致，不改規則、不列 nuisance（DEC-20261022-01）。零點 σ 0.12 → 0.06°、起動 / 緊急順槳以外的死區 0.10° / 雜訊 0.04°；新增健康風場長時間守門測試（原始重現點 12 h ＋ 冬季夜間 / 夏季清晨各 6 h）與 14 種子 × 12 h 葉片同步機制測試；starter kit 重產（基準成績不變）。
 逐條解析 header 核實：open 9 / in_progress 1 / deferred 2 / done 138 = 150。詳見 `work-logs/2026-10/2026-10-22-healthy-blade-sync.md`）。
@@ -1536,13 +1537,33 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-08 — Phase 4：情境難度與多樣性
 
-- **Status**: open
+- **Status**: in_progress（拆子項分 PR：-08-a done）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 3-5 天（可拆）
 - **Owner**: -
 - **Description**: 讓資料能真正考驗 RAG：警報連鎖（A → T1 → 跳機）與每小時重啟限制、感測器故障（卡值 / 漂移，標記為 `sensor_fault`）vs 真故障、多重故障並發、誤報（`nuisance`）、健康負樣本、警報觸發前的早期徵兆案例；故障庫往 Z72 常見事件擴充（目前 11 種、真實清單 314 筆）。另修 `gearbox_overheat` / `pitch_motor_fault` / `yaw_misalignment` 三個有物理但不能注入的 alias。
 - **Deliverable**: 依子項拆 PR
+- **Depends on**: WMOM-20261021-04
+
+### WMOM-20261021-08-a — Phase 4-a：感測器故障 vs 真故障
+
+- **Status**: done（2026-10-22）
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: Claude
+- **Description**: -08 的第一個子項（劉老師選定）。讓「分辨感測器故障」真的能考：新增讀值像真故障的感測器故障（與真故障同樣的警報碼）與有專屬故障碼的感測器故障；標準答案的 component 填被量測的元件、以 category 區分。
+- **Deliverable**: 感測器故障機制、PLC 規則、新情境與標準答案、測試、範例資料包
+- **完成紀錄**:
+  - **劉老師確認**（2026-10-22，DEC-20261022-04）：PLC 只對注入的感測器改看量測值；讀值像真故障 + 專屬故障碼兩種；component 填被量測的元件。
+  - **機制**：`_get_fault_physics` 的 `sensor_faults`（offset 漂移 / pinned 固定讀值），量測值同時給 PLC 與 SCADA，製程與其他感測器不變。
+  - **5 個情境**：`main_bearing_temp_sensor_drift`（262 / 240）、`stator_temp_sensor_drift`（264 / 244）、`main_bearing_temp_sensor_wire_break`（242）、`blade1_pitch_encoder_fault`（326）、`yaw_brake_pressure_sensor_fault`（229）。
+  - **新增真實 tag**：`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`（116 → 118；資料包 102 欄）與 PLC 規則 263 / 241 / 243、265 / 245 / 251。
+  - **PLC**：讀值超出有效範圍 → 感測器故障碼；失效的讀值不參與越限判定。
+  - **knowledge** baseline 語料補 3 段；**starter kit** 加 `z72-starter-04`、基準助手的類別規則；**合約 v1.3**。
+  - **測試**：`test_sensor_faults.py` 12 項、`test_fault_threshold_reach.py` +11 項（含「故障機組除了那支感測器逐位元等於健康機組」）；既有守門自動涵蓋。
+  - 設計、已知限制見設計文件 §6.13。
 - **Depends on**: WMOM-20261021-04
 
 ### WMOM-20261021-09 — Phase 3d：學生專題 starter kit（介面合約 v1 + 範例資料包）
@@ -1697,7 +1718,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 3b | ~~WMOM-20261021-06~~ ✅ | ② WebSocket 回放串流（回放 token、單次直播＋練習、伺服器蓋 ts；合約 v1.1） | 🔵 |
 | 3c | ~~WMOM-20261021-07~~ ✅ | ③ OPC UA server（模仿 Bachmann tag；回放＋即時模擬，合約 v1.2） | 🔵 |
 | 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
-| 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本） | 🔵 |
+| 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本）；拆子項：~~-08-a 感測器故障 vs 真故障~~ ✅ | 🔵 |
 
 ### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）
 

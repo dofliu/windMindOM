@@ -73,6 +73,9 @@ class ThermalSystemConfig:
     gen_stator: tuple = (0.65, 600, 35.0)    # ~90°C at rated (alarm@140)
     gen_air: tuple = (0.55, 450, 30.0)       # ~80°C at rated
     gen_bearing: tuple = (0.35, 900, 30.0)   # ~55°C at rated (alarm@85)
+    # Bearing 2 (WGEN_GnBrgTmp2, PLC events 263 / 241 / 243): same element, slightly less
+    # friction heat; only conduction from bearing 1's fault heat (WMOM-20261021-08-a)
+    gen_bearing2: tuple = (0.35, 900, 30.0)  # ~52°C at rated
 
     cnv_cabinet: tuple = (0.28, 500, 28.0)   # ~39°C at rated
     cnv_water: tuple = (0.22, 300, 25.0)     # ~34°C at rated
@@ -97,6 +100,7 @@ class ThermalSystem:
         self.gen_stator = ThermalElement(*cfg.gen_stator)
         self.gen_air = ThermalElement(*cfg.gen_air)
         self.gen_bearing = ThermalElement(*cfg.gen_bearing)
+        self.gen_bearing2 = ThermalElement(*cfg.gen_bearing2)
         self.cnv_cabinet = ThermalElement(*cfg.cnv_cabinet)
         self.cnv_water = ThermalElement(*cfg.cnv_water)
         self.transformer = ThermalElement(*cfg.transformer)
@@ -163,7 +167,8 @@ class ThermalSystem:
         heat_gen = max(heat_gen_raw, self._mem_gen * (0.35 if not is_running else 1.0)) + extra_heat.get("generator", 0.0)
         heat_cnv = max(heat_cnv_raw, self._mem_cnv * (0.30 if not is_running else 1.0)) + extra_heat.get("converter", 0.0)
         heat_trf = max(heat_trf_raw, self._mem_trf * (0.45 if not is_running else 1.0)) + extra_heat.get("transformer", 0.0)
-        heat_bearing = max(heat_bearing_raw, self._mem_bearing * (0.35 if rotor_speed < 1.0 else 1.0)) + extra_heat.get("bearing", 0.0)
+        heat_bearing_base = max(heat_bearing_raw, self._mem_bearing * (0.35 if rotor_speed < 1.0 else 1.0))
+        heat_bearing = heat_bearing_base + extra_heat.get("bearing", 0.0)
 
         airflow = max(0.0, wind_speed)
         nacelle_cooling = (0.7 + min(airflow / 14.0, 0.9)) * cooling_bias.get("nacelle", 1.0)
@@ -198,6 +203,16 @@ class ThermalSystem:
             dt,
             cooling_factor=0.8 + exposed_cooling * 0.35,
             resistance_scale=r_scale("bearing"),
+        )
+
+        # 軸承 2：同樣的摩擦熱來源（略少），軸承 1 的故障熱只有一小部分經軸傳過來；軸承 1 的潤滑劣化
+        # （cooling_degradation "bearing"）不影響軸承 2
+        gen_brg2_t = self.gen_bearing2.step(
+            heat_gen * 0.10 + heat_bearing_base * 0.90 + extra_heat.get("bearing", 0.0) * 0.12
+            + max(0.0, gen_sta_t - ambient_temp) * 0.03,
+            bearing_env,
+            dt,
+            cooling_factor=0.8 + exposed_cooling * 0.35,
         )
 
         cnv_cab_t = self.cnv_cabinet.step(
@@ -257,6 +272,7 @@ class ThermalSystem:
             "gen_stator": round(gen_sta_t, 2),
             "gen_air": round(gen_air_t, 2),
             "gen_bearing": round(gen_brg_t, 2),
+            "gen_bearing2": round(gen_brg2_t, 2),
             "cnv_cabinet": round(cnv_cab_t, 2),
             "cnv_water": round(cnv_wtr_t, 2),
             "transformer": round(trf_t, 2),

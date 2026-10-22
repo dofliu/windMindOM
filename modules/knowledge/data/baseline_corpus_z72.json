@@ -127,6 +127,39 @@
       "model": "Z72",
       "alarm_codes": [273, 256],
       "keywords": ["機艙", "nacelle", "冷卻", "風扇", "通風", "濾網", "溫度", "複合"]
+    },
+    {
+      "id": "z72-sop-bearing-temp-sensor",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§3.2 軸承溫度感測器",
+      "page": 32,
+      "chunk_text": "軸承溫度 1 故障（跳機碼 242）表示 I/O 模組偵測到 Pt100 斷線，讀值跳到滿刻度，軸承本身通常正常。處置：1) 檢查 Pt100 配線與端子；2) 量測感測器電阻，分辨配線斷開或感測器開路；3) 修復或更換後確認讀值合理再復機。另：若只有軸承溫度 1 偏高（告警碼 262 / 跳機碼 240），但軸承溫度 2（WGEN_GnBrgTmp2）、振動與峰度都正常，先懷疑量測回路（接觸電阻增加）而不是軸承。",
+      "alarm_codes": [242, 262, 240],
+      "keywords": ["軸承", "溫度", "感測器", "Pt100", "斷線", "sensor", "WGEN_GnBrgTmp1", "WGEN_GnBrgTmp2"]
+    },
+    {
+      "id": "z72-sop-pitch-encoder",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§4.2 變槳編碼器",
+      "page": 44,
+      "chunk_text": "葉片 1 編碼器故障（跳機碼 326，T2 緊急停機）表示編碼器量到的葉片角度超出範圍。處置：1) 檢查葉片 1 編碼器配線；2) 檢查編碼器校正；3) 手動變槳確認葉片實際角度與另外兩支一致後，更換或重新校正編碼器再復機。只有一支葉片的角度讀值異常、另外兩支一致時，多半是編碼器而不是變槳驅動。",
+      "alarm_codes": [326],
+      "keywords": ["變槳", "編碼器", "encoder", "葉片", "pitch", "WROT_PtAngValBl1"]
+    },
+    {
+      "id": "z72-sop-yaw-pressure-sensor",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§6.3 偏航煞車壓力感測器",
+      "page": 63,
+      "chunk_text": "偏航煞車壓力感測器故障（跳機碼 229）表示 I/O 模組偵測到壓力傳送器斷線，讀值掉到量測範圍以下。處置：1) 檢查液壓壓力感測器配線；2) 以液壓動力單元的壓力錶確認實際壓力；3) 修復配線或更換傳送器後復機。與真的漏油不同：漏油時壓力逐日下降，先出現壓力低告警 260、洩漏偵測 261，再出現跳機 228。",
+      "alarm_codes": [229],
+      "keywords": ["偏航", "煞車", "壓力", "感測器", "斷線", "sensor", "WYAW_YwBrkHyPrs"]
     }
   ]
 }

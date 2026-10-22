@@ -87,7 +87,9 @@ def _tag(name: str) -> Callable[[Sample], float]:
 # (說明, 訊號, 比較, 設定值) — 比較 "<" 表示健康值必須低於設定值
 HEALTHY_LIMITS: List[Tuple[str, Callable[[Sample], float], str, float]] = [
     ("262 main bearing", _tag("WGEN_GnBrgTmp1"), "<", SPEC.gen_bearing_alarm),
+    ("263 main bearing 2", _tag("WGEN_GnBrgTmp2"), "<", SPEC.gen_bearing_alarm),
     ("264 stator", _tag("WGEN_GnStaTmp1"), "<", SPEC.gen_stator_alarm),
+    ("265 stator 2", _tag("WGEN_GnStaTmp2"), "<", SPEC.gen_stator_alarm),
     ("273 nacelle air", _tag("WNAC_NacTmp"), "<", SPEC.nacelle_air_alarm),
     ("256 nacelle cabinet", _tag("WNAC_NacCabTmp"), "<", SPEC.nacelle_cab_trip),
     ("417 transformer", _tag("WGDC_TrfCoreTmp"), "<", SPEC.transformer_alarm),
@@ -130,6 +132,9 @@ def test_healthy_turbine_on_hot_day_stays_inside_all_setpoints(wind: float, ambi
 TRIP_REACH: List[Tuple[str, str, Callable[[Sample], float], str, float]] = [
     ("bearing_wear", "240", _tag("WGEN_GnBrgTmp1"), ">", SPEC.gen_bearing_trip),
     ("stator_winding_degradation", "244", _tag("WGEN_GnStaTmp1"), ">", SPEC.gen_stator_trip),
+    # 感測器漂移（WMOM-20261021-08-a）：讀值越過同樣的設定值，機器本身正常
+    ("main_bearing_temp_sensor_drift", "240", _tag("WGEN_GnBrgTmp1"), ">", SPEC.gen_bearing_trip),
+    ("stator_temp_sensor_drift", "244", _tag("WGEN_GnStaTmp1"), ">", SPEC.gen_stator_trip),
     ("nacelle_cooling_failure", "256", _tag("WNAC_NacCabTmp"), ">", SPEC.nacelle_cab_trip),
     ("nacelle_cooling_failure", "273", _tag("WNAC_NacTmp"), ">", SPEC.nacelle_air_alarm),
     ("transformer_overheat", "444", _tag("WGDC_TrfCoreTmp"), ">", SPEC.transformer_trip),
@@ -232,6 +237,57 @@ def test_ground_truth_key_signals_deviate_from_healthy(fault_id: str) -> None:
         assert deviation > floor, (
             f"{fault_id}: key signal {tag} 只偏離 {deviation:.3g}（門檻 {floor:.3g}，結束時 {cause}）"
         )
+
+
+# ── 感測器故障只改那支感測器的讀值（WMOM-20261021-08-a）──
+# 同一個種子：故障機組除了故障的那支感測器，每個 tag 每一步都與健康機組逐位元相同（製程、控制、其他感測器
+# 的雜訊都不受影響）；故障讀值確實不同。
+_SENSOR_FAULT_TAG = {
+    "main_bearing_temp_sensor_drift": "WGEN_GnBrgTmp1",
+    "stator_temp_sensor_drift": "WGEN_GnStaTmp1",
+    "main_bearing_temp_sensor_wire_break": "WGEN_GnBrgTmp1",
+    "blade1_pitch_encoder_fault": "WROT_PtAngValBl1",
+    "yaw_brake_pressure_sensor_fault": "WYAW_YwBrkHyPrs",
+}
+
+
+@pytest.mark.parametrize("fault_id", sorted(_SENSOR_FAULT_TAG))
+def test_sensor_faults_change_only_the_faulty_reading(fault_id: str) -> None:
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    faulty, _ = _run(fault_id, 1.0, 14.0, 25.0)
+    tag = _SENSOR_FAULT_TAG[fault_id]
+    for h, f in zip(healthy, faulty, strict=True):
+        assert {k: v for k, v in h.items() if k != tag} == {k: v for k, v in f.items() if k != tag}
+        assert f[tag] != h[tag]
+
+
+def test_broken_sensors_read_a_constant_out_of_range_value() -> None:
+    wire, _ = _run("main_bearing_temp_sensor_wire_break", 1.0, 14.0, 25.0)
+    assert {s["WGEN_GnBrgTmp1"] for s in wire} == {SPEC.pt100_broken_wire_c}
+    encoder, _ = _run("blade1_pitch_encoder_fault", 1.0, 14.0, 25.0)
+    assert {s["WROT_PtAngValBl1"] for s in encoder} == {SPEC.blade_encoder_fault_deg}
+    pressure, _ = _run("yaw_brake_pressure_sensor_fault", 1.0, 14.0, 25.0)
+    assert {s["WYAW_YwBrkHyPrs"] for s in pressure} == {SPEC.yaw_pressure_broken_wire_bar}
+    # 嚴重度還沒到 SENSOR_BREAK_SEVERITY：讀值正常
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    early, _ = _run("main_bearing_temp_sensor_wire_break", 0.4, 14.0, 25.0)
+    assert early == healthy
+
+
+def test_second_sensors_follow_the_same_component() -> None:
+    """軸承溫度 2 / 定子溫度 2：健康時貼近溫度 1；真故障時一起變化（軸承 2 只升一點，定子 2 一起升）。"""
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    assert abs(_mean(healthy, _tag("WGEN_GnBrgTmp2")) - _mean(healthy, _tag("WGEN_GnBrgTmp1"))) < 3.0
+    assert abs(_mean(healthy, _tag("WGEN_GnStaTmp2")) - _mean(healthy, _tag("WGEN_GnStaTmp1"))) < 3.0
+    stator, _ = _run("stator_winding_degradation", 1.0, 14.0, 25.0)
+    rise_1 = _mean(stator, _tag("WGEN_GnStaTmp1")) - _mean(healthy, _tag("WGEN_GnStaTmp1"))
+    rise_2 = _mean(stator, _tag("WGEN_GnStaTmp2")) - _mean(healthy, _tag("WGEN_GnStaTmp2"))
+    assert rise_2 == pytest.approx(rise_1, abs=1.0), "同一個繞組的兩支 Pt100 一起升溫"
+    bearing, _ = _run("bearing_wear", 1.0, 14.0, 25.0)
+    rise_b1 = _mean(bearing, _tag("WGEN_GnBrgTmp1")) - _mean(healthy, _tag("WGEN_GnBrgTmp1"))
+    rise_b2 = _mean(bearing, _tag("WGEN_GnBrgTmp2")) - _mean(healthy, _tag("WGEN_GnBrgTmp2"))
+    assert 0.0 < rise_b2 < 0.5 * rise_b1, "軸承 1 磨耗，軸承 2 只因傳熱略升"
+    assert _mean(bearing, _tag("WGEN_GnBrgTmp2")) < SPEC.gen_bearing_alarm
 
 
 # ─────────────────────────────────────────────────────────────────────────

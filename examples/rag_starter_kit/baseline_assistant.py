@@ -5,10 +5,12 @@
 - 只看 ``events.jsonl``：每台機組出現新的警報 / 跳機碼時，用警報文字的關鍵字猜元件，輸出一筆診斷，
   手冊引用列出該機組至今出現過的碼（最新的在前）。
 - 資訊類事件（I 級，例：201 風速過高停機）一律判成干擾（``nuisance``）。
+- 警報文字點名感測器（sensor / encoder / temperature fault）時判成感測器故障，其餘判 ``real_fault``。
 
 所以它**做不到**的正是學生專題該做的：
 - 不看時序訊號 → 沒有早期預警（一定等警報出來才反應）。
-- 一律判 ``real_fault`` → 分不出感測器故障。
+- 只看警報文字判類別 → 讀值像真故障的感測器故障（例：溫度量測回路劣化，送出的是和真故障一樣的
+  262 / 240）分不出來；要比對同元件的第二支感測器、振動與負載才看得出。
 - 關鍵字對照取代檢索 → 換一組警報就猜不到，也不會讀手冊的原因 / 處置。
 
 用法::
@@ -38,6 +40,23 @@ KEYWORDS: Sequence[Tuple[Tuple[str, ...], str]] = (
     (("undervoltage", "overvoltage", "grid"), "grid_connection"),
     (("nacelle",), "nacelle_ventilation"),
 )
+
+
+# 警報文字點名感測器 → 感測器故障（只認得有專屬故障碼的；讀值像真故障的漂移認不出來）
+SENSOR_WORDS: Tuple[str, ...] = ("sensor", "encoder", "temperature fault", "signal fault")
+
+
+def guess_category(alarm_text: str) -> str:
+    """警報文字 → 類別（``sensor_fault`` 或 ``real_fault``）。
+
+    Args:
+        alarm_text: 警報目錄的英文文字。
+
+    Returns:
+        類別。
+    """
+    text = alarm_text.lower()
+    return "sensor_fault" if any(word in text for word in SENSOR_WORDS) else "real_fault"
 
 
 def guess_component(alarm_text: str) -> Optional[str]:
@@ -100,7 +119,8 @@ class BaselineAssistant:
         component = guess_component(str(event["alarm_text"]))
         if component is None:
             return None
-        return {"turbine_id": turbine, "category": "real_fault", "component": component, "manual_refs": list(codes),
+        return {"turbine_id": turbine, "category": guess_category(str(event["alarm_text"])), "component": component,
+                "manual_refs": list(codes),
                 "root_cause": f"Alarm {code}: {event['alarm_text']}",
                 "actions": ["Check the Z72 manual entries cited in manual_refs."]}
 

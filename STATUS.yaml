@@ -815,13 +815,14 @@ milestones:
     target_month: null  # 不設日期（DEC-20261021-01）
     status: in_progress
     design: "docs/product/EPIC-DS_realistic_data_source.md"
-    progress: 88  # Phase 1a（-02）+ 1b（-03-a/-b/-c）+ 1b+（-10、-11、-12）+ 2（-04）+ 3a（-05 資料包匯出）+ 3b（-06 WS 回放）+ 3c（-07 OPC UA）+ 3d（-09 starter kit / 合約 v1）done；剩 4
+    progress: 91  # Phase 1a（-02）+ 1b（-03-a/-b/-c）+ 1b+（-10、-11、-12）+ 2（-04）+ 3a（-05 資料包匯出）+ 3b（-06 WS 回放）+ 3c（-07 OPC UA）+ 3d（-09 starter kit / 合約 v1）done；4（-08）in_progress：-08-a 感測器故障 done
 
 issue_stats:
   # 2026-10-21 重新逐條解析 ISSUES.md `### WMOM-` header 核實（舊表少算 -25-b/-25-c 兩筆：
   # 實際 done 126 / open 7 / in_progress 2 = 135），再套用本次變動：WMOM-20260503-05、
   # WMOM-20260509-F6 → deferred；新增 WMOM-20261021-01/-02（done）+ -03~-09（open 7）。
-  open: 7  # 6 舊 + EPIC-DS（-08）；-07 done（2026-10-22）
+  open: 6  # 6 舊；-08 改 in_progress（-08-a done，2026-10-22）
+  # open 前值: 7  # 6 舊 + EPIC-DS（-08）；-07 done（2026-10-22）
   # open 前值: 8  # 6 舊 + EPIC-DS（-07、-08）；-06 done（2026-10-22）
   # open 前值: 9  # 6 舊 + EPIC-DS（-06~-08 共 3）；-12 done（2026-10-22）
   # open 前值: 10  # 6 舊 + EPIC-DS（-06~-08 共 3 + -12）；-09 done（2026-10-21 深夜）
@@ -836,14 +837,14 @@ issue_stats:
   # 前次：2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
   # 更新自上次核實過的準確底數（open 7/in_progress 2/done 121/total 130）。
   # open 舊值: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
-  in_progress: 1  # WMOM-20260504-12（待劉老師 24h 記憶體驗收後 close）；WMOM-20261021-03 母 issue 三段皆 done → done；
+  in_progress: 2  # WMOM-20261021-08（拆子項，-08-a done）；WMOM-20260504-12（待劉老師 24h 記憶體驗收後 close）；WMOM-20261021-03 母 issue 三段皆 done → done；
                   # WMOM-20260503-05 改 deferred
   blocked: 0
   deferred: 2  # WMOM-20260503-05（客戶接觸）、WMOM-20260509-F6（PostgreSQL row-lock）— DEC-20261021-01
-  done: 140  # 實際 126 + WMOM-20261021-01/-02/-03/-03-a/-03-b/-03-c/-10/-11/-04/-05/-09/-12/-06/-07
+  done: 141  # 實際 126 + WMOM-20261021-01/-02/-03/-03-a/-03-b/-03-c/-10/-11/-04/-05/-09/-12/-06/-07/-08-a
   # done 舊值: 124  # +1 WMOM-20260505-26-a（2026-10-06）；前次 +1 WMOM-20260929-01（EventComparisonView 補 fatigue 篩選/tone）；前次： +1（WMOM-20260928-05：HistoryPage.tsx 事件類型登記表補上 fatigue/
              # fault_lifecycle，修復真實後端事件在 UI 整組隱形的 bug）
-  # total 150（7+1+0+2+140=150，與 ISSUES.md `### WMOM-` header 數一致，2026-10-22 逐條解析核實）
+  # total 151（6+2+0+2+141=151，與 ISSUES.md `### WMOM-` header 數一致，2026-10-22 逐條解析核實；新增 -08-a）
 
 inherited_baseline:
   source: digiWindTurbine

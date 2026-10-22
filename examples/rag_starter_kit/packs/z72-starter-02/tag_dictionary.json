@@ -110,6 +110,30 @@
    "note": null
   },
   {
+   "tag": "Z72PLC__UI_Loc_WGEN_Analogue_GnStaTmp2",
+   "opc_path": "WGEN.Z72PLC__UI_Loc_WGEN_Analogue_GnStaTmp2",
+   "id": "WGEN_GnStaTmp2",
+   "subsystem": "WGEN",
+   "data_type": "REAL32",
+   "unit": "°C",
+   "label_en": "Generator Stator Temp 2",
+   "label_zh": "發電機定子溫度2",
+   "source": "bachmann_real",
+   "note": null
+  },
+  {
+   "tag": "Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp2",
+   "opc_path": "WGEN.Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp2",
+   "id": "WGEN_GnBrgTmp2",
+   "subsystem": "WGEN",
+   "data_type": "REAL32",
+   "unit": "°C",
+   "label_en": "Generator Bearing Temp 2",
+   "label_zh": "發電機軸承溫度2",
+   "source": "bachmann_real",
+   "note": null
+  },
+  {
    "tag": "Z72PLC__UI_Loc_WROT_Analogue_RotSpd",
    "opc_path": "WROT.Z72PLC__UI_Loc_WROT_Analogue_RotSpd",
    "id": "WROT_RotSpd",
