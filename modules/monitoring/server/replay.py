@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import secrets
+import threading
 import time
+from array import array
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -40,11 +42,14 @@ except ImportError:  # sys.path 注入模式（modules/monitoring 在 sys.path�
     from server import scenario_pack as sp  # type: ignore[no-redef]
     from server.storage import Storage, is_observable_event  # type: ignore[no-redef]
 
-JsonValue = object  # JSON 可序列化值
+JsonValue = sp.JsonValue
 
 REPLAY_MODES: Tuple[str, ...] = ("evaluation", "practice")
 MIN_SPEED = 0.1
 MAX_SPEED = 10_000.0
+# 正式評測每秒要送的讀值上限（機組數 × 速度 ÷ 取樣週期）。實測單一連線約 3,800 筆 / 秒（3 機、每筆
+# 100 個 tag）；留 4 倍餘裕給多條連線與較慢的機器——伺服器跟不上時落後的時間會算在受測端頭上
+EVAL_MAX_READINGS_PER_S = 1000.0
 DEFAULT_SPEED = 60.0
 DEFAULT_EXPIRES_HOURS = 24.0 * 7
 MAX_EXPIRES_HOURS = 24.0 * 90
@@ -53,7 +58,10 @@ MAX_EXPIRES_HOURS = 24.0 * 90
 CLOSE_GRACE_S = 10.0
 MAX_CONNECTIONS_PER_RUN = 4
 MAX_PREDICTIONS_PER_RUN = 20_000
-MAX_CLIENT_MESSAGE_BYTES = 64 * 1024
+MAX_PREDICTION_BYTES_PER_RUN = 20 * 1024 * 1024  # 每個回放存進 DB 的預測總量
+MAX_CLIENT_MESSAGE_BYTES = 16 * 1024
+# 回放的讀值筆數上限（同 HTTP 資料包匯出）：每條連線要載入 id 索引（每筆 8 bytes）
+MAX_REPLAY_ROWS = 2_000_000
 TOKEN_PREFIX = "wmr_"
 PAGE_ROWS = 500
 
@@ -65,9 +73,15 @@ PREDICTION_CATEGORIES: Tuple[str, ...] = ("real_fault", "sensor_fault", "nuisanc
 FAULT_CATEGORIES: FrozenSet[str] = frozenset({"real_fault", "sensor_fault"})
 MAX_MANUAL_REFS = 50
 MAX_TEXT_CHARS = 4000
+MAX_COMPONENT_CHARS = 64
 MAX_ACTIONS = 20
-# 元件詞彙（合約 §9）：starter kit 的 vocabulary.json 是唯一來源；部署時找不到就只檢查格式
-VOCABULARY_PATH = Path(__file__).resolve().parents[3] / "examples" / "rag_starter_kit" / "vocabulary.json"
+# 元件詞彙（合約 §9）的唯一來源；starter kit 的 vocabulary.json 是它的副本（build_rag_starter_kit 同步，
+# 測試比對兩份相同）。放 shared/ 才會進 Docker 映像；找不到就匯入失敗，不會悄悄略過詞彙檢查
+VOCABULARY_PATH = Path(__file__).resolve().parents[3] / "shared" / "data" / "rag_assistant_vocabulary.json"
+
+
+class ReplayRunConflict(ValueError):
+    """同一個情境已有另一種模式的回放（練習回放可以先看完正式評測的資料，DEC-20261022-02）。"""
 
 
 class ReplayError(ValueError):
@@ -167,6 +181,28 @@ class ReplayFrame:
     message: Dict[str, JsonValue]
 
 
+# 情境讀值的 id 索引快取：凍結情境不會再變，同一個情境的多條連線、重連不必每次重查（每筆 8 bytes）。
+# 鍵含 DB 路徑（各風場一個 DB）、session 的建立時間與筆數
+_INDEX_CACHE: "OrderedDict[Tuple[str, int, str, int], array[int]]" = OrderedDict()
+_INDEX_CACHE_SIZE = 8
+_INDEX_LOCK = threading.Lock()
+
+
+def _reading_ids(storage: Storage, scenario_id: int, scenario: Dict[str, JsonValue]) -> "array[int]":
+    key = (storage.db_path, scenario_id, str(scenario.get("started_at")), storage.count_session_readings(scenario_id))
+    with _INDEX_LOCK:
+        cached = _INDEX_CACHE.get(key)
+        if cached is not None:
+            _INDEX_CACHE.move_to_end(key)
+            return cached
+    ids = storage.session_reading_ids(scenario_id)
+    with _INDEX_LOCK:
+        _INDEX_CACHE[key] = ids
+        while len(_INDEX_CACHE) > _INDEX_CACHE_SIZE:
+            _INDEX_CACHE.popitem(last=False)
+    return ids
+
+
 class ScenarioReplay:
     """一個凍結情境的回放資料來源：依時間排序的 ``reading`` / ``event`` / ``stats`` 訊息。
 
@@ -196,17 +232,18 @@ class ScenarioReplay:
         """
         self._storage = storage
         self.scenario_id = scenario_id
-        self._scenario = sp.load_exportable_scenario(storage, scenario_id, None)
+        self._scenario = sp.load_exportable_scenario(storage, scenario_id, MAX_REPLAY_ROWS)
         config = self._scenario["config"]
         assert isinstance(config, dict)
         self._config = config
         self.pack_id = sp.pack_id_for(scenario_id)
         self.columns = sp.pack_columns()
         self._tag_ids = [col.tag.id for col in self.columns]
-        index = storage.session_reading_index(scenario_id)
-        self._row_ids = [row_id for row_id, _ in index]
-        self.sim_start = parse_iso(index[0][1])
-        self.sim_end = parse_iso(index[-1][1])
+        self._row_ids = _reading_ids(storage, scenario_id, self._scenario)
+        bounds = storage.session_reading_bounds(scenario_id)
+        assert bounds is not None  # load_exportable_scenario 已確認有讀值
+        self.sim_start = parse_iso(bounds[0])
+        self.sim_end = parse_iso(bounds[1])
         self.turbines = storage.scenario_turbine_ids(scenario_id)
         self.sample_period_s = sp.positive_number(config.get("time_step"))
         self._events: List[Tuple[datetime, Dict[str, JsonValue]]] = []
@@ -265,7 +302,7 @@ class ScenarioReplay:
         """
         if self._done:
             return []
-        ids = self._row_ids[self._pos:self._pos + max_rows]
+        ids = list(self._row_ids[self._pos:self._pos + max_rows])
         frames: List[ReplayFrame] = []
         if not ids:
             pending = [self._event_frame(i) for i in range(self._event_pos, len(self._events))]
@@ -320,16 +357,12 @@ class ScenarioReplay:
 # ── 受測端的預測 ──────────────────────────────────────────────────────────────
 
 
-_vocabulary_cache: Optional[FrozenSet[str]] = None
+def _load_vocabulary() -> FrozenSet[str]:
+    data = json.loads(VOCABULARY_PATH.read_text(encoding="utf-8"))
+    return frozenset(str(c["id"]) for c in data["components"])
 
 
-def vocabulary_components() -> Optional[FrozenSet[str]]:
-    """合約詞彙的元件 ID；找不到詞彙檔回 None（只檢查格式）。"""
-    global _vocabulary_cache
-    if _vocabulary_cache is None and VOCABULARY_PATH.exists():
-        data = json.loads(VOCABULARY_PATH.read_text(encoding="utf-8"))
-        _vocabulary_cache = frozenset(str(c["id"]) for c in data["components"])
-    return _vocabulary_cache
+VOCABULARY_COMPONENTS: FrozenSet[str] = _load_vocabulary()
 
 
 def _optional_text(item: Dict[str, JsonValue], key: str) -> Optional[str]:
@@ -367,11 +400,10 @@ def validate_prediction(item: Dict[str, JsonValue], turbines: Sequence[str]) -> 
     if category in FAULT_CATEGORIES:
         if not isinstance(component, str) or not component:
             raise ValueError("故障診斷（real_fault / sensor_fault）必須有 component")
-        vocabulary = vocabulary_components()
-        if vocabulary is not None and component not in vocabulary:
-            raise ValueError(f"component 必須是 vocabulary.json 的元件 ID（收到 {component!r}）")
-    elif component is not None and not isinstance(component, str):
-        raise ValueError("component 必須是字串或 null")
+        if component not in VOCABULARY_COMPONENTS:
+            raise ValueError(f"component 必須是 vocabulary.json 的元件 ID（收到 {component[:MAX_COMPONENT_CHARS]!r}）")
+    elif component is not None and (not isinstance(component, str) or len(component) > MAX_COMPONENT_CHARS):
+        raise ValueError(f"component 必須是字串（最多 {MAX_COMPONENT_CHARS} 字）或 null")
     refs = item.get("manual_refs", [])
     if (not isinstance(refs, list) or len(refs) > MAX_MANUAL_REFS
             or not all(isinstance(r, int) and not isinstance(r, bool) for r in refs)):
@@ -390,8 +422,8 @@ def validate_prediction(item: Dict[str, JsonValue], turbines: Sequence[str]) -> 
         out["actions"] = list(actions)
     confidence = item.get("confidence")
     if confidence is not None:
-        if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
-                or not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0):
+        # 比較而不是 math.isfinite：極大整數的 isfinite 會 OverflowError；nan / inf 比較都不成立
+        if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence 必須是 0–1 的數字")
         out["confidence"] = float(confidence)
     return out
@@ -417,7 +449,7 @@ def prediction_record(pack_id: str, sim_ts: datetime, fields: Dict[str, JsonValu
 
 def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", speed: float = DEFAULT_SPEED,
                label: Optional[str] = None, expires_in_hours: float = DEFAULT_EXPIRES_HOURS,
-               created_by: Optional[str] = None) -> Tuple[Dict[str, JsonValue], str]:
+               created_by: Optional[str] = None, allow_overlap: bool = False) -> Tuple[Dict[str, JsonValue], str]:
     """建立回放。
 
     Args:
@@ -428,12 +460,15 @@ def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", 
         label: 出題者備註（受測端看不到）。
         expires_in_hours: token 有效時數（``MAX_EXPIRES_HOURS`` 以內）。
         created_by: 建立者。
+        allow_overlap: 同一個情境已有另一種模式（未撤銷）的回放時仍建立。預設拒絕：練習回放可以先看完
+            正式評測的整段資料（DEC-20261022-02）。
 
     Returns:
         ``(回放 dict, token)``——token 只在這裡出現一次，DB 只存 sha256。
 
     Raises:
         ScenarioPackError: 情境不存在或不能回放。
+        ReplayRunConflict: 同情境已有另一種模式的回放（``allow_overlap`` 為 False 時）。
         ValueError: 參數超出範圍。
     """
     if mode not in REPLAY_MODES:
@@ -442,7 +477,23 @@ def create_run(storage: Storage, scenario_id: int, *, mode: str = "evaluation", 
         raise ValueError(f"speed 必須在 {MIN_SPEED}–{MAX_SPEED}")
     if not 0 < expires_in_hours <= MAX_EXPIRES_HOURS:
         raise ValueError(f"expires_in_hours 必須在 0–{MAX_EXPIRES_HOURS}")
-    sp.load_exportable_scenario(storage, scenario_id, None)
+    scenario = sp.load_exportable_scenario(storage, scenario_id, MAX_REPLAY_ROWS)
+    if mode == "evaluation":
+        config = scenario["config"]
+        period = sp.positive_number(config.get("time_step") if isinstance(config, dict) else None) or 10.0
+        turbines = len(storage.scenario_turbine_ids(scenario_id))
+        limit = EVAL_MAX_READINGS_PER_S * period / max(1, turbines)
+        if speed > limit:
+            raise ValueError(f"正式評測的速度上限是 {limit:g}×（{turbines} 台機組、每 {period:g} 秒一筆：伺服器每秒最多穩定送 "
+                             f"{EVAL_MAX_READINGS_PER_S:g} 筆讀值，跟不上時落後的時間會算在受測端頭上）")
+    if not allow_overlap:
+        others = [r for r in storage.list_replay_runs(scenario_id) if r["mode"] != mode and not r["revoked_at"]]
+        if others:
+            raise ReplayRunConflict(
+                f"情境 {scenario_id} 已有{'練習' if mode == 'evaluation' else '正式評測'}回放 "
+                f"#{others[0]['id']}：練習回放可以先看完正式評測的資料。請換一個情境，或先撤銷那個回放"
+                "（確定要並存才帶 allow_overlap）"
+            )
     token = new_token()
     now = datetime.fromtimestamp(wall_time(), tz=timezone.utc)
     run = storage.create_replay_run(scenario_id, token_digest(token), mode, float(speed), label, iso_utc(now),

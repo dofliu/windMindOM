@@ -50,6 +50,7 @@ from server.storage import Storage  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
 
 DEFAULT_OUT = REPO_ROOT / "examples" / "rag_starter_kit"
+VOCABULARY_SOURCE = REPO_ROOT / "shared" / "data" / "rag_assistant_vocabulary.json"
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if unknown:
         parser.error(f"不認得的 pack_id：{unknown}（可用：{sorted(known)}）")
     specs = [s for s in STARTER_PACKS if not args.only or s.pack_id in args.only]
+    if not args.probe:
+        # 詞彙的唯一來源在 shared/data（伺服器檢查預測用、會進 Docker 映像）；kit 帶一份副本給受測端
+        args.out.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(VOCABULARY_SOURCE, args.out / "vocabulary.json")
     workdir = Path(tempfile.mkdtemp(prefix="wmom-starter-"))
     try:
         for spec in specs:

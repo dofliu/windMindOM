@@ -52,6 +52,12 @@ COMPONENTS = score.load_vocabulary()
 # ── 1. 詞彙 ──────────────────────────────────────────────────────────────────
 
 
+def test_kit_vocabulary_is_a_copy_of_the_shared_source() -> None:
+    """詞彙的唯一來源在 shared/data（伺服器檢查 WS 預測用）；kit 的副本由 build_rag_starter_kit 同步。"""
+    shared = PROJECT_ROOT / "shared" / "data" / "rag_assistant_vocabulary.json"
+    assert (KIT / "vocabulary.json").read_bytes() == shared.read_bytes()
+
+
 def test_vocabulary_covers_the_fault_library() -> None:
     groups = {g["id"] for g in VOCAB["component_groups"]}
     assert all(c["group"] in groups for c in VOCAB["components"])

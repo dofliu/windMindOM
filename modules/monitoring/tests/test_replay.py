@@ -114,7 +114,7 @@ def test_readings_match_the_pack_raw_parquet(generated: Dict[str, object]) -> No
     raw = pq.read_table(generated["tmp"] / "blind" / sp.FILE_RAW).to_pylist()  # type: ignore[operator]
     readings = _messages(generated["frames"], "reading")  # type: ignore[arg-type]
     assert len(readings) == len(raw) == 2160
-    for row, message in zip(raw, readings):
+    for row, message in zip(raw, readings, strict=True):
         assert message["ts"] == row["timestamp"].strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         assert message["turbine_id"] == row["turbine_id"]
         assert list(message["values"]) == [k for k in row if k not in ("timestamp", "turbine_id")]
@@ -132,7 +132,7 @@ def test_stats_match_the_pack_stats_parquet(generated: Dict[str, object]) -> Non
     stats = sorted(_messages(generated["frames"], "stats"),  # type: ignore[arg-type]
                    key=lambda m: (m["window_start"], m["turbine_id"]))
     assert len(stats) == len(rows) > 0
-    for row, message in zip(rows, stats):
+    for row, message in zip(rows, stats, strict=True):
         for key in ("window_start", "window_end"):
             assert message[key] == row[key].strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         assert (message["turbine_id"], message["n_samples"], message["is_partial"]) == \
@@ -254,6 +254,8 @@ def _bearer(role: str = "supervisor") -> Dict[str, str]:
 
 
 def _create(client: TestClient, scenario_id: int, **body: object) -> dict:
+    # 模組共用同一個情境、混用兩種模式：明確允許並存（防呆本身另有測試）
+    body.setdefault("allow_overlap", True)
     resp = client.post(f"/api/scenarios/{scenario_id}/replay-runs", json=body, headers=_bearer())
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -500,7 +502,8 @@ def test_create_validates_parameters(client: TestClient, generated: Dict[str, ob
 def test_create_defaults_and_listing_hide_the_token(client: TestClient, generated: Dict[str, object]) -> None:
     sid = generated["scenario_id"]
     assert client.post("/api/scenarios/99999/replay-runs", json={}, headers=_bearer()).status_code == 404
-    created = client.post(f"/api/scenarios/{sid}/replay-runs", json={"label": "期末"}, headers=_bearer()).json()
+    created = client.post(f"/api/scenarios/{sid}/replay-runs", json={"label": "期末", "allow_overlap": True},
+                          headers=_bearer()).json()
     run = created["run"]
     assert (run["mode"], run["speed"], run["label"], run["created_by"]) == ("evaluation", rp.DEFAULT_SPEED, "期末",
                                                                             "teacher")
@@ -536,7 +539,8 @@ def test_kit_stream_client_against_a_real_server(generated: Dict[str, object], m
     monkeypatch.setattr(replay_ep, "get_broker", lambda: generated["broker"])
     storage: Storage = generated["storage"]  # type: ignore[assignment]
     # 1200×：2 h 情境 6 s 播完；受測端慢個幾十 ms 只差幾十秒模擬時間，預測不會超過情境結束而被退回
-    run, token = rp.create_run(storage, generated["scenario_id"], mode="evaluation", speed=1200.0)  # type: ignore[arg-type]
+    run, token = rp.create_run(storage, generated["scenario_id"], mode="evaluation", speed=1200.0,  # type: ignore[arg-type]
+                               allow_overlap=True)
     app = FastAPI()
     app.include_router(replay_ep.router)
     with socket.socket() as probe:
@@ -551,8 +555,12 @@ def test_kit_stream_client_against_a_real_server(generated: Dict[str, object], m
             time.sleep(0.05)
         assert server.started
         record = tmp_path / "received.jsonl"
-        summary = asyncio.run(asyncio.wait_for(
-            stream_client.run(f"ws://127.0.0.1:{port}/ws/replay", token, record=record, verbose=False), 60))
+        url = f"ws://127.0.0.1:{port}/ws/replay"
+        summary = asyncio.run(asyncio.wait_for(stream_client.run(url, token, record=record, verbose=False), 60))
+        # 被拒絕：關閉碼與伺服器的說明都拿得到（不是 traceback）；--check 不開始計時
+        bad = asyncio.run(asyncio.wait_for(stream_client.run(url, "wmr_bad", verbose=False), 30))
+        checked = asyncio.run(asyncio.wait_for(stream_client.run(url, token, check=True, verbose=False), 30))
+        exit_code = stream_client.main([url, "--token", "wmr_bad", "-q"])
     finally:
         server.should_exit = True
         thread.join(timeout=10)
@@ -565,6 +573,9 @@ def test_kit_stream_client_against_a_real_server(generated: Dict[str, object], m
     assert len(stored) == summary.accepted
     assert {p["prediction"]["component"] for p in stored} >= {"main_bearing"}
     assert len(record.read_text(encoding="utf-8").splitlines()) == sum(summary.counts.values())
+    assert summary.close_code == 1000
+    assert bad.close_code == 4401 and bad.errors[0]["message"] == "回放 token 無效" and exit_code == 1
+    assert checked.counts == {"control": 1} and checked.close_code == 1000
 
 
 def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp_path: Path,
@@ -573,7 +584,8 @@ def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp
 
     db = str(generated["tmp"] / "farm.db")  # type: ignore[operator]
     sid = str(generated["scenario_id"])
-    assert replay_runs.main([db, "create", sid, "--mode", "practice", "--speed", "600", "--label", "第3組"]) == 0
+    assert replay_runs.main([db, "create", sid, "--mode", "practice", "--speed", "600", "--label", "第3組",
+                             "--allow-overlap"]) == 0
     out = capsys.readouterr().out
     token = next(line.split("：", 1)[1] for line in out.splitlines() if line.startswith("token："))
     storage: Storage = generated["storage"]  # type: ignore[assignment]
@@ -594,3 +606,300 @@ def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp
     assert replay_runs.main([db, "create", "99999"]) == 1
     assert replay_runs.main([db, "create", sid, "--speed", "0"]) == 2
     assert replay_runs.main([str(tmp_path / "missing.db"), "list", sid]) == 2
+
+
+# ── code review 補測：時鐘因果（假時鐘驅動傳送端）、防呆、上限、壞訊息 ─────────────────
+
+
+def _tiny_scenario(storage: Storage) -> int:
+    """2 台 × 30 筆（每 10 s）的最小可回放情境。"""
+    sid = storage.create_session("simulation", 2, config={
+        "kind": storage.SCENARIO_KIND, "status": "ok", "events_session_isolated": True, "duration_hours": 0.1,
+        "time_step": 10.0, "site_timezone": "Asia/Taipei",
+    })
+    conn = storage._get_conn()
+    conn.executemany(
+        "INSERT INTO turbine_data (timestamp, turbine_id, session_id, scada_json) VALUES (?, ?, ?, ?)",
+        [(iso_utc(T0 + timedelta(seconds=10 * i)), tid, sid, json.dumps({"WTUR_TotPwrAt": 100.0 + i}))
+         for i in range(30) for tid in ("WT001", "WT002")],
+    )
+    conn.commit()
+    return sid
+
+
+class _Socket:
+    """假的 WebSocket：記下每則訊息送出時的（假）實際時間。"""
+
+    def __init__(self, now: List[float], on_send: Optional[object] = None) -> None:
+        self.now = now
+        self.sent: List[tuple] = []
+        self.on_send = on_send
+
+    async def send_text(self, text: str) -> None:
+        self.sent.append((self.now[0], json.loads(text)))
+        if callable(self.on_send):
+            self.on_send(self)
+
+
+def _fake_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1000.0) -> List[float]:
+    """把 ``wall_time`` 與 ``asyncio.sleep`` 換成假時鐘：sleep 直接把時間往前推。"""
+    now = [start]
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(delay: float, result: object = None) -> object:
+        now[0] += max(0.0, delay)
+        await real_sleep(0)
+        return result
+
+    monkeypatch.setattr(rp, "wall_time", lambda: now[0])
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    return now
+
+
+def _due(message: dict, sim_end: datetime) -> datetime:
+    if message["type"] == "stats":
+        return min(parse_iso(message["window_end"]), sim_end)
+    return parse_iso(message["ts"])
+
+
+def _connection(storage: Storage, replay: rp.ScenarioReplay, socket: _Socket, speed: float,
+                start: float) -> tuple:
+    run = storage.create_replay_run(replay.scenario_id, rp.token_digest(rp.new_token()), "practice", speed, None,
+                                    iso_utc(), None, iso_utc(datetime.now(timezone.utc) + timedelta(days=1)))
+    clock = rp.ReplayClock(replay.sim_start, speed, start)
+    return replay_ep._ReplayConnection(socket, storage, run, replay, clock, 1, None), clock, run  # type: ignore[arg-type]
+
+
+def test_sender_never_sends_before_due_on_a_fake_clock(generated: Dict[str, object],
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    now = _fake_clock(monkeypatch)
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    replay = rp.ScenarioReplay(storage, generated["scenario_id"])  # type: ignore[arg-type]
+    socket = _Socket(now)
+    connection, clock, _ = _connection(storage, replay, socket, 60.0, now[0])
+    asyncio.run(connection.stream())
+    data = [(wall, m) for wall, m in socket.sent if m["type"] in ("reading", "event", "stats")]
+    assert len(data) == len(generated["frames"])  # type: ignore[arg-type]
+    for wall, message in data:
+        assert _due(message, replay.sim_end) <= clock.sim_now(wall), message
+    # 真的照時鐘分散送出（不是一次全送），播完才送 finished，之後再等 CLOSE_GRACE_S
+    assert len({wall for wall, _ in data}) > 500
+    finished_wall, finished = socket.sent[-1]
+    assert finished["status"] == "finished" and finished_wall >= clock.wall_at(replay.sim_end)
+    assert now[0] >= clock.wall_at(replay.sim_end) + rp.CLOSE_GRACE_S
+
+
+def test_revoking_mid_stream_disconnects_within_the_recheck_period(generated: Dict[str, object],
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    now = _fake_clock(monkeypatch)
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    replay = rp.ScenarioReplay(storage, generated["scenario_id"])  # type: ignore[arg-type]
+    revoked_at: List[float] = []
+
+    def revoke_after_100(socket: _Socket) -> None:
+        if len(socket.sent) == 100:
+            storage.revoke_replay_run(int(run["id"]), iso_utc())
+            revoked_at.append(socket.now[0])
+
+    socket = _Socket(now, revoke_after_100)
+    connection, _, run = _connection(storage, replay, socket, 60.0, now[0])
+    with pytest.raises(rp.ReplayError) as exc:
+        asyncio.run(connection.stream())
+    assert exc.value.close_code == 4403
+    assert revoked_at and socket.sent[-1][0] <= revoked_at[0] + replay_ep.RUN_RECHECK_S + 1.0
+
+
+def test_prediction_ts_never_precedes_data_already_sent(generated: Dict[str, object],
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    now = _fake_clock(monkeypatch)
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    replay = rp.ScenarioReplay(storage, generated["scenario_id"])  # type: ignore[arg-type]
+
+    def stop_after_200(socket: _Socket) -> None:
+        if len(socket.sent) == 200:
+            from starlette.websockets import WebSocketDisconnect
+            raise WebSocketDisconnect(code=1000)
+
+    socket = _Socket(now, stop_after_200)
+    connection, _, _ = _connection(storage, replay, socket, 60.0, now[0])
+    with pytest.raises(Exception):
+        asyncio.run(connection.stream())
+    last_seen = max(_due(m, replay.sim_end) for _, m in socket.sent if m["type"] in ("reading", "event", "stats"))
+    socket.on_send = None
+    now[0] = 0.0  # 時鐘被調回（NTP step、VM 暫停還原）
+    asyncio.run(connection._prediction({"type": "prediction", "turbine_id": "WT001", "category": "nuisance"}))
+    ack = socket.sent[-1][1]
+    assert ack["accepted"] is True and parse_iso(ack["ts"]) == last_seen
+
+
+def test_overlapping_modes_on_one_scenario_are_refused(tmp_path: Path) -> None:
+    storage = Storage(db_path=str(tmp_path / "farm.db"))
+    sid = _tiny_scenario(storage)
+    first, _ = rp.create_run(storage, sid, mode="practice")
+    second, _ = rp.create_run(storage, sid, mode="practice")  # 同模式可以多開
+    with pytest.raises(rp.ReplayRunConflict, match="練習"):
+        rp.create_run(storage, sid, mode="evaluation")
+    storage.revoke_replay_run(int(first["id"]), iso_utc())
+    with pytest.raises(rp.ReplayRunConflict):
+        rp.create_run(storage, sid, mode="evaluation")
+    storage.revoke_replay_run(int(second["id"]), iso_utc())
+    rp.create_run(storage, sid, mode="evaluation")
+    with pytest.raises(rp.ReplayRunConflict, match="正式評測"):
+        rp.create_run(storage, sid, mode="practice")
+    rp.create_run(storage, sid, mode="practice", allow_overlap=True)
+
+
+def test_rest_create_refuses_overlap_and_is_not_cached(client: TestClient, generated: Dict[str, object]) -> None:
+    sid = generated["scenario_id"]
+    _create(client, sid, mode="practice", speed=1.0)  # type: ignore[arg-type]
+    resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation"}, headers=_bearer())
+    assert resp.status_code == 409 and "練習" in resp.json()["detail"]
+    resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation", "allow_overlap": True},
+                       headers=_bearer())
+    assert resp.status_code == 201 and resp.headers["cache-control"] == "no-store"
+
+
+def test_evaluation_connection_limit(client: TestClient, generated: Dict[str, object],
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rp, "MAX_CONNECTIONS_PER_RUN", 1)
+    created = _create(client, generated["scenario_id"], mode="evaluation", speed=1.0)  # type: ignore[arg-type]
+    with client.websocket_connect("/ws/replay", headers=_ws(created["token"])) as first:
+        first.receive_json()
+        with client.websocket_connect("/ws/replay", headers=_ws(created["token"])) as second:
+            assert second.receive_json()["code"] == 4409
+    assert replay_ep._open_connections == {}
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    assert storage.get_replay_run(created["run"]["id"])["connections"] == 1  # type: ignore[index]
+
+
+def test_check_mode_reports_status_without_starting_the_clock(client: TestClient,
+                                                              generated: Dict[str, object]) -> None:
+    created = _create(client, generated["scenario_id"], mode="evaluation", label="期末（老師備註）")  # type: ignore[arg-type]
+    with client.websocket_connect("/ws/replay?check=true", headers=_ws(created["token"])) as ws:
+        checked = ws.receive_json()
+    assert (checked["type"], checked["status"]) == ("control", "checked")
+    assert checked["run"]["status"] == "not_started" and checked["run"]["pack_id"] == created["run"]["pack_id"]
+    assert "label" not in checked["run"] and "created_by" not in checked["run"]
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    run = storage.get_replay_run(created["run"]["id"])
+    assert run is not None and run["started_at"] is None and run["connections"] == 0
+
+
+def test_prediction_count_and_size_caps(client: TestClient, generated: Dict[str, object],
+                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rp, "MAX_PREDICTIONS_PER_RUN", 1)
+    created = _create(client, generated["scenario_id"], mode="practice", speed=1.0)  # type: ignore[arg-type]
+    prediction = {"type": "prediction", "turbine_id": "WT001", "category": "nuisance"}
+
+    def ack(ws: object) -> dict:
+        return next(m for m in iter(ws.receive_json, None) if m["type"] == "ack")  # type: ignore[attr-defined]
+
+    with client.websocket_connect("/ws/replay", headers=_ws(created["token"])) as ws:
+        ws.receive_json()
+        ws.send_json(prediction)
+        assert ack(ws)["accepted"] is True
+        ws.send_json(prediction)
+        assert ack(ws)["errors"] == ["這個回放的預測已達上限 1 筆"]
+        monkeypatch.setattr(rp, "MAX_PREDICTIONS_PER_RUN", 100)
+        monkeypatch.setattr(rp, "MAX_PREDICTION_BYTES_PER_RUN", 150)
+        ws.send_json(prediction)
+        assert "儲存上限" in ack(ws)["errors"][0]
+
+
+def test_unreplayable_scenario_closes_with_4404(client: TestClient, generated: Dict[str, object],
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    created = _create(client, generated["scenario_id"], mode="practice", speed=1.0)  # type: ignore[arg-type]
+
+    def broken(*_args: object) -> None:
+        raise sp.ScenarioPackError("did not finish generating")
+
+    monkeypatch.setattr(rp, "ScenarioReplay", broken)
+    with client.websocket_connect("/ws/replay", headers=_ws(created["token"])) as ws:
+        error = ws.receive_json()
+    assert error["code"] == 4404 and "did not finish generating" in error["message"]
+    assert replay_ep._open_connections == {}, "被拒絕也要還回連線名額"
+
+
+def test_binary_extreme_and_sensor_fault_messages_keep_the_connection(client: TestClient,
+                                                                       generated: Dict[str, object]) -> None:
+    created = _create(client, generated["scenario_id"], mode="practice", speed=1.0)  # type: ignore[arg-type]
+    with client.websocket_connect("/ws/replay", headers=_ws(created["token"])) as ws:
+        ws.receive_json()
+
+        def reply(*types: str) -> dict:
+            return next(m for m in iter(ws.receive_json, None) if m["type"] in types)
+
+        ws.send_bytes(b"\x00\x01")
+        assert reply("error")["message"] == "只接受文字（JSON）訊息"
+        ws.send_text('{"type": "ping", "x": ' + "9" * 5000 + "}")  # 超過 Python 整數字串上限 → ValueError
+        assert reply("error")["message"] == "不是 JSON"
+        ws.send_text('{"type": "prediction", "turbine_id": "WT001", "category": "nuisance", "confidence": 1'
+                     + "0" * 400 + "}")
+        assert "confidence" in reply("ack")["errors"][0]
+        ws.send_text("x" * (rp.MAX_CLIENT_MESSAGE_BYTES + 1))
+        assert "超過" in reply("error")["message"]
+        ws.send_json({"type": "prediction", "turbine_id": "WT001", "category": "sensor_fault",
+                      "component": "wind_vane_1"})
+        assert reply("ack")["accepted"] is True
+        ws.send_json({"type": "ping"})
+        assert reply("pong")["type"] == "pong", "壞訊息之後連線仍在"
+
+
+def test_replay_index_is_cached_per_scenario(generated: Dict[str, object], monkeypatch: pytest.MonkeyPatch) -> None:
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    monkeypatch.setattr(rp, "_INDEX_CACHE", type(rp._INDEX_CACHE)())
+    calls: List[int] = []
+    original = storage.session_reading_ids
+
+    def counting(session_id: int) -> object:
+        calls.append(session_id)
+        return original(session_id)
+
+    monkeypatch.setattr(storage, "session_reading_ids", counting)
+    first = rp.ScenarioReplay(storage, generated["scenario_id"])  # type: ignore[arg-type]
+    second = rp.ScenarioReplay(storage, generated["scenario_id"])  # type: ignore[arg-type]
+    assert len(calls) == 1 and list(first._row_ids) == list(second._row_ids)
+
+
+def test_missing_vocabulary_fails_loudly(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(rp, "VOCABULARY_PATH", tmp_path / "missing.json")
+    with pytest.raises(FileNotFoundError):
+        rp._load_vocabulary()
+    assert {"main_bearing", "wind_vane_1"} <= rp.VOCABULARY_COMPONENTS
+
+
+def test_deleting_a_scenario_with_graded_predictions_needs_force(tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    from server.routers import scenarios as scenarios_ep
+
+    monkeypatch.setenv("WMOM_JWT_SECRET", secrets.token_hex(16))
+    storage = Storage(db_path=str(tmp_path / "farm.db"))
+    sid = _tiny_scenario(storage)
+    run, _ = rp.create_run(storage, sid, mode="practice")
+    storage.add_replay_prediction(int(run["id"]), 1, iso_utc(), "2026-01-15T03:00:10.000000Z", {"a": 1})
+
+    class _Broker:
+        pass
+
+    broker = _Broker()
+    broker.storage = storage  # type: ignore[attr-defined]
+    monkeypatch.setattr(scenarios_ep, "get_broker", lambda: broker)
+    app = FastAPI()
+    app.include_router(scenarios_ep.router)
+    client = TestClient(app)
+    resp = client.delete(f"/api/scenarios/{sid}", headers=_bearer("admin"))
+    assert resp.status_code == 409 and "replay predictions" in resp.json()["detail"]
+    assert storage.get_scenario(sid) is not None
+    assert client.delete(f"/api/scenarios/{sid}?force=true", headers=_bearer("admin")).status_code == 200
+    assert storage.get_scenario(sid) is None and storage.list_replay_runs(sid) == []
+
+
+def test_evaluation_speed_is_capped_by_what_the_server_can_keep_up_with(client: TestClient,
+                                                                        generated: Dict[str, object]) -> None:
+    # 3 台、每 10 s 一筆：上限 1000 × 10 / 3 ≈ 3333×；練習回放不受此限（只到 MAX_SPEED）
+    sid = generated["scenario_id"]
+    resp = client.post(f"/api/scenarios/{sid}/replay-runs", json={"mode": "evaluation", "speed": 5000,
+                                                                  "allow_overlap": True}, headers=_bearer())
+    assert resp.status_code == 422 and "3333.33×" in resp.json()["detail"]
+    assert _create(client, sid, mode="evaluation", speed=3000)["run"]["speed"] == 3000  # type: ignore[arg-type]
+    assert _create(client, sid, mode="practice", speed=rp.MAX_SPEED)["run"]["speed"] == rp.MAX_SPEED  # type: ignore[arg-type]

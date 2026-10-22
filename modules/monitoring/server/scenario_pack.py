@@ -127,6 +127,7 @@ EVENT_KEYS: Tuple[str, ...] = (
     "alarm_code", "alarm_level", "alarm_text", "event_id", "plc_tag",
     "from_state", "to_state", "from_state_name", "to_state_name", "stop_reason",
 )
+_BOOL = pa.bool_()
 _ARROW_TYPES: Dict[str, pa.DataType] = {
     "REAL32": pa.float32(),
     "SINT16": pa.int16(),
@@ -580,18 +581,19 @@ def json_values(values: np.ndarray, columns: Sequence[PackColumn], suffix: str =
         ``{欄名 + suffix: 值}``，缺值為 None。
     """
     values = np.asarray(values, dtype=np.float64)
-    as_f32 = values.astype(np.float32).astype(str)
+    raw = values.tolist()
+    as_f32 = values.astype(np.float32).astype(str).tolist()
     out: Dict[str, JsonValue] = {}
     for c, col in enumerate(columns):
-        value = float(values[c])
-        if math.isnan(value):
+        value = raw[c]
+        if value != value:  # NaN
             out[col.name + suffix] = None
-        elif col.arrow_type == pa.float32():
+        elif col.is_analog:  # REAL32
             out[col.name + suffix] = float(as_f32[c])
-        elif col.arrow_type == pa.bool_():
+        elif col.arrow_type == _BOOL:
             out[col.name + suffix] = value != 0.0
         else:
-            out[col.name + suffix] = int(np.rint(value))
+            out[col.name + suffix] = int(round(value))  # Python round 與 np.rint 同為四捨六入五成雙
     return out
 
 
@@ -651,20 +653,26 @@ def _raw_schema(columns: Sequence[PackColumn]) -> pa.Schema:
 
 def scada_values(scada_json: Optional[str], ids: Sequence[str]) -> np.ndarray:
     """一筆讀值的 tag 值（缺、非數值、非有限值 → NaN）。"""
-    out = np.full(len(ids), np.nan)
     if not scada_json:
-        return out
+        return np.full(len(ids), np.nan)
     try:
         scada = json.loads(scada_json)
     except (json.JSONDecodeError, TypeError):
-        return out
+        return np.full(len(ids), np.nan)
     if not isinstance(scada, dict):
-        return out
-    for c, tag_id in enumerate(ids):
-        value = scada.get(tag_id)
-        if isinstance(value, (int, float)) and math.isfinite(value):
-            out[c] = float(value)
+        return np.full(len(ids), np.nan)
+    get = scada.get
+    out = np.array([v if type(v) is float or (type(v) is int) else _coerce(v) for v in map(get, ids)],
+                   dtype=np.float64)
+    out[~np.isfinite(out)] = np.nan
     return out
+
+
+def _coerce(value: object) -> float:
+    """非 int / float 的值：bool 視為數值（與 ``isinstance(v, (int, float))`` 相同），其餘為 NaN。"""
+    if isinstance(value, (int, float)):
+        return float(value)
+    return math.nan
 
 
 @dataclass
@@ -793,6 +801,7 @@ def load_exportable_scenario(storage: Storage, scenario_id: int, max_rows: Optio
 
 
 def positive_number(value: JsonValue) -> Optional[float]:
+    """正數（排除 bool）→ float；其他回 None（情境設定的 ``time_step`` 等）。"""
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
 
 

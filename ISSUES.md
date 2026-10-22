@@ -1487,7 +1487,19 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **CLI** `tools/replay_runs.py`：create / list / revoke / predictions。
   - **starter kit**：`stream_client.py`（基準助手的即時版，收與想分開）、README「即時回放」、`websockets>=13`。
   - **合約 v1.1**：新增 §12；`CONTRACT_VERSION` 1.1、vocabulary 1.1；範例資料包重產（資料檔不變）。
-  - **測試**：`test_replay.py` 40 項（含 kit 客戶端對真的 uvicorn 伺服器、CLI）。
+  - **與原描述不同**：
+    - 端點是 `/ws/replay`，以回放 token 選情境，不帶 scenario_id。
+    - 速度由出題端建回放時決定。
+    - 訊息除 reading / event / control 外，還有 stats / ack / pong / error；受測端送 prediction / ping。
+  - **code review**（Needs revision → 全修，見設計文件 §6.11）：
+    - M1：詞彙唯一來源移到 `shared/data/`，找不到就失敗。
+    - M2：連線上限檢查與佔位之間不 await。
+    - S1–S10：
+      - 壞訊息不斷線；撤銷 / 到期中途斷線；兩種模式並存防呆與 `?check=true`。
+      - 索引快取、讀值上限；訊息 16 KB、總量 20 MB。
+      - 預取、讀值轉換加速、正式評測速度上限。
+      - 刪除情境要 `force`（前端提示）；kit 客戶端的關閉碼與 proxy；文件。
+  - **測試**：`test_replay.py` 54 項（含 kit 客戶端對真的 uvicorn 伺服器、CLI、假時鐘傳送端因果）；前端 ScenarioPage +1。
   - **完整 backend**：1778 → __N__ passed / 7 skipped / 1 xfailed。
   - 設計、已知限制見設計文件 §6.11。
 - **Depends on**: WMOM-20261021-04

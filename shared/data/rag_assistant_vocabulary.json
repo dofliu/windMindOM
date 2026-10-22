@@ -1,0 +1,158 @@
+{
+ "contract_version": "1.1",
+ "description": "Closed vocabularies of the windMindOM RAG assistant data contract v1 (docs/integration/rag_assistant_data_contract_v1.md).",
+ "component_groups": [
+  {
+   "id": "rotor",
+   "label_en": "Rotor and blades",
+   "label_zh": "轉子與葉片"
+  },
+  {
+   "id": "pitch",
+   "label_en": "Pitch system",
+   "label_zh": "變槳系統"
+  },
+  {
+   "id": "drivetrain",
+   "label_en": "Drivetrain",
+   "label_zh": "傳動系統"
+  },
+  {
+   "id": "generator",
+   "label_en": "Generator",
+   "label_zh": "發電機"
+  },
+  {
+   "id": "converter",
+   "label_en": "Converter",
+   "label_zh": "變頻器"
+  },
+  {
+   "id": "grid_electrical",
+   "label_en": "Transformer and grid connection",
+   "label_zh": "變壓器與併網"
+  },
+  {
+   "id": "yaw",
+   "label_en": "Yaw system and wind vanes",
+   "label_zh": "偏航系統與風向標"
+  },
+  {
+   "id": "nacelle",
+   "label_en": "Nacelle environment",
+   "label_zh": "機艙環境"
+  }
+ ],
+ "components": [
+  {
+   "id": "blades",
+   "group": "rotor",
+   "label_en": "Rotor blades",
+   "label_zh": "葉片"
+  },
+  {
+   "id": "pitch_control_system",
+   "group": "pitch",
+   "label_en": "Pitch control system (all blades)",
+   "label_zh": "變槳控制系統（全部葉片）"
+  },
+  {
+   "id": "pitch_system_blade_1",
+   "group": "pitch",
+   "label_en": "Pitch system, blade 1",
+   "label_zh": "葉片 1 變槳系統"
+  },
+  {
+   "id": "main_bearing",
+   "group": "drivetrain",
+   "label_en": "Main bearing",
+   "label_zh": "主軸承"
+  },
+  {
+   "id": "generator_stator",
+   "group": "generator",
+   "label_en": "Generator stator winding",
+   "label_zh": "發電機定子繞組"
+  },
+  {
+   "id": "converter_cooling_system",
+   "group": "converter",
+   "label_en": "Converter cooling system",
+   "label_zh": "變頻器冷卻系統"
+  },
+  {
+   "id": "transformer",
+   "group": "grid_electrical",
+   "label_en": "Transformer",
+   "label_zh": "變壓器"
+  },
+  {
+   "id": "grid_connection",
+   "group": "grid_electrical",
+   "label_en": "Grid connection (external grid)",
+   "label_zh": "電網連接（外部電網）"
+  },
+  {
+   "id": "yaw_brake_hydraulics",
+   "group": "yaw",
+   "label_en": "Yaw brake hydraulics",
+   "label_zh": "偏航煞車液壓"
+  },
+  {
+   "id": "wind_vane_1",
+   "group": "yaw",
+   "label_en": "Wind vane 1",
+   "label_zh": "風向標 1"
+  },
+  {
+   "id": "nacelle_ventilation",
+   "group": "nacelle",
+   "label_en": "Nacelle ventilation / cooling",
+   "label_zh": "機艙通風 / 冷卻"
+  }
+ ],
+ "categories": [
+  {
+   "id": "real_fault",
+   "label_en": "A component is degrading or has failed",
+   "label_zh": "元件劣化或故障",
+   "prediction": true
+  },
+  {
+   "id": "sensor_fault",
+   "label_en": "A sensor reads wrong; the machine itself is fine",
+   "label_zh": "感測器讀值錯誤，機器本身正常",
+   "prediction": true
+  },
+  {
+   "id": "nuisance",
+   "label_en": "Event with no underlying fault (environmental stop, spurious trip)",
+   "label_zh": "沒有實際故障的事件（環境性停機、誤跳機）",
+   "prediction": true
+  },
+  {
+   "id": "healthy",
+   "label_en": "Healthy turbine (answer key only)",
+   "label_zh": "健康機組（只出現在標準答案）",
+   "prediction": false
+  }
+ ],
+ "event_types": [
+  "alarm_raised",
+  "alarm_cleared",
+  "trip",
+  "trip_cleared",
+  "restart_blocked",
+  "reset",
+  "info",
+  "state_change"
+ ],
+ "stop_reasons": [
+  "plc_trip",
+  "high_wind",
+  "low_wind",
+  "grid",
+  "overspeed",
+  "operator"
+ ]
+}

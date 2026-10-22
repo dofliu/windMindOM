@@ -70,6 +70,41 @@ def read_events(pack_dir: Path) -> Tuple[str, List[Dict[str, object]]]:
     return str(manifest["pack_id"]), [json.loads(line) for line in lines if line.strip()]
 
 
+class BaselineAssistant:
+    """基準助手的狀態：一次吃一則事件，需要時回傳一筆判斷（``diagnose`` 與 ``stream_client`` 共用）。"""
+
+    def __init__(self) -> None:
+        self._seen_codes: Dict[str, List[int]] = {}
+
+    def on_event(self, event: Dict[str, object]) -> Optional[Dict[str, object]]:
+        """處理一則事件。
+
+        Args:
+            event: 事件（欄位同 ``events.jsonl``）。
+
+        Returns:
+            判斷（合約 §6 欄位，不含 ``pack_id`` / ``ts``）或 None。
+        """
+        turbine = str(event["turbine_id"])
+        if event["event_type"] == "info":
+            return {"turbine_id": turbine, "category": "nuisance", "component": None,
+                    "manual_refs": [event["alarm_code"]],
+                    "root_cause": f"Informational event {event['alarm_code']}: {event['alarm_text']}"}
+        if event["event_type"] not in ("alarm_raised", "trip"):
+            return None
+        code = int(str(event["alarm_code"]))
+        codes = self._seen_codes.setdefault(turbine, [])
+        if code in codes:
+            return None
+        codes.insert(0, code)
+        component = guess_component(str(event["alarm_text"]))
+        if component is None:
+            return None
+        return {"turbine_id": turbine, "category": "real_fault", "component": component, "manual_refs": list(codes),
+                "root_cause": f"Alarm {code}: {event['alarm_text']}",
+                "actions": ["Check the Z72 manual entries cited in manual_refs."]}
+
+
 def diagnose(pack_id: str, events: Iterable[Dict[str, object]]) -> List[Dict[str, object]]:
     """依事件逐筆產生診斷（只用到當下以前的事件）。
 
@@ -80,33 +115,13 @@ def diagnose(pack_id: str, events: Iterable[Dict[str, object]]) -> List[Dict[str
     Returns:
         預測（合約 §6 格式）。
     """
-    seen_codes: Dict[str, List[int]] = {}
+    assistant = BaselineAssistant()
     predictions: List[Dict[str, object]] = []
     for event in events:
-        turbine = str(event["turbine_id"])
-        if event["event_type"] == "info":
-            predictions.append({
-                "pack_id": pack_id, "turbine_id": turbine, "ts": event["ts"], "category": "nuisance",
-                "component": None, "manual_refs": [event["alarm_code"]],
-                "root_cause": f"Informational event {event['alarm_code']}: {event['alarm_text']}",
-            })
-            continue
-        if event["event_type"] not in ("alarm_raised", "trip"):
-            continue
-        code = int(str(event["alarm_code"]))
-        codes = seen_codes.setdefault(turbine, [])
-        if code in codes:
-            continue
-        codes.insert(0, code)
-        component = guess_component(str(event["alarm_text"]))
-        if component is None:
-            continue
-        predictions.append({
-            "pack_id": pack_id, "turbine_id": turbine, "ts": event["ts"], "category": "real_fault",
-            "component": component, "manual_refs": list(codes),
-            "root_cause": f"Alarm {code}: {event['alarm_text']}",
-            "actions": ["Check the Z72 manual entries cited in manual_refs."],
-        })
+        judgement = assistant.on_event(event)
+        if judgement is not None:
+            turbine = judgement.pop("turbine_id")
+            predictions.append({"pack_id": pack_id, "turbine_id": turbine, "ts": event["ts"], **judgement})
     return predictions
 
 

@@ -143,10 +143,10 @@ WMOM = WindMindOM 縮寫。
 - **時間戳守則**：monitoring 一律用 `simulator/time_utils.py`——內部 `utc_now()`（不要再寫 naive 的 `datetime.now()`）、落庫 / API 字串用 `iso_utc()`（固定 `...ffffff+00:00`，SQLite 靠字串字典序比較時間）、外部傳入的字串用 `normalize_iso` / `parse_iso`（naive＝伺服器本地時間）；需要當地時刻的物理輸入（日夜 / 季節循環）用 `to_site_naive(ts, site_tz)`——風場時區（`FarmConfig.timezone`，預設 Asia/Taipei），不是伺服器時區；它把 naive 輸入視為已是風場牆鐘時間（例外於上一條）；建模擬器要帶 `site_timezone=`（broker / 資料集產生都要）
 - **盲測守則**：故障根因 / 注入資訊只能進標準答案（`scenario_ground_truth`）；給外部 RAG 的事件一律以 `storage.is_observable_event` 過濾（白名單：PLC 事件與運轉狀態轉換，新事件來源預設不可觀測）；答案卷端點用永遠強制的 `require_roles`；新增故障情境要補 `FaultScenario` 的答案欄位（`test_fault_ground_truth.py` 會擋），`key_signals` 要真的偏離健康機組（`test_fault_threshold_reach.py`）
 - **資料包守則**：給受測端的資料只走盲測版資料包（`/pack`，不含 `ground_truth.json`），以檔案交付、受測端不開帳號；manifest 不得帶情境名稱 / 故障排程 / 自訂文字；資料包的 tag 真實性以 `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 產生）為準；會透露劣化程度或模型參數的模擬量加進 `scenario_pack.MODEL_INTERNAL_TAGS`，key signal 不能選它們（DEC-20261021-03，測試會擋）
-- **合約守則**：資料包 / 事件 / 標準答案 / 預測格式以合約 v1 為準；加欄位升次版本（`CONTRACT_VERSION`）、改名 / 刪欄位升主版本並更新合約文件；新增故障情境的 `component` / `category` 要先加進 `examples/rag_starter_kit/vocabulary.json`（`tests/test_rag_starter_kit.py` 會擋）；改了 tag 註冊表或資料包格式要重建範例（`python tools/build_rag_starter_kit.py`）
-- **回放守則**：受測端只用回放 token 連 `/ws/replay`（不開帳號、看不到情境清單）；回放訊息與盲測版資料包逐筆相同，新增訊息內容要走 `ScenarioReplay` 並維持「與資料包相同、不含答案」（`test_replay.py` 會擋）；預測的 `ts` 一律由伺服器蓋，不接受受測端給的時間；正式評測與練習回放不要開在同一個情境
+- **合約守則**：資料包 / 事件 / 標準答案 / 預測格式以合約 v1 為準；加欄位升次版本（`CONTRACT_VERSION`）、改名 / 刪欄位升主版本並更新合約文件；新增故障情境的 `component` / `category` 要先加進 `shared/data/rag_assistant_vocabulary.json`（唯一來源；kit 的 `vocabulary.json` 由 `tools/build_rag_starter_kit.py` 同步，`tests/test_rag_starter_kit.py` 會擋）；改了 tag 註冊表或資料包格式要重建範例（`python tools/build_rag_starter_kit.py`）
+- **回放守則**：受測端只用回放 token 連 `/ws/replay`（不開帳號、看不到情境清單）；回放訊息與盲測版資料包逐筆相同，新增訊息內容要走 `ScenarioReplay` 並維持「與資料包相同、不含答案」（`test_replay.py` 會擋）；預測的 `ts` 一律由伺服器蓋，不接受受測端給的時間；正式評測與練習回放不要開在同一個情境（建回放時預設擋下，`allow_overlap` 才放行）；正式評測的速度受「機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆 / 秒」限制
 - **下次工作**：EPIC-DS 依序 3c（-07 OPC UA，資料來源用 `server/replay.py` 的 `ScenarioReplay` / `ReplayClock`）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend __N__ passed / 7 skipped / 1 xfailed；frontend vitest 1512 passed（2026-10-22）。以各 module `tests/` 為準
+- **測試**：backend __N__ passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

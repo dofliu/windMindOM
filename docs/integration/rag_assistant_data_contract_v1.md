@@ -305,13 +305,18 @@ case：
 
 - **建回放**（主管）：`POST /api/scenarios/{id}/replay-runs`，或 CLI `python tools/replay_runs.py <風場 DB> create <情境 id>`。回應中的 `token` 只出現這一次。參數：
   - `mode`：
-    - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410）。
+    - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410）。**要先試 token 請用 `?check=true`**：只回報回放狀態，不開始計時。
     - `practice`：每次連線各自從頭播，給受測端開發用。
-  - `speed`：模擬秒 / 實際秒，0.1–10000，預設 60（1 秒運算＝1 分鐘模擬時間）。由出題端決定，受測端不能改：每個受測者每模擬秒的運算時間相同。
+    - **同一個情境不能同時有兩種模式**（未撤銷的回放）：練習回放可以先看完正式評測的整段資料。伺服器預設拒絕（409），確定要並存才帶 `allow_overlap: true`。
+  - `speed`：模擬秒 / 實際秒。
+    - 範圍 0.1–10000，預設 60（1 秒運算＝1 分鐘模擬時間）。
+    - 由出題端決定，受測端不能改：每個受測者每模擬秒的運算時間相同。
+    - 正式評測另有上限：機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆讀值 / 秒。例：14 台、每 10 秒一筆 → 714×。伺服器跟不上時，落後的時間會算在受測端頭上，所以超過上限就拒絕（422）。
   - `expires_in_hours`：token 有效時數（預設 7 天）；`label`：備註（受測端看不到）。
 - **受測端連線**：token 放 `Authorization: Bearer <token>` 標頭（建議），或 `?token=<token>`（會留在伺服器的存取紀錄）。受測端不開 windMindOM 帳號，token 只能連這一個回放（DEC-20261021-03）。
 - **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id>` 下載 `predictions.jsonl`，與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
-- 撤銷：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`，之後不能再連線、送預測。
+- **撤銷**：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`。之後不能再連線、送預測；開著的連線幾秒內以 4403 關閉。token 到期同樣處理。
+- **刪除情境**：刪除時一併刪除它的回放與預測。回放收過預測（評測結果）時，`DELETE /api/scenarios/{id}` 預設拒絕（409），先下載預測再帶 `force=true`。
 - 範例程式：[`examples/rag_starter_kit/stream_client.py`](../../examples/rag_starter_kit/stream_client.py)（基準助手的即時版）。
 
 ### 12.2 伺服器 → 受測端
@@ -321,6 +326,7 @@ case：
 | `type` | 何時 | 內容 |
 |---|---|---|
 | `control`（`status: "started"`） | 連上後第一則 | `sim_ts`：目前模擬時間；`stream`：`contract_version`、`pack_id`、`turbine_model`、`turbines`、`sim_start` / `sim_end`、`sample_period_s`、`stats_window_s`、`stats_convention`、`duration_hours`、`site_timezone`、`wind_profile`、`rated_power_kw`（同 manifest，§3.2）與 `mode`、`speed`、`connection_no`、`backfill`、`close_grace_s`；`tag_dictionary`：同 `tag_dictionary.json` 的 `tags`；`alarm_catalog`：同 `alarm_catalog.json` |
+| `control`（`status: "checked"`） | `?check=true` 時的唯一一則，隨後關閉（1000） | `run`：`pack_id`、`mode`、`speed`、`status`（`ready` / `not_started` / `running` / `finished` / `expired` / `revoked`）、`expires_at`、`started_at`、`ends_at` |
 | `reading` | 每台機組每次取樣 | `ts`、`turbine_id`、`values`：`{Bachmann tag 名: 值}`，型別同 Parquet（§3.5；REAL32 為 float32 的最短十進位表示，缺值 null） |
 | `event` | 事件發生時 | `events.jsonl` 的全部欄位（§4） |
 | `stats` | 10 分鐘窗結束時（最後的殘缺窗在資料結束時） | `window_start`、`window_end`、`turbine_id`、`n_samples`、`is_partial`、`values`：`{<tag>_avg / _min / _max / _std: 值}`（同 §3.6） |
@@ -337,9 +343,9 @@ case：
 | 碼 | 意義 |
 |---|---|
 | 1000 | 正常結束（`finished` 後 `closing_in_s` 秒） |
-| 4401 | 缺 token 或 token 無效 |
-| 4403 | 回放已撤銷或 token 已到期 |
-| 4404 | 情境已刪除或不能回放 |
+| 4401 | 缺 token 或 token 無效（情境被刪除時回放一併刪除，也是這個碼） |
+| 4403 | 回放已撤銷或 token 已到期（連線中撤銷 / 到期也會在幾秒內以此碼關閉） |
+| 4404 | 情境不能回放（例：資料不完整、讀值超過 200 萬筆） |
 | 4409 | 這個回放的連線已滿（每個回放最多 4 條） |
 | 4410 | 單次回放已結束 |
 | 1011 | 伺服器錯誤 |
@@ -353,13 +359,20 @@ case：
   伺服器當場檢查，格式錯的退回（`ack` 的 `accepted: false` 與 `errors`）、不存：
   - `turbine_id` 必須是這次回放的機組。
   - 故障診斷的 `component` 必須在詞彙內（§9）。
-  - `manual_refs` 最多 50 個整數；`actions` 最多 20 項；文字最多 4000 字；`confidence` 0–1。
+  - `manual_refs` 最多 50 個整數；`actions` 最多 20 項；文字最多 4000 字；`component` 最多 64 字；`confidence` 0–1。
 - **`ping`**：伺服器回 `pong` 與目前模擬時間。
-- 每則訊息最多 64 KB；每個回放最多收 20000 筆預測。
+- **限制**：
+  - 每則訊息最多 16 KB。
+  - 每個回放最多收 20000 筆預測、總共 20 MB。
+  - 格式錯、不是 JSON、二進位訊息都只回 `error`，不會斷線。
 
 ### 12.4 時間因果與時效
 
-- `ts`＝伺服器**收到**預測時的模擬時間＝`sim_start` +（經過的實際秒數 × `speed`）。伺服器照時鐘送資料，不會等受測端。收得慢或想得久，`ts` 就晚（延遲變大、早期預警變少），但不會早於受測端看到的資料。
-- **建議**：一個工作只負責收訊息，另一個做判斷（`stream_client.py` 示範）。判斷時阻塞了接收，訊息會堆在連線裡，看到的資料就落後於「現在」。
+- `ts`＝伺服器**收到**預測時的模擬時間＝`sim_start` +（經過的實際秒數 × `speed`）。
+  - 伺服器照時鐘送資料，不會等受測端。收得慢或想得久，`ts` 就晚（延遲變大、早期預警變少）。
+  - `ts` 不會早於這條連線已送出的資料：伺服器時鐘被調回也一樣。
+- **建議**：
+  - 一個工作只負責收訊息，另一個做判斷（`stream_client.py` 示範）。判斷時阻塞了接收，訊息會堆在連線裡，看到的資料就落後於「現在」。
+  - 伺服器每 20 秒 ping 一次。event loop 被同步呼叫（例：大模型 API）卡住太久會被斷線（1011），要放到另一個執行緒或用非同步呼叫。
 - **情境結束後的預測不收**：模擬時間超過 `sim_end` 後收到的預測一律退回。評分時它們也對不到任何 case（§8 規則 3）。
 - 檔案與回放的評分規則相同（§8）。差別只在 `ts` 由誰決定。

@@ -262,11 +262,17 @@ const ScenarioPage: React.FC<Props> = ({ lang = 'zh', onExplore, onMountScenario
           return next;
         });
       } else {
-        // 刪除需 ADMIN；被擋時給提示而非靜默。
+        // 刪除需 ADMIN；被擋時給提示而非靜默。409＝情境的 WebSocket 回放存有受測端的預測（評測結果，
+        // WMOM-20261021-06），後端要求先下載或明確 force。
         setError(
           res.status === 403
             ? u('Delete needs admin rights.', '刪除情境需要系統管理員權限。')
-            : u(`Delete failed: HTTP ${res.status}`, `刪除失敗：HTTP ${res.status}`),
+            : res.status === 409
+              ? u(
+                  'This scenario has graded replay predictions. Download them first (replay-runs API / tools/replay_runs.py).',
+                  '這個情境的回放存有受測端的預測（評測結果），請先下載（回放 API 或 tools/replay_runs.py）再刪除。',
+                )
+              : u(`Delete failed: HTTP ${res.status}`, `刪除失敗：HTTP ${res.status}`),
         );
       }
     } catch {

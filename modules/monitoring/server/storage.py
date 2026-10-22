@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from array import array
 import threading
 import time as _time
 from datetime import datetime, timedelta
@@ -153,6 +154,11 @@ class Storage:
         self._local = threading.local()
         self._migrate_timestamps = migrate_timestamps
         self._init_db()
+
+    @property
+    def db_path(self) -> str:
+        """SQLite 檔路徑。"""
+        return self._db_path
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'conn') or self._local.conn is None:
@@ -1285,24 +1291,27 @@ class Storage:
             events.append(event)
         return events
 
-    def session_reading_index(self, session_id: int) -> List[tuple]:
-        """某 session 全部讀值的 ``(id, timestamp)``，依時間、機組排序（回放分頁用，WMOM-20261021-06）。
+    def session_reading_ids(self, session_id: int) -> "array[int]":
+        """某 session 全部讀值的 id，依時間、機組排序（回放分頁用，WMOM-20261021-06）。
 
-        只讀索引欄位，不讀 ``scada_json``：回放依這個順序分頁取讀值，每頁一個短查詢，不必在執行緒間
-        共用 cursor。
+        寫入順序已是時間順序時（批次生成都是）直接依 id 取，不必排序；否則依時間、機組排序。只讀
+        id，不讀 ``scada_json``；以 ``array('q')`` 回傳（每筆 8 bytes，兩百萬筆約 16 MB）。
 
         Args:
             session_id: session id。
 
         Returns:
-            ``[(id, timestamp), ...]``。
+            id 陣列。
         """
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT id, timestamp FROM turbine_data WHERE session_id = ? ORDER BY timestamp, turbine_id, id",
-            (session_id,),
-        ).fetchall()
-        return [(int(row[0]), str(row[1])) for row in rows]
+        order = "id" if self.session_readings_in_id_order(session_id) else "timestamp, turbine_id, id"
+        ids: "array[int]" = array("q")
+        cursor = conn.execute(f"SELECT id FROM turbine_data WHERE session_id = ? ORDER BY {order}", (session_id,))
+        while True:
+            rows = cursor.fetchmany(10_000)
+            if not rows:
+                return ids
+            ids.extend(int(row[0]) for row in rows)
 
     def session_reading_bounds(self, session_id: int) -> Optional[tuple]:
         """某 session 第一筆 / 最後一筆讀值的時間（回放結束時刻用）。
@@ -1422,6 +1431,37 @@ class Storage:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def count_scenario_replay_predictions(self, scenario_id: int) -> int:
+        """某情境所有回放收到的預測筆數（刪除情境前確認評測結果已匯出用）。
+
+        Args:
+            scenario_id: 情境 session id。
+
+        Returns:
+            筆數。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM replay_predictions WHERE run_id IN (SELECT id FROM replay_runs WHERE scenario_id = ?)",
+            (scenario_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def prediction_bytes(self, run_id: int) -> int:
+        """某回放已存的預測總位元組數（每個回放的儲存上限用）。
+
+        Args:
+            run_id: 回放 id。
+
+        Returns:
+            位元組數（JSON 文字長度）。
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT COALESCE(SUM(LENGTH(prediction_json)), 0) FROM replay_predictions WHERE run_id = ?", (run_id,),
+        ).fetchone()
+        return int(row[0])
+
     def revoke_replay_run(self, run_id: int, revoked_at: str) -> bool:
         """撤銷回放（之後不能再連線、送預測）；已撤銷的不改時間。
 
@@ -1448,11 +1488,10 @@ class Storage:
             回放實際的開始時間。
         """
         conn = self._get_conn()
-        row = conn.execute(
-            "UPDATE replay_runs SET started_at = COALESCE(started_at, ?) WHERE id = ? RETURNING started_at",
-            (started_at, run_id),
-        ).fetchone()
-        conn.commit()
+        with conn:  # 同一個交易：UPDATE 取得寫入鎖，其他連線等到 commit 才能改（不用 RETURNING，SQLite < 3.35 也可用）
+            conn.execute("UPDATE replay_runs SET started_at = COALESCE(started_at, ?) WHERE id = ?",
+                         (started_at, run_id))
+            row = conn.execute("SELECT started_at FROM replay_runs WHERE id = ?", (run_id,)).fetchone()
         return str(row[0])
 
     def next_replay_connection(self, run_id: int) -> int:
@@ -1465,10 +1504,9 @@ class Storage:
             這次連線的序號。
         """
         conn = self._get_conn()
-        row = conn.execute(
-            "UPDATE replay_runs SET connections = connections + 1 WHERE id = ? RETURNING connections", (run_id,),
-        ).fetchone()
-        conn.commit()
+        with conn:  # 同 start_replay_run：遞增與讀回在同一個交易
+            conn.execute("UPDATE replay_runs SET connections = connections + 1 WHERE id = ?", (run_id,))
+            row = conn.execute("SELECT connections FROM replay_runs WHERE id = ?", (run_id,)).fetchone()
         return int(row[0])
 
     def add_replay_prediction(self, run_id: int, connection_no: int, received_at: str, sim_ts: str,

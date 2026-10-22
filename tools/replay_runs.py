@@ -7,8 +7,9 @@
   # 建立單次回放（60 倍速），印出 token——只會出現這一次
   python tools/replay_runs.py "modules/monitoring/data/farms/<farm>/wind_farm.db" create 12 --speed 60
 
-  # 練習回放（每次連線從頭播）
-  python tools/replay_runs.py "<db>" create 12 --mode practice --speed 600 --label 第3組練習
+  # 練習回放（每次連線從頭播）。同一個情境不要同時開練習與正式回放（練習可以先看完正式評測的資料），
+  # 預設會拒絕；確定要並存才加 --allow-overlap
+  python tools/replay_runs.py "<db>" create 7 --mode practice --speed 600 --label 第3組練習
 
   # 列出情境的回放、撤銷
   python tools/replay_runs.py "<db>" list 12
@@ -65,6 +66,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help=f"模擬秒 / 實際秒（{rp.MIN_SPEED:g}–{rp.MAX_SPEED:g}，預設 {rp.DEFAULT_SPEED:g}）")
     create.add_argument("--label", help="備註（受測端看不到）")
     create.add_argument("--expires-hours", type=float, default=rp.DEFAULT_EXPIRES_HOURS, help="token 有效時數")
+    create.add_argument("--allow-overlap", action="store_true",
+                        help="同情境已有另一種模式的回放時仍建立（練習回放可以先看完正式評測的資料，預設拒絕）")
     listing = commands.add_parser("list", help="列出情境的回放")
     listing.add_argument("scenario_id", type=int)
     revoke = commands.add_parser("revoke", help="撤銷回放")
@@ -85,9 +88,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 2
         try:
             run, token = rp.create_run(storage, args.scenario_id, mode=args.mode, speed=args.speed, label=args.label,
-                                       expires_in_hours=args.expires_hours, created_by="cli")
+                                       expires_in_hours=args.expires_hours, created_by="cli",
+                                       allow_overlap=args.allow_overlap)
         except ScenarioPackError as exc:
             print(f"情境不能回放：{exc}", file=sys.stderr)
+            return 1
+        except rp.ReplayRunConflict as exc:
+            print(str(exc), file=sys.stderr)
             return 1
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
@@ -95,6 +102,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         _print_run(rp.run_view(storage, run))
         print(f"token：{token}")
         print("受測端連線：ws://<host>:<port>/ws/replay（標頭 Authorization: Bearer <token>，或 ?token=<token>）")
+        if args.mode == "evaluation":
+            print("注意：單次回放的時鐘從第一次連線起算。要先試 token 請用 ?check=true（stream_client.py --check），"
+                  "不會開始計時")
         return 0
     if args.command == "list":
         runs = storage.list_replay_runs(args.scenario_id)
