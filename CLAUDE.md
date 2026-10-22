@@ -145,7 +145,7 @@ WMOM = WindMindOM 縮寫。
 - **資料包守則**：給受測端的資料只走盲測版資料包（`/pack`，不含 `ground_truth.json`），以檔案交付、受測端不開帳號；manifest 不得帶情境名稱 / 故障排程 / 自訂文字；資料包的 tag 真實性以 `shared/data/z72_plc_tags.json`（`tools/build_z72_plc_tags.py` 從 xlsx 產生）為準；會透露劣化程度或模型參數的模擬量加進 `scenario_pack.MODEL_INTERNAL_TAGS`，key signal 不能選它們（DEC-20261021-03，測試會擋）
 - **合約守則**：資料包 / 事件 / 標準答案 / 預測格式以合約 v1 為準；加欄位升次版本（`CONTRACT_VERSION`）、改名 / 刪欄位升主版本並更新合約文件；新增故障情境的 `component` / `category` 要先加進 `examples/rag_starter_kit/vocabulary.json`（`tests/test_rag_starter_kit.py` 會擋）；改了 tag 註冊表或資料包格式要重建範例（`python tools/build_rag_starter_kit.py`）
 - **下次工作**：EPIC-DS 依序 3b（-06 WS 回放）→ 3c（-07 OPC UA）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend __N__ passed / 7 skipped / 1 xfailed；frontend vitest 1512 passed（2026-10-22）。以各 module `tests/` 為準
+- **測試**：backend 1778 passed / 7 skipped / 1 xfailed；frontend vitest 1512 passed（2026-10-22）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 

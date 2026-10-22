@@ -1607,7 +1607,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     - 只有資料包 03 的 WT005 葉片不平衡故障跳機早 5 s。
     - 原本雜訊造成的 `trip_cleared`（故障未修卻解除）消失。
     - 基準成績、lead time、狀態轉換 238 筆都不變。
-  - **完整 backend**：1772 → __N__ passed / 7 skipped / 1 xfailed。
+  - **完整 backend**：1772 → 1778 passed / 7 skipped / 1 xfailed。
 - **Depends on**: WMOM-20261021-03-b
 
 ---

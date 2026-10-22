@@ -97,7 +97,7 @@
 
 ### 4.4 完整 backend
 
-1772 → __N__ passed / 7 skipped / 1 xfailed。frontend 未改動。
+1772 → 1778 passed / 7 skipped / 1 xfailed。frontend 未改動。
 
 ## 5. 產出清單
 
