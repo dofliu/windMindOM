@@ -74,9 +74,9 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 5. 外部系統未接上前，可用 repo 內 `modules/knowledge` 當 smoke consumer 跑通管線
    （注意：其 Chroma retriever 目前忽略警報碼）。
 
-## 5. 介面合約 v0（草案，Phase 3 定稿為 v1）
+## 5. 介面合約 v0（草案，已定稿為 v1）
 
-> v0 是給學生專題提早規劃用的草案；欄位可能調整，定稿前以本節為準。
+> **v1 已定稿**（WMOM-20261021-09）：[`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md) 為準，包含受測端輸出與評分定義；本節保留為設計脈絡。
 
 ### 5.1 檔案：情境資料包（scenario pack）
 
@@ -170,7 +170,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 | 3a ✅ | WMOM-20261021-05 | **① 檔案**：情境資料包匯出（含 10-min stats）；移除 `farms.py` 壞端點（2026-10-21 done，§6.8） |
 | 3b | WMOM-20261021-06 | **② 串流**：凍結情境回放器 + WS 回放端點（含事件通道） |
 | 3c | WMOM-20261021-07 | **③ OPC UA server**：模仿 Bachmann tag（`asyncua`），接 3b 回放器 |
-| 3d | WMOM-20261021-09 | **學生專題 starter kit**：介面合約 v1 定稿 + 範例資料包 + 讀取範例程式 |
+| 3d ✅ | WMOM-20261021-09 | **學生專題 starter kit**：介面合約 v1 定稿 + 範例資料包 + 讀取範例程式（2026-10-21 done，§6.9） |
 | 4 | WMOM-20261021-08 | **難度與多樣性**：警報連鎖與重啟限制、感測器故障（標記）、多重故障、誤報、健康負樣本、早期徵兆案例；故障庫往 Z72 常見事件擴充 |
 | 5 | （parking lot） | 只修會改變特徵訊號的物理：10-min std 合理化、yaw error → 發電損失等；高保真物理不做 |
 
@@ -451,6 +451,59 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 4. 合約版本仍是 `0.1`（與標準答案同一個 `CONTRACT_VERSION`）；-09 定稿 v1。`event_type` 的 `operator`（操作員動作）尚未產生——情境裡沒有操作員。
 5. 自創 tag 仍有 55 個（振動頻帶 / CMS 特徵、負載與 DEL、無功 / 視在功率、冷卻液位…）：受測端應以 `source` 區分，回答時不能假設真實 Z72 有這些 tag。
 6. 欄名含方括號（`Z72PLC__UI_Mbus_Contact[2]`），SQL 引擎要加引號。
+
+### 6.9 Phase 3d 學生專題 starter kit（WMOM-20261021-09，2026-10-21）
+
+**合約 v1**：[`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)。資料包、事件、標準答案沿用 -05 的格式（`CONTRACT_VERSION` 0.1 → 1.0；-04 起存的答案匯出時一併標成 1.0）。新增兩部分：
+- **受測端輸出 `predictions.jsonl`**：每次判斷一行，帶 `pack_id` / `turbine_id` / `ts`（模擬時間，只能用 ts 以前的資料）/ `category` / `component` / `manual_refs`，`root_cause` 與 `actions` 不自動評分。
+- **評分**（劉老師確認，DEC-20261021-04）：
+  - 故障診斷依機組與時間對到 case，對不到算誤報（以次數計，與輸出頻率無關）。
+  - 每個 case 以最後一次判斷評元件、元件群組、類別與手冊引用（事件碼 hit@1 / hit@3 / MRR@10）。
+  - 延遲與早期預警以「最後一段連續正確」的起點計，中途猜錯的元件記為誤診。
+  - 各項指標分列，不合成總分。
+
+**元件詞彙**：11 個元件、8 個群組（`examples/rag_starter_kit/vocabulary.json`）；測試守住故障庫的每個元件 / 類別都在詞彙內——-08 加新故障要同步加詞彙（次版本）。
+
+**starter kit**：`examples/rag_starter_kit/`
+- **範例資料包**：3 個盲測版，答案另放 `answers/`。
+
+  | 資料包 | 機組 / 長度 / 風況 | 故障 |
+  |---|---|---|
+  | 01 | 3 機 / 4 h / 額定 | 主軸承磨耗（onset 後約 40 分鐘警報） |
+  | 02 | 4 機 / 6 h / 強風 | 偏航煞車液壓洩漏、變頻器冷卻（See [ABB]） |
+  | 03 | 5 機 / 6 h / 陣風 | 風向標漂移（sensor_fault）、葉片 1 變槳不平衡；238 筆狀態轉換當干擾 |
+
+  共約 4 MB，故障都是「慢慢變嚴重」，key signal 在警報前就偏離同風場其他機組（已檢查：主軸承溫度、偏航煞車壓力、變頻器水溫都在警報前的 10 分鐘窗就看得出來）。
+- **程式**：
+  - `pack_reader.py`（pandas；核對 sha256、`raw_until` / `events_until` 只看當下以前）
+  - `baseline_assistant.py`（看到警報才用關鍵字猜元件）
+  - `score.py`（只用標準函式庫）
+- **基準成績**：偵測 100 %、元件 80 %、群組 100 %、類別 80 %、手冊 hit@1 100 %、早期預警 0、誤診 1、誤報 0。基準刻意示範「容易的部分」，把早期預警、感測器故障、元件定位、警報前的檢索留給學生。
+
+**重產**：`tools/build_rag_starter_kit.py` 以固定起點、風況、排程從全新模擬器生成。
+- **時鐘要釘兩處**：`generate_bulk` 用 `simulator.engine.utc_now` 當起點；`wind_model.set_profile` / `set_override` 會從「現在」的自動風況平滑過渡，用的是 `wind_model.utc_now`。實作時只釘前者，兩次產生的資料就不同（第一筆讀值就分歧）。兩處都釘住後，兩個獨立行程產生的資料檔 sha256 相同。
+- **匯出器**：`export_scenario_pack` 加 `pack_id` 參數；`export_ground_truth` 把答案寫在資料包之外。
+
+**code review**（Needs revision → 全修）：
+- **早期預警可被狂猜換到**：原以「第一筆正確」計，實測 5/5。改為「最後一段連續正確」，並加誤診計數。
+- **superseded / pre_existing 窗不對**：superseded 改為併進取代它的 case；pre_existing 不評時效。
+- **評分程式碰到壞行會中斷**：時間溢位、極深巢狀 JSON、UTF-16 檔、BOM 都改為列出原因、照常評分。
+- **其他**：
+  - 答案目錄可直接給評分端版資料包。
+  - 誤報改以次數計，延遲報樣本數，MRR 只看前 10 個。
+  - 新增 `stats_until`。
+  - 合約標籤只轉換 0.1。
+  - `pack_id` 改為嚴格驗證。
+  - `.gitattributes` 防 Windows 換行轉換。
+  - 每個範例用獨立 DB；`--only` 驗證 id。
+  - 文件與型別同步修正。
+
+**已知限制**：
+1. **手冊引用容易拿高分**：引用已出現的警報碼就對了。評分只看最後一次判斷的引用，無法區分「警報前就查對」與「警報後照抄」；警報前的檢索品質要靠早期預警與人工評 `root_cause`。
+2. **類別與元件一對一**：v1 故障庫只有 `wind_vane_1` 是感測器故障，類別正確率暫時等於元件正確率（-08 擴充）。
+3. 範例只有 5 個 case、都會出警報；沒有 nuisance / healthy case（-08），`nuisance` 預測不評分。
+4. **離線評分無法檢查時間因果**：助手有沒有偷看 `ts` 之後的資料只能自律；-06 WS 回放上線後才由收到資料的時刻保證。
+5. 範例資料隨物理模型改變：物理改動後若要讓範例跟上，要重跑產生工具並 commit（測試只檢查格式與 tag 字典一致，不檢查數值）。
 
 ## 7. 不做的事
 

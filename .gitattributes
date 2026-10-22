@@ -1,0 +1,4 @@
+# 範例資料包的檔案以 sha256 核對（manifest.json），換行不能被 git 轉換（Windows core.autocrlf）
+examples/rag_starter_kit/packs/** -text
+examples/rag_starter_kit/answers/** -text
+*.parquet binary
