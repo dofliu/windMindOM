@@ -11,7 +11,7 @@
 受測端（回放 token，不開帳號，DEC-20261021-03）：
 
 - ``WS /ws/replay``：token 放 ``Authorization: Bearer <token>``（建議）或 ``?token=``。伺服器送
-  ``control`` / ``reading`` / ``event`` / ``stats``，受測端送 ``prediction``（合約 v1.1 §12）。
+  ``control`` / ``reading`` / ``event`` / ``stats``，受測端送 ``prediction``（合約 v1.2 §12）。
   ``?check=true`` 只檢查 token、回報回放狀態，不開始計時（單次回放的時鐘從第一次正式連線起算）。
 """
 
@@ -202,7 +202,8 @@ class _ReplayConnection:
     """一條回放連線：依時鐘送訊息，同時收受測端的預測並以收到時的模擬時間蓋上 ``ts``。"""
 
     def __init__(self, ws: WebSocket, storage: Storage, run: dict, replay: rp.ScenarioReplay,
-                 clock: rp.ReplayClock, connection_no: int, skip_before: Optional[datetime]) -> None:
+                 clock: rp.ReplayClock, connection_no: int, skip_before: Optional[datetime],
+                 send_data: bool = True) -> None:
         self._ws = ws
         self._storage = storage
         self._run = run
@@ -211,6 +212,7 @@ class _ReplayConnection:
         self._clock = clock
         self._connection_no = connection_no
         self._skip_before = skip_before
+        self._send_data = send_data  # False＝只收判斷（資料改用 OPC UA 讀，WMOM-20261021-07）
         self._send_lock = asyncio.Lock()
         self._last_due: Optional[datetime] = None  # 已送出的最大 due：蓋章不早於它（時鐘被調回也一樣）
         self._run_checked_at = rp.wall_time()
@@ -239,7 +241,7 @@ class _ReplayConnection:
         """
         stream = self._replay.describe()
         stream.update(mode=self._run["mode"], speed=self._run["speed"], connection_no=self._connection_no,
-                      backfill=backfill, close_grace_s=rp.CLOSE_GRACE_S)
+                      backfill=backfill, data=self._send_data, close_grace_s=rp.CLOSE_GRACE_S)
         await self.send({
             "type": "control", "status": "started", "sim_ts": rp.z(self._clock.sim_now()), "stream": stream,
             "tag_dictionary": self._replay.tag_dictionary(), "alarm_catalog": sp.alarm_catalog_snapshot(),
@@ -262,7 +264,13 @@ class _ReplayConnection:
         buffer: Deque[rp.ReplayFrame] = deque()
         fetch: Optional["asyncio.Future[List[rp.ReplayFrame]]"] = None
         try:
-            while True:
+            while not self._send_data:  # 不送資料：只等到情境結束（期間照樣重讀回放狀態）
+                remaining = self.end_wall - rp.wall_time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 1.0))
+                await self._recheck_run()
+            while self._send_data:
                 if fetch is None and not self._replay.done and len(buffer) < PREFETCH_LOW_WATER:
                     fetch = asyncio.ensure_future(asyncio.to_thread(self._replay.next_frames))
                 if fetch is not None and (not buffer or fetch.done()):
@@ -382,7 +390,7 @@ async def _reject(ws: WebSocket, error: rp.ReplayError) -> None:
     await _close(ws, error.close_code)
 
 
-async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool) -> _ReplayConnection:
+async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool, send_data: bool) -> _ReplayConnection:
     """已佔到連線名額後：載入回放、決定時鐘（單次回放在這裡開始計時）。
 
     Raises:
@@ -411,17 +419,19 @@ async def _start(ws: WebSocket, storage: Storage, run: dict, backfill: bool) -> 
         clock = rp.ReplayClock(replay.sim_start, float(run["speed"]), now)
     connection_no = await asyncio.to_thread(storage.next_replay_connection, run_id)
     skip_before = None if backfill else clock.sim_now()
-    return _ReplayConnection(ws, storage, run, replay, clock, connection_no, skip_before)
+    return _ReplayConnection(ws, storage, run, replay, clock, connection_no, skip_before, send_data)
 
 
 @router.websocket("/ws/replay")
-async def replay_websocket(ws: WebSocket, backfill: bool = True, check: bool = False) -> None:
-    """情境回放串流（合約 v1.1 §12）。
+async def replay_websocket(ws: WebSocket, backfill: bool = True, check: bool = False,
+                           stream: bool = True) -> None:
+    """情境回放串流（合約 §12）。
 
     Args:
         ws: 連線。
         backfill: 單次回放已開始後才連上時，是否先補送已經過去的資料（預設是；時間不會倒回）。
         check: 只檢查 token、回報回放狀態後關閉（不開始計時、不佔連線名額）。
+        stream: False＝不送 reading / event / stats，只收判斷（資料用 OPC UA 讀，合約 §13）。
     """
     await ws.accept()
     storage = _storage()
@@ -441,7 +451,7 @@ async def replay_websocket(ws: WebSocket, backfill: bool = True, check: bool = F
                 raise rp.ReplayError(f"這個回放已有 {rp.MAX_CONNECTIONS_PER_RUN} 條連線", 4409)
             _open_connections[candidate] = _open_connections.get(candidate, 0) + 1
             key = candidate
-            connection = await _start(ws, storage, run, backfill)
+            connection = await _start(ws, storage, run, backfill, stream)
         except rp.ReplayError as exc:
             await _reject(ws, exc)
             return

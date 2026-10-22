@@ -921,6 +921,45 @@ EPIC-DS Phase 2 要讓批次情境帶可觀測事件（PLC 警報 / 跳機、狀
 - **試 token 不開始計時**：`?check=true` 只回報回放狀態。正式評測的時鐘從第一次正式連線起算。
 - **正式評測的速度上限**：伺服器跟不上時，落後的時間會算在受測端頭上。所以限制「機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆讀值 / 秒」，練習回放不受此限。
 
+
+## DEC-20261022-03 — OPC UA server：回放與即時模擬兩種來源、全部 tag 掛上並標示合成、匿名唯讀、正式評測在 server 啟動時開播
+
+**日期**：2026-10-22　**狀態**：accepted　**Decision maker**：劉老師（四個選項，2026-10-22 確認）＋ Claude（WMOM-20261021-07 實作）
+
+### Context
+
+真實 Z72 的資料走 Bachmann OPC（`shared/plc_clients/bachmann/opc_data_reader.py`，OPC DA）。-07 要讓學生的 RAG 助手用「接 PLC」的方式拿資料：節點路徑對齊真實的 item ID，資料來源是 -06 的回放器或即時模擬。舊的 `modules/monitoring/opcua_interface.py`（python-opcua、自訂路徑）不沿用。需要決定四件事：
+
+- 資料來源。
+- 真實 PLC 沒有的合成 tag 要不要掛。
+- 連線身分。
+- 正式評測什麼時候開始計時（OPC UA 沒有「第一次連線」可以當起點：client 隨時讀、讀幾次都可以）。
+
+### Considered Options
+
+- **來源**：回放＋即時模擬；只有回放；只有即時模擬。
+- **合成 tag**：全部掛上並在節點說明標示；只掛真實 PLC 有的 tag（與 WS / 資料包不一致）。
+- **身分**：匿名唯讀；帳號密碼（OPC UA 的 user token，學生要管帳號）。
+- **開播**：出題端啟動 server 就開播；第一個 client 連上才開播（OPC UA 的 session 不帶回放 token，誰連上都會啟動時鐘）。
+
+### Decision
+
+1. **兩種來源**：
+   - **回放**：`tools/opcua_server.py <db> <回放 id>` 綁一個 §12 的回放（`ScenarioReplay` + `ReplayClock`）。正式評測與 WS 共用 `replay_runs.started_at`：受測端用 OPC UA 讀資料、用 WS（`?stream=false`）送預測。
+   - **即時模擬**：主程式以 `WMOM_OPCUA_ENABLE=true` 開啟，每秒寫入 simulator 的最新讀值與 PLC 狀態；選配，起不來只記警告。
+2. **全部 tag 掛上**：欄位與資料包 / WS 同一組；`synthetic` tag 的節點說明寫明。另加真實讀取腳本會讀、模擬器沒有輸出的 `WSpeedNacAvg10m`：由 server 以 `WSpeedNac` 的 10 分鐘移動平均算出（節點說明寫 derived），讓真實讀取腳本的每個 item ID 都讀得到。
+3. **匿名唯讀、不加密**：變數不可寫。給教室 / 實驗室網路用；不要開在公開網路上。
+4. **正式評測在 server 啟動時開播**：節點建好、開始監聽後寫入開始時間；server 重啟接著播，播完不能再開。之後的 WS 連線加入同一個時鐘。
+5. **事件碼陣列**（`ActiveAlarm` / `ActiveTrip1` / `ActiveTrip2`，SINT16[21]）依成立順序、空位 0。即時模擬由 `PlcProtection` 送事件時更新（`ActiveEventLists`），回放由事件流重建，兩邊同一套規則。
+6. **合約升為 v1.2**（新增 §13；WS 加 `?stream=false` 與開播訊息的 `stream.data`）：資料包與標準答案格式不變。
+
+### Consequences
+
+- **OPC UA 只有目前值**：兩次讀取之間出現又消失的警報讀不到，速度越快越明顯（回放每 0.2 實際秒更新一次；60× 約 12 模擬秒）。要完整資料用 WS 或資料包。正式評測用 OPC UA 時，出題端要選受測端讀得過來的速度。
+- **陣列排列是模擬的約定**：手冊沒寫真實 PLC 陣列怎麼排；接真實 PLC 時要再核對。
+- **正式評測的計時從出題端啟動 server 起算**：受測端晚連就少看一段（與 WS 的「第一次連線」不同）。出題端要先確認受測端準備好再啟動。
+- **一個 OPC UA server 播一個回放**：同時評測多組要開多個 server（不同埠）。
+
 ---
 
 ## 範本（複製此塊新增 decision）

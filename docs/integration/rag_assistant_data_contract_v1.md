@@ -1,6 +1,6 @@
-# windMindOM × RAG 維修助手：資料介面合約 v1.1
+# windMindOM × RAG 維修助手：資料介面合約 v1.2
 
-> **版本**：1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
+> **版本**：1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
 > **評分欄位**經劉老師確認（2026-10-21）：診斷以「元件 + 類別」自動評分、手冊引用以事件碼評、時效報延遲與早期預警、各項指標分列不合成總分。
 > **範例與工具**：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)（範例資料包、讀取程式、基準助手、評分程式）。
 
@@ -25,7 +25,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 - **交付管道**：
   - **檔案**（v1.0）：資料包。
   - **WebSocket 回放**（v1.1，§12）：同一份資料依模擬時鐘即時播出，受測端在同一條連線送預測，`ts` 由伺服器以收到時的模擬時間蓋上，時間因果由伺服器保證。
-  - OPC UA（-07）之後沿用本合約的事件（§4）與預測（§6）格式。
+  - **OPC UA**（v1.2，§13）：模仿 Bachmann Z72 PLC 的 tag，受測端像接真實 PLC 一樣讀「目前值」；預測照樣經 WebSocket 送（`?stream=false`）。
 
 ## 2. 版本規則
 
@@ -53,7 +53,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `contract_version` | str | `"1.1"`（讀取端只檢查主版本） |
+| `contract_version` | str | `"1.2"`（讀取端只檢查主版本） |
 | `pack_id` | str | 資料包 ID |
 | `turbine_model` | str | `"Z72"` |
 | `turbines` | list[str] | 機組 ID（`WT001`…） |
@@ -286,6 +286,7 @@ case：
 | 0.1 | 2026-10-21 | 設計文件 §5 草案；-04 標準答案、-05 資料包實作 |
 | 1.0 | 2026-10-21 | 定稿（WMOM-20261021-09，DEC-20261021-04）：資料包 / 事件 / 標準答案格式沿用 -05；新增受測端輸出（§6）、評分定義（§8）、詞彙檔（§9）；`contract_version` 改為 `"1.0"`。0.1 時存下的標準答案欄位相同，**匯出成資料包時**標成 1.0（只轉換 0.1 這個舊標籤）；`GET /api/scenarios/{id}/ground-truth` 回傳存下的原值 |
 | 1.1 | 2026-10-22 | 新增 WebSocket 回放（§12，WMOM-20261021-06，DEC-20261022-02）：讀值 / 事件 / 10 分鐘統計與資料包逐筆相同，受測端在同一條連線送預測、`ts` 由伺服器蓋上。資料包與標準答案格式不變（只有 `contract_version` 標成 1.1） |
+| 1.2 | 2026-10-22 | 新增 OPC UA（§13，WMOM-20261021-07，DEC-20261022-03）：模仿 Bachmann Z72 tag 的目前值介面（回放或即時模擬）；WebSocket 回放加 `?stream=false`（只收預測、不送資料）與開播訊息的 `stream.data`。資料包與標準答案格式不變（只有 `contract_version` 標成 1.2） |
 
 ## 12. WebSocket 回放（v1.1）
 
@@ -307,6 +308,7 @@ case：
   - `mode`：
     - `evaluation`（預設）：單次直播。時鐘從第一次連線起算，所有連線共用同一個「現在」，不能暫停或倒帶。斷線重連時預設補送已過去的資料（`?backfill=false` 不補），時間不會倒回。播完後不能再連（4410）。**要先試 token 請用 `?check=true`**：只回報回放狀態，不開始計時。
     - `practice`：每次連線各自從頭播，給受測端開發用。
+    - **用 OPC UA 讀資料時**（§13）：正式評測在出題端啟動 OPC UA server 時就開始計時，WebSocket 連線加入同一個時鐘。
     - **同一個情境不能同時有兩種模式**（未撤銷的回放）：練習回放可以先看完正式評測的整段資料。伺服器預設拒絕（409），確定要並存才帶 `allow_overlap: true`。
   - `speed`：模擬秒 / 實際秒。
     - 範圍 0.1–10000，預設 60（1 秒運算＝1 分鐘模擬時間）。
@@ -314,6 +316,7 @@ case：
     - 正式評測另有上限：機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆讀值 / 秒。例：14 台、每 10 秒一筆 → 714×。伺服器跟不上時，落後的時間會算在受測端頭上，所以超過上限就拒絕（422）。
   - `expires_in_hours`：token 有效時數（預設 7 天）；`label`：備註（受測端看不到）。
 - **受測端連線**：token 放 `Authorization: Bearer <token>` 標頭（建議），或 `?token=<token>`（會留在伺服器的存取紀錄）。受測端不開 windMindOM 帳號，token 只能連這一個回放（DEC-20261021-03）。
+- **只送預測**（v1.2）：`?stream=false` 不送 `reading` / `event` / `stats`，只收預測（資料改從 OPC UA 讀，§13）。照樣先送 `control started`（`stream.data` 為 `false`），資料播完時送 `control finished`；預測的規則與 `ts` 相同。
 - **評分**：`GET /api/replay-runs/{run_id}/predictions` 或 `tools/replay_runs.py <db> predictions <run_id>` 下載 `predictions.jsonl`，與評分端版資料包（`pack_id` 相同）一起給 `score.py`。練習模式每次連線各自從頭播，評分時用 `?connection=` / `--connection` 只取一次連線。
 - **撤銷**：`DELETE /api/replay-runs/{run_id}` 或 `tools/replay_runs.py <db> revoke <run_id>`。之後不能再連線、送預測；開著的連線幾秒內以 4403 關閉。token 到期同樣處理。
 - **刪除情境**：刪除時一併刪除它的回放與預測。回放收過預測（評測結果）時，`DELETE /api/scenarios/{id}` 預設拒絕（409），先下載預測再帶 `force=true`。
@@ -325,7 +328,7 @@ case：
 
 | `type` | 何時 | 內容 |
 |---|---|---|
-| `control`（`status: "started"`） | 連上後第一則 | `sim_ts`：目前模擬時間；`stream`：`contract_version`、`pack_id`、`turbine_model`、`turbines`、`sim_start` / `sim_end`、`sample_period_s`、`stats_window_s`、`stats_convention`、`duration_hours`、`site_timezone`、`wind_profile`、`rated_power_kw`（同 manifest，§3.2）與 `mode`、`speed`、`connection_no`、`backfill`、`close_grace_s`；`tag_dictionary`：同 `tag_dictionary.json` 的 `tags`；`alarm_catalog`：同 `alarm_catalog.json` |
+| `control`（`status: "started"`） | 連上後第一則 | `sim_ts`：目前模擬時間；`stream`：`contract_version`、`pack_id`、`turbine_model`、`turbines`、`sim_start` / `sim_end`、`sample_period_s`、`stats_window_s`、`stats_convention`、`duration_hours`、`site_timezone`、`wind_profile`、`rated_power_kw`（同 manifest，§3.2）與 `mode`、`speed`、`connection_no`、`backfill`、`data`（v1.2：是否送資料，`?stream=false` 時 `false`）、`close_grace_s`；`tag_dictionary`：同 `tag_dictionary.json` 的 `tags`；`alarm_catalog`：同 `alarm_catalog.json` |
 | `control`（`status: "checked"`） | `?check=true` 時的唯一一則，隨後關閉（1000） | `run`：`pack_id`、`mode`、`speed`、`status`（`ready` / `not_started` / `running` / `finished` / `expired` / `revoked`）、`expires_at`、`started_at`、`ends_at` |
 | `reading` | 每台機組每次取樣 | `ts`、`turbine_id`、`values`：`{Bachmann tag 名: 值}`，型別同 Parquet（§3.5；REAL32 為 float32 的最短十進位表示，缺值 null） |
 | `event` | 事件發生時 | `events.jsonl` 的全部欄位（§4） |
@@ -376,3 +379,46 @@ case：
   - 伺服器每 20 秒 ping 一次。event loop 被同步呼叫（例：大模型 API）卡住太久會被斷線（1011），要放到另一個執行緒或用非同步呼叫。
 - **情境結束後的預測不收**：模擬時間超過 `sim_end` 後收到的預測一律退回。評分時它們也對不到任何 case（§8 規則 3）。
 - 檔案與回放的評分規則相同（§8）。差別只在 `ts` 由誰決定。
+
+## 13. OPC UA（v1.2）
+
+模仿 Bachmann Z72 PLC 的 OPC tag：受測端像接真實 PLC 一樣讀**目前值**。真實 Z72 走 OPC DA（`shared/plc_clients/bachmann/opc_data_reader.py`）；這裡用 OPC UA，**節點 ID＝真實的 item ID**，換成 DA client 時 tag 不用改。
+
+### 13.1 連線與資料來源
+
+- **端點**：`opc.tcp://{host}:{port}/windmindom/`（預設埠 4840）。匿名、唯讀（寫入一律拒絕）、不加密（教室 / 實驗室網路用）。
+- **namespace**：`urn:windmindom:z72sim`。NodeId 是字串：`ns=<namespace index>;s=<item ID>`。
+- **回放**（評測 / 練習）：出題端以 CLI 播出一個回放（§12 建立的同一個回放）：
+  ```bash
+  python tools/opcua_server.py <風場 DB> <回放 id> [--host 0.0.0.0] [--port 4840] [--exit-when-finished]
+  ```
+  - 正式評測（`evaluation`）：server 建好節點、開始監聽時就開播（寫入回放的開始時間）；之後的 WebSocket 連線加入同一個時鐘。server 重啟會接著播（不重來）；播完後不能再開。
+  - 練習（`practice`）：每次啟動都從頭播。
+  - 回放被撤銷或到期：幾秒內停止更新，`WindMindOM.Status` 改為 `revoked` / `expired`。
+- **即時模擬**：主程式以環境變數 `WMOM_OPCUA_ENABLE=true`（`WMOM_OPCUA_HOST`、`WMOM_OPCUA_PORT`）開啟，每秒寫入即時模擬的最新讀值與 PLC 狀態。沒有標準答案，給開發與展示用。
+
+### 13.2 節點
+
+| 節點（item ID） | 型別 | 內容 |
+|---|---|---|
+| `Z72.H{nn}.{group}.Z72PLC__UI_Loc_*` | 依 PLC：REAL32 → Float、SINT16 → Int16、UINT16 → UInt16、BOOL → Boolean | 讀值。欄位與資料包的 tag 字典（§3.3）同一組；`synthetic` tag 一樣掛著，節點說明（Description）寫明 `synthetic` |
+| `Z72.H{nn}.WMET.Z72PLC__UI_Loc_WMET_Analogue_WSpeedNacAvg10m` | Float | 真實 tag，模擬器沒有輸出：server 以 `WSpeedNac` 的 10 分鐘移動平均算出（節點說明寫明 derived） |
+| `Z72.H{nn}.Z72PLC__ActiveAlarm[0..20]` | Int16 | 目前成立的警報碼（A） |
+| `Z72.H{nn}.Z72PLC__ActiveTrip1[0..20]` / `ActiveTrip2[0..20]` | Int16 | 目前成立的跳機碼（T1 / T2；鎖存中的也在） |
+| `WindMindOM.Source` / `Status` / `SimTime` / `PackId` / `Mode` / `Speed` | String / String / DateTime / String / String / Double | 模擬器狀態（不是真實 PLC 的 tag）：`Source`＝`replay` / `live`；`Status`＝`running` / `finished` / `revoked` / `expired` / `idle`；`SimTime`＝目前模擬時間（UTC） |
+
+- **站號**：`H{nn}` 是機組 ID 的數字補兩位（`WT001` → `H01`，同真實讀取腳本），對應 WebSocket 開播訊息的 `turbines`。
+- **瀏覽**：`Objects/Z72/H01/WTUR/Z72PLC__UI_Loc_WTUR_State_TurSt`（BrowseName＝tag 名），事件碼陣列在 `Objects/Z72/H01/` 底下。
+- **讀值**：每次更新寫入各機組**最新一筆**讀值；`SourceTimestamp`＝該筆的模擬時間，`ServerTimestamp`＝寫入的實際時間。缺值的 StatusCode 為 `BadNoData`；開播前為 `BadWaitingForInitialData`。值與 WebSocket `reading` / `timeseries_raw.parquet` 相同（REAL32 讀回 float32 逐位元相同）。
+- **事件碼陣列**（SINT16[21]，同真實 PLC）：依成立順序排列、空位為 0。規則（與 `events.jsonl` 一致）：
+  - `alarm_raised`（A）加入 `ActiveAlarm`、`alarm_cleared` 移除。
+  - `trip` 依等級加入 `ActiveTrip1` / `ActiveTrip2`、`trip_cleared` 移除；`restart_blocked` 不移除（鎖存）。
+  - 操作員復位（`reset`）清空兩個跳機陣列；條件仍成立的跳機會再成立。資訊事件（I）不在任何陣列。
+  - 真實 PLC 陣列的排列方式手冊沒有寫；這是模擬的約定。
+
+### 13.3 與 WebSocket / 資料包的差別
+
+- **只有目前值**：兩次讀取之間出現又消失的警報、每一筆讀值、10 分鐘統計、`state_change` 事件都讀不到。要完整資料用 WebSocket 回放或資料包（內容相同）。
+- 更新間隔：回放每 0.2 實際秒（速度 60× 時約 12 模擬秒，與 10 秒取樣相當），即時模擬每 1 秒。
+- **預測**：連 WebSocket `?stream=false`（同一個 token），格式與 `ts` 規則同 §12.3–12.4。判斷的時間依據是伺服器收到預測時的模擬時間，與受測端讀到的 `SourceTimestamp` 無關。
+- 範例程式：[`examples/rag_starter_kit/opcua_client.py`](../../examples/rag_starter_kit/opcua_client.py)（讀目前值、比較前後兩次的事件碼陣列，新的碼交給基準助手、經 WebSocket 送出）。

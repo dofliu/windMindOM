@@ -661,6 +661,19 @@ def scada_values(scada_json: Optional[str], ids: Sequence[str]) -> np.ndarray:
         return np.full(len(ids), np.nan)
     if not isinstance(scada, dict):
         return np.full(len(ids), np.nan)
+    return scada_dict_values(scada, ids)
+
+
+def scada_dict_values(scada: Dict[str, object], ids: Sequence[str]) -> np.ndarray:
+    """SCADA dict 的 tag 值（缺、非數值、非有限值 → NaN；即時模擬的 OPC UA server 也用）。
+
+    Args:
+        scada: ``{tag id: 值}``。
+        ids: 依欄位順序的 tag id。
+
+    Returns:
+        float64 陣列。
+    """
     get = scada.get
     out = np.array([v if type(v) is float or (type(v) is int) else _coerce(v) for v in map(get, ids)],
                    dtype=np.float64)

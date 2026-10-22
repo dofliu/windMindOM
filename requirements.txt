@@ -2,6 +2,7 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 websockets>=13.0          # starter kit 的 stream_client.py 與回放測試用 websockets.asyncio（13 起）
+asyncua>=1.1              # 模仿 Z72 tag 的 OPC UA server（WMOM-20261021-07）與 starter kit 的 opcua_client.py
 pydantic>=2.0
 numpy>=1.24.0
 # 上限 <3.8：pymodbus 3.11+ 重寫 datastore（改用 SimData），令 ModbusSequentialDataBlock(0, …)

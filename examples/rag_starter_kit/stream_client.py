@@ -1,4 +1,4 @@
-"""WebSocket 回放的受測端範例（介面合約 v1.1 §12，WMOM-20261021-06）。
+"""WebSocket 回放的受測端範例（介面合約 v1.2 §12，WMOM-20261021-06）。
 
 連上 windMindOM 的情境回放，一邊收讀值 / 事件 / 10 分鐘統計，一邊用基準助手
 （``baseline_assistant.BaselineAssistant``）即時送出判斷。示範三件事：
@@ -73,6 +73,28 @@ class Summary:
                 self.rejected.append(message)
         elif kind == "error":
             self.errors.append(message)
+
+
+def with_params(url: str, params: List[str]) -> str:
+    """在網址後面加查詢參數（``["stream=false"]`` → ``...?stream=false``）。"""
+    return url + ("" if not params else ("&" if "?" in url else "?") + "&".join(params))
+
+
+def connect_options(token: str, use_env_proxy: bool = False) -> Dict[str, object]:
+    """``websockets.connect`` 的參數：帶 token、放寬訊息大小（開播訊息含警報目錄）、預設不經過 proxy。
+
+    Args:
+        token: 回放 token。
+        use_env_proxy: 經過環境變數（``HTTP(S)_PROXY``）設定的 proxy。
+
+    Returns:
+        關鍵字參數。
+    """
+    options: Dict[str, object] = {"additional_headers": {"Authorization": f"Bearer {token}"},
+                                  "max_size": 8 * 1024 * 1024}
+    if "proxy" in inspect.signature(connect).parameters:  # websockets 15 起預設會用環境變數的 proxy
+        options["proxy"] = True if use_env_proxy else None
+    return options
 
 
 async def _receive(ws: ClientConnection, inbox: "asyncio.Queue[Optional[JsonObject]]", summary: Summary,
@@ -153,14 +175,10 @@ async def run(url: str, token: str, *, backfill: bool = True, check: bool = Fals
     params = [] if backfill else ["backfill=false"]
     if check:
         params.append("check=true")
-    target = url + ("" if not params else ("&" if "?" in url else "?") + "&".join(params))
-    options: Dict[str, object] = {"additional_headers": {"Authorization": f"Bearer {token}"},
-                                  "max_size": 8 * 1024 * 1024}
-    if "proxy" in inspect.signature(connect).parameters:  # websockets 15 起預設會用環境變數的 proxy
-        options["proxy"] = True if use_env_proxy else None
     handle = record.open("w", encoding="utf-8") if record is not None else None
     try:
-        async with connect(target, **options) as ws:  # type: ignore[arg-type]  # options 依 websockets 版本組成
+        options = connect_options(token, use_env_proxy)
+        async with connect(with_params(url, params), **options) as ws:  # type: ignore[arg-type]  # options 依 websockets 版本組成
             inbox: "asyncio.Queue[Optional[JsonObject]]" = asyncio.Queue()
             await asyncio.gather(_receive(ws, inbox, summary, handle), _think(ws, inbox, summary, verbose))
     finally:

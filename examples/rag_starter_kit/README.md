@@ -1,8 +1,9 @@
 # Z72 RAG 維修助手 starter kit
 
 給學生專題用的入門包：windMindOM 模擬 Z72 風場產生的**範例資料包**、讀取程式、一個陽春的**基準助手**，
-以及**評分程式**。介面規格以 [資料介面合約 v1.1](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
-資料有兩種拿法：**資料包檔案**（離線）與 **WebSocket 回放**（即時，見下方「即時回放」）。
+以及**評分程式**。介面規格以 [資料介面合約 v1.2](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
+資料有三種拿法：**資料包檔案**（離線）、**WebSocket 回放**（即時，見下方「即時回放」）與 **OPC UA**
+（像接真實 PLC，見「OPC UA」）。
 
 ## 內容
 
@@ -16,6 +17,7 @@ rag_starter_kit/
   baseline_assistant.py       基準助手：看到警報才用關鍵字猜元件（要超越它）
   score.py                    評分程式（只用標準函式庫）
   stream_client.py            WebSocket 回放的範例客戶端：基準助手的即時版
+  opcua_client.py             OPC UA 的範例客戶端：讀 Z72 tag 的目前值，事件碼陣列有新碼就判斷、經 WS 送出
   requirements.txt
 ```
 
@@ -123,6 +125,27 @@ python stream_client.py ws://<伺服器>:8000/ws/replay --token <token> --record
 - **被斷線**：伺服器每 20 秒 ping 一次。程式整段卡在同步的大模型呼叫裡太久，會被斷線。判斷請放到另一個執行緒，或用非同步呼叫。
 - **proxy**：`stream_client.py` 預設直連伺服器，不經過環境變數設定的 proxy；需要時加 `--use-env-proxy`。
 - 訊息種類、欄位與關閉碼見合約 §12。
+
+## OPC UA（像接真實 PLC）
+
+老師用 `tools/opcua_server.py` 把回放以 OPC UA 播出（真實 Z72 PLC 走 OPC，這是最接近現場的接法）：
+- 節點 ID 就是真實 PLC 的 item ID：`Z72.H01.WTUR.Z72PLC__UI_Loc_WTUR_State_TurSt`、
+  `Z72.H01.Z72PLC__ActiveAlarm[0]` …（namespace `urn:windmindom:z72sim`，字串 NodeId `ns=<idx>;s=<item ID>`）。
+  也可以從 `Objects/Z72/H01/WTUR/...` 瀏覽。匿名、唯讀。
+- **只有目前值**：讀到的是各機組最新一筆讀值（`SourceTimestamp`＝那筆的模擬時間）與目前成立的警報 / 跳機碼
+  （`ActiveAlarm` / `ActiveTrip1` / `ActiveTrip2`，各 21 格，依成立順序、空位 0）。兩次讀之間出現又消失的警報看不到；
+  要每一筆讀值與 10 分鐘統計，用 WebSocket 回放或資料包。
+- 合成 tag（真實 PLC 沒有的）一樣掛著，節點說明寫 `synthetic`；`WSpeedNacAvg10m` 由 server 從 `WSpeedNac` 算 10 分鐘平均。
+- 模擬器狀態在 `WindMindOM.*`（`Status`：`running` / `finished` / `revoked` …、`SimTime`、`PackId`）。
+- **判斷照樣經 WebSocket 送**：同一個 token 連 `ws://<伺服器>:8000/ws/replay?stream=false`（只收判斷、不再送資料），
+  伺服器一樣蓋 `ts`。正式回放在老師啟動 OPC UA server 時就開始計時。
+
+```bash
+python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/ --ws ws://<伺服器>:8000/ws/replay --token <token>
+python opcua_client.py opc.tcp://<伺服器>:4840/windmindom/          # 只看（不送判斷）
+```
+
+細節見合約 §13。
 
 ## 正式評測
 
