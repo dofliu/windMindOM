@@ -455,8 +455,8 @@ async def generate_bulk(body: dict):
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
             # 命名情境即使沒有排程也要清（WMOM-20261021-04 code review）：否則 Live 殘留的故障會出現在
-            # 資料裡，標準答案卻把那台機組列為健康
-            sim.fault_engine.clear()
+            # 資料裡，標準答案卻把那台機組列為健康；Live 殘留的 PLC 狀態同理（WMOM-20261022-01）
+            sim.start_clean_scenario()
         try:
             total = sim.generate_bulk(
                 duration_hours=duration,

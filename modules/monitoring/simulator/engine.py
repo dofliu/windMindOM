@@ -396,6 +396,25 @@ class WindFarmSimulator:
                 if self._on_fault_tripped is not None:
                     self._on_fault_tripped(tid, fault.scenario_id, trip_codes[0], sim_time)
 
+    def start_clean_scenario(self) -> List[str]:
+        """命名情境 / 測試計畫開始前：清掉故障，並重設帶著 Live 殘留狀態的機組。
+
+        殘留狀態＝PLC 有成立中的警報或鎖存的跳機、維護鎖、停機進行中、每小時重啟上限已滿。否則情境開頭
+        會出現沒有對應 ``trip`` 的 ``trip_cleared`` / ``operator_reset`` 或莫名停機，標準答案卻把那台機組列為
+        健康（盲測資料與答案不一致）。乾淨的機組不重設（不動 RNG 序列：全新 simulator 生成的資料不變）。
+
+        Returns:
+            被重設的機組 ID。
+        """
+        self.fault_engine.clear()
+        reset: List[str] = []
+        for tid, model in self.turbines.items():
+            if (model.maintenance_lock or model.plc.active_codes() or model.tur_state in (7, 9)
+                    or model._max_restarts_exceeded()):
+                model.reset()
+                reset.append(tid)
+        return reset
+
     def generate_bulk(self, duration_hours: float, time_step: float = 10.0,
                       callback: Optional[Callable[[List[Dict]], None]] = None,
                       progress_callback: Optional[Callable[[float, float], None]] = None,

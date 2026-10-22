@@ -294,3 +294,33 @@ def test_answer_carries_simulation_notes() -> None:
     answer = scenario_answer(FAULT_SCENARIOS["generator_overspeed"])
     assert answer["simulation_notes"] and answer["simulation_notes_en"]
     assert "320" in answer["simulation_notes"][0]
+
+
+def test_live_residue_does_not_leak_into_a_clean_scenario() -> None:
+    """Live 已跳機鎖存的機組：情境開頭不得出現沒有對應 trip 的 trip_cleared / operator_reset（答案寫健康）。"""
+    from simulator.engine import WindFarmSimulator
+
+    sim = WindFarmSimulator(turbine_count=2)
+    sim.wind_model.set_override(wind_speed=15.0, wind_direction=180.0, ambient_temp=25.0)
+    sim.fault_engine.inject("blade1_pitch_encoder_fault", "WT001", severity_rate=0.002, initial_severity=0.0)
+    for i in range(1200):
+        sim._run_one_step(T0 + timedelta(seconds=5.0 * i), 5.0)
+    model = sim.turbines["WT001"]
+    assert model.maintenance_lock and model.plc.active_codes(), "前提：Live 留下鎖存的跳機與維護鎖"
+    for m in sim.turbines.values():
+        m.plc.drain_events()
+
+    assert sim.start_clean_scenario() == ["WT001"], "只重設帶殘留狀態的機組"
+    recorder = GroundTruthRecorder(list(sim.turbines))
+    events: list = []
+
+    def on_events(batch: list) -> None:
+        events.extend(batch)
+        recorder.on_events(batch)
+
+    sim.generate_bulk(1.0, time_step=10.0, on_events=on_events)
+    plc = [(e.turbine_id, e.kind) for e in events if e.plc_event is not None and e.kind != "info"]
+    assert plc == [], f"乾淨情境不該有 PLC 事件：{plc}"
+    answer = recorder.build(scenario_id=1, scenario_name="x", site_timezone="Asia/Taipei", sim_start=None, sim_end=None)
+    assert answer["cases"] == [] and answer["healthy_turbines"] == ["WT001", "WT002"]
+    assert model.tur_state == 6, "重設後照常起動發電"

@@ -128,3 +128,19 @@ def test_healthy_farm_has_no_signal_judged_events(monkeypatch: pytest.MonkeyPatc
     sim.generate_bulk(duration_hours=2.0, time_step=5.0, callback=collect)
     signal_events = [(e.kind, e.code) for e in events if e.source == "signal"]
     assert signal_events == []
+
+
+@pytest.mark.parametrize("preset", ["vestas_v90_3mw", "sg_8mw", "goldwind_2.5mw"])
+def test_other_presets_run_healthy_without_plc_events(preset: str) -> None:
+    """非 Z72 機型（前端可選）共用 Z72 的 PLC 設定值：熱模型以額定功率正規化，健康機組不得被溫度保護跳機。
+
+    修正前 8 MW 機型在 12 m/s、30 °C 約 3 分鐘就 A420 → T437 / T021，之後 restart_blocked。
+    """
+    from simulator.physics.turbine_physics import TURBINE_PRESETS, TurbinePhysicsModel
+
+    model = TurbinePhysicsModel(spec=TURBINE_PRESETS[preset], seed=3)
+    events = []
+    for _ in range(int(1.5 * 3600 / 5)):
+        model.step(wind_speed=12.0, wind_direction=180.0, ambient_temp=30.0, dt=5.0)
+        events += [(e.kind, e.code) for e in model.plc.drain_events() if e.kind != "info"]
+    assert events == [] and model.tur_state == 6

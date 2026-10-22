@@ -535,6 +535,19 @@ def run_view(storage: Storage, run: Dict[str, JsonValue]) -> Dict[str, JsonValue
     return view
 
 
+def running_evaluations(storage: Storage) -> List[Dict[str, JsonValue]]:
+    """這個風場 DB 裡正在進行的正式評測（``run_view`` 的 ``status`` 為 ``running``）。
+
+    Args:
+        storage: 風場 storage。
+
+    Returns:
+        回放的 ``run_view`` 清單。
+    """
+    views = [run_view(storage, run) for run in storage.started_evaluation_runs()]
+    return [view for view in views if view["status"] == "running"]
+
+
 def predictions_jsonl(storage: Storage, run_id: int, connection_no: Optional[int] = None) -> str:
     """回放收到的預測（``predictions.jsonl`` 內容，可直接給 starter kit 的 ``score.py``）。
 

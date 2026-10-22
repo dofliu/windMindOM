@@ -2,6 +2,7 @@
 Wind Farm management API — CRUD, activate, clone, export.
 """
 
+import asyncio
 import io
 import json
 import re
@@ -182,8 +183,19 @@ async def delete_farm(farm_id: str):
     dependencies=[Depends(require_role(Role.SUPERVISOR))],
 )
 async def activate_farm(farm_id: str):
-    """Switch the simulator to this wind farm."""
+    """Switch the simulator to this wind farm.
+
+    正式評測進行中不切換（409）：回放與 token 存在目前風場的 DB，切走後受測端重連會被當成無效 token、
+    REST 的回放 id 也會對到另一個風場的回放（WMOM-20261022-01）。
+    """
     b = _get_broker()
+    if farm_id != b.active_farm_id and b.storage is not None:
+        from server.replay import running_evaluations
+
+        running = await asyncio.to_thread(running_evaluations, b.storage)
+        if running:
+            ids = ", ".join(f"#{view['id']}" for view in running)
+            raise HTTPException(409, f"正式評測進行中（回放 {ids}）：評測結束或撤銷後再切換風場")
     ok = b.switch_farm(farm_id)
     if not ok:
         raise HTTPException(404, f"Farm not found: {farm_id}")

@@ -233,7 +233,7 @@ async def run_test_plan(plan_id: str, body: dict = {}):
     with b.pause_live_for_batch():
         # Clear any existing faults for a clean plan run（挪到停 Live 之後，避免與 Live 的
         # fault_engine.step() 併發動同一組非 lock 保護的物理狀態）。
-        b.simulator.fault_engine.clear()
+        b.simulator.start_clean_scenario()  # 含 Live 殘留的 PLC 狀態（WMOM-20261022-01）
         # Delegate to the shared scheduled-injection primitive (WMOM-20260718-03).
         total_readings = b.simulator.generate_bulk(
             duration_hours=duration,

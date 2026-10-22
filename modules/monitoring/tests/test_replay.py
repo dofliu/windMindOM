@@ -625,6 +625,42 @@ def test_kit_stream_client_reports_a_close_while_judging(capsys: pytest.CaptureF
     assert "連不上" in capsys.readouterr().err
 
 
+def test_farm_cannot_be_switched_during_a_running_evaluation(generated: Dict[str, object],
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """回放與 token 存在目前風場的 DB：正式評測進行中切換風場（409），撤銷 / 播完後才放行。"""
+    from fastapi import HTTPException
+
+    from server.routers import farms as farms_ep
+
+    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    switched: List[str] = []
+
+    class _Broker:
+        active_farm_id = "farm-a"
+
+        def __init__(self) -> None:
+            self.storage = storage
+
+        def switch_farm(self, farm_id: str) -> bool:
+            switched.append(farm_id)
+            return False  # 測試只看守門：之後的 404 表示已放行到切換
+
+    monkeypatch.setattr(farms_ep, "_get_broker", lambda: _Broker())
+    run, _ = rp.create_run(storage, int(generated["scenario_id"]), mode="evaluation", speed=60.0,  # type: ignore[call-overload]
+                           allow_overlap=True)
+    storage.start_replay_run(int(run["id"]), iso_utc())  # type: ignore[arg-type]
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(farms_ep.activate_farm("farm-b"))
+    assert exc.value.status_code == 409 and f"#{run['id']}" in str(exc.value.detail) and switched == []
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(farms_ep.activate_farm("farm-a"))  # 重新啟用同一個風場不受影響
+    assert exc.value.status_code == 404 and switched == ["farm-a"]
+    storage.revoke_replay_run(int(run["id"]), iso_utc())  # type: ignore[arg-type]
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(farms_ep.activate_farm("farm-b"))
+    assert exc.value.status_code == 404 and switched == ["farm-a", "farm-b"]
+
+
 def test_cli_creates_lists_revokes_and_exports(generated: Dict[str, object], tmp_path: Path,
                                                capsys: pytest.CaptureFixture[str]) -> None:
     import replay_runs

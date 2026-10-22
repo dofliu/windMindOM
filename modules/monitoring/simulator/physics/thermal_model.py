@@ -98,8 +98,11 @@ class ThermalSystem:
     Complete turbine thermal system with startup / shutdown thermal inertia.
     """
 
-    def __init__(self, config: ThermalSystemConfig = None):
+    def __init__(self, config: ThermalSystemConfig = None, heat_scale: float = 1.0):
         cfg = config or ThermalSystemConfig()
+        # 電氣發熱與附加熱 × heat_scale。熱阻與保護設定值是以 Z72（2 MW）校準的；其他機型的冷卻系統
+        # 依容量放大，故發熱以額定功率正規化（Z72＝1.0，輸出逐位元不變）
+        self.heat_scale = heat_scale
 
         self.gen_stator = ThermalElement(*cfg.gen_stator)
         self.gen_air = ThermalElement(*cfg.gen_air)
@@ -143,8 +146,12 @@ class ThermalSystem:
         degraded winding insulation makes the component run hotter at steady state,
         not merely respond slower. Keys: water, cabinet, transformer, nacelle,
         bearing, stator.
+
+        發熱以 Z72 等效 kW 計：電氣發熱與 ``extra_heat``（變頻器損失、傳動、故障熱）× ``heat_scale``。
         """
         extra_heat = extra_heat or {}
+        if self.heat_scale != 1.0:
+            extra_heat = {key: value * self.heat_scale for key, value in extra_heat.items()}
         cooling_bias = cooling_bias or {}
         degradation = cooling_degradation or {}
 
@@ -158,9 +165,9 @@ class ThermalSystem:
             min(1.0, sync_progress if is_starting else 0.15 if is_stopping else 0.0),
         )
 
-        heat_gen_raw = gen_power_kw * (1.0 - gen_efficiency) * max(0.2, running_factor)
-        heat_cnv_raw = gen_power_kw * 0.02 * max(0.15, running_factor)
-        heat_trf_raw = grid_power_kw * 0.01 * max(0.15, running_factor)
+        heat_gen_raw = gen_power_kw * (1.0 - gen_efficiency) * max(0.2, running_factor) * self.heat_scale
+        heat_cnv_raw = gen_power_kw * 0.02 * max(0.15, running_factor) * self.heat_scale
+        heat_trf_raw = grid_power_kw * 0.01 * max(0.15, running_factor) * self.heat_scale
         heat_bearing_raw = rotor_speed * 1.5 * max(0.25, min(1.0, rotor_speed / 4.0))
 
         self._mem_gen = self._update_memory(self._mem_gen, heat_gen_raw, dt, rise_tau=45.0, fall_tau=900.0)
