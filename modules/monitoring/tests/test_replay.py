@@ -625,14 +625,18 @@ def test_kit_stream_client_reports_a_close_while_judging(capsys: pytest.CaptureF
     assert "連不上" in capsys.readouterr().err
 
 
-def test_farm_cannot_be_switched_during_a_running_evaluation(generated: Dict[str, object],
+def test_farm_cannot_be_switched_during_a_running_evaluation(generated: Dict[str, object], tmp_path: Path,
                                                              monkeypatch: pytest.MonkeyPatch) -> None:
     """回放與 token 存在目前風場的 DB：正式評測進行中切換風場（409），撤銷 / 播完後才放行。"""
     from fastapi import HTTPException
 
     from server.routers import farms as farms_ep
 
-    storage: Storage = generated["storage"]  # type: ignore[assignment]
+    # 共用 fixture 的 DB 可能留著其他測試開播的正式評測：用複本、先撤銷殘留的，結果才不依測試順序而變
+    storage = Storage(db_path=str(tmp_path / "farm.db"))
+    generated["storage"]._get_conn().backup(storage._get_conn())  # type: ignore[attr-defined]
+    for leftover in storage.started_evaluation_runs():
+        storage.revoke_replay_run(int(leftover["id"]), iso_utc())
     switched: List[str] = []
 
     class _Broker:
