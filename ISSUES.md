@@ -1500,7 +1500,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
       - 預取、讀值轉換加速、正式評測速度上限。
       - 刪除情境要 `force`（前端提示）；kit 客戶端的關閉碼與 proxy；文件。
   - **測試**：`test_replay.py` 54 項（含 kit 客戶端對真的 uvicorn 伺服器、CLI、假時鐘傳送端因果）；前端 ScenarioPage +1。
-  - **完整 backend**：1778 → __N__ passed / 7 skipped / 1 xfailed。
+  - **完整 backend**：1778 → 1833 passed / 7 skipped / 1 xfailed。
   - 設計、已知限制見設計文件 §6.11。
 - **Depends on**: WMOM-20261021-04
 

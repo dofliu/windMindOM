@@ -146,7 +146,7 @@ WMOM = WindMindOM 縮寫。
 - **合約守則**：資料包 / 事件 / 標準答案 / 預測格式以合約 v1 為準；加欄位升次版本（`CONTRACT_VERSION`）、改名 / 刪欄位升主版本並更新合約文件；新增故障情境的 `component` / `category` 要先加進 `shared/data/rag_assistant_vocabulary.json`（唯一來源；kit 的 `vocabulary.json` 由 `tools/build_rag_starter_kit.py` 同步，`tests/test_rag_starter_kit.py` 會擋）；改了 tag 註冊表或資料包格式要重建範例（`python tools/build_rag_starter_kit.py`）
 - **回放守則**：受測端只用回放 token 連 `/ws/replay`（不開帳號、看不到情境清單）；回放訊息與盲測版資料包逐筆相同，新增訊息內容要走 `ScenarioReplay` 並維持「與資料包相同、不含答案」（`test_replay.py` 會擋）；預測的 `ts` 一律由伺服器蓋，不接受受測端給的時間；正式評測與練習回放不要開在同一個情境（建回放時預設擋下，`allow_overlap` 才放行）；正式評測的速度受「機組數 × 速度 ÷ 取樣週期 ≤ 1000 筆 / 秒」限制
 - **下次工作**：EPIC-DS 依序 3c（-07 OPC UA，資料來源用 `server/replay.py` 的 `ScenarioReplay` / `ReplayClock`）→ 4（-08 難度與多樣性）；見 [`ISSUES.md`](ISSUES.md) EPIC-DS
-- **測試**：backend __N__ passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。以各 module `tests/` 為準
+- **測試**：backend 1833 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。以各 module `tests/` 為準
 
 ## 11. v0.5 → v0.8.1 重大轉變（必知）
 
