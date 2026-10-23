@@ -179,9 +179,16 @@ def test_recorder_builds_case_with_onset_first_alarm_and_trip() -> None:
     assert case["expected_alarm_codes"] == [262, 240]
     assert case["injection"] == {"offset_seconds": 600.0, "severity_rate": 0.001, "initial_severity": 0.0}
     assert case["final_severity"] == 0.9877 and case["superseded"] is False and case["pre_existing"] is False
-    # 沒有 case 以預期碼解釋的警報：注入前的 262、別台的 262、連帶的 264（解除不列）
+    assert case["nuisance_cause"] is None and case["window_end_ts"] is None and case["farm_event_id"] is None
+    # 沒有故障時的事件歸成環境性 nuisance case（v1.5）：注入前的 262、別台的 262；故障連帶的 264 不歸
+    env = [c for c in gt["cases"] if c["category"] == "nuisance"]
+    assert [(c["case_id"], c["turbine_id"], c["observed_alarm_codes"], c["onset_ts"][11:19], c["window_end_ts"][11:19])
+            for c in env] == [("C002", "WT001", [262], "00:01:40", "00:10:00"),
+                              ("C003", "WT002", [262], "00:15:00", "00:45:00")]
+    assert all(c["nuisance_cause"] == "environment" and c["component"] is None for c in env)
+    # 沒有任何 case 解釋的事件：只剩連帶的 264（解除不列）
     assert [(e["turbine_id"], e["code"], e["ts"][11:19]) for e in gt["unattributed_events"]] == [
-        ("WT001", 262, "00:01:40"), ("WT002", 262, "00:15:00"), ("WT001", 264, "00:40:00"),
+        ("WT001", 264, "00:40:00"),
     ]
 
 
@@ -237,15 +244,21 @@ def test_unknown_scenario_injection_is_ignored() -> None:
     assert gt["cases"] == [] and gt["healthy_turbines"] == ["WT001"]
 
 
-def test_info_events_and_healthy_turbine_trips_are_listed_as_unattributed() -> None:
-    """健康機組的偶發跳機、切出風速 I201：答案卷要說得出「這筆沒有故障答案」。"""
+def test_info_events_and_healthy_turbine_trips_become_environment_cases() -> None:
+    """健康機組的偶發跳機、切出風速 I201：答案卷要說得出「這筆不是故障」（v1.5：環境性 nuisance case）。"""
     rec = GroundTruthRecorder(["WT001", "WT002"])
     rec.on_events([_plc("WT002", 100, "trip", 336), _plc("WT002", 110, "trip_cleared", 336),
                    _plc("WT001", 200, "info", 201), _plc("WT001", 300, "operator_reset", 8)])
     gt = _build(rec)
-    assert [(e["turbine_id"], e["kind"], e["code"], e["level"]) for e in gt["unattributed_events"]] == [
-        ("WT002", "trip", 336, "T2"), ("WT001", "info", 201, "I"),
+    assert gt["unattributed_events"] == []
+    assert [(c["turbine_id"], c["category"], c["nuisance_cause"], c["observed_alarm_codes"], c["first_alarm_code"],
+             c["trip_code"]) for c in gt["cases"]] == [
+        ("WT001", "nuisance", "environment", [201], None, None),     # I 類：沒有警報 / 跳機
+        ("WT002", "nuisance", "environment", [336], 336, 336),
     ]
+    storm = gt["cases"][0]
+    assert "切出風速" in storm["root_cause"] and storm["key_signals"] == ["WMET_WSpeedNac"]
+    assert storm["manual_refs"][0]["event_code"] == 201 and storm["origin"] == "environmental"
     assert gt["healthy_turbines"] == ["WT001", "WT002"]
 
 

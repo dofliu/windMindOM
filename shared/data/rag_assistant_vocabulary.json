@@ -1,5 +1,5 @@
 {
- "contract_version": "1.4",
+ "contract_version": "1.5",
  "description": "Closed vocabularies of the windMindOM RAG assistant data contract v1 (docs/integration/rag_assistant_data_contract_v1.md).",
  "component_groups": [
   {
@@ -135,6 +135,28 @@
    "label_en": "Healthy turbine (answer key only)",
    "label_zh": "健康機組（只出現在標準答案）",
    "prediction": false
+  }
+ ],
+ "nuisance_causes": [
+  {
+   "id": "grid_disturbance",
+   "label_en": "External grid disturbance (voltage dip, frequency excursion)",
+   "label_zh": "外部電網擾動（電壓驟降、頻率越界）"
+  },
+  {
+   "id": "wind_direction_change",
+   "label_en": "Rapid wind direction change (yaw time-out)",
+   "label_zh": "風向快速變化（偏航逾時）"
+  },
+  {
+   "id": "loose_contact",
+   "label_en": "Loose sensor contact (intermittent broken-wire trips)",
+   "label_zh": "感測器接點鬆動（間歇性斷線跳機）"
+  },
+  {
+   "id": "environment",
+   "label_en": "Environmental / operating conditions (storm cut-out, extreme temperature)",
+   "label_zh": "環境 / 運轉條件（暴風切出、極端氣溫）"
   }
  ],
  "event_types": [

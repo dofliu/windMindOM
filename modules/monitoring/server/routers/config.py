@@ -1,4 +1,5 @@
 import asyncio
+import math
 from datetime import datetime
 from typing import List, Optional, Set
 
@@ -9,6 +10,7 @@ from server import batch_state
 from server.batch_state import reject_during_batch
 from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
 from simulator.bulk_events import BulkEvent
+from simulator.farm_events import FARM_EVENT_KINDS, FarmEvent
 from simulator.ground_truth import GroundTruthRecorder
 from simulator.physics.fault_engine import FAULT_SCENARIOS, TestPlanStep
 from simulator.time_utils import iso_utc
@@ -88,6 +90,68 @@ def _parse_fault_schedule(raw: List[dict], valid_turbine_ids: Set[str]) -> List[
         ))
 
     return sorted(steps, key=lambda s: s.offset_seconds)
+
+
+# 風場事件排程的上限（WMOM-20261021-08-b）：筆數、單一事件最長持續秒數
+MAX_FARM_EVENTS = 50
+MAX_FARM_EVENT_DURATION_S = 86400.0
+
+
+def _parse_farm_events(raw: List[dict]) -> List[FarmEvent]:
+    """把 API body 的 ``farm_events`` 轉成驗證過的 ``FarmEvent`` 清單（WMOM-20261021-08-b）。
+
+    每筆接受（dict）：
+      - ``kind``（必填，須在 ``FARM_EVENT_KINDS``：``grid_voltage_dip`` / ``grid_frequency_excursion`` /
+        ``rapid_wind_direction_change``）
+      - ``at_hour`` 或 ``offset_seconds``（擇一；相對批次起點，預設 0）
+      - ``duration_s`` 或 ``duration_minutes``（擇一，必填；> 0、≤ ``MAX_FARM_EVENT_DURATION_S``）
+      - ``magnitude``（必填；單位與範圍見 ``FarmEventKind``：電壓 p.u.、頻率偏移 Hz、風向擺動振幅度）
+
+    Args:
+        raw: API body 的 farm_events 原始清單。
+
+    Returns:
+        依開始時間排序的事件。
+
+    Raises:
+        HTTPException: 格式錯誤、數值不是有限數、超出範圍時 400；未知事件種類 404。
+    """
+    if not isinstance(raw, list):
+        raise HTTPException(400, "farm_events 必須是陣列")
+    if len(raw) > MAX_FARM_EVENTS:
+        raise HTTPException(400, f"farm_events 最多 {MAX_FARM_EVENTS} 筆")
+    events: List[FarmEvent] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise HTTPException(400, f"farm_events[{i}] 必須是物件")
+        kind = FARM_EVENT_KINDS.get(item.get("kind")) if isinstance(item.get("kind"), str) else None
+        if kind is None:
+            raise HTTPException(404, f"farm_events[{i}]: 未知事件種類 {item.get('kind')!r}；可用：{sorted(FARM_EVENT_KINDS)}")
+        if "magnitude" not in item or ("duration_s" not in item and "duration_minutes" not in item):
+            raise HTTPException(400, f"farm_events[{i}]: 必須給 magnitude 與 duration_s（或 duration_minutes）")
+        try:
+            values = [item.get("offset_seconds"), item.get("at_hour"), item.get("duration_s"),
+                      item.get("duration_minutes"), item["magnitude"]]
+            if any(isinstance(v, bool) for v in values):
+                raise TypeError("bool")
+            offset = (float(item["offset_seconds"]) if "offset_seconds" in item
+                      else float(item.get("at_hour", 0.0)) * 3600.0)
+            duration = (float(item["duration_s"]) if "duration_s" in item
+                        else float(item["duration_minutes"]) * 60.0)
+            magnitude = float(item["magnitude"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"farm_events[{i}]: 數值欄位格式錯誤（offset/at_hour/duration/magnitude 須為數字）")
+        if not all(math.isfinite(v) for v in (offset, duration, magnitude)):
+            raise HTTPException(400, f"farm_events[{i}]: 數值必須是有限數")
+        if offset < 0:
+            raise HTTPException(400, f"farm_events[{i}]: offset 不可為負")
+        if not 0 < duration <= MAX_FARM_EVENT_DURATION_S:
+            raise HTTPException(400, f"farm_events[{i}]: duration 必須大於 0、不超過 {MAX_FARM_EVENT_DURATION_S:.0f} 秒")
+        lo, hi = kind.magnitude_range
+        if not lo <= magnitude <= hi:
+            raise HTTPException(400, f"farm_events[{i}]: {kind.id} 的 magnitude 必須在 {lo}–{hi}（{kind.magnitude_unit}）")
+        events.append(FarmEvent(kind=kind.id, offset_seconds=offset, duration_s=duration, magnitude=magnitude))
+    return sorted(events, key=lambda e: e.offset_seconds)
 
 
 @router.get(
@@ -297,6 +361,9 @@ def _generate_bulk(body: dict) -> dict:
       fault_schedule: 選填。Scenario 模式的故障排程（DEC-20260718-01）。每筆
         ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?}``
         於指定 sim-time 注入，讓批次資料集包含該故障的發展（見 ``_parse_fault_schedule``）。
+      farm_events: 選填。風場層級事件排程（電網擾動、風向快速變化，WMOM-20261021-08-b），見
+        ``_parse_farm_events``；標準答案把它們造成的警報 / 跳機標成 nuisance case，排程只存在情境設定與答案，
+        不進給受測端的資料。
       wind_profile: 選填。風況標籤（風況本身以 ``POST /api/config/wind`` 套用）；情境另記生成時實際套用的
         profile（``wind_profile_applied``），資料包 / 回放輸出的是後者。
       name: 選填。情境名稱（存成可調閱的專屬情境 session）。
@@ -333,6 +400,7 @@ def _generate_bulk_in_slot(body: dict) -> dict:
         body.get("fault_schedule") or [],
         set(b.simulator.turbines.keys()),
     )
+    farm_events = _parse_farm_events(body.get("farm_events") or [])
     # 情境保存（DEC-20260718-01 #4）：帶 name 時把這批資料寫進一個「專屬情境 session」，
     # 與 Live/其他歷史隔離、事後可 list / load / delete；不帶 name 則沿用舊行為（寫進當前
     # active session、融進歷史）——保留 FaultInjectionPanel/快速批次的既有用法。
@@ -378,6 +446,12 @@ def _generate_bulk_in_slot(body: dict) -> dict:
                         "severity_rate": s.severity_rate,
                     }
                     for s in schedule
+                ],
+                # 出題端的情境設定（標準答案另有 farm_events）；不進資料包 manifest（盲測）
+                "farm_events": [
+                    {"kind": e.kind, "offset_seconds": e.offset_seconds, "duration_s": e.duration_s,
+                     "magnitude": e.magnitude}
+                    for e in farm_events
                 ],
             },
         )
@@ -469,7 +543,7 @@ def _generate_bulk_in_slot(body: dict) -> dict:
     # DataBroker.pause_live_for_batch（faults.py::run_test_plan 共用同一套，避免漏套）。
     sim = b.simulator
     with b.pause_live_for_batch():
-        if schedule or scenario_id is not None:
+        if schedule or farm_events or scenario_id is not None:
             # 乾淨情境：清掉殘留的 runtime 故障，讓資料集只含本情境排定者。挪到「停 Live 之後」，
             # 避免 clear() 與 Live 的 fault_engine.step() 併發動同一組非 lock 保護的物理狀態。
             # 命名情境即使沒有排程也要清（WMOM-20261021-04 code review）：否則 Live 殘留的故障會出現在
@@ -484,6 +558,8 @@ def _generate_bulk_in_slot(body: dict) -> dict:
                 on_fault_injected=on_inject if schedule else None,
                 on_fault_tripped=on_trip if schedule else None,
                 on_events=on_events,
+                farm_events=farm_events or None,
+                on_farm_event=recorder.on_farm_event if recorder is not None else None,
             )
             # Run downsampling after bulk generation
             b.storage.run_downsampling()
@@ -522,6 +598,7 @@ def _generate_bulk_in_slot(body: dict) -> dict:
         "time_step": step,
         "total_readings": total,
         "faults_injected": injected_count,
+        "farm_events_scheduled": len(farm_events),
         "final_fault_status": b.simulator.fault_engine.get_fault_status() if schedule else [],
         "storage_stats": stats,
     }

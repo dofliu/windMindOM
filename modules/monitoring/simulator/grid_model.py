@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -26,6 +26,24 @@ class GridEnvironmentModel:
         self._active_profile = "manual" if frequency_hz is not None or voltage_v is not None else None
         if self._active_profile:
             self._profile_start_time = utc_now()
+
+    def snapshot(self) -> Tuple[Optional[float], Optional[float], Optional[str], Optional[datetime]]:
+        """目前的覆寫狀態（批次套用風場事件前存下，結束時 ``restore``）。"""
+        return (self._override_frequency, self._override_voltage, self._active_profile, self._profile_start_time)
+
+    def restore(self, state: Tuple[Optional[float], Optional[float], Optional[str], Optional[datetime]]) -> None:
+        """回到 ``snapshot`` 存下的覆寫狀態。"""
+        (self._override_frequency, self._override_voltage,
+         self._active_profile, self._profile_start_time) = state
+
+    def apply_event_override(self, frequency_hz: Optional[float], voltage_v: Optional[float]) -> None:
+        """風場事件（電網擾動，WMOM-20261021-08-b）期間的覆寫；None＝該量不覆寫。
+
+        與手動覆寫同樣每次讀值加量測雜訊（亂數抽樣次數與自動模式相同，事件以外的資料不受影響）。
+        """
+        self._override_frequency = frequency_hz
+        self._override_voltage = voltage_v
+        self._active_profile = "farm_event"
 
     def clear_override(self):
         """Remove all manual overrides and return to auto mode."""

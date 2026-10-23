@@ -82,6 +82,8 @@ class FaultScenario:
     root_cause_zh: str = ""                      # 根因（評分端的標準答案）
     root_cause_en: str = ""
     category: str = "real_fault"                 # real_fault / sensor_fault / nuisance / healthy
+    # nuisance 的成因（rag_assistant_vocabulary.json 的 nuisance_causes，WMOM-20261021-08-b）；故障為 None
+    nuisance_cause: Optional[str] = None
     origin: str = "internal"                     # internal / environmental / external_grid
     difficulty: str = "medium"                   # easy / medium / hard（對 RAG 診斷而言）
     # 故障在 SCADA 上看得到的 tag：高負載滿嚴重度時明顯偏離健康機組（tests/physics 會驗證）
@@ -705,6 +707,46 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         ),
     ),
 
+    # nuisance（WMOM-20261021-08-b）：手冊 §11.3 點名的已知無害跳機，與上面的斷線送同一個碼
+    "main_bearing_temp_loose_contact": FaultScenario(
+        id="main_bearing_temp_loose_contact",
+        name_en="Main Bearing 1 Pt100 Loose Contact (Nuisance)",
+        name_zh="主軸承溫度 1 Pt100 接觸不良（nuisance）",
+        description_en="A loose connection on the bearing 1 Pt100 opens for a few seconds every so often: each time the I/O module flags a broken wire, the PLC trips with the bearing temperature fault and the turbine restarts once the contact closes again. The manual (§11.3) names this as a known harmless nuisance trip.",
+        description_zh="軸承溫度 1 的 Pt100 接點鬆動，偶爾斷開幾秒：每次 I/O 模組都偵測到斷線、PLC 以軸承溫度故障跳機，接點接回後自動重啟。手冊 §11.3 點名這是已知無害的 nuisance 跳機。",
+        affected_tags={
+            "WGEN_GnBrgTmp1": {"max_offset": 800.0, "curve": "linear"},
+        },
+        alarm_codes=[
+            {"type": "T1", "code": 242, "desc": "Bearing 1 temperature fault"},
+        ],
+        component="main_bearing",
+        category="nuisance",
+        nuisance_cause="loose_contact",
+        root_cause_zh="主軸承溫度 1 的 Pt100 接點鬆動（nuisance 跳機）：每隔一陣子斷開幾秒，PLC 每次都送軸承溫度 1 故障（242）跳機，接回後讀值正常、機組自動重啟；軸承本身與其他訊號都正常。一小時內超過自動重啟上限時會送 A039、要操作員復位。手冊 §11.3 把 Pt100 鬆線列為已知無害、可設定自動重啟的 nuisance 跳機。",
+        root_cause_en="A loose contact on the main bearing temperature 1 Pt100 (nuisance trip): every so often it opens for a few seconds, the PLC trips with bearing 1 temperature fault (242) each time, and once it closes again the reading is normal and the turbine restarts; the bearing and all other signals are fine. Exceeding the auto-restart limit within an hour raises A039 and needs an operator reset. The manual (§11.3) lists a loose Pt100 wire as a known harmless nuisance trip that can be given an auto-restart setting.",
+        difficulty="hard",
+        key_signals=(
+            "WGEN_GnBrgTmp1",
+        ),
+        expected_actions_zh=(
+            "檢查軸承溫度 1 的 Pt100 配線與端子是否鬆動（手冊）",
+            "看 242 的模式：短暫跳機後讀值立刻正常、反覆出現，且軸承溫度 2 與振動正常，是接觸不良而不是軸承或感測器壞掉",
+            "鎖緊接點；修好前可依手冊把這個跳機的自動重啟次數設高（手冊 §11.3），修好後改回 0",
+        ),
+        expected_actions_en=(
+            "Check the bearing temperature 1 Pt100 wiring and terminals for a loose connection (manual).",
+            "Look at the 242 pattern: brief trips with a normal reading right after, recurring, while bearing temperature 2 and vibration are normal, point to a loose contact rather than a failed bearing or sensor.",
+            "Tighten the connection; until it is fixed, the auto-restart setting for this trip can be raised as the manual describes (§11.3) and set back to 0 afterwards.",
+        ),
+        simulation_notes_zh=(
+            "注入後 5–20 分鐘第一次瞬斷，之後每 15–45 分鐘一次、每次 10–30 秒；瞬斷時讀值同斷線（850 °C），與嚴重度無關。",
+        ),
+        simulation_notes_en=(
+            "The first glitch comes 5–20 min after injection, then every 15–45 min for 10–30 s each; during a glitch the reading is the broken-wire value (850 °C), independent of severity.",
+        ),
+    ),
+
     # 專屬故障碼：編碼器讀值超出範圍
     "blade1_pitch_encoder_fault": FaultScenario(
         id="blade1_pitch_encoder_fault",
@@ -917,6 +959,10 @@ class FaultEngine:
         Returns:
             本次是否由未跳機轉為已跳機。
         """
+        scenario = FAULT_SCENARIOS.get(scenario_id)
+        if scenario is not None and scenario.category == "nuisance":
+            # nuisance 跳機自己會好（手冊 §11.3）：不鎖機組、等條件解除就照每小時上限自動重啟（WMOM-20261021-08-b）
+            return False
         for fault in self._active_faults:
             if fault.turbine_id == turbine_id and fault.scenario_id == scenario_id and not fault.tripped:
                 fault.tripped = True

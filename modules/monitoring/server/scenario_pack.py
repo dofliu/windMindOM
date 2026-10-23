@@ -383,8 +383,12 @@ def ground_truth_for_pack(ground_truth: Dict[str, JsonValue], pack_id: str) -> D
     for key in ("sim_start", "sim_end", "generated_at"):
         out[key] = z(out.get(key))
     for case in out.get("cases") or []:
-        for key in ("onset_ts", "first_alarm_ts", "trip_ts"):
-            case[key] = z(case.get(key))
+        for key in ("onset_ts", "window_end_ts", "first_alarm_ts", "trip_ts"):
+            if key in case:  # 1.5 前存的答案沒有 window_end_ts：不補欄位
+                case[key] = z(case.get(key))
+    for item in out.get("farm_events") or []:
+        for key in ("start_ts", "end_ts"):
+            item[key] = z(item.get(key))
     for item in out.get("unattributed_events") or []:
         item["ts"] = z(item.get("ts"))
     return out

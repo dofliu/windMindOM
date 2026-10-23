@@ -13,10 +13,13 @@
 只評 ``--answers`` 裡有的資料包，其他 pack_id 的預測略過（報告會列出筆數）。
 
 評分規則（合約 §8）：
-- 「故障診斷」＝category 為 ``real_fault`` / ``sensor_fault`` 的預測；依機組與時間對到 case，對不到的是誤報。
-- 每個 case 以**最後一筆**對到的診斷評元件、元件群組、類別與手冊引用（助手可以邊看邊修正）。
+- 「故障診斷」＝category 為 ``real_fault`` / ``sensor_fault`` 的預測；依機組與時間對到**故障** case，對不到的是誤報。
+- 每個故障 case 以**最後一筆**對到的診斷評元件、元件群組、類別與手冊引用（助手可以邊看邊修正）。
 - 時效看「**最後一段連續正確**」的起點：最後一筆診斷元件正確時，往前找到連續都正確的第一筆；
   它早於第一個預期警報就是早期預警。中途猜錯的元件另計誤診，狂猜不會換到早期預警。
+- 干擾（v1.5，WMOM-20261021-08-b）：``nuisance`` 預測依機組與時間對到 nuisance case（電網擾動、風向快速變化、
+  感測器接點鬆動、環境性停機）＝認出干擾；在 nuisance case 時間窗內下故障診斷照樣是誤報（另計「把干擾當故障」）。
+  ``nuisance`` 預測不會撤回之前的故障診斷。誤報率＝誤報次數 ÷ 沒有故障的機組時數（每 100 機組小時）。
 - 各項指標分開列，不合成總分。
 """
 
@@ -102,25 +105,32 @@ class Case:
         pack_id: 資料包 ID。
         case_id: case ID。
         turbine_id: 機組。
-        category: 答案類別。
-        component: 答案元件。
+        category: 答案類別（``real_fault`` / ``sensor_fault`` / ``nuisance``）。
+        component: 答案元件（風場事件 / 環境性 nuisance case 為 None）。
         expected_codes: 預期事件碼（手冊引用的正解）。
         window_start: 時間窗起點（故障開始；同機組同故障再注入時取最早那次）。
-        window_end: 時間窗終點（情境結束）。
+        window_end: 時間窗終點（``window_end_ts``；沒有時為情境結束）。
         first_alarm: 第一個預期警報（同上，取最早那次）。
         timing_scored: 是否評延遲 / 早期預警（``pre_existing`` case 不知道何時開始，不評）。
+        nuisance_cause: nuisance case 的成因（故障為 None）。
     """
 
     pack_id: str
     case_id: str
     turbine_id: str
     category: str
-    component: str
+    component: Optional[str]
     expected_codes: List[int]
     window_start: datetime
     window_end: Optional[datetime]
     first_alarm: Optional[datetime]
     timing_scored: bool = True
+    nuisance_cause: Optional[str] = None
+
+    @property
+    def is_fault(self) -> bool:
+        """是故障 case（不是 nuisance）。"""
+        return self.category in FAULT_CATEGORIES
 
 
 def read_predictions(lines: Iterable[str], components: Dict[str, str]) -> Tuple[List[Prediction], List[JsonObject]]:
@@ -198,14 +208,48 @@ def read_cases(ground_truth: JsonObject) -> List[Case]:
             case_id=item["case_id"],
             turbine_id=item["turbine_id"],
             category=item["category"],
-            component=item["component"],
+            component=item.get("component"),
             expected_codes=list(item.get("expected_alarm_codes") or []),
             window_start=min(onsets) if onsets else sim_start,
-            window_end=sim_end,
+            window_end=parse_ts(str(item["window_end_ts"])) if item.get("window_end_ts") else sim_end,
             first_alarm=min(alarms) if alarms else None,
             timing_scored=not item.get("pre_existing") and bool(onsets),
+            nuisance_cause=item.get("nuisance_cause"),
         ))
     return cases
+
+
+def healthy_turbine_hours(ground_truth: JsonObject, cases: Sequence[Case]) -> Optional[float]:
+    """沒有故障的機組時數：每台機組的情境長度扣掉故障 case 時間窗（故障開始前的時間也算）。
+
+    誤報只會發生在這段時間（故障時間窗內的故障診斷都對得到 case），所以拿它當誤報率的分母。
+
+    Args:
+        ground_truth: 一個資料包的 ``ground_truth.json``。
+        cases: ``read_cases`` 的結果。
+
+    Returns:
+        小時數；答案沒有 ``sim_end`` 時為 None。
+    """
+    if not ground_truth.get("sim_end"):
+        return None
+    sim_start = parse_ts(str(ground_truth["sim_start"]))
+    sim_end = parse_ts(str(ground_truth["sim_end"]))
+    turbines = ground_truth.get("turbines") or sorted({c.turbine_id for c in cases})
+    assert isinstance(turbines, list)
+    total = 0.0
+    for turbine in turbines:
+        spans = sorted((max(c.window_start, sim_start), min(c.window_end or sim_end, sim_end))
+                       for c in cases if c.is_fault and c.turbine_id == turbine)
+        covered = 0.0
+        cursor = sim_start
+        for start, end in spans:
+            start = max(start, cursor)
+            if end > start:
+                covered += (end - start).total_seconds()
+                cursor = end
+        total += (sim_end - sim_start).total_seconds() - covered
+    return total / 3600.0
 
 
 # ── 評分 ─────────────────────────────────────────────────────────────────────
@@ -239,8 +283,29 @@ class CaseResult:
 
 
 @dataclass
+class NuisanceCaseResult:
+    """一個 nuisance case 的評分（v1.5）。
+
+    Attributes:
+        recognized: 時間窗內有 ``nuisance`` 預測（認出是干擾）。
+        nuisance_predictions: 對到本 case 的 ``nuisance`` 預測筆數。
+        fault_predictions: 時間窗內、沒對到故障 case 的故障診斷筆數（把干擾當故障，都算誤報）。
+        first_recognized_ts: 第一筆對到的 ``nuisance`` 預測時間。
+    """
+
+    pack_id: str
+    case_id: str
+    turbine_id: str
+    nuisance_cause: Optional[str]
+    recognized: bool = False
+    nuisance_predictions: int = 0
+    fault_predictions: int = 0
+    first_recognized_ts: Optional[str] = None
+
+
+@dataclass
 class Report:
-    """全部資料包的評分結果。"""
+    """全部資料包的評分結果（``cases`` 以下到 ``misdiagnosis_predictions`` 只算故障 case）。"""
 
     packs: List[str]
     cases: int
@@ -265,6 +330,15 @@ class Report:
     ignored_predictions: int
     invalid_predictions: List[JsonObject] = field(default_factory=list)
     case_results: List[CaseResult] = field(default_factory=list)
+    # v1.5（WMOM-20261021-08-b）：干擾與健康負樣本
+    nuisance_cases: int = 0
+    nuisance_recognized: int = 0
+    nuisance_recognition_rate: float = 0.0
+    nuisance_misread_as_fault: int = 0
+    false_alarms_during_nuisance: int = 0
+    healthy_turbine_hours: Optional[float] = None
+    false_alarm_rate_per_100h: Optional[float] = None
+    nuisance_case_results: List[NuisanceCaseResult] = field(default_factory=list)
 
 
 def _in_window(case: Case, ts: datetime) -> bool:
@@ -272,12 +346,20 @@ def _in_window(case: Case, ts: datetime) -> bool:
 
 
 def _match(prediction: Prediction, cases: Sequence[Case]) -> Optional[Case]:
-    """一筆故障診斷對到哪個 case：同機組、時間在窗內；同時有多個時優先元件相同者，否則取最近發生的。"""
-    candidates = [c for c in cases if c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts)]
+    """一筆故障診斷對到哪個故障 case：同機組、時間在窗內；同時有多個時優先元件相同者，否則取最近發生的。"""
+    candidates = [c for c in cases
+                  if c.is_fault and c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts)]
     if not candidates:
         return None
     same = [c for c in candidates if c.component == prediction.component]
     return max(same or candidates, key=lambda c: c.window_start)
+
+
+def _match_nuisance(prediction: Prediction, cases: Sequence[Case]) -> Optional[Case]:
+    """一筆預測落在哪個 nuisance case 的時間窗：同機組、時間在窗內；同時有多個時取最近發生的。"""
+    candidates = [c for c in cases
+                  if not c.is_fault and c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts)]
+    return max(candidates, key=lambda c: c.window_start) if candidates else None
 
 
 def _rank_of(refs: Sequence[int], relevant: Iterable[int]) -> Optional[int]:
@@ -303,7 +385,7 @@ def _episodes(false_alarms: Sequence[Prediction]) -> int:
 def _score_case(case: Case, claims: Sequence[Prediction], components: Dict[str, str]) -> CaseResult:
     """一個 case 的評分（``claims`` 已依時間、行號排序）。"""
     result = CaseResult(pack_id=case.pack_id, case_id=case.case_id, turbine_id=case.turbine_id,
-                        expected_component=case.component, expected_category=case.category,
+                        expected_component=case.component or "", expected_category=case.category,
                         timing_scored=case.timing_scored, n_predictions=len(claims))
     if not claims:
         return result
@@ -313,7 +395,7 @@ def _score_case(case: Case, claims: Sequence[Prediction], components: Dict[str, 
     result.predicted_category = final.category
     result.component_correct = final.component == case.component
     result.component_group_correct = (
-        final.component is not None and components.get(final.component) == components.get(case.component)
+        final.component is not None and components.get(final.component) == components.get(case.component or "")
     )
     result.category_correct = final.category == case.category
     rank = _rank_of(final.manual_refs, case.expected_codes)
@@ -357,6 +439,8 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         raise ValueError(f"標準答案的 pack_id 重複：{sorted(p for p in set(packs) if packs.count(p) > 1)}")
     cases_by_pack = {str(gt["pack_id"]): read_cases(gt) for gt in ground_truths}
     matched: Dict[Tuple[str, str], List[Prediction]] = {}
+    nuisance_matched: Dict[Tuple[str, str], List[Prediction]] = {}
+    faults_on_nuisance: Dict[Tuple[str, str], List[Prediction]] = {}
     false_alarms: List[Prediction] = []
     nuisance = nuisance_during_fault = ignored = 0
     for prediction in sorted(predictions, key=lambda p: (p.ts, p.line)):
@@ -365,20 +449,44 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
             ignored += 1
             continue
         if prediction.category == "nuisance":
-            # v1 不評 nuisance（-08 才有干擾 / 健康 case）；只統計，也不會撤回之前的故障診斷
+            # 對到 nuisance case＝認出干擾；不會撤回之前的故障診斷
             nuisance += 1
-            if any(c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts) for c in cases):
+            if any(c.is_fault and c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts)
+                   for c in cases):
                 nuisance_during_fault += 1
+            hit = _match_nuisance(prediction, cases)
+            if hit is not None:
+                nuisance_matched.setdefault((hit.pack_id, hit.case_id), []).append(prediction)
             continue
         case = _match(prediction, cases)
         if case is None:
             false_alarms.append(prediction)
+            hit = _match_nuisance(prediction, cases)
+            if hit is not None:
+                faults_on_nuisance.setdefault((hit.pack_id, hit.case_id), []).append(prediction)
         else:
             matched.setdefault((case.pack_id, case.case_id), []).append(prediction)
 
     results = [_score_case(case, matched.get((pack_id, case.case_id), []), components)
-               for pack_id in packs for case in cases_by_pack[pack_id]]
+               for pack_id in packs for case in cases_by_pack[pack_id] if case.is_fault]
     n = len(results)
+    nuisance_results = []
+    for pack_id in packs:
+        for case in cases_by_pack[pack_id]:
+            if case.is_fault:
+                continue
+            hits = nuisance_matched.get((pack_id, case.case_id), [])
+            nuisance_results.append(NuisanceCaseResult(
+                pack_id=pack_id, case_id=case.case_id, turbine_id=case.turbine_id,
+                nuisance_cause=case.nuisance_cause, recognized=bool(hits), nuisance_predictions=len(hits),
+                fault_predictions=len(faults_on_nuisance.get((pack_id, case.case_id), [])),
+                first_recognized_ts=hits[0].ts.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if hits else None,
+            ))
+    hours = [healthy_turbine_hours(gt, cases_by_pack[str(gt["pack_id"])]) for gt in ground_truths]
+    healthy_hours = None if any(h is None for h in hours) else sum(h for h in hours if h is not None)
+    episodes = _episodes(false_alarms)
+    n_nuisance = len(nuisance_results)
+    recognized = sum(r.recognized for r in nuisance_results)
 
     def rate(values: Iterable[bool]) -> float:
         return sum(values) / n if n else 0.0
@@ -401,13 +509,21 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         latency_mean_s=statistics.mean(latencies) if latencies else None,
         misdiagnosis_predictions=sum(r.misdiagnosis_predictions for r in results),
         false_alarm_predictions=len(false_alarms),
-        false_alarm_episodes=_episodes(false_alarms),
+        false_alarm_episodes=episodes,
         false_alarm_turbines=len({(p.pack_id, p.turbine_id) for p in false_alarms}),
         nuisance_predictions=nuisance,
         nuisance_during_fault=nuisance_during_fault,
         ignored_predictions=ignored,
         invalid_predictions=list(invalid),
         case_results=results,
+        nuisance_cases=n_nuisance,
+        nuisance_recognized=recognized,
+        nuisance_recognition_rate=recognized / n_nuisance if n_nuisance else 0.0,
+        nuisance_misread_as_fault=sum(r.fault_predictions > 0 for r in nuisance_results),
+        false_alarms_during_nuisance=sum(r.fault_predictions for r in nuisance_results),
+        healthy_turbine_hours=healthy_hours,
+        false_alarm_rate_per_100h=(episodes / healthy_hours * 100.0) if healthy_hours else None,
+        nuisance_case_results=nuisance_results,
     )
 
 
@@ -448,6 +564,12 @@ def format_report(report: Report) -> str:
     def secs(value: Optional[float]) -> str:
         return "-" if value is None else f"{value:+.0f} s"
 
+    def rate100(value: Optional[float]) -> str:
+        return "-" if value is None else f"{value:.2f} 次 / 100 機組小時"
+
+    def hours(value: Optional[float]) -> str:
+        return "-" if value is None else f"{value:.1f} h"
+
     lines = [
         f"資料包：{', '.join(report.packs)}",
         f"case：{report.cases}　偵測到：{report.detected}（{pct(report.detection_rate).strip()}）",
@@ -464,7 +586,15 @@ def format_report(report: Report) -> str:
         f"  誤診（對到 case 但元件錯）{report.misdiagnosis_predictions} 筆",
         f"  誤報                {report.false_alarm_episodes} 次（{report.false_alarm_predictions} 筆、"
         f"{report.false_alarm_turbines} 台機組）",
-        f"  干擾判定（不評分）  {report.nuisance_predictions} 筆，其中 {report.nuisance_during_fault} 筆在故障期間",
+        f"  誤報率              {rate100(report.false_alarm_rate_per_100h)}"
+        f"（沒有故障的機組時數 {hours(report.healthy_turbine_hours)}）",
+        "",
+        f"干擾 case：{report.nuisance_cases}　認出：{report.nuisance_recognized}"
+        f"（{pct(report.nuisance_recognition_rate).strip()}）",
+        f"  把干擾當故障        {report.nuisance_misread_as_fault} 個 case"
+        f"（{report.false_alarms_during_nuisance} 筆故障診斷，已算進誤報）",
+        f"  干擾判定            {report.nuisance_predictions} 筆，其中 {report.nuisance_during_fault} 筆在故障期間"
+        "（不會撤回故障診斷）",
     ]
     if report.ignored_predictions:
         lines.append(f"  略過（不在答案裡的資料包）{report.ignored_predictions} 筆")
@@ -482,6 +612,14 @@ def format_report(report: Report) -> str:
             f"{'  早期預警' if r.early_warning else ''}"
             f"{f'  誤診 {r.misdiagnosis_predictions} 筆' if r.misdiagnosis_predictions else ''}"
         )
+    if report.nuisance_case_results:
+        lines += ["", "干擾 case 明細（OK 認出、X 沒認出；故障診斷＝把干擾當故障的筆數）："]
+        for nr in report.nuisance_case_results:
+            lines.append(
+                f"  {'OK' if nr.recognized else 'X':<2} {nr.pack_id} {nr.case_id} {nr.turbine_id}  成因 {nr.nuisance_cause}"
+                f"  干擾判定 {nr.nuisance_predictions} 筆"
+                f"{f'  故障診斷 {nr.fault_predictions} 筆' if nr.fault_predictions else ''}"
+            )
     return "\n".join(lines)
 
 

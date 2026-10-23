@@ -246,6 +246,8 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
                        gate="vane_wind_ok"),
         # 塔架加速度（assumed）
         ProtectionRule(236, "vibration", True, spec.tower_vibration_trip_mm_s, 1.0, 10.0),
+        # 偏航逾時（manual Appendix D SDYawTmOutFact / SDYawTmOutOffs；逾時與否在 signals 內算）
+        ProtectionRule(223, "yaw_timeout", True, 0.5, 0.0, 0.0),
     ]
     # 感測器訊號故障（WMOM-20261021-08-a；手冊：I/O 模組偵測到斷線 / 編碼器角度超出範圍）：讀值超出有效範圍
     pt_lo, pt_hi = spec.pt100_valid_range_c
@@ -395,6 +397,9 @@ class PlcProtection:
         self._pt100_f: Dict[str, Optional[float]] = {}
         self._producing_s = 0.0
         self._brake_applied_s = _YAW_BRAKE_SETTLE_S
+        # 這一段對風偏航已持續的秒數與允許的時間（偏航逾時 223；不在偏航時為 None）
+        self._yaw_run_s = 0.0
+        self._yaw_timeout_s: Optional[float] = None
         self.signals: Dict[str, float] = {}
 
     @property
@@ -445,7 +450,8 @@ class PlcProtection:
 
     # ── 判定 ───────────────────────────────────────────────────────────────
 
-    def _update_signals(self, output: Mapping[str, float], dt: float, producing: bool, yawing: bool) -> None:
+    def _update_signals(self, output: Mapping[str, float], dt: float, producing: bool, yawing: bool,
+                        unwinding: bool = False) -> None:
         b1 = output["WROT_PtAngValBl1"]
         b2 = output["WROT_PtAngValBl2"]
         b3 = output["WROT_PtAngValBl3"]
@@ -461,6 +467,18 @@ class PlcProtection:
         self._wind_avg = wind if self._wind_avg is None else self._wind_avg + (wind - self._wind_avg) * a_wind
         self._producing_s = self._producing_s + dt if producing else 0.0
         self._brake_applied_s = 0.0 if yawing else self._brake_applied_s + dt
+        # 偏航逾時：對風（不含解纜）開始時依當下的偏航誤差算允許時間＝factor × 誤差 ÷ 偏航速度 + offset
+        aligning = yawing and not unwinding
+        if aligning:
+            if self._yaw_timeout_s is None:
+                yaw_error = max(abs(v1), 2.0)
+                self._yaw_timeout_s = (self.spec.yaw_timeout_factor * yaw_error / self.spec.yaw_rate_deg_s
+                                       + self.spec.yaw_timeout_offset_s)
+                self._yaw_run_s = 0.0
+            self._yaw_run_s += dt
+        else:
+            self._yaw_timeout_s = None
+            self._yaw_run_s = 0.0
         vane_disc = abs(self._vane1_f - self._vane2_f)
         pt_ok = _in_range_flag(spec.pt100_valid_range_c)
         blade_ok = [_in_range(a, spec.blade_angle_valid_range_deg) for a in (b1, b2, b3)]
@@ -478,6 +496,7 @@ class PlcProtection:
             "seals_leak": output["WYAW_YwBrkSealsLeak"],
             "vane_discrepancy": vane_disc,
             "vane_wind_ok": 1.0 if self._wind_avg > spec.vane_discrepancy_min_wind else 0.0,
+            "yaw_timeout": 1.0 if self._yaw_timeout_s is not None and self._yaw_run_s > self._yaw_timeout_s else 0.0,
             "blade_disc_12": abs(b1 - b2),
             "blade_disc_13": abs(b1 - b3),
             "blade_disc_23": abs(b2 - b3),
@@ -534,7 +553,7 @@ class PlcProtection:
         return st.on
 
     def evaluate(self, output: Mapping[str, float], sim_time: float, dt: float,
-                 producing: bool, yawing: bool = False) -> List[Tuple[int, str]]:
+                 producing: bool, yawing: bool = False, unwinding: bool = False) -> List[Tuple[int, str]]:
         """判定一步，回傳本步新跳機的 ``(code, level)``（呼叫端依等級要求停機）。
 
         Args:
@@ -543,7 +562,8 @@ class PlcProtection:
             sim_time: 機組模擬時間（秒）。
             dt: 時間步長（秒）。
             producing: 機組是否在發電狀態（TurSt 6）。
-            yawing: 是否正在偏航（煞車鬆開）。
+            yawing: 是否正在偏航（煞車鬆開；含解纜）。
+            unwinding: 是否正在解纜（偏航逾時不計）。
 
         Returns:
             新跳機清單。
@@ -552,7 +572,7 @@ class PlcProtection:
         self._last_trip_codes = tuple(pending)
         if not self.enabled:
             return []
-        self._update_signals(output, dt, producing, yawing)
+        self._update_signals(output, dt, producing, yawing, unwinding)
         code_on: Dict[int, bool] = {}
         firing: Dict[int, ProtectionRule] = {}
         for idx, rule in enumerate(self.rules):

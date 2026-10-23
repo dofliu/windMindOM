@@ -26,10 +26,11 @@ for _p in (PROJECT_ROOT, PROJECT_ROOT / "modules" / "monitoring", PROJECT_ROOT /
 
 from server import scenario_pack as sp  # noqa: E402
 from simulator.ground_truth import CONTRACT_VERSION  # noqa: E402
+from simulator.farm_events import FARM_EVENT_KINDS  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 
 KIT = PROJECT_ROOT / "examples" / "rag_starter_kit"
-PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04"]
+PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04", "z72-starter-05"]
 
 
 def _load(name: str) -> ModuleType:
@@ -86,8 +87,9 @@ def test_committed_pack_is_complete_blind_and_current(pack_id: str) -> None:
     events = [json.loads(line) for line in (pack_dir / sp.FILE_EVENTS).read_text(encoding="utf-8").splitlines()]
     assert events and all(list(e) == list(sp.EVENT_KEYS) for e in events)
     answers = json.loads((KIT / "answers" / f"{pack_id}.ground_truth.json").read_text(encoding="utf-8"))
-    secrets_ = set(FAULT_SCENARIOS) | {answers["scenario_name"]} | {
-        c[k] for c in answers["cases"] for k in ("fault_name_en", "fault_name_zh", "component", "root_cause")}
+    secrets_ = set(FAULT_SCENARIOS) | set(FARM_EVENT_KINDS) | {answers["scenario_name"]} | {
+        c[k] for c in answers["cases"] for k in ("fault_name_en", "fault_name_zh", "component", "root_cause")
+        if c[k] is not None} | {"nuisance", "farm_event"}
     for name in (sp.FILE_MANIFEST, sp.FILE_EVENTS, sp.FILE_TAGS):
         text = (pack_dir / name).read_text(encoding="utf-8")
         assert not [x for x in secrets_ if x in text], f"{name} 透露了答案"
@@ -99,8 +101,9 @@ def test_answers_match_their_pack(pack_id: str) -> None:
     manifest = json.loads((KIT / "packs" / pack_id / sp.FILE_MANIFEST).read_text(encoding="utf-8"))
     assert answers["pack_id"] == pack_id and answers["contract_version"] == CONTRACT_VERSION
     assert answers["turbines"] == manifest["turbines"]
-    assert answers["cases"] and all(c["component"] in COMPONENTS for c in answers["cases"])
-    assert all(c["first_alarm_ts"] for c in answers["cases"]), "範例的每個故障都要在情境內出警報"
+    assert answers["cases"] and all(c["component"] in COMPONENTS for c in answers["cases"] if c["component"])
+    assert all(c["component"] for c in answers["cases"] if c["category"] != "nuisance")
+    assert all(c["first_alarm_ts"] for c in answers["cases"]), "範例的每個故障 / 干擾都要在情境內出警報"
 
 
 def test_build_tool_lists_exactly_the_committed_packs() -> None:
@@ -304,6 +307,69 @@ def test_false_alarm_episodes_do_not_depend_on_output_rate() -> None:
     assert (report.false_alarm_predictions, report.false_alarm_episodes, report.false_alarm_turbines) == (14, 3, 1)
 
 
+def _nuisance(case_id: str, turbine: str, onset: str, window_end: Optional[str], cause: str = "grid_disturbance",
+              component: Optional[str] = None) -> Dict[str, object]:
+    return _case(case_id, turbine, component, onset, onset, category="nuisance",  # type: ignore[arg-type]
+                 codes=[482, 21], nuisance_cause=cause, window_end_ts=window_end)
+
+
+def test_nuisance_cases_are_scored_apart_from_faults() -> None:
+    """v1.5：干擾 case 不進故障指標；nuisance 預測對到＝認出；時間窗內的故障診斷是誤報、另計把干擾當故障。"""
+    gt = _gt([
+        _case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T01:20:00Z"),
+        _nuisance("C002", "WT002", "2026-01-01T02:00:00Z", "2026-01-01T02:30:00Z"),
+        _nuisance("C003", "WT003", "2026-01-01T03:00:00Z", "2026-01-01T03:30:00Z", cause="environment"),
+    ])
+    gt["turbines"] = ["WT001", "WT002", "WT003"]
+    report = _score([gt], [
+        _pred("WT001", "2026-01-01T01:30:00Z", "main_bearing", refs=[262]),
+        _pred("WT002", "2026-01-01T02:00:00Z", "grid_connection"),               # 把干擾當故障
+        _pred("WT002", "2026-01-01T02:00:05Z", None, category="nuisance"),       # 認出
+        _pred("WT003", "2026-01-01T03:40:00Z", None, category="nuisance"),       # 時間窗已過
+    ])
+    assert (report.cases, report.detected, report.component_accuracy) == (1, 1, 1.0)
+    assert (report.nuisance_cases, report.nuisance_recognized, report.nuisance_recognition_rate) == (2, 1, 0.5)
+    assert (report.nuisance_misread_as_fault, report.false_alarms_during_nuisance) == (1, 1)
+    assert (report.false_alarm_predictions, report.false_alarm_episodes) == (1, 1)
+    assert (report.nuisance_predictions, report.nuisance_during_fault) == (2, 0)
+    results = {r.case_id: r for r in report.nuisance_case_results}
+    assert results["C002"].recognized and results["C002"].first_recognized_ts == "2026-01-01T02:00:05.000000Z"
+    assert (results["C002"].nuisance_predictions, results["C002"].fault_predictions) == (1, 1)
+    assert not results["C003"].recognized and results["C003"].nuisance_cause == "environment"
+    # 沒有故障的機組時數：3 台 × 情境長度，扣掉 WT001 故障開始後的 5 h
+    hours = 3 * (6.0 - 10 / 3600) - 5.0
+    assert report.healthy_turbine_hours == pytest.approx(hours)
+    assert report.false_alarm_rate_per_100h == pytest.approx(100.0 / hours)
+    text = score.format_report(report)
+    assert "誤報率" in text and "干擾 case：2" in text and "OK p1 C002 WT002" in text
+
+
+def test_nuisance_prediction_keeps_an_earlier_fault_diagnosis() -> None:
+    """故障機組上同時有干擾：干擾判定認出干擾 case，但不撤回之前的故障診斷。"""
+    gt = _gt([
+        _case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T01:20:00Z"),
+        _nuisance("C002", "WT001", "2026-01-01T02:00:00Z", "2026-01-01T02:30:00Z"),
+    ])
+    report = _score([gt], [
+        _pred("WT001", "2026-01-01T01:30:00Z", "main_bearing"),
+        _pred("WT001", "2026-01-01T02:00:10Z", None, category="nuisance"),
+    ])
+    assert report.case_results[0].component_correct and report.nuisance_recognized == 1
+    assert report.nuisance_during_fault == 1 and report.false_alarm_predictions == 0
+
+
+def test_healthy_hours_count_overlapping_fault_windows_once() -> None:
+    gt = _gt([
+        _case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None),
+        _case("C002", "WT001", "transformer", "2026-01-01T03:00:00Z", None),
+        _nuisance("C003", "WT002", "2026-01-01T02:00:00Z", None),
+    ])
+    gt["turbines"] = ["WT001", "WT002"]
+    cases = score.read_cases(gt)
+    assert score.healthy_turbine_hours(gt, cases) == pytest.approx((1.0 - 10 / 3600) + (6.0 - 10 / 3600))
+    assert score.healthy_turbine_hours({**gt, "sim_end": None}, cases) is None
+
+
 def test_hostile_lines_are_reported_not_fatal() -> None:
     report = _score([_gt([])], [
         '{"pack_id": "p1", "turbine_id": "WT001", "ts": "0001-01-01T00:00:00+05:00", "category": "nuisance"}',
@@ -373,8 +439,16 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     # 讀值像真故障的感測器故障（風向標漂移、軸承溫度量測回路）判錯類別；有專屬碼的（229）判對
     wrong = {(r.pack_id, r.turbine_id) for r in report.case_results if not r.category_correct}
     assert wrong == {("z72-starter-03", "WT003"), ("z72-starter-04", "WT003")}
-    assert (report.manual_hit_at_1, report.early_warnings, report.false_alarm_predictions) == (1.0, 0, 0)
+    assert (report.manual_hit_at_1, report.early_warnings) == (1.0, 0)
     assert report.latency_median_s == 0.0
+    # 健康負樣本（z72-starter-05）：全場一起跳的電網事件，第一台當故障、之後的判干擾；Pt100 接點鬆動當故障；
+    # 偏航逾時的警報文字猜不到元件，第一台不出判斷（v1.5）
+    assert (report.nuisance_cases, report.nuisance_recognized, report.nuisance_misread_as_fault) == (12, 8, 3)
+    assert (report.false_alarm_predictions, report.false_alarm_episodes, report.false_alarms_during_nuisance) == (4, 4, 4)
+    missed = {(r.turbine_id, r.nuisance_cause) for r in report.nuisance_case_results if not r.recognized}
+    assert missed == {("WT001", "grid_disturbance"), ("WT003", "loose_contact"), ("WT002", "wind_direction_change")}
+    assert report.healthy_turbine_hours == pytest.approx(73.28, abs=0.01)  # 情境窗＝第一到最後一筆讀值
+    assert report.false_alarm_rate_per_100h == pytest.approx(4 / report.healthy_turbine_hours * 100)
 
 
 def test_baseline_only_uses_events_up_to_each_prediction() -> None:
@@ -392,6 +466,18 @@ def test_baseline_only_uses_events_up_to_each_prediction() -> None:
     assert [(p["ts"], p["manual_refs"]) for p in out[:2]] == [("2026-01-01T01:00:00Z", [262]),
                                                               ("2026-01-01T01:05:00Z", [240, 262])]
     assert len(out) == 3 and out[2]["category"] == "nuisance", "同一機組再出現的碼不重複輸出"
+
+
+def test_baseline_calls_a_farm_wide_trip_a_nuisance_after_the_first_turbine() -> None:
+    def trip(ts: str, turbine: str) -> Dict[str, object]:
+        return {"ts": ts, "turbine_id": turbine, "event_type": "trip", "alarm_code": 482,
+                "alarm_text": "Undervoltage ARU phase R-S very low"}
+
+    out = baseline.diagnose("p1", [trip("2026-01-01T01:00:00Z", "WT001"), trip("2026-01-01T01:00:30Z", "WT002"),
+                                   trip("2026-01-01T03:00:00Z", "WT003")])
+    assert [(p["turbine_id"], p["category"]) for p in out] == [
+        ("WT001", "real_fault"), ("WT002", "nuisance"), ("WT003", "real_fault"),   # 相隔超過 60 s 不算同一事件
+    ]
 
 
 # ── 5. 讀取工具與產生工具 ─────────────────────────────────────────────────────

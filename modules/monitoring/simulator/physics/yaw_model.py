@@ -86,6 +86,8 @@ class YawModel:
             "brake_pressure": self._brake_pressure + self._rng.normal(0, 0.5),
             "cable_windup": self.cable_windup,
             "is_yawing": 1.0 if yawing else 0.0,
+            # 解纜也是偏航（煞車鬆開），但不是「對風」：PLC 的偏航逾時（223）不計解纜（WMOM-20261021-08-b）
+            "is_unwinding": 1.0 if self._is_unwinding else 0.0,
         }
 
     @staticmethod

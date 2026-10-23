@@ -9,6 +9,8 @@
 - 葉片差異三段延時、風向標 25 s 濾波 + 60 s 平均風速條件 + 60 s 延時、只在發電時判定的靜水壓
 - 偏航煞車液壓（Appendix D）：170 / 150 bar、延時 30 s、> 190 bar 才解除
 - 物理層保護停機（超速 / LVRT / 電網 / 切出）補碼，跳機次數與訊號跳機同一套每碼計數
+- 偏航逾時 223（Appendix D SDYawTmOutFact / Offs）：對風超過 factor × 誤差 ÷ 偏航速度 + offset；解纜不算
+  （WMOM-20261021-08-b）
 """
 
 from __future__ import annotations
@@ -54,14 +56,14 @@ class Driver:
         self.events: List[PlcEvent] = []
 
     def run(self, seconds: float, producing: bool = True, dt: float = 1.0, yawing: bool = False,
-            **signals: float) -> List[tuple]:
+            unwinding: bool = False, **signals: float) -> List[tuple]:
         out = dict(HEALTHY)
         out.update(signals)
         trips: List[tuple] = []
         steps = int(round(seconds / dt))
         for _ in range(steps):
             self.t += dt
-            trips += self.plc.evaluate(out, self.t, dt, producing, yawing)
+            trips += self.plc.evaluate(out, self.t, dt, producing, yawing, unwinding)
             self.events += self.plc.drain_events()
         return trips
 
@@ -350,12 +352,46 @@ def test_static_water_pressure_only_judged_while_producing() -> None:
 
 def test_yaw_brake_pressure_judged_only_after_brakes_applied_90s() -> None:
     d = Driver()
-    assert d.run(30, yawing=True, WYAW_YwBrkHyPrs=20.0) == []      # 偏航中煞車鬆開
+    # 偏航中煞車鬆開（從 20° 誤差開始對風：偏航逾時要 200 s，這裡不會到）
+    assert d.run(30, yawing=True, WYAW_YwBrkHyPrs=20.0, WYAW_YwVn1AlgnAvg5s=20.0, WYAW_YwVn2AlgnAvg5s=20.0) == []
     assert d.run(80, WYAW_YwBrkHyPrs=120.0) == []                   # 煞車回壓中
     assert d.run(39, WYAW_YwBrkHyPrs=120.0) == []                   # 施加滿 90 s 後判定，再延時 30 s
     trips = d.run(1, WYAW_YwBrkHyPrs=120.0)
     assert (228, "T1") in trips
     assert d.kinds(260) == ["alarm_raised"]
+
+
+def _yaw_timeout_s(error_deg: float) -> float:
+    return SPEC.yaw_timeout_factor * error_deg / SPEC.yaw_rate_deg_s + SPEC.yaw_timeout_offset_s
+
+
+def test_yaw_timeout_trips_when_aligning_takes_longer_than_allowed() -> None:
+    """從 20° 誤差開始對風，允許 5 × 20 / 0.5 = 200 s；誤差在對風途中不變（追不上）就逾時跳機 223。"""
+    d = Driver()
+    vanes = {"WYAW_YwVn1AlgnAvg5s": 20.0, "WYAW_YwVn2AlgnAvg5s": 20.0}
+    assert _yaw_timeout_s(20.0) == 200.0
+    assert d.run(200, yawing=True, **vanes) == []
+    assert d.run(1, yawing=True, **vanes) == [(223, "T1")]
+    assert d.kinds(223) == ["trip"]
+
+
+def test_yaw_timeout_allowance_is_fixed_at_the_start_of_each_yaw_run() -> None:
+    """允許時間在這一段對風開始時決定；偏航停下就重算，下一段重新計時。"""
+    d = Driver()
+    big = {"WYAW_YwVn1AlgnAvg5s": 30.0, "WYAW_YwVn2AlgnAvg5s": 30.0}
+    small = {"WYAW_YwVn1AlgnAvg5s": 1.0, "WYAW_YwVn2AlgnAvg5s": 1.0}
+    assert d.run(250, yawing=True, **big) == []               # 300 s 的額度
+    assert d.run(40, yawing=True, **small) == []              # 誤差變小不縮短這一段的額度
+    d.run(5)                                                  # 停下
+    assert d.run(20, yawing=True, **small) == []              # 新的一段：誤差下限 2° → 20 s
+    assert d.run(1, yawing=True, **small) == [(223, "T1")]
+
+
+def test_unwinding_never_times_out() -> None:
+    """解纜（纜線扭轉到上限時的長時間偏航）不算對風，不判偏航逾時。"""
+    d = Driver()
+    assert d.run(1200, yawing=True, unwinding=True) == []
+    assert d.kinds(223) == []
 
 
 def test_protection_stops_are_coded_but_do_not_inhibit_restart() -> None:

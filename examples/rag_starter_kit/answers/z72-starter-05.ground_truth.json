@@ -1,0 +1,1111 @@
+{
+ "contract_version": "1.5",
+ "kind": "scenario_ground_truth",
+ "scenario_id": 2,
+ "scenario_name": "健康負樣本：沒有故障——電網電壓驟降、電網頻率越界、風向快速變化（偏航逾時）、一台主軸承 Pt100 接點鬆動",
+ "turbine_model": "Z72",
+ "site_timezone": "Asia/Taipei",
+ "sim_start": "2026-07-20T03:00:10.000000Z",
+ "sim_end": "2026-07-20T09:00:00.000000Z",
+ "generated_at": "2026-10-23T10:23:41.137012Z",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004"
+ ],
+ "healthy_turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004"
+ ],
+ "cases": [
+  {
+   "case_id": "C001",
+   "turbine_id": "WT003",
+   "category": "nuisance",
+   "nuisance_cause": "loose_contact",
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "main_bearing_temp_loose_contact",
+   "fault_name_en": "Main Bearing 1 Pt100 Loose Contact (Nuisance)",
+   "fault_name_zh": "主軸承溫度 1 Pt100 接觸不良（nuisance）",
+   "component": "main_bearing",
+   "root_cause": "主軸承溫度 1 的 Pt100 接點鬆動（nuisance 跳機）：每隔一陣子斷開幾秒，PLC 每次都送軸承溫度 1 故障（242）跳機，接回後讀值正常、機組自動重啟；軸承本身與其他訊號都正常。一小時內超過自動重啟上限時會送 A039、要操作員復位。手冊 §11.3 把 Pt100 鬆線列為已知無害、可設定自動重啟的 nuisance 跳機。",
+   "root_cause_en": "A loose contact on the main bearing temperature 1 Pt100 (nuisance trip): every so often it opens for a few seconds, the PLC trips with bearing 1 temperature fault (242) each time, and once it closes again the reading is normal and the turbine restarts; the bearing and all other signals are fine. Exceeding the auto-restart limit within an hour raises A039 and needs an operator reset. The manual (§11.3) lists a loose Pt100 wire as a known harmless nuisance trip that can be given an auto-restart setting.",
+   "expected_alarm_codes": [
+    242
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 242,
+     "level": "T1",
+     "text": "Bearing 1 temperature fault"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 242,
+     "event_id": "T_242",
+     "level": "T1",
+     "text": "Bearing 1 temperature fault",
+     "page": 110,
+     "cause": "The I/O module has sensed a broken wire",
+     "rectification": "Check wiring to the Pt100 sensor",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查軸承溫度 1 的 Pt100 配線與端子是否鬆動（手冊）",
+    "看 242 的模式：短暫跳機後讀值立刻正常、反覆出現，且軸承溫度 2 與振動正常，是接觸不良而不是軸承或感測器壞掉",
+    "鎖緊接點；修好前可依手冊把這個跳機的自動重啟次數設高（手冊 §11.3），修好後改回 0"
+   ],
+   "expected_actions_en": [
+    "Check the bearing temperature 1 Pt100 wiring and terminals for a loose connection (manual).",
+    "Look at the 242 pattern: brief trips with a normal reading right after, recurring, while bearing temperature 2 and vibration are normal, point to a loose contact rather than a failed bearing or sensor.",
+    "Tighten the connection; until it is fixed, the auto-restart setting for this trip can be raised as the manual describes (§11.3) and set back to 0 afterwards."
+   ],
+   "key_signals": [
+    "WGEN_GnBrgTmp1"
+   ],
+   "simulation_notes": [
+    "注入後 5–20 分鐘第一次瞬斷，之後每 15–45 分鐘一次、每次 10–30 秒；瞬斷時讀值同斷線（850 °C），與嚴重度無關。"
+   ],
+   "simulation_notes_en": [
+    "The first glitch comes 5–20 min after injection, then every 15–45 min for 10–30 s each; during a glitch the reading is the broken-wire value (850 °C), independent of severity."
+   ],
+   "onset_ts": "2026-07-20T03:30:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-07-20T03:49:55.000000Z",
+   "first_alarm_code": 242,
+   "trip_ts": "2026-07-20T03:49:55.000000Z",
+   "trip_code": 242,
+   "observed_alarm_codes": [
+    242
+   ],
+   "other_observed_codes": [
+    482,
+    21,
+    39,
+    489
+   ],
+   "injection": {
+    "offset_seconds": 1800.0,
+    "severity_rate": 0.001,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 1.0,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C002",
+   "turbine_id": "WT001",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_voltage_dip",
+   "fault_name_en": "Grid voltage dip",
+   "fault_name_zh": "電網電壓驟降",
+   "component": null,
+   "root_cause": "電網側電壓驟降（外部電網事件，不是機組故障）：全場機組幾乎同時以電網保護 / 欠壓停機，電壓恢復後自動重啟。",
+   "root_cause_en": "A grid-side voltage dip (external grid event, not a turbine fault): the turbines trip on grid protection / undervoltage almost simultaneously and restart automatically once the voltage is back.",
+   "expected_alarm_codes": [
+    482,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 482,
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 482,
+     "event_id": "T_482",
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：同一時刻多台跳同樣的電網碼，是電網事件而不是機組故障",
+    "向電網調度 / 變電站確認事件紀錄，確認電壓已恢復",
+    "機組自動重啟即可；一小時內多次封鎖重啟（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on the same grid event at the same moment points to the grid, not a turbine fault.",
+    "Confirm the event with the grid operator / substation log and that the voltage has recovered.",
+    "Let the turbines restart automatically; if auto restart is blocked (A039) after repeated trips, reset by an operator (manual)."
+   ],
+   "key_signals": [
+    "WCNV_VtgMsCnvGd1",
+    "WCNV_VtgMsCnvGd2",
+    "WCNV_VtgMsCnvGd3"
+   ],
+   "simulation_notes": [
+    "風場電網模型在事件期間把電壓固定在設定值（加量測雜訊）；各機組依個體差的保護裕度決定停不停。"
+   ],
+   "simulation_notes_en": [
+    "The farm grid model holds the voltage at the set value (plus measurement noise) during the event; each turbine trips or rides through according to its individual protection margin."
+   ],
+   "onset_ts": "2026-07-20T04:00:00.000000Z",
+   "window_end_ts": "2026-07-20T04:30:20.000000Z",
+   "first_alarm_ts": "2026-07-20T04:00:05.000000Z",
+   "first_alarm_code": 482,
+   "trip_ts": "2026-07-20T04:00:05.000000Z",
+   "trip_code": 482,
+   "observed_alarm_codes": [
+    482,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E01",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C003",
+   "turbine_id": "WT002",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_voltage_dip",
+   "fault_name_en": "Grid voltage dip",
+   "fault_name_zh": "電網電壓驟降",
+   "component": null,
+   "root_cause": "電網側電壓驟降（外部電網事件，不是機組故障）：全場機組幾乎同時以電網保護 / 欠壓停機，電壓恢復後自動重啟。",
+   "root_cause_en": "A grid-side voltage dip (external grid event, not a turbine fault): the turbines trip on grid protection / undervoltage almost simultaneously and restart automatically once the voltage is back.",
+   "expected_alarm_codes": [
+    482,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 482,
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 482,
+     "event_id": "T_482",
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：同一時刻多台跳同樣的電網碼，是電網事件而不是機組故障",
+    "向電網調度 / 變電站確認事件紀錄，確認電壓已恢復",
+    "機組自動重啟即可；一小時內多次封鎖重啟（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on the same grid event at the same moment points to the grid, not a turbine fault.",
+    "Confirm the event with the grid operator / substation log and that the voltage has recovered.",
+    "Let the turbines restart automatically; if auto restart is blocked (A039) after repeated trips, reset by an operator (manual)."
+   ],
+   "key_signals": [
+    "WCNV_VtgMsCnvGd1",
+    "WCNV_VtgMsCnvGd2",
+    "WCNV_VtgMsCnvGd3"
+   ],
+   "simulation_notes": [
+    "風場電網模型在事件期間把電壓固定在設定值（加量測雜訊）；各機組依個體差的保護裕度決定停不停。"
+   ],
+   "simulation_notes_en": [
+    "The farm grid model holds the voltage at the set value (plus measurement noise) during the event; each turbine trips or rides through according to its individual protection margin."
+   ],
+   "onset_ts": "2026-07-20T04:00:00.000000Z",
+   "window_end_ts": "2026-07-20T04:30:20.000000Z",
+   "first_alarm_ts": "2026-07-20T04:00:05.000000Z",
+   "first_alarm_code": 482,
+   "trip_ts": "2026-07-20T04:00:05.000000Z",
+   "trip_code": 482,
+   "observed_alarm_codes": [
+    482,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E01",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C004",
+   "turbine_id": "WT003",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_voltage_dip",
+   "fault_name_en": "Grid voltage dip",
+   "fault_name_zh": "電網電壓驟降",
+   "component": null,
+   "root_cause": "電網側電壓驟降（外部電網事件，不是機組故障）：全場機組幾乎同時以電網保護 / 欠壓停機，電壓恢復後自動重啟。",
+   "root_cause_en": "A grid-side voltage dip (external grid event, not a turbine fault): the turbines trip on grid protection / undervoltage almost simultaneously and restart automatically once the voltage is back.",
+   "expected_alarm_codes": [
+    482,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 482,
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 482,
+     "event_id": "T_482",
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：同一時刻多台跳同樣的電網碼，是電網事件而不是機組故障",
+    "向電網調度 / 變電站確認事件紀錄，確認電壓已恢復",
+    "機組自動重啟即可；一小時內多次封鎖重啟（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on the same grid event at the same moment points to the grid, not a turbine fault.",
+    "Confirm the event with the grid operator / substation log and that the voltage has recovered.",
+    "Let the turbines restart automatically; if auto restart is blocked (A039) after repeated trips, reset by an operator (manual)."
+   ],
+   "key_signals": [
+    "WCNV_VtgMsCnvGd1",
+    "WCNV_VtgMsCnvGd2",
+    "WCNV_VtgMsCnvGd3"
+   ],
+   "simulation_notes": [
+    "風場電網模型在事件期間把電壓固定在設定值（加量測雜訊）；各機組依個體差的保護裕度決定停不停。"
+   ],
+   "simulation_notes_en": [
+    "The farm grid model holds the voltage at the set value (plus measurement noise) during the event; each turbine trips or rides through according to its individual protection margin."
+   ],
+   "onset_ts": "2026-07-20T04:00:00.000000Z",
+   "window_end_ts": "2026-07-20T04:30:20.000000Z",
+   "first_alarm_ts": "2026-07-20T04:00:05.000000Z",
+   "first_alarm_code": 482,
+   "trip_ts": "2026-07-20T04:00:05.000000Z",
+   "trip_code": 482,
+   "observed_alarm_codes": [
+    482,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E01",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C005",
+   "turbine_id": "WT004",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_voltage_dip",
+   "fault_name_en": "Grid voltage dip",
+   "fault_name_zh": "電網電壓驟降",
+   "component": null,
+   "root_cause": "電網側電壓驟降（外部電網事件，不是機組故障）：全場機組幾乎同時以電網保護 / 欠壓停機，電壓恢復後自動重啟。",
+   "root_cause_en": "A grid-side voltage dip (external grid event, not a turbine fault): the turbines trip on grid protection / undervoltage almost simultaneously and restart automatically once the voltage is back.",
+   "expected_alarm_codes": [
+    482,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 482,
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 482,
+     "event_id": "T_482",
+     "level": "T1",
+     "text": "Undervoltage ARU phase R-S very low",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：同一時刻多台跳同樣的電網碼，是電網事件而不是機組故障",
+    "向電網調度 / 變電站確認事件紀錄，確認電壓已恢復",
+    "機組自動重啟即可；一小時內多次封鎖重啟（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on the same grid event at the same moment points to the grid, not a turbine fault.",
+    "Confirm the event with the grid operator / substation log and that the voltage has recovered.",
+    "Let the turbines restart automatically; if auto restart is blocked (A039) after repeated trips, reset by an operator (manual)."
+   ],
+   "key_signals": [
+    "WCNV_VtgMsCnvGd1",
+    "WCNV_VtgMsCnvGd2",
+    "WCNV_VtgMsCnvGd3"
+   ],
+   "simulation_notes": [
+    "風場電網模型在事件期間把電壓固定在設定值（加量測雜訊）；各機組依個體差的保護裕度決定停不停。"
+   ],
+   "simulation_notes_en": [
+    "The farm grid model holds the voltage at the set value (plus measurement noise) during the event; each turbine trips or rides through according to its individual protection margin."
+   ],
+   "onset_ts": "2026-07-20T04:00:00.000000Z",
+   "window_end_ts": "2026-07-20T04:30:20.000000Z",
+   "first_alarm_ts": "2026-07-20T04:00:05.000000Z",
+   "first_alarm_code": 482,
+   "trip_ts": "2026-07-20T04:00:05.000000Z",
+   "trip_code": 482,
+   "observed_alarm_codes": [
+    482,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E01",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C006",
+   "turbine_id": "WT001",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_frequency_excursion",
+   "fault_name_en": "Grid frequency excursion",
+   "fault_name_zh": "電網頻率越界",
+   "component": null,
+   "root_cause": "電網頻率越界（外部電網事件，不是機組故障）：全場機組以頻率越界停機，頻率恢復後自動重啟。",
+   "root_cause_en": "A grid frequency excursion (external grid event, not a turbine fault): the turbines trip on frequency out of bounds and restart automatically once the frequency is back.",
+   "expected_alarm_codes": [
+    489,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 489,
+     "level": "T1",
+     "text": "Grid frequency out of bound"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 489,
+     "event_id": "T_489",
+     "level": "T1",
+     "text": "Grid frequency out of bound",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：多台同時跳頻率越界，是電網事件",
+    "向電網調度確認頻率事件，確認已恢復",
+    "機組自動重啟即可；重啟被封鎖（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on frequency out of bounds at once is a grid event.",
+    "Confirm the frequency event with the grid operator and that it has recovered.",
+    "Let the turbines restart automatically; reset by an operator if auto restart is blocked (A039) (manual)."
+   ],
+   "key_signals": [
+    "WCNV_CnvGnFrq"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-07-20T05:30:00.000000Z",
+   "window_end_ts": "2026-07-20T06:00:40.000000Z",
+   "first_alarm_ts": "2026-07-20T05:30:10.000000Z",
+   "first_alarm_code": 489,
+   "trip_ts": "2026-07-20T05:30:10.000000Z",
+   "trip_code": 489,
+   "observed_alarm_codes": [
+    489,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E02",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C007",
+   "turbine_id": "WT002",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_frequency_excursion",
+   "fault_name_en": "Grid frequency excursion",
+   "fault_name_zh": "電網頻率越界",
+   "component": null,
+   "root_cause": "電網頻率越界（外部電網事件，不是機組故障）：全場機組以頻率越界停機，頻率恢復後自動重啟。",
+   "root_cause_en": "A grid frequency excursion (external grid event, not a turbine fault): the turbines trip on frequency out of bounds and restart automatically once the frequency is back.",
+   "expected_alarm_codes": [
+    489,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 489,
+     "level": "T1",
+     "text": "Grid frequency out of bound"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 489,
+     "event_id": "T_489",
+     "level": "T1",
+     "text": "Grid frequency out of bound",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：多台同時跳頻率越界，是電網事件",
+    "向電網調度確認頻率事件，確認已恢復",
+    "機組自動重啟即可；重啟被封鎖（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on frequency out of bounds at once is a grid event.",
+    "Confirm the frequency event with the grid operator and that it has recovered.",
+    "Let the turbines restart automatically; reset by an operator if auto restart is blocked (A039) (manual)."
+   ],
+   "key_signals": [
+    "WCNV_CnvGnFrq"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-07-20T05:30:00.000000Z",
+   "window_end_ts": "2026-07-20T06:00:40.000000Z",
+   "first_alarm_ts": "2026-07-20T05:30:10.000000Z",
+   "first_alarm_code": 489,
+   "trip_ts": "2026-07-20T05:30:10.000000Z",
+   "trip_code": 489,
+   "observed_alarm_codes": [
+    489,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E02",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C008",
+   "turbine_id": "WT003",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_frequency_excursion",
+   "fault_name_en": "Grid frequency excursion",
+   "fault_name_zh": "電網頻率越界",
+   "component": null,
+   "root_cause": "電網頻率越界（外部電網事件，不是機組故障）：全場機組以頻率越界停機，頻率恢復後自動重啟。",
+   "root_cause_en": "A grid frequency excursion (external grid event, not a turbine fault): the turbines trip on frequency out of bounds and restart automatically once the frequency is back.",
+   "expected_alarm_codes": [
+    489,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 489,
+     "level": "T1",
+     "text": "Grid frequency out of bound"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 489,
+     "event_id": "T_489",
+     "level": "T1",
+     "text": "Grid frequency out of bound",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：多台同時跳頻率越界，是電網事件",
+    "向電網調度確認頻率事件，確認已恢復",
+    "機組自動重啟即可；重啟被封鎖（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on frequency out of bounds at once is a grid event.",
+    "Confirm the frequency event with the grid operator and that it has recovered.",
+    "Let the turbines restart automatically; reset by an operator if auto restart is blocked (A039) (manual)."
+   ],
+   "key_signals": [
+    "WCNV_CnvGnFrq"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-07-20T05:30:00.000000Z",
+   "window_end_ts": "2026-07-20T06:00:40.000000Z",
+   "first_alarm_ts": "2026-07-20T05:30:10.000000Z",
+   "first_alarm_code": 489,
+   "trip_ts": "2026-07-20T05:30:10.000000Z",
+   "trip_code": 489,
+   "observed_alarm_codes": [
+    489,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E02",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C009",
+   "turbine_id": "WT004",
+   "category": "nuisance",
+   "nuisance_cause": "grid_disturbance",
+   "origin": "external_grid",
+   "difficulty": "easy",
+   "fault_id": "grid_frequency_excursion",
+   "fault_name_en": "Grid frequency excursion",
+   "fault_name_zh": "電網頻率越界",
+   "component": null,
+   "root_cause": "電網頻率越界（外部電網事件，不是機組故障）：全場機組以頻率越界停機，頻率恢復後自動重啟。",
+   "root_cause_en": "A grid frequency excursion (external grid event, not a turbine fault): the turbines trip on frequency out of bounds and restart automatically once the frequency is back.",
+   "expected_alarm_codes": [
+    489,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 489,
+     "level": "T1",
+     "text": "Grid frequency out of bound"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 489,
+     "event_id": "T_489",
+     "level": "T1",
+     "text": "Grid frequency out of bound",
+     "page": 126,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "比對全場機組：多台同時跳頻率越界，是電網事件",
+    "向電網調度確認頻率事件，確認已恢復",
+    "機組自動重啟即可；重啟被封鎖（A039）時由操作員復位（手冊）"
+   ],
+   "expected_actions_en": [
+    "Compare across the farm: several turbines tripping on frequency out of bounds at once is a grid event.",
+    "Confirm the frequency event with the grid operator and that it has recovered.",
+    "Let the turbines restart automatically; reset by an operator if auto restart is blocked (A039) (manual)."
+   ],
+   "key_signals": [
+    "WCNV_CnvGnFrq"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-07-20T05:30:00.000000Z",
+   "window_end_ts": "2026-07-20T06:00:40.000000Z",
+   "first_alarm_ts": "2026-07-20T05:30:10.000000Z",
+   "first_alarm_code": 489,
+   "trip_ts": "2026-07-20T05:30:10.000000Z",
+   "trip_code": 489,
+   "observed_alarm_codes": [
+    489,
+    21
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E02",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C010",
+   "turbine_id": "WT001",
+   "category": "nuisance",
+   "nuisance_cause": "wind_direction_change",
+   "origin": "environmental",
+   "difficulty": "medium",
+   "fault_id": "rapid_wind_direction_change",
+   "fault_name_en": "Rapid wind direction change",
+   "fault_name_zh": "風向快速變化",
+   "component": null,
+   "root_cause": "風向在短時間內大幅來回變化（環境因素，不是偏航系統故障）：偏航追不上而逾時跳機（223），風向穩定後自動重啟；手冊 §11.3 列為已知無害的 nuisance 跳機。",
+   "root_cause_en": "The wind direction swings strongly within a short time (environmental, not a yaw system fault): the yaw cannot keep up and times out (223), restarting automatically once the direction settles; the manual (§11.3) lists this as a known harmless nuisance trip.",
+   "expected_alarm_codes": [
+    223
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 223,
+     "level": "T1",
+     "text": "Yaw timeout"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 223,
+     "event_id": "T_223",
+     "level": "T1",
+     "text": "Yaw timeout",
+     "page": 108,
+     "cause": "Yawing the turbine into the wind took too long",
+     "rectification": "Is there a problem with (one of) the yaw motors ? Alternatively, it is possible that the wind direction changed too much while yawing had started",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "比對風向趨勢與同風場其他機組：多台在風向劇烈變化時偏航逾時，是環境造成",
+    "確認偏航馬達、煞車與齒輪沒有異常（逾時只在風向劇變時出現）",
+    "此場址常見時，可依手冊把偏航逾時的自動重啟次數設高（手冊 §11.3），問題排除後再改回"
+   ],
+   "expected_actions_en": [
+    "Compare the wind direction trend and the other turbines: several yaw time-outs while the direction swings point to the environment.",
+    "Confirm the yaw motors, brakes and gears are fine (the time-outs only happen during the swings).",
+    "Where this is common at the site, raise the auto-restart setting for the yaw time-out as the manual describes (§11.3), and set it back afterwards."
+   ],
+   "key_signals": [
+    "WMET_WDirAbs",
+    "WYAW_YwVn1AlgnAvg5s"
+   ],
+   "simulation_notes": [
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+   ],
+   "simulation_notes_en": [
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+   ],
+   "onset_ts": "2026-07-20T07:00:00.000000Z",
+   "window_end_ts": "2026-07-20T07:55:00.000000Z",
+   "first_alarm_ts": "2026-07-20T07:06:05.000000Z",
+   "first_alarm_code": 223,
+   "trip_ts": "2026-07-20T07:06:05.000000Z",
+   "trip_code": 223,
+   "observed_alarm_codes": [
+    223
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E03",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C011",
+   "turbine_id": "WT002",
+   "category": "nuisance",
+   "nuisance_cause": "wind_direction_change",
+   "origin": "environmental",
+   "difficulty": "medium",
+   "fault_id": "rapid_wind_direction_change",
+   "fault_name_en": "Rapid wind direction change",
+   "fault_name_zh": "風向快速變化",
+   "component": null,
+   "root_cause": "風向在短時間內大幅來回變化（環境因素，不是偏航系統故障）：偏航追不上而逾時跳機（223），風向穩定後自動重啟；手冊 §11.3 列為已知無害的 nuisance 跳機。",
+   "root_cause_en": "The wind direction swings strongly within a short time (environmental, not a yaw system fault): the yaw cannot keep up and times out (223), restarting automatically once the direction settles; the manual (§11.3) lists this as a known harmless nuisance trip.",
+   "expected_alarm_codes": [
+    223
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 223,
+     "level": "T1",
+     "text": "Yaw timeout"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 223,
+     "event_id": "T_223",
+     "level": "T1",
+     "text": "Yaw timeout",
+     "page": 108,
+     "cause": "Yawing the turbine into the wind took too long",
+     "rectification": "Is there a problem with (one of) the yaw motors ? Alternatively, it is possible that the wind direction changed too much while yawing had started",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "比對風向趨勢與同風場其他機組：多台在風向劇烈變化時偏航逾時，是環境造成",
+    "確認偏航馬達、煞車與齒輪沒有異常（逾時只在風向劇變時出現）",
+    "此場址常見時，可依手冊把偏航逾時的自動重啟次數設高（手冊 §11.3），問題排除後再改回"
+   ],
+   "expected_actions_en": [
+    "Compare the wind direction trend and the other turbines: several yaw time-outs while the direction swings point to the environment.",
+    "Confirm the yaw motors, brakes and gears are fine (the time-outs only happen during the swings).",
+    "Where this is common at the site, raise the auto-restart setting for the yaw time-out as the manual describes (§11.3), and set it back afterwards."
+   ],
+   "key_signals": [
+    "WMET_WDirAbs",
+    "WYAW_YwVn1AlgnAvg5s"
+   ],
+   "simulation_notes": [
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+   ],
+   "simulation_notes_en": [
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+   ],
+   "onset_ts": "2026-07-20T07:00:00.000000Z",
+   "window_end_ts": "2026-07-20T07:55:00.000000Z",
+   "first_alarm_ts": "2026-07-20T07:05:50.000000Z",
+   "first_alarm_code": 223,
+   "trip_ts": "2026-07-20T07:05:50.000000Z",
+   "trip_code": 223,
+   "observed_alarm_codes": [
+    223
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E03",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C012",
+   "turbine_id": "WT004",
+   "category": "nuisance",
+   "nuisance_cause": "wind_direction_change",
+   "origin": "environmental",
+   "difficulty": "medium",
+   "fault_id": "rapid_wind_direction_change",
+   "fault_name_en": "Rapid wind direction change",
+   "fault_name_zh": "風向快速變化",
+   "component": null,
+   "root_cause": "風向在短時間內大幅來回變化（環境因素，不是偏航系統故障）：偏航追不上而逾時跳機（223），風向穩定後自動重啟；手冊 §11.3 列為已知無害的 nuisance 跳機。",
+   "root_cause_en": "The wind direction swings strongly within a short time (environmental, not a yaw system fault): the yaw cannot keep up and times out (223), restarting automatically once the direction settles; the manual (§11.3) lists this as a known harmless nuisance trip.",
+   "expected_alarm_codes": [
+    223
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 223,
+     "level": "T1",
+     "text": "Yaw timeout"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 223,
+     "event_id": "T_223",
+     "level": "T1",
+     "text": "Yaw timeout",
+     "page": 108,
+     "cause": "Yawing the turbine into the wind took too long",
+     "rectification": "Is there a problem with (one of) the yaw motors ? Alternatively, it is possible that the wind direction changed too much while yawing had started",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "比對風向趨勢與同風場其他機組：多台在風向劇烈變化時偏航逾時，是環境造成",
+    "確認偏航馬達、煞車與齒輪沒有異常（逾時只在風向劇變時出現）",
+    "此場址常見時，可依手冊把偏航逾時的自動重啟次數設高（手冊 §11.3），問題排除後再改回"
+   ],
+   "expected_actions_en": [
+    "Compare the wind direction trend and the other turbines: several yaw time-outs while the direction swings point to the environment.",
+    "Confirm the yaw motors, brakes and gears are fine (the time-outs only happen during the swings).",
+    "Where this is common at the site, raise the auto-restart setting for the yaw time-out as the manual describes (§11.3), and set it back afterwards."
+   ],
+   "key_signals": [
+    "WMET_WDirAbs",
+    "WYAW_YwVn1AlgnAvg5s"
+   ],
+   "simulation_notes": [
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+   ],
+   "simulation_notes_en": [
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+   ],
+   "onset_ts": "2026-07-20T07:00:00.000000Z",
+   "window_end_ts": "2026-07-20T07:55:00.000000Z",
+   "first_alarm_ts": "2026-07-20T07:05:55.000000Z",
+   "first_alarm_code": 223,
+   "trip_ts": "2026-07-20T07:05:55.000000Z",
+   "trip_code": 223,
+   "observed_alarm_codes": [
+    223
+   ],
+   "other_observed_codes": [],
+   "injection": null,
+   "farm_event_id": "E03",
+   "final_severity": null,
+   "superseded": false,
+   "pre_existing": false
+  }
+ ],
+ "farm_events": [
+  {
+   "event_id": "E01",
+   "kind": "grid_voltage_dip",
+   "name_zh": "電網電壓驟降",
+   "name_en": "Grid voltage dip",
+   "nuisance_cause": "grid_disturbance",
+   "start_ts": "2026-07-20T04:00:00.000000Z",
+   "end_ts": "2026-07-20T04:00:20.000000Z",
+   "magnitude": 0.7,
+   "magnitude_unit": "p.u.（電網電壓，額定 = 1.0）",
+   "case_ids": [
+    "C002",
+    "C003",
+    "C004",
+    "C005"
+   ]
+  },
+  {
+   "event_id": "E02",
+   "kind": "grid_frequency_excursion",
+   "name_zh": "電網頻率越界",
+   "name_en": "Grid frequency excursion",
+   "nuisance_cause": "grid_disturbance",
+   "start_ts": "2026-07-20T05:30:00.000000Z",
+   "end_ts": "2026-07-20T05:30:40.000000Z",
+   "magnitude": -1.8,
+   "magnitude_unit": "Hz（相對額定頻率的偏移，可正可負）",
+   "case_ids": [
+    "C006",
+    "C007",
+    "C008",
+    "C009"
+   ]
+  },
+  {
+   "event_id": "E03",
+   "kind": "rapid_wind_direction_change",
+   "name_zh": "風向快速變化",
+   "name_en": "Rapid wind direction change",
+   "nuisance_cause": "wind_direction_change",
+   "start_ts": "2026-07-20T07:00:00.000000Z",
+   "end_ts": "2026-07-20T07:25:00.000000Z",
+   "magnitude": 60.0,
+   "magnitude_unit": "度（風向來回擺動的振幅）",
+   "case_ids": [
+    "C010",
+    "C011",
+    "C012"
+   ]
+  }
+ ],
+ "unattributed_events": [],
+ "pack_id": "z72-starter-05"
+}
