@@ -160,6 +160,72 @@
       "chunk_text": "偏航煞車壓力感測器故障（跳機碼 229）表示 I/O 模組偵測到壓力傳送器斷線，讀值掉到量測範圍以下。處置：1) 檢查液壓壓力感測器配線；2) 以液壓動力單元的壓力錶確認實際壓力；3) 修復配線或更換傳送器後復機。與真的漏油不同：漏油時壓力逐日下降，先出現壓力低告警 260、洩漏偵測 261，再出現跳機 228。",
       "alarm_codes": [229],
       "keywords": ["偏航", "煞車", "壓力", "感測器", "斷線", "sensor", "WYAW_YwBrkHyPrs"]
+    },
+    {
+      "id": "z72-sop-pitch-motor-overload",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§4.5 變槳馬達與變槳齒輪",
+      "page": 45,
+      "chunk_text": "變槳伺服驅動 I2t 限流（告警碼 381 / 382 / 383）表示該葉片驅動器的電流限制器作動，可能使該葉片與其他葉片失去同步；偶爾出現會自動消失，太頻繁表示該葉片有機械問題。變槳馬達過載（跳機碼 367 / 368 / 369）表示馬達電流超過限值（10 分鐘 > 18 A、60 秒 > 20 A、5 秒 > 22 A）。處置：1) 比較三支葉片的變槳馬達電流 WROT_PtMotCurBl1-3，單一葉片持續偏高多為該葉片變槳軸承或齒輪摩擦增加；2) 檢查變槳馬達與變槳齒輪、變槳軸承潤滑；3) 修復後確認電流與其他葉片一致再復機。",
+      "alarm_codes": [381, 367],
+      "keywords": ["變槳", "pitch", "馬達", "電流", "過載", "I2t", "潤滑", "WROT_PtMotCurBl1"]
+    },
+    {
+      "id": "z72-sop-cooling-pump",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§5.3 變頻器水冷系統 — 冷卻水流量",
+      "page": 53,
+      "chunk_text": "冷卻水流量低（告警碼 422）、靜水壓低（告警碼 432）與冷卻水流量很低（跳機碼 439，伴隨變頻器跳機要求 021）屬 ABB 變頻器冷卻單元事件，Z72 手冊只寫 See [ABB]。冷卻液位正常、沒有洩漏而流量與 IGCT 水壓（WCNV_IGCTWtrPres1 / Pres2）一起下降時，多為冷卻水泵磨耗或過濾器堵塞。處置：1) 依 ABB 手冊檢查冷卻水泵、葉輪與過濾器；2) 確認冷卻液位以排除洩漏；3) 修復後確認流量與壓力恢復再復位。",
+      "alarm_codes": [422, 432, 439, 21],
+      "keywords": ["冷卻水", "流量", "水泵", "pump", "flow", "壓力", "WCNV_IGCTWtrPres1"]
+    },
+    {
+      "id": "z72-sop-cooling-conductivity",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§5.3 變頻器水冷系統 — 導電度",
+      "page": 53,
+      "chunk_text": "冷卻水導電度高（告警碼 423）與導電度很高（跳機碼 440，伴隨變頻器跳機要求 021）屬 ABB 變頻器冷卻單元事件，Z72 手冊只寫 See [ABB]。變頻器 IGCT 用去離子水冷卻，導電度（WCNV_IGCTWtrCond）逐漸上升多為去離子樹脂（離子交換器）耗盡。處置：1) 依 ABB 手冊更換去離子樹脂濾芯，必要時換冷卻水；2) 確認導電度降回正常值再復位。",
+      "alarm_codes": [423, 440, 21],
+      "keywords": ["冷卻水", "導電度", "conductivity", "去離子", "離子交換", "WCNV_IGCTWtrCond"]
+    },
+    {
+      "id": "z72-sop-rotor-speed-sensor",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§4.1 轉子轉速量測",
+      "page": 41,
+      "chunk_text": "轉子轉速感測器故障（跳機碼 029）表示控制系統量到的轉子轉速與變頻器量到的發電機轉速相差超過 10%。直驅機組兩者應相同；只有轉子轉速 WROT_RotSpd 偏低、發電機轉速 WGEN_GnSpd 與發電正常時是量測問題。處置：1) 檢查輪轂內轉子轉速編碼器的接線；2) 修復接線或更換編碼器；3) 確認兩個轉速一致再復機。",
+      "alarm_codes": [29],
+      "keywords": ["轉速", "rotor speed", "編碼器", "encoder", "輪轂", "WROT_RotSpd"]
+    },
+    {
+      "id": "z72-sop-anemometer",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§7.2 氣象站 — 風速計",
+      "page": 72,
+      "chunk_text": "風速計故障（跳機碼 230）表示風速計訊號消失，或與目前轉子轉速不符（轉子轉速 > 6.5 rpm 時風速 < 0.5 m/s 持續 60 秒）。杯式風速計軸承磨耗時讀值先偏低（同樣讀值下功率看起來偏高），卡死後讀 0。處置：1) 檢查風速計配線；2) 目視檢查風速計是否結冰 / 損壞、風杯是否都在；3) 更換風速計後再復機。",
+      "alarm_codes": [230],
+      "keywords": ["風速計", "anemometer", "風速", "wind meter", "結冰", "WMET_WSpeedNac"]
+    },
+    {
+      "id": "z72-sop-wind-vane-stuck",
+      "document_source": "Z72_baseline_SOP.md (placeholder)",
+      "oem": "Bachmann",
+      "model": "Z72",
+      "section": "§7.3 氣象站 — 風向標",
+      "page": 73,
+      "chunk_text": "風向標 1 故障（跳機碼 231）表示 1 分鐘平均風速高於 4.0 m/s 時風向標 1 訊號凍結超過 1 分鐘（風向標 2 為 232）。多為風向標軸承卡死或結冰。處置：1) 檢查風向標配線；2) 檢查風向標是否結冰 / 損壞 / 被卡住；3) 確認風向標能自由轉動、與另一支讀值一致再復機。兩支風向標讀值一致但機組長期發電偏低時，另需懷疑兩支風向標的安裝方向一起偏掉（對風偏差，不會有警報）。",
+      "alarm_codes": [231],
+      "keywords": ["風向標", "wind vane", "凍結", "結冰", "對風", "WYAW_YwVn1AlgnAvg5s"]
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
- "contract_version": "1.5",
+ "contract_version": "1.6",
  "description": "Closed vocabularies of the windMindOM RAG assistant data contract v1 (docs/integration/rag_assistant_data_contract_v1.md).",
  "component_groups": [
   {
@@ -34,8 +34,8 @@
   },
   {
    "id": "yaw",
-   "label_en": "Yaw system and wind vanes",
-   "label_zh": "偏航系統與風向標"
+   "label_en": "Yaw system and nacelle wind sensors",
+   "label_zh": "偏航系統與機艙測風儀器"
   },
   {
    "id": "nacelle",
@@ -49,6 +49,12 @@
    "group": "rotor",
    "label_en": "Rotor blades",
    "label_zh": "葉片"
+  },
+  {
+   "id": "rotor_speed_sensor",
+   "group": "rotor",
+   "label_en": "Rotor speed sensor (encoder in the hub)",
+   "label_zh": "轉子轉速感測器（輪轂內編碼器）"
   },
   {
    "id": "pitch_control_system",
@@ -103,6 +109,18 @@
    "group": "yaw",
    "label_en": "Wind vane 1",
    "label_zh": "風向標 1"
+  },
+  {
+   "id": "wind_vane_alignment",
+   "group": "yaw",
+   "label_en": "Wind vane alignment (mounting of both vanes)",
+   "label_zh": "風向標對準（兩支的安裝方向）"
+  },
+  {
+   "id": "nacelle_anemometer",
+   "group": "yaw",
+   "label_en": "Nacelle anemometer",
+   "label_zh": "機艙風速計"
   },
   {
    "id": "nacelle_ventilation",

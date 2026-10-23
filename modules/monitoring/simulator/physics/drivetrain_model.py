@@ -197,7 +197,6 @@ class DrivetrainModel:
         is_normal_stop: bool,
         is_emergency_stop: bool,
         ambient_temp: float = 25.0,
-        gearbox_overheat_severity: float = 0.0,
     ) -> Tuple[float, float, float, float, float, float]:
         """Advance drivetrain by one timestep.
 
@@ -324,11 +323,10 @@ class DrivetrainModel:
                 hss_rpm_wear = max(0.0, current_rotor_speed * gear_ratio)
                 speed_norm = hss_rpm_wear / 1800.0
                 load_norm = max(0.0, aero_torque_knm) / 1200.0
-                overheat_mult = 1.0 + 6.0 * gearbox_overheat_severity
                 # rate per hour → per second
                 dwear = (
                     s.tooth_wear_rate_per_hour / 3600.0
-                    * speed_norm * load_norm * overheat_mult
+                    * speed_norm * load_norm
                 )
                 self._tooth_wear_index = min(
                     1.5, self._tooth_wear_index + dwear * dt

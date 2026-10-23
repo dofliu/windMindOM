@@ -1,5 +1,5 @@
 {
- "contract_version": "1.5",
+ "contract_version": "1.6",
  "pack_id": "z72-starter-01",
  "turbine_model": "Z72",
  "turbines": [
@@ -57,25 +57,25 @@
  },
  "files": {
   "tag_dictionary.json": {
-   "sha256": "afdba6e80954f83aeee7f377663208c44b7300d6355f7b21c3bd238f28bd84c3",
-   "bytes": 34904
+   "sha256": "549523b742695f9321871ea6be4454453cf88c6bf4c37af5b9f8b6da7b922ee9",
+   "bytes": 36063
   },
   "alarm_catalog.json": {
    "sha256": "e27aa37ff13d5630476e41ffd32a056c82daed24a9f47509ea7be89b8be4a19d",
    "bytes": 101937
   },
   "timeseries_raw.parquet": {
-   "sha256": "44082ec292d529f37eb30b4898309e3b473f82de39b9dbd2b135b779cd596bdf",
-   "bytes": 544510
+   "sha256": "7cd2bc94f99ed52080977d52ed94830a51abf6c8d96c8bad11b9f1bea7743afc",
+   "bytes": 557990
   },
   "stats_10min.parquet": {
-   "sha256": "7deff9845151c3df3e0407d43abc5627747cd939b18e9f4dba5c6bd7235abcbe",
-   "bytes": 231815
+   "sha256": "3099d27a4282786ffa915e0aa3bd05d5ec34fa8e2329fc0a96b14e5d321be0b6",
+   "bytes": 239622
   },
   "events.jsonl": {
    "sha256": "e47ac17deb50bcb369811ad57b891ce5d562780b4e16e34dbaa5812a6ea18fb1",
    "bytes": 4754
   }
  },
- "exported_at": "2026-10-23T11:35:16.670436Z"
+ "exported_at": "2026-10-23T15:34:33.016539Z"
 }

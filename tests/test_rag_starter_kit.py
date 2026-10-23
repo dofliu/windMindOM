@@ -30,7 +30,8 @@ from simulator.farm_events import FARM_EVENT_KINDS  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 
 KIT = PROJECT_ROOT / "examples" / "rag_starter_kit"
-PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04", "z72-starter-05"]
+PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04", "z72-starter-05",
+            "z72-starter-06"]
 
 
 def _load(name: str) -> ModuleType:
@@ -103,7 +104,10 @@ def test_answers_match_their_pack(pack_id: str) -> None:
     assert answers["turbines"] == manifest["turbines"]
     assert answers["cases"] and all(c["component"] in COMPONENTS for c in answers["cases"] if c["component"])
     assert all(c["component"] for c in answers["cases"] if c["category"] != "nuisance")
-    assert all(c["first_alarm_ts"] for c in answers["cases"]), "範例的每個故障 / 干擾都要在情境內出警報"
+    # 範例的每個故障 / 干擾都要在情境內出警報——沒有預期碼的故障（v1.6，偏航失準）本來就不會有
+    assert all(c["first_alarm_ts"] for c in answers["cases"] if c["expected_alarm_codes"]), "預期的警報沒有出現"
+    silent = [c for c in answers["cases"] if not c["expected_alarm_codes"]]
+    assert all(c["first_alarm_ts"] is None and c["manual_coverage"] == "none" for c in silent)
 
 
 def test_build_tool_lists_exactly_the_committed_packs() -> None:
@@ -435,11 +439,15 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     predictions, invalid = score.read_predictions(output.read_text(encoding="utf-8").splitlines(), COMPONENTS)
     assert invalid == [] and predictions
     report = score.score(score.load_answers([KIT / "answers"]), predictions, COMPONENTS)
-    assert (report.cases, report.detected) == (8, 8)
-    assert (report.component_accuracy, report.component_group_accuracy, report.category_accuracy) == (0.875, 1.0, 0.75)
-    # 讀值像真故障的感測器故障（風向標漂移、軸承溫度量測回路）判錯類別；有專屬碼的（229）判對
+    # 06（v1.6）：沒有警報的偏航失準偵測不到；變槳馬達過載的警報文字只猜得到群組
+    assert (report.cases, report.detected) == (15, 14)
+    assert (report.component_accuracy, report.component_group_accuracy, report.category_accuracy) == pytest.approx(
+        (12 / 15, 14 / 15, 10 / 15))
+    # 讀值像真故障的感測器故障（風向標漂移、軸承溫度量測回路）判錯類別；有專屬碼、文字點名 sensor 的（229、029）
+    # 判對，文字沒寫 sensor 的（230 風速計、231 風向標）判成真故障；偵測不到的偏航失準也算錯
     wrong = {(r.pack_id, r.turbine_id) for r in report.case_results if not r.category_correct}
-    assert wrong == {("z72-starter-03", "WT003"), ("z72-starter-04", "WT003")}
+    assert wrong == {("z72-starter-03", "WT003"), ("z72-starter-04", "WT003"), ("z72-starter-06", "WT005"),
+                     ("z72-starter-06", "WT006"), ("z72-starter-06", "WT007")}
     assert (report.manual_hit_at_1, report.early_warnings) == (1.0, 0)
     assert report.latency_median_s == 0.0
     # 健康負樣本（z72-starter-05）：全場一起跳的電網事件，第一台當故障、之後的判干擾；Pt100 接點鬆動當故障；
@@ -448,7 +456,8 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     assert (report.false_alarm_predictions, report.false_alarm_episodes, report.false_alarms_during_nuisance) == (4, 4, 4)
     missed = {(r.turbine_id, r.nuisance_cause) for r in report.nuisance_case_results if not r.recognized}
     assert missed == {("WT001", "grid_disturbance"), ("WT003", "loose_contact"), ("WT002", "wind_direction_change")}
-    assert report.healthy_turbine_hours == pytest.approx(73.28, abs=0.01)  # 情境窗＝第一到最後一筆讀值
+    # 情境窗＝第一到最後一筆讀值：01–05 的 73.28 h＋06 的健康機組 WT008（5 h）與其他機組故障開始前的時段
+    assert report.healthy_turbine_hours == pytest.approx(84.01, abs=0.01)
     assert report.false_alarm_rate_per_100h == pytest.approx(4 / report.healthy_turbine_hours * 100)
 
 

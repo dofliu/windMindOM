@@ -110,9 +110,12 @@ FAULT_SIGNATURES: List[Tuple[str, float, str, str, float]] = [
     # grid_voltage_sag → power 跌
     ("grid_voltage_sag",      0.85, "WTUR_TotPwrAt",     "-", 30.0),
 
-    # legacy aliases — 仍有效
-    ("gearbox_overheat",      0.85, "WNAC_VibMsNacXDir", "+", 0.3),
-    ("pitch_motor_fault",     0.85, "WTUR_TotPwrAt",     "-", 50.0),
+    # 故障庫擴充（WMOM-20261021-08-c）；gearbox_overheat 已刪除（Z72 直驅，沒有齒輪箱）
+    ("pitch_motor_fault",     0.85, "WROT_PtMotCurBl1",  "+", 8.0),
+    ("converter_cooling_pump_wear", 0.85, "WCNV_IGCTWtrPres1", "-", 1.0),
+    ("cooling_water_deionizer_exhausted", 0.85, "WCNV_IGCTWtrCond", "+", 0.3),
+    ("rotor_speed_sensor_fault", 0.85, "WROT_RotSpd",    "-", 2.0),
+    ("anemometer_fault",      0.85, "WMET_WSpeedNac",    "-", 5.0),
     ("yaw_misalignment",      0.85, "WTUR_TotPwrAt",     "-", 50.0),
 ]
 

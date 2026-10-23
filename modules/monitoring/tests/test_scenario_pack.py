@@ -171,7 +171,7 @@ def test_blind_pack_never_names_the_faults(generated: Dict[str, object]) -> None
 def test_raw_parquet_schema_uses_bachmann_names_and_plc_types(generated: Dict[str, object]) -> None:
     schema = pq.read_schema(generated["blind_dir"] / sp.FILE_RAW)  # type: ignore[operator]
     tags = PACK_TAGS
-    assert len(tags) == 118 - 16
+    assert len(tags) == 121 - 16
     assert schema.names == ["timestamp", "turbine_id"] + [t.opc_tag.split(".", 1)[1] for t in tags]
     assert schema.field("timestamp").type == pa.timestamp("us", tz="UTC")
     types = {"REAL32": pa.float32(), "SINT16": pa.int16(), "UINT16": pa.uint16(), "BOOL": pa.bool_()}
@@ -306,7 +306,7 @@ def test_tag_dictionary_and_alarm_catalog(generated: Dict[str, object]) -> None:
     by_id = {t["id"]: t for t in tags}
     assert by_id["WTUR_TotPwrAt"]["source"] == "bachmann_real" and by_id["WTUR_TotPwrAt"]["unit"] == "kW"
     assert by_id["WMET_WSpeedRaw"]["source"] == "synthetic"
-    assert sum(t["source"] == "bachmann_real" for t in tags) == 47 and len(tags) == 102
+    assert sum(t["source"] == "bachmann_real" for t in tags) == 50 and len(tags) == 105
     assert not set(by_id) & sp.MODEL_INTERNAL_TAGS
     assert "WSpeedRaw" in by_id["WMET_WSpeedNac"]["note"] and by_id["WTUR_TotPwrAt"]["note"] is None
     catalog = json.loads((pack_dir / sp.FILE_ALARMS).read_text(encoding="utf-8"))["events"]

@@ -1,6 +1,6 @@
-# windMindOM × RAG 維修助手：資料介面合約 v1.5
+# windMindOM × RAG 維修助手：資料介面合約 v1.6
 
-> **版本**：1.5（2026-10-23，WMOM-20261021-08-b：誤報 / 健康負樣本——nuisance case 與干擾評分）；1.4（2026-10-23，WMOM-20261022-02：手冊保真度、自動重啟封鎖改送 A039）；1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
+> **版本**：1.6（2026-10-23，WMOM-20261021-08-c：故障庫擴充——7 個新故障、變槳馬達電流 tag、冷卻水導電度 tag 改正、沒有警報的故障）；1.5（2026-10-23，WMOM-20261021-08-b：誤報 / 健康負樣本——nuisance case 與干擾評分）；1.4（2026-10-23，WMOM-20261022-02：手冊保真度、自動重啟封鎖改送 A039）；1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
 > **評分欄位**經劉老師確認（2026-10-21）：診斷以「元件 + 類別」自動評分、手冊引用以事件碼評、時效報延遲與早期預警、各項指標分列不合成總分。
 > **範例與工具**：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)（範例資料包、讀取程式、基準助手、評分程式）。
 
@@ -33,6 +33,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 - 讀取端必須**忽略不認得的欄位**；遇到不認得的列舉值（新的元件、事件種類、停機原因）要能略過，不可整包拒讀。
 - 資料包、標準答案、詞彙檔（[`vocabulary.json`](../../examples/rag_starter_kit/vocabulary.json)）都帶 `contract_version`。讀取端只需檢查主版本（`pack_reader.verify_pack` 示範）。
 - **v1.5 是次版本**：標準答案的 `category: "nuisance"` 從 v1.0 起就是保留的答案類別（§7、§9），v1.5 才開始出現。自己寫評分程式的人要注意：v1.5 的 `cases` 不再全是故障——只把 `real_fault` / `sensor_fault` 當故障評，`nuisance` case 另外處理（kit 的 `score.py` 已更新）；`healthy_turbines`（沒有故障的機組）與 `unattributed_events`（沒有 case 解釋的事件）定義不變，只是 nuisance case 解釋了原本列在那裡的事件。
+- **v1.6 是次版本**：新增 tag、詞彙、事件碼與 `manual_coverage` 的 `none`。另外 `WCNV_IGCTWtrCond` 的讀值改正為真實 tag 的意義（冷卻水導電度 µS/cm）：v1.5 以前的模擬誤算成冷卻水流量比 0–1、tag 字典的說明是「IGCT Water Condition」。tag 名稱與欄位不變，所以算次版本；讀舊資料包時不要拿這一欄當導電度。
 
 ## 3. 資料包
 
@@ -54,7 +55,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `contract_version` | str | `"1.5"`（讀取端只檢查主版本） |
+| `contract_version` | str | `"1.6"`（讀取端只檢查主版本） |
 | `pack_id` | str | 資料包 ID |
 | `turbine_model` | str | `"Z72"` |
 | `turbines` | list[str] | 機組 ID（`WT001`…） |
@@ -86,7 +87,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 | `data_type` | `REAL32` / `SINT16` / `UINT16` / `BOOL` |
 | `unit` | 單位（無因次為空字串） |
 | `label_en` / `label_zh` | 說明 |
-| `source` | `bachmann_real`（真實 Z72 PLC 有這個 tag，47 個）或 `synthetic`（依命名規則自創，55 個） |
+| `source` | `bachmann_real`（真實 Z72 PLC 有這個 tag，50 個）或 `synthetic`（依命名規則自創，55 個） |
 | `note` | 模擬語意與真實不同之處；多數為 null |
 
 **回答時的注意**：`synthetic` tag 在真實 Z72 上不存在（振動頻帶、負載彎矩、無功功率…），助手的建議不能假設現場讀得到。
@@ -101,7 +102,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 |---|---|---|
 | `timestamp` | `timestamp[us, tz=UTC]` | 取樣時間 |
 | `turbine_id` | string | 機組 |
-| `<Bachmann tag 名>` × 102 | 依 PLC 型別：REAL32 → float32、SINT16 → int16、UINT16 → uint16、BOOL → bool | 讀值；缺值為 null |
+| `<Bachmann tag 名>` × 105 | 依 PLC 型別：REAL32 → float32、SINT16 → int16、UINT16 → uint16、BOOL → bool | 讀值；缺值為 null |
 
 依 `(timestamp, turbine_id)` 排序。欄名含方括號者（`Z72PLC__UI_Mbus_Contact[2]`）在 SQL 引擎要加引號。運轉狀態欄 `Z72PLC__UI_Loc_WTUR_State_TurSt` 為 Bachmann TurSt：1 Shutdown、2 Standby、3 Wait Restart、4 Pre-Production、5 Synchronization、6 Production、7 Emergency Stop、8 Restart、9 Normal Stop。
 
@@ -214,7 +215,7 @@ case：
 | `root_cause` / `root_cause_en` | | 根因（人工 / LLM 評用） |
 | `expected_alarm_sequence` | | 預期碼的等級與文字（A 在前、T 在後） |
 | `manual_refs` | | 預期碼的手冊條目（頁碼、原因、處置、`see_abb`） |
-| `manual_coverage` | | `z72_manual` / `abb_manual` / `mixed` |
+| `manual_coverage` | | `z72_manual` / `abb_manual` / `mixed` / `none`（v1.6：沒有預期事件碼，例：沒有警報的偏航失準） |
 | `expected_actions` / `expected_actions_en` | | 建議處置（標「（手冊）」者出自 Appendix C） |
 | `key_signals` | | 偏離健康機組的訊號（tag 字典的 `id`） |
 | `simulation_notes` / `_en` | | 模擬與真實不同之處 |
@@ -257,7 +258,7 @@ case：
 | 元件正確率 | 最後診斷的 `component` 與答案相同 |
 | 元件群組正確率 | 最後診斷的元件與答案同一群組（`vocabulary.json` 的 `group`，例 `pitch_control_system` 與 `pitch_system_blade_1` 同屬 `pitch`） |
 | 類別正確率 | 最後診斷的 `category` 與答案相同。v1.3 起同一個元件可能有真故障也有感測器故障，且警報碼可能相同（例：主軸承磨耗與主軸承溫度量測回路劣化都送 262 / 240），只看元件或警報碼分不出類別 |
-| 手冊引用 hit@1 / hit@3 | 最後診斷的 `manual_refs`（去重）前 1 / 3 個中有任何一個在 `expected_alarm_codes` |
+| 手冊引用 hit@1 / hit@3 | 最後診斷的 `manual_refs`（去重）前 1 / 3 個中有任何一個在 `expected_alarm_codes`。分母是有預期事件碼的故障 case（v1.6：沒有警報的故障沒有可引用的正解，不列入；手冊引用三項都一樣） |
 | 手冊引用 MRR@10 | 前 10 個中第一個命中的名次倒數，平均（第 11 個以後不看：列一長串碼換不到分數） |
 | 延遲 | 診斷出來的時刻 − 第一個預期警報（秒，負值＝提前）；報中位數、平均與**樣本數**（只有元件正確、有預期警報、開始時間已知的 case 才有延遲） |
 | 早期預警 | 診斷出來的時刻早於第一個預期警報，或該 case 整段都沒有預期警報；`pre_existing` case 不評 |
@@ -279,6 +280,7 @@ case：
 | 元件 `component` | 群組 `group` | 說明 |
 |---|---|---|
 | `blades` | rotor | 葉片 |
+| `rotor_speed_sensor` | rotor | 轉子轉速感測器（輪轂內編碼器，v1.6） |
 | `pitch_control_system` | pitch | 變槳控制系統（全部葉片） |
 | `pitch_system_blade_1` | pitch | 葉片 1 變槳系統 |
 | `main_bearing` | drivetrain | 主軸承 |
@@ -288,7 +290,11 @@ case：
 | `grid_connection` | grid_electrical | 電網連接（外部電網） |
 | `yaw_brake_hydraulics` | yaw | 偏航煞車液壓 |
 | `wind_vane_1` | yaw | 風向標 1 |
+| `wind_vane_alignment` | yaw | 風向標對準（兩支的安裝方向，v1.6） |
+| `nacelle_anemometer` | yaw | 機艙風速計（v1.6） |
 | `nacelle_ventilation` | nacelle | 機艙通風 / 冷卻 |
+
+群組 `yaw` 的名稱 v1.6 起為「偏航系統與機艙測風儀器」（id 不變）。
 
 類別：`real_fault`、`sensor_fault`、`nuisance`（預測可用）、`healthy`（只在標準答案）。詞彙會隨故障庫擴充而增加（次版本），既有 ID 不改。
 
@@ -307,24 +313,29 @@ nuisance 成因 `nuisance_causes`（v1.5，只在標準答案；預測不用填�
 |---|---|---|
 | `main_bearing` | 主軸承磨耗（262 / 240，軸承溫度 2 也升溫） | 軸承溫度 1 量測回路劣化（262 / 240，讀值像真故障）、軸承溫度 1 斷線（242） |
 | `generator_stator` | 定子繞組劣化（264 / 265 / 244 / 245，兩支定子溫度一起升） | 定子溫度 1 量測回路劣化（264 / 244，讀值像真故障） |
-| `pitch_system_blade_1` | 葉片 1 變槳不平衡（335 / 336） | 葉片 1 編碼器故障（326） |
+| `pitch_system_blade_1` | 葉片 1 變槳不平衡（335 / 336）、葉片 1 變槳驅動過載（381 / 367，v1.6） | 葉片 1 編碼器故障（326） |
 | `yaw_brake_hydraulics` | 偏航煞車液壓洩漏（260 / 261 / 228） | 壓力感測器斷線（229） |
-| `wind_vane_1` | — | 風向標 1 漂移（233） |
+| `wind_vane_1` | — | 風向標 1 漂移（233）、風向標 1 卡住（231，v1.6） |
+| `rotor_speed_sensor` | — | 轉速編碼器接線鬆動（029，v1.6） |
+| `nacelle_anemometer` | — | 風速計軸承磨耗 → 卡死（230，v1.6） |
+
+量測儀器本身就是元件的（風向標、風速計、轉速感測器）沒有對應的真故障。變頻器冷卻系統（`converter_cooling_system`）v1.6 起有三種真故障：冷卻水路劣化洩漏（420 / 421 / 432 / 437）、冷卻水泵磨耗（422 / 432 / 439）、去離子樹脂耗盡（423 / 440），都伴隨 021。
 
 ## 10. 模擬與真實的差異（受測端須知）
 
 - 資料由 windMindOM 的 Z72 物理模型與 PLC 保護層產生：警報 / 跳機由訊號越過真實 Z72 保護設定值觸發，事件碼與手冊條目都是真的；物理是簡化模型（不是氣彈 FEM），10 分鐘 std 由 10 s 取樣算出，比真實 PLC 偏低。
-- `synthetic` tag 是真實 Z72 沒有的訊號（§3.3）。`WMET_WSpeedNac` 在模擬裡是自由流風速（真實是風速計讀值），見 tag 字典的 `note`。
+- `synthetic` tag 是真實 Z72 沒有的訊號（§3.3）。`WMET_WSpeedNac` 在模擬裡是自由流風速（真實是風速計讀值），見 tag 字典的 `note`；風速計故障（230，v1.6）時兩個風速 tag 一起讀錯。
+- **沒有警報的故障**（v1.6）：偏航失準（兩支風向標一起偏）不會有任何警報或跳機，只看得到發電低於功率曲線、側向負載與 3P 振動增加。標準答案的 `expected_alarm_codes` 為空、`first_alarm_ts` / `trip_ts` 為 null；評分不評延遲，偵測到就算早期預警（§8）。
 - 標準答案 case 的 `simulation_notes` 列出個別故障與真實不同之處（例：超速在 351 跳機後故障凍結、不會出現 320）。
 - 健康機組也有事件：低風速 / 陣風造成的啟停是 `state_change`（`stop_reason` 為 `low_wind` 等）；警報 / 跳機 / 資訊事件在 v1.5 起是標準答案的 nuisance case（§7.1）。助手要能分辨。
 - **干擾**（v1.5）：電網擾動作用在整個風場——全部發電中的機組幾乎同時跳同樣的電網碼（482 / 481 / 489 + 021），電壓 / 頻率恢復後自動重啟；風向快速變化時偏航追不上而逾時（223：對風超過「Appendix D `SDYawTmOutFact` × 偏航誤差 ÷ 偏航速度 + `SDYawTmOutOffs`」，解纜不算），風向穩定後自動重啟；主軸承 Pt100 接點鬆動時反覆短暫跳 242、讀值隨即恢復，一小時內次數超過上限就 A039。頻率偏高但沒到 489 的 1.4 Hz 時只下垂降載、不跳機。模擬假設：風場事件全場同時、同一個量（真實的電網事件與風向變化到各機組會有時差）；風向擺動是規則的正弦，振幅約 26° 以下偏航追得上、不會逾時；nuisance 跳機的自動重啟視為已開啟（上限照 Appendix C 每小時次數；手冊 §11.3 的出廠設定是 0）。
 - **手冊 Appendix C 與 D 不一致時以 Appendix D 為準**（v1.4，DEC-20261023-01）：Appendix D 是控制系統的實際設定值。事件時間點因此是：液壓壓力低 170 bar（260）/ 150 bar（228）、延時 30 s、回到 190 bar 以上才解除；風向標差異（233）延時 60 s、風速條件是 60 s 平均（只決定能不能新判定，已跳機的不因風速低而解除）；溫度（Pt100）以 10 s 時間常數濾波後判定；切出陣風是 3 s 平均；機艙溫度 273 為 45 °C；編碼器範圍 −5–95°。Appendix C 的事件說明文字寫的是 180 bar、5 秒、10 分鐘平均——RAG 查到 Appendix C 時，數字可能和資料差幾 bar / 幾秒。
 - **自動重啟被封鎖**（v1.4）：手冊 §8.3，同一個跳機碼一小時內的跳機次數超過目錄的每小時上限（`max_per_hour`）時，PLC 不再自動重啟、送 **A039「Auto restart blocked」**（手冊 p.106；xlsx 事件清單沒有這個碼，資料包的 `alarm_catalog.json` 照常列出、`manual_page` 為 106），機組停在 Shutdown，操作員復位（`reset`）才解除（A039 隨之 `alarm_cleared`）。物理層保護停機（超速、電網）也照同一套每碼計數。同一個碼不分成因算同一種跳機（例：021 伴隨所有變頻器跳機）。A039 是重複跳機的結果、不是根因：標準答案裡列在該機組 case 的 `other_observed_codes`；跟在 nuisance 跳機之後的 A039 歸給那個 nuisance case（v1.5），其餘照 §7.1 的規則歸類。低風速的正常啟停不算跳機、不受次數限制。
-- **感測器故障**（v1.3）只改那支感測器的讀值，機器本身與其他訊號都正常。分辨的線索：同元件的第二支感測器（`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`）、振動、讀值與負載的關係。斷線 / 編碼器故障的讀值是固定的超出範圍值（模擬假設：Pt100 850 °C、壓力 −62.5 bar、編碼器 135°），PLC 送專屬故障碼、不再拿這支讀值判斷溫度過高 / 壓力過低 / 葉片差異。
+- **感測器故障**（v1.3）只改那支感測器的讀值，機器本身與其他訊號都正常。分辨的線索：同元件的第二支感測器（`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`）、振動、讀值與負載的關係。斷線 / 編碼器故障的讀值是固定的超出範圍值（模擬假設：Pt100 850 °C、壓力 −62.5 bar、編碼器 135°），PLC 送專屬故障碼、不再拿這支讀值判斷溫度過高 / 壓力過低 / 葉片差異。v1.6：轉速感測器讀值偏低（與 `WGEN_GnSpd` 比；直驅機組兩者應相同——模擬的 `WGEN_GnSpd` 在風速快速變化時有暫態差異，健康機組也看得到）、風速計先偏低後卡在 0、風向標 1 停在卡住當下的值（沒有雜訊）；感測器故障時模擬的控制器（偏航、切入 / 切出）仍依實際值運作。
 
 ### 10.1 開發集與正式評測
 
-- starter kit 的範例資料包是**開發集**（附答案），只涵蓋 16 種故障中的 7 種（含 3 種感測器故障），而且每個故障都會出警報；v1.5 加了健康負樣本 05（沒有故障：電網電壓驟降、頻率越界、風向快速變化、Pt100 接點鬆動）。
+- starter kit 的範例資料包是**開發集**（附答案），涵蓋 23 種故障中的 14 種（含 6 種感測器故障、1 種沒有警報的故障）；v1.5 加了健康負樣本 05（沒有故障：電網電壓驟降、頻率越界、風向快速變化、Pt100 接點鬆動），v1.6 加了 06（7 個新故障各一台）。
 - 正式評測的資料包會有開發集沒有的故障、更長的情境，也有干擾與健康負樣本；只靠「警報碼 → 元件」對照表拿不到好成績，看到警報就報故障會拉高誤報率。
 - 正式評測的盲測版資料包與開發集同格式，但沒有 `answers/`；答案只在評分端。
 
@@ -339,6 +350,7 @@ nuisance 成因 `nuisance_causes`（v1.5，只在標準答案；預測不用填�
 | 1.3 | 2026-10-22 | 感測器故障情境（WMOM-20261021-08-a，DEC-20261022-04）：資料包新增兩個真實 tag `WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`（102 個欄位）；同元件可有真故障與感測器故障（§9 對照表）；新增可能出現的事件碼 241 / 242 / 243 / 245 / 250 / 251 / 263 / 265 / 229 / 326-328；第四個範例資料包。格式不變 |
 | 1.4 | 2026-10-23 | 手冊保真度（WMOM-20261022-02，DEC-20261023-01）：自動重啟被封鎖改送 A039 `alarm_raised` / `alarm_cleared`（手冊獨有碼，警報目錄快照 315 碼），不再送 `restart_blocked`（列舉值保留，舊資料包仍合法）；PLC 設定值以手冊 Appendix D 為準（§10），事件時間點與 1.3 不同；不再有全域「每小時 3 次啟動」上限，物理層保護停機改照每碼上限；`yaw_sensor_drift` 每台機組滿嚴重度都會跳 233。範例資料包重建。欄位不變 |
 | 1.5 | 2026-10-23 | 誤報 / 健康負樣本（WMOM-20261021-08-b，DEC-20261023-02）：標準答案新增 nuisance case（§7.1：電網擾動、風向快速變化、感測器接點鬆動、環境性停機）與欄位 `nuisance_cause`、`window_end_ts`、`farm_event_id`、頂層 `farm_events`；`healthy_turbines` 改為「沒有故障 case 的機組」；`unattributed_events` 只剩故障連帶事件。評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），既有指標只算故障 case、規則不變。新增可能出現的事件碼 223（偏航逾時）。詞彙加 `nuisance_causes`。第五個範例資料包（健康負樣本）。資料包格式不變 |
+| 1.6 | 2026-10-23 | 故障庫擴充（WMOM-20261021-08-c，DEC-20261023-03）：資料包新增三個真實 tag `WROT_PtMotCurBl1-3`（變槳馬達電流，105 個欄位）；`WCNV_IGCTWtrCond` 改正為冷卻水導電度 µS/cm（§2）；新增可能出現的事件碼 029 / 230 / 231 / 232 / 367–369 / 381–383 / 422 / 423 / 439 / 440；詞彙加 `rotor_speed_sensor`、`wind_vane_alignment`、`nacelle_anemometer`（`yaw` 群組改名）；`manual_coverage` 加 `none`（沒有警報的故障）。第六個範例資料包。資料包格式不變 |
 | 1.3（修訂） | 2026-10-22 | EPIC-DS 全面檢查（WMOM-20261022-01，DEC-20261022-05），格式與版本號不變：正式評測要伺服器強制登入（§12.1、§13.1）；正式評測總速率上限是整台伺服器的（§12.1）；正式評測的 `?stream=false` 在 OPC UA 開播前也回 4412（不再搶先開始計時）；`manifest.wind_profile` 改寫生成時實際套用的風況；文字更正（§3.5 tag 數、§13.2 `Status` 的 `missing`、4410 的寬限期） |
 
 ## 12. WebSocket 回放（v1.1）

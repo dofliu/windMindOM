@@ -1,5 +1,5 @@
 {
- "contract_version": "1.5",
+ "contract_version": "1.6",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "感測器故障 vs 真故障：主軸承磨耗與主軸承溫度量測回路劣化同時發生（同樣的 262 / 240），另一台偏航壓力感測器斷線",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-23T02:00:10.000000Z",
  "sim_end": "2026-03-23T07:00:00.000000Z",
- "generated_at": "2026-10-23T11:36:59.676182Z",
+ "generated_at": "2026-10-23T15:36:37.627323Z",
  "turbines": [
   "WT001",
   "WT002",

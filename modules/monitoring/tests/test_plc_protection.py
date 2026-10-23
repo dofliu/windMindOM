@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
@@ -44,6 +44,8 @@ HEALTHY: Dict[str, float] = {
     "WGDC_TrfCoreTmp": 40.0, "WCNV_IGCTWtrTmp": 35.0, "WCNV_CnvCabinTmp": 44.0,
     "WCNV_IGCTWtrPres1": 3.5, "WYAW_YwBrkHyPrs": 210.0, "WYAW_YwBrkSealsLeak": 0.0,
     "WNAC_VibMsNacXDir": 1.0, "WNAC_VibMsNacYDir": 1.0, "WCNV_VtgMsCnvGd1": NOMINAL_LN_KV,
+    "WROT_PtMotCurBl1": 6.0, "WROT_PtMotCurBl2": 6.0, "WROT_PtMotCurBl3": 6.0,
+    "WROT_RotSpd": 20.0, "WGEN_GnSpd": 20.0, "WCNV_IGCTWtrCond": 0.2,
 }
 
 
@@ -56,14 +58,14 @@ class Driver:
         self.events: List[PlcEvent] = []
 
     def run(self, seconds: float, producing: bool = True, dt: float = 1.0, yawing: bool = False,
-            unwinding: bool = False, **signals: float) -> List[tuple]:
+            unwinding: bool = False, internal: Optional[Dict[str, float]] = None, **signals: float) -> List[tuple]:
         out = dict(HEALTHY)
         out.update(signals)
         trips: List[tuple] = []
         steps = int(round(seconds / dt))
         for _ in range(steps):
             self.t += dt
-            trips += self.plc.evaluate(out, self.t, dt, producing, yawing, unwinding)
+            trips += self.plc.evaluate(out, self.t, dt, producing, yawing, unwinding, internal=internal)
             self.events += self.plc.drain_events()
         return trips
 
@@ -551,3 +553,96 @@ def test_event_queue_is_bounded_when_nobody_drains() -> None:
         out["WGEN_GnBrgTmp1"] = 90.0 if i % 40 < 20 else 70.0   # 警報反覆起落
         plc.evaluate(out, float(i), 1.0, True)
     assert len(plc.drain_events()) <= 512
+
+
+# ── 故障庫擴充（WMOM-20261021-08-c）──────────────────────────────────────────
+
+
+def test_pitch_motor_overload_trips_on_the_manual_current_averages() -> None:
+    """手冊 Appendix D CDOvrCurr10m / 60s / 5s：10 分鐘平均 > 18 A、60 秒 > 20 A、5 秒 > 22 A → 367。"""
+    for current, tau in ((19.0, 600.0), (21.0, 60.0), (30.0, 5.0)):
+        d = Driver()
+        d.run(1)                                    # 平均值以健康電流 6 A 起算
+        setpoint = {600.0: SPEC.pitch_motor_overcurrent_10m_a, 60.0: SPEC.pitch_motor_overcurrent_60s_a,
+                    5.0: SPEC.pitch_motor_overcurrent_5s_a}[tau]
+        n = _steps_to_cross(HEALTHY["WROT_PtMotCurBl1"], current, setpoint, tau)
+        assert d.run(n - 1, WROT_PtMotCurBl1=current) == [], (current, n)
+        assert d.run(1, WROT_PtMotCurBl1=current) == [(367, "T1")], (current, n)
+
+
+def test_pitch_drive_i2t_alarm_comes_before_the_overload_and_clears_by_itself() -> None:
+    """RMS 電流超過驅動器連續額定（assumed 14 A）→ A381；電流回落後自動解除（手冊：should disappear）。"""
+    d = Driver()
+    d.run(1)                                        # 平均值與 I2t 以健康電流起算
+    d.run(60, WROT_PtMotCurBl1=19.0)
+    assert d.kinds(381) == ["alarm_raised"] and d.kinds(367) == []
+    d.run(300)
+    assert d.kinds(381) == ["alarm_raised", "alarm_cleared"]
+    d.run(120, WROT_PtMotCurBl2=19.0, WROT_PtMotCurBl3=19.0)
+    assert d.kinds(382) == ["alarm_raised"] and d.kinds(383) == ["alarm_raised"]
+
+
+def test_rotor_speed_sensor_fault_compares_with_the_converter_speed() -> None:
+    """029：PLC 的轉子轉速與變頻器轉速差 > 10 %（延時 5 s，assumed）；低於 6.5 rpm 不比對。"""
+    d = Driver()
+    conv = {"converter_rotor_rpm": 20.0}
+    assert d.run(600, internal=conv, WROT_RotSpd=18.1) == []           # 9.5 %
+    assert d.run(5, internal=conv, WROT_RotSpd=17.9) == []             # 10.5 %：第一個樣本起算 5 s
+    assert d.run(1, internal=conv, WROT_RotSpd=17.9) == [(29, "T1")]
+    slow = Driver()
+    assert slow.run(60, internal={"converter_rotor_rpm": 6.0}, WROT_RotSpd=3.0) == []
+    # 沒給變頻器轉速時改比 WGEN_GnSpd
+    fallback = Driver()
+    fallback.run(5, WROT_RotSpd=15.0)
+    assert fallback.run(1, WROT_RotSpd=15.0) == [(29, "T1")]
+
+
+def test_wind_meter_fault_needs_a_turning_rotor_for_60s() -> None:
+    """230（Appendix D）：轉子 > 6.5 rpm 時風速 < 0.5 m/s 持續 60 s；轉子停著時風速 0 是正常的。"""
+    d = Driver()
+    assert d.run(60, WMET_WSpeedNac=0.3) == []
+    assert d.run(1, WMET_WSpeedNac=0.3) == [(230, "T1")]
+    still = Driver()
+    assert still.run(300, producing=False, WMET_WSpeedNac=0.0, WROT_RotSpd=2.0, WGEN_GnSpd=2.0) == []
+
+
+def _drive_vanes(plc: PlcProtection, vane1: List[float], wind: float = 10.0) -> List[tuple]:
+    trips: List[tuple] = []
+    for t, reading in enumerate(vane1, start=1):
+        out = {**HEALTHY, "WMET_WSpeedNac": wind}
+        trips += plc.evaluate(out, float(t), 1.0, True, internal={"vane1_io": reading, "vane2_io": 0.01 * t})
+    return trips
+
+
+def test_frozen_wind_vane_trips_after_a_minute_with_wind() -> None:
+    """231（手冊）：1 分鐘平均風速 > 4.0 m/s 時風向標 I/O 讀值凍結超過 1 分鐘；有在動就不跳、風小不判定。"""
+    plc = PlcProtection(SPEC)
+    assert _drive_vanes(plc, [3.21] * 61) == []                 # 第 2 個樣本起凍結，經過 59 s
+    assert _drive_vanes(plc, [3.21]) == [(231, "T1")]
+    moving = PlcProtection(SPEC)
+    assert _drive_vanes(moving, [3.21 + 0.01 * (i % 2) for i in range(600)]) == []
+    calm = PlcProtection(SPEC)
+    assert _drive_vanes(calm, [3.21] * 600, wind=3.0) == []
+    # 沒給 I/O 讀值（例：單元測試）就不做凍結判定：製程值在固定風向下本來就不變
+    assert Driver().run(600) == []
+
+
+def test_cooling_water_flow_events_only_while_producing() -> None:
+    """422 / 439（assumed 90 % / 75 % 額定流量）：ABB 跳機同時送 021；停機時不判定。"""
+    d = Driver()
+    assert d.run(10, internal={"cooling_flow_ratio": 0.85}) == []
+    d.run(1, internal={"cooling_flow_ratio": 0.85})
+    assert d.kinds(422) == ["alarm_raised"]
+    assert d.run(5, internal={"cooling_flow_ratio": 0.70}) == []
+    assert d.run(1, internal={"cooling_flow_ratio": 0.70}) == [(21, "T1"), (439, "T1")]
+    idle = Driver()
+    assert idle.run(120, producing=False, internal={"cooling_flow_ratio": 0.0}) == []
+
+
+def test_cooling_water_conductivity_events() -> None:
+    """423 / 440（assumed 0.5 / 1.0 µS/cm）：ABB 跳機同時送 021。"""
+    d = Driver()
+    d.run(11, WCNV_IGCTWtrCond=0.6)
+    assert d.kinds(423) == ["alarm_raised"] and d.kinds(440) == []
+    assert d.run(5, WCNV_IGCTWtrCond=1.2) == []
+    assert d.run(1, WCNV_IGCTWtrCond=1.2) == [(21, "T1"), (440, "T1")]

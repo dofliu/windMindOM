@@ -64,7 +64,7 @@ class TurbineReading(BaseModel):
     cnvGridPower: Optional[float] = None     # kW  (WCNV_CnvGdPwrAt)
     cnvGenFreq: Optional[float] = None       # Hz  (WCNV_CnvGnFrq)
     cnvGenPower: Optional[float] = None      # kW  (WCNV_CnvGnPwr)
-    igctWaterCond: Optional[float] = None    #     (WCNV_IGCTWtrCond)
+    igctWaterCond: Optional[float] = None    # µS/cm (WCNV_IGCTWtrCond，冷卻水導電度)
     igctWaterPres1: Optional[float] = None   # bar (WCNV_IGCTWtrPres1)
     igctWaterPres2: Optional[float] = None   # bar (WCNV_IGCTWtrPres2)
     igctWaterTemp: Optional[float] = None    # °C  (WCNV_IGCTWtrTmp)

@@ -90,6 +90,8 @@ class WaterCoolingLoop:
         self._fouling_factor = 0.0        # 0=clean, fouling_max=fully fouled
         self._coolant_level_pct = 100.0   # coolant level (100% = full)
         self._leak_rate_lph = 0.0         # leak rate in litres/hour (0 = no leak)
+        # Flow multiplier of a worn pump impeller (fault injection, WMOM-20261021-08-c); 1.0 = healthy
+        self.pump_flow_scale = 1.0
 
     @property
     def flow_lpm(self) -> float:
@@ -156,7 +158,7 @@ class WaterCoolingLoop:
 
         # ── Pump flow dynamics (first-order response) ──
         if self.pump.is_running and self.pump.health > 0.1:
-            target_flow = s.pump_flow_rated_lpm * self.pump.health
+            target_flow = s.pump_flow_rated_lpm * self.pump.health * self.pump_flow_scale
         else:
             target_flow = 0.0
 

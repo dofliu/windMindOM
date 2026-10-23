@@ -6,7 +6,7 @@ RAG 維修助手是拿警報碼去查 Z72 手冊；模擬器送出的碼若與�
 1. 事件碼存在於 `shared/data/z72_alarm_catalog.json`
 2. ``type`` 等於目錄等級、``desc`` 等於目錄文字（不另寫自創描述）
 3. 不使用 I（資訊）類事件當故障警報
-4. 每個情境至少一個跳機碼
+4. 每個情境至少一個跳機碼（刻意沒有警報的劣化除外，WMOM-20261021-08-c）
 5. 每個預期碼都是 PLC 保護層（WMOM-20261021-03-b）真的能送出的碼——``alarm_codes`` 是
    ground truth 的預期碼，若 PLC 送不出來，資料裡就永遠不會出現
 
@@ -35,6 +35,8 @@ from simulator.physics.plc_protection import raisable_codes
 from simulator.physics.turbine_physics import TurbineSpec
 
 SCENARIOS: List[FaultScenario] = list(FAULT_SCENARIOS.values())
+# 沒有任何警報 / 跳機的劣化：偏航失準（兩支風向標一起偏，PLC 看不出來）
+SILENT_SCENARIOS = {"yaw_misalignment"}
 
 
 ALL_ALARMS = [(s, a) for s in SCENARIOS for a in s.alarm_codes]
@@ -70,6 +72,10 @@ def test_expected_code_can_be_raised_by_plc(scenario: FaultScenario, alarm: Dict
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s.id)
 def test_every_scenario_has_a_trip_code(scenario: FaultScenario) -> None:
+    """有預期碼的情境都會跳機；唯一例外是刻意沒有任何警報的劣化（只能從趨勢看出來，WMOM-20261021-08-c）。"""
+    if scenario.id in SILENT_SCENARIOS:
+        assert scenario.alarm_codes == []
+        return
     assert any(a["type"] in ("T1", "T2") for a in scenario.alarm_codes)
 
 

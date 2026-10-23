@@ -1,0 +1,103 @@
+# 2026-10-23 — WMOM-20261021-08-c：故障庫擴充
+
+> Session 類型：實作
+> Session 長度：長
+> 主導：Claude（新增哪些故障、alias 處理、導電度 tag、範例包由劉老師決定）
+> 結果：（進行中）
+
+---
+
+## 1. Session 目標
+
+-08-b 合併後，劉老師要「接著做故障庫擴充」（-08 的第三個子項）。ISSUES 原描述：故障庫往 Z72 常見事件擴充，另修
+`gearbox_overheat` / `pitch_motor_fault` / `yaw_misalignment` 三個有物理但不能注入的 alias。
+
+## 2. 調查
+
+- 故障庫 17 個情境（11 真故障 / 5 感測器故障 / 1 nuisance）；警報目錄 315 碼。
+- **Z72 是直驅**：目錄與手冊都沒有齒輪箱事件（只有 387 / 388 變槳齒輪潤滑），`gearbox_overheat` 不適用。
+- 手冊 Appendix D 有新事件的設定值：
+  - 變槳馬達電流 `CDOvrCurr5s` 22 A / `CDOvrCurr60s` 20 A / `CDOvrCurr10m` 18 A → 367–369。
+  - 風速計故障 230：`SDWspdMinRange` 0.5 m/s、`SDRotSpdMinRange` 6.5（轉速）、`SDWndMtrFltTm` 60 s。
+  - 風向標故障 231 / 232：`SDWndVnFltTm` 60 s；Appendix C：1 分鐘平均風速 > 4.0 m/s 時訊號凍結。
+  - 轉速感測器 029：Appendix C「與變頻器量到的發電機轉速差 > 10 %」，沒給延時。
+  - 381–383（I2t 電流限制）、422 / 439（冷卻水流量）、423 / 440（導電度）只寫 See [ABB] → 設定值為模擬假設。
+- 真實 tag 清單有 `WROT_PtMotCurBl1-3`（變槳馬達電流），註冊表沒有；沒有冷卻水流量類比 tag。
+- `WCNV_IGCTWtrCond` 現在算的是「冷卻水流量比 0–1」，真實 tag 是導電度。
+- 評分已支援沒有警報的 case（`first_alarm` 為 null 時不評延遲、算早期預警）。
+
+## 3. 劉老師決定（2026-10-23）
+
+全選建議選項：
+
+1. 新故障四組全做：變槳驅動劣化、冷卻水泵磨耗、量測感測器三種（轉速 / 風速計 / 風向標 1）、靜態偏航失準（無警報）。
+2. `gearbox_overheat` 刪除。
+3. `WCNV_IGCTWtrCond` 改為導電度，並加去離子劣化故障（423 → 440）。
+4. 加範例資料包 06。
+
+## 4. 實作
+
+### 4.1 物理（`turbine_physics.py`、`cooling_model.py`、`drivetrain_model.py`、`vibration_spectral.py`）
+
+- 新 RNG stream `_ext_rng`（seed + 15485863）：每台的變槳馬達電流倍率（±6 %）、導電度基準（0.15–0.25 µS/cm），
+  三個電流 tag 的量測雜訊。
+- 變槳馬達電流 `_pitch_motor_currents`：伺服通電（TurSt 4 / 5 / 6 / 9 或正在變槳）時 2 A＋7 A × 推力比（上限 1.5）
+  ＋1.2 A × 共同變槳速度；停在順槳為 0。
+- `IGCTWtrCond` 改為導電度；感測器模型設定換成導電度量級，但抽樣次數不變（drift > 0、不卡值）。
+- 感測器故障新模式：`scale`（讀值乘倍率）、`hold`（停在卡住當下的讀值，值＝注入編號，換一次注入重取）；
+  pinned / hold 的讀值沒有雜訊。
+- 冷卻水路 `pump_flow_scale`（泵磨耗），水路熱傳 ∝ 流量^0.8。
+- 偏航失準：兩支風向標一起加安裝偏差，控制器把風向標歸零 → 轉子偏 16° × 嚴重度；功率 × cos³。
+- 刪 `gearbox_overheat`（物理、頻譜、傳動鏈參數）；`pitch_motor_fault` 拿掉 1P 振動（沒有氣動不對稱）。
+
+**健康輸出逐位元比對**（seed 1 / 7 / 42 × dt 1 / 5 s × 1500 步、變動風速與風向）：既有 tag 只有 `WCNV_IGCTWtrCond` 改變。
+
+### 4.2 PLC（`plc_protection.py`）
+
+- 新規則：029（轉速差 > 10 %，5 s）、230（轉子 > 6.5 rpm、風速 < 0.5 m/s、60 s）、231 / 232（I/O 讀值凍結
+  60 s、60 s 平均風速 > 4 m/s）、367–369（5 s / 60 s / 10 分鐘平均 > 22 / 20 / 18 A）、381–383（I2t 熱狀態 > 1，
+  τ 60 s、14 A）、422 / 439 + 021（流量 < 90 % / 75 %，發電中）、423 / 440 + 021（導電度 > 0.5 / 1.0 µS/cm）。
+- `evaluate(..., internal=)`：不是 SCADA tag 的輸入（變頻器轉速、冷卻水流量、風向標 I/O 讀值）。
+
+**第一版的問題**：029 直接比 `WGEN_GnSpd`，健康機組併網後 24 秒就跳 029——模擬的傳動鏈發電機轉速在暫態時
+落後轉子（dt 5 s、風速快速變化時健康機組可差 2 倍）。改比變頻器轉速（直驅＝轉子實際轉速）。
+
+### 4.3 校正（14 m/s、25 °C、3 h，關 PLC）
+
+| 情境 | 健康 | 嚴重度 0.5 | 1.0 | 跳機設定 |
+|---|---|---|---|---|
+| `pitch_motor_fault`（葉片 1 電流） | 5.5 A | 13.5 A | 21.5 A | 10 分鐘 > 18 A |
+| `converter_cooling_pump_wear`（流量 / Pres1） | 1.0 / 3.48 bar | 0.875 / 2.66 | 0.50 / 0.86 | 流量 < 0.75 |
+| `cooling_water_deionizer_exhausted` | 0.22 µS/cm | 0.49 | 1.30 | > 1.0 |
+| `rotor_speed_sensor_fault`（RotSpd vs GnSpd） | 22.5 / 22.5 | 20.8（−7.4 %） | 15.8（−30 %） | > 10 % |
+| `anemometer_fault`（WSpeedNac） | 14.0 | 11.9 | 0（卡死） | < 0.5 m/s |
+| `yaw_misalignment`（TotPwrAt / TwrSsMom） | 1820 kW / 384 | 1767 / 821 | 1616 / 1244 | 無警報 |
+
+第一版的偏航失準把轉子面對的風乘 cos，14 m/s 時反而多發電（1820 → 2020 kW：本模型的全載變槳依風速決定），
+改成功率 × cos³。泵磨耗第一版水溫不變，加上水路熱傳隨流量下降。
+
+**開 PLC、嚴重度 3 h 從 0 升到 1**（14 m/s 定風速與 10 m/s 紊流兩種）：381（0.54）→ 367（0.84）；422（0.45）
+→ 432（0.54）→ 439 + 021（0.71）；423（0.51）→ 440 + 021（0.85）；029（0.58）；230（0.81）；231（0.51，紊流時
+之後也可能 233）；偏航失準與健康機組沒有任何事件。
+
+### 4.4 情境、標準答案、詞彙
+
+- 7 個 `FaultScenario`（答案欄位、key signals、手冊處置、simulation notes）。
+- 詞彙加 `rotor_speed_sensor`、`wind_vane_alignment`、`nacelle_anemometer`，`yaw` 群組改名。
+- `manual_coverage` 加 `none`；`CONTRACT_VERSION` 1.6。
+- knowledge baseline 語料補 6 段（381 / 367、422 / 432 / 439、423 / 440、029、230、231）。
+- 評分：手冊引用三項的分母改為有預期碼的故障 case。
+- 基準助手：關鍵字加 rotor speed、wind meter / anemometer。
+
+### 4.5 測試
+
+- `test_plc_protection.py` +7（新規則）。
+- `tests/physics/test_fault_threshold_reach.py`：
+  - 健康上限 +5。
+  - 跳機設定值 +6。
+  - 感測器故障只改那支讀值 +3（風速計兩個 tag）。
+  - `_ext_rng` 守門、變槳故障只抬葉片 1 電流、偏航失準 cos³ 與風向標一致。
+- `test_fault_signature.py`：換掉三個 alias、加 4 個新故障。
+- 既有測試配合：
+  - 「每個情境都有跳機碼」允許明列的無警報情境。
+  - 感測器故障清單、tag 數 121 / 50、資料包欄數 105。
