@@ -399,6 +399,18 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > `/clear`, `DELETE /api/scenarios/{id}`). `wind_profile` in the body must be a string; the scenario also
 > records the profile actually applied (`wind_profile_applied`), which is what packs and replays report.
 >
+> **Farm-level events: nuisance negatives (WMOM-20261021-08-b, DEC-20261023-02).** `generate-bulk` accepts
+> an optional `farm_events` list. Each item: `kind` (`grid_voltage_dip` — magnitude = grid voltage in p.u.,
+> 0–0.95; `grid_frequency_excursion` — offset in Hz, −3–3; `rapid_wind_direction_change` — swing amplitude in
+> degrees, 5–120), `at_hour` or `offset_seconds` (default 0), `duration_s` or `duration_minutes` (required,
+> > 0 and ≤ 86400 s) and `magnitude` (required). At most 50 items; unknown kind → 404; missing / non-numeric /
+> non-finite / out-of-range values → 400. The events act on the whole farm during the batch (grid model
+> override, wind-direction offset) and are undone afterwards. The response adds `farm_events_scheduled`; a
+> named scenario records them in `config.farm_events`, and its ground truth labels the alarms / trips they
+> cause as `nuisance` cases and lists them under `farm_events` (contract v1.5). They never appear in the
+> blind pack or replay. `main_bearing_temp_loose_contact` is a nuisance fault scenario (category
+> `nuisance`): it trips 242 now and then and restarts on its own (no maintenance lock, never `tripped`).
+>
 > `GET /api/scenarios/{id}/ground-truth` (supervisor; always requires a token, even when
 > `WMOM_AUTH_ENFORCE` is off) returns the scenario's answer key
 > (`ground_truth.json`, contract v0.1): one case per fault injection with `category`, `fault_id`,

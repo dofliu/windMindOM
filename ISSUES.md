@@ -17,11 +17,12 @@
 | in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 144 |
-| **total** | **154** |
+| done | 145 |
+| **total** | **155** |
 
-最後更新：2026-10-23（**WMOM-20261022-02 done**（手冊保真度，DEC-20261023-01）：手冊 Appendix C / D 衝突以 D 為準（液壓 170 / 150 bar、30 s、190 bar 解除；233 延時 60 s＋60 s 平均風速；Pt100 10 s 濾波；切出陣風 3 s；273 為 45 °C；編碼器 −5–95°）；自動重啟被封鎖改送 A039（手冊獨有碼，目錄 315 碼）、拿掉全域每小時 3 次啟動上限；`yaw_sensor_drift` 每台機組都跳 233；合約 v1.4、範例資料包重建。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 144 = 154。詳見 `work-logs/2026-10/2026-10-23-manual-fidelity.md`）。
-前次最後更新：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
+最後更新：2026-10-23（**WMOM-20261021-08-b done**（EPIC-DS Phase 4-b 誤報 / 健康負樣本，DEC-20261023-02）：風場層級事件（電網電壓驟降、頻率越界、風向快速變化）＋新 PLC 規則偏航逾時 223（Appendix D）＋ nuisance 情境 Pt100 接點鬆動（手冊 §11.3）；標準答案 nuisance case（`nuisance_cause` / `window_end_ts` / `farm_events`，環境性停機自動歸類）；評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），舊規則不變；starter kit 第五個範例資料包（健康負樣本）；合約 v1.5。open 6 / in_progress 2 / deferred 2 / done 145 = 155。詳見 `work-logs/2026-10/2026-10-23-nuisance-negatives.md`）。
+前次最後更新：2026-10-23（**WMOM-20261022-02 done**（手冊保真度，DEC-20261023-01）：手冊 Appendix C / D 衝突以 D 為準（液壓 170 / 150 bar、30 s、190 bar 解除；233 延時 60 s＋60 s 平均風速；Pt100 10 s 濾波；切出陣風 3 s；273 為 45 °C；編碼器 −5–95°）；自動重啟被封鎖改送 A039（手冊獨有碼，目錄 315 碼）、拿掉全域每小時 3 次啟動上限；`yaw_sensor_drift` 每台機組都跳 233；合約 v1.4、範例資料包重建。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 144 = 154。詳見 `work-logs/2026-10/2026-10-23-manual-fidelity.md`）。
+更早：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
 前次最後更新：2026-10-22（**WMOM-20261022-01 done**（EPIC-DS 全面檢查，-08 其餘子項前）：三路 code review（🔴 2、🟡 18、🟢 14）＋真伺服器端到端 47 項；修非 Z72 機型被 Z72 溫度保護跳機、Live 殘留 PLC 狀態漏進情境、評測 stream=false 搶先開播等；劉老師決定（DEC-20261022-05）正式評測要伺服器強制登入、批次生成移到背景執行緒、建立正式評測檢查總速率、手冊保真度另開 **WMOM-20261022-02（open，排在 -08 其餘子項前）**。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 142 = 153。詳見 `work-logs/2026-10/2026-10-22-epic-ds-verification.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
@@ -1540,7 +1541,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-08 — Phase 4：情境難度與多樣性
 
-- **Status**: in_progress（拆子項分 PR：-08-a done）
+- **Status**: in_progress（拆子項分 PR：-08-a done、-08-b done）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 3-5 天（可拆）
@@ -1569,6 +1570,28 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **測試**：`test_sensor_faults.py` 16 項、`test_fault_threshold_reach.py` +12 項（含「故障機組除了那支感測器逐位元等於健康機組」）；既有守門自動涵蓋。
   - 設計、已知限制見設計文件 §6.13。
 - **Depends on**: WMOM-20261021-04
+
+### WMOM-20261021-08-b — Phase 4-b：誤報 / 健康負樣本
+
+- **Status**: done（2026-10-23）
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: Claude
+- **Description**: -08 的第二個子項（劉老師 2026-10-23 排定：先做誤報 / 健康負樣本）。到 v1.4 標準答案只有故障 case，看到警報就報故障不會被扣分；要讓「不是故障的警報 / 跳機」也有答案、評分量得到誤報。
+- **Deliverable**: 干擾來源（風場事件、nuisance 情境）、標準答案 nuisance case、評分新指標、健康負樣本範例資料包、合約 v1.5
+- **完成紀錄**:
+  - **劉老師確認**（2026-10-23，DEC-20261023-02）：干擾來源四個都做（電網擾動、手冊 §11.3 nuisance 跳機、環境性停機標記、全健康負樣本資料包）；答案用 nuisance case；評分加新指標、不改舊規則；-08 每個子項各一個 PR。
+  - **風場層級事件**（`simulator/farm_events.py`、`generate-bulk` 的 `farm_events`）：`grid_voltage_dip`（482 / 481 + 021）、`grid_frequency_excursion`（489 + 021）、`rapid_wind_direction_change`（180 s 週期正弦擺動 → 223）；事件前的資料逐位元不變，批次結束後電網 / 風向復原。
+  - **新 PLC 規則 223 偏航逾時**（Appendix D `SDYawTmOutFact` 5 / `SDYawTmOutOffs` 0 s；解纜不算；健康偏航實際 / 允許 ≤ 1.34 倍）。
+  - **nuisance 情境 `main_bearing_temp_loose_contact`**：Pt100 間歇瞬斷 → 242 跳機、自動重啟，不鎖機組；排程用獨立 `_contact_rng`；故障清掉後排程重設。
+  - **標準答案**：nuisance case（風場事件每台有反應的機組一個、注入的 nuisance 一個、其餘沒有故障時的事件歸環境性 case）；`nuisance_cause` / `window_end_ts` / `farm_event_id` / 頂層 `farm_events`；`healthy_turbines` 只看故障 case；跟在 nuisance 跳機後的 A039 歸同一個 case。詞彙加 `nuisance_causes`。
+  - **評分**：干擾辨識率、把干擾當故障、誤報率（誤報次數 ÷ 沒有故障的機組時數 × 100）；故障指標只算故障 case、規則不變；舊答案照常評分。基準助手加「同一個碼 60 秒內另一台也出現 → nuisance」。
+  - **starter kit**：`z72-starter-05` 健康負樣本（12 個 nuisance case、0 故障）；01–04 的資料逐位元不變。基準：干擾辨識率 66.7 %、誤報 4 次、5.46 / 100 機組小時。
+  - **合約 v1.5**（§6 / §7 / §7.1 / §8 / §9 / §10 / §11）、API_GUIDE、設計文件 §6.16。
+  - **測試**：新 `test_nuisance_events.py` 14 項；PLC 223 規則 3 項；評分 / 基準 4 項；端點 13 項；Pt100 接觸不良物理守門 1 項。
+  - work-log：`work-logs/2026-10/2026-10-23-nuisance-negatives.md`
+- **Depends on**: WMOM-20261022-02
 
 ### WMOM-20261021-09 — Phase 3d：學生專題 starter kit（介面合約 v1 + 範例資料包）
 
@@ -1788,8 +1811,8 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 3c | ~~WMOM-20261021-07~~ ✅ | ③ OPC UA server（模仿 Bachmann tag；回放＋即時模擬，合約 v1.2） | 🔵 |
 | 3d | ~~WMOM-20261021-09~~ ✅ | 學生專題 starter kit（合約 v1 + 範例資料包） | 🔵 |
 | 檢查 | ~~WMOM-20261022-01~~ ✅ | 全面程式碼檢查 + 功能驗證（DEC-20261022-05） | 🔵 |
-| 4 | WMOM-20261022-02 | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（-08 其餘子項前） | 🔵 |
-| 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本）；拆子項：~~-08-a 感測器故障 vs 真故障~~ ✅ | 🔵 |
+| 4 | ~~WMOM-20261022-02~~ ✅ | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（-08 其餘子項前） | 🔵 |
+| 4 | WMOM-20261021-08 | 難度與多樣性（連鎖、感測器故障、多重故障、誤報、負樣本）；拆子項：~~-08-a 感測器故障 vs 真故障~~ ✅、~~-08-b 誤報 / 健康負樣本~~ ✅；其餘：故障庫擴充、多重故障 + 早期徵兆（同機組多 case 評分規則待定） | 🟡 |
 
 ### EPIC-M5 — Knowledge / RAG + 現場 mobile UI（2026-09，PMF 關鍵）
 

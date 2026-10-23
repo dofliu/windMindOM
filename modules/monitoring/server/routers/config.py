@@ -124,9 +124,10 @@ def _parse_farm_events(raw: List[dict]) -> List[FarmEvent]:
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise HTTPException(400, f"farm_events[{i}] 必須是物件")
-        kind = FARM_EVENT_KINDS.get(item.get("kind")) if isinstance(item.get("kind"), str) else None
+        kind_id = item.get("kind")
+        kind = FARM_EVENT_KINDS.get(kind_id) if isinstance(kind_id, str) else None
         if kind is None:
-            raise HTTPException(404, f"farm_events[{i}]: 未知事件種類 {item.get('kind')!r}；可用：{sorted(FARM_EVENT_KINDS)}")
+            raise HTTPException(404, f"farm_events[{i}]: 未知事件種類 {kind_id!r}；可用：{sorted(FARM_EVENT_KINDS)}")
         if "magnitude" not in item or ("duration_s" not in item and "duration_minutes" not in item):
             raise HTTPException(400, f"farm_events[{i}]: 必須給 magnitude 與 duration_s（或 duration_minutes）")
         try:

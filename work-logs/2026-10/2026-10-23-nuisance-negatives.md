@@ -1,0 +1,140 @@
+# 2026-10-23 — WMOM-20261021-08-b：誤報 / 健康負樣本
+
+> Session 類型：實作
+> Session 長度：長
+> 主導：Claude（-08 子項順序與三組設計選項由劉老師決定，DEC-20261023-02）
+> 結果：WMOM-20261021-08-b done；合約 v1.5
+
+---
+
+## 1. Session 目標
+
+-02（手冊保真度）合併後，劉老師要接著做 -08 其餘子項，並選了**先做誤報 / 健康負樣本**。
+
+到 v1.4 為止，標準答案只有故障 case：
+
+- 評分只看故障有沒有被診斷出來，看到警報就報故障不會被扣分。
+- 範例資料包裡健康機組幾乎沒有警報 / 跳機。
+- `nuisance` 預測只統計、不評分。
+
+目標：讓「不是故障的警報 / 跳機」也有答案，評分量得到誤報。
+
+## 2. 實際完成
+
+### 2.1 盤點與劉老師決定（DEC-20261023-02）
+
+- **干擾候選**：
+  - 手冊 §11.3 點名的 nuisance trips：風向變化快的偏航逾時、Pt100 鬆線。
+  - 電網擾動：模擬器已有電網保護 / LVRT 的停機碼。
+  - 環境性停機：暴風切出 201、極端氣溫 256 / 273。
+- **偏航逾時**：手冊 Appendix D 有 `SDYawTmOutFact` / `SDYawTmOutOffs`，模擬器沒有 223 規則。
+  - 健康偏航實測最長 55 s，實際 / 允許（factor 5）≤ 1.34 倍，裕度足夠。
+  - 單向的風向轉變偏航追得上、不會逾時，所以要用來回擺動。
+
+| 問題 | 決定 |
+|---|---|
+| 干擾來源 | 電網擾動、手冊 §11.3 nuisance 跳機、環境性停機標記、全健康負樣本資料包，四個都做 |
+| 答案格式 | nuisance case（時間窗、預期碼、成因；component 可為 null） |
+| 評分 | 加新指標、不改舊規則 |
+| 交付 | -08 每個子項各一個 PR |
+
+### 2.2 實作
+
+**風場層級事件**（新檔 `simulator/farm_events.py`）：
+
+- 三種：`grid_voltage_dip`（電壓 p.u.）、`grid_frequency_excursion`（頻率偏移 Hz）、`rapid_wind_direction_change`（擺動振幅°）。
+- 答案文字（根因、處置、模擬差異）、會送的事件碼、關鍵訊號都集中在 `FARM_EVENT_KINDS`。
+- `generate_bulk(farm_events=..., on_farm_event=...)` 逐個物理子步套用：
+  - 電網：`GridEnvironmentModel.apply_event_override`；亂數抽樣次數不變，事件前的資料逐位元相同。
+  - 風向：`_direction_offset_deg` 加在風場風向上（180 s 週期正弦，頭尾 60 s 漸強 / 漸弱）。
+  - 事件結束恢復批次開始前的電網狀態，批次結束（含例外）時電網與風向都復原。
+
+**PLC 偏航逾時 223**（`plc_protection.py`）：
+
+- 對風（不含解纜，`yaw_model` 新輸出 `is_unwinding`）開始時算允許時間＝5 × max(|誤差|, 2°) ÷ 0.5 °/s + 0 s。
+- 這一段對風超過就跳機；偏航停下就重算。
+- `TurbineSpec.yaw_timeout_factor` / `yaw_timeout_offset_s` 列入 `Z72_PLC_SETPOINT_FIELDS`。
+
+**nuisance 情境 `main_bearing_temp_loose_contact`**：
+
+- 注入後 5–20 分鐘第一次、之後每 15–45 分鐘瞬斷 10–30 s，瞬斷時讀值＝斷線值，PLC 送 242。
+- 排程用獨立的 `_contact_rng`（不動既有 RNG）；故障清掉後排程重設。
+- `FaultEngine.mark_tripped` 對 nuisance 回 False：不鎖機組、接回後自動重啟。
+- `FaultScenario.nuisance_cause` 新欄位（故障為 None）。
+
+**標準答案**（`ground_truth.py`，合約 v1.5）：
+
+- nuisance case 三種來源：
+  - 注入的 nuisance：每次一個；第一個預期碼跳機當 `trip`，跟在後面的 A039 也歸它。
+  - 風場事件：每台有反應的機組一個（事件期間到結束後 30 分鐘、沒被認領的該事件碼）。
+  - 環境性：沒有故障 case 的機組（或故障開始前）其餘沒被認領的事件，同機組 30 分鐘內一群。
+- 新欄位 `nuisance_cause`、`window_end_ts`、`farm_event_id`，頂層 `farm_events`。
+- `healthy_turbines`＝沒有故障 case；`unattributed_events` 只剩故障連帶事件。
+- 詞彙加 `nuisance_causes`。
+
+**API**（`routers/config.py`）：`generate-bulk` 的 `farm_events`（`_parse_farm_events`：種類、時間、長度、強度範圍、有限數、bool、最多 50 筆）；情境設定記 `farm_events`；回應加 `farm_events_scheduled`。資料包 manifest 不帶。
+
+**評分**（`score.py`）：
+
+- 故障指標只算故障 case，規則不變；舊答案（沒有 `window_end_ts`）照常評分。
+- 新增：干擾辨識率、把干擾當故障（case 數與筆數）、誤報率（誤報次數 ÷ 沒有故障的機組時數 × 100）、nuisance case 明細。
+- 基準助手：同一個碼 60 秒內已在另一台機組出現 → nuisance。
+
+**starter kit**：`z72-starter-05` 健康負樣本（4 台、6 h、額定風速、7 月）。
+
+- 0.5 h 注入 WT003 Pt100 鬆線。
+- 1 h 電壓驟降 0.70 p.u.、20 s。
+- 2.5 h 頻率 −1.8 Hz、40 s。
+- 4 h 風向擺動 ±60°、25 分鐘。
+- 結果：12 個 nuisance case、0 個故障、187 筆事件。
+
+### 2.3 驗證
+
+- **範例資料包 01–04**：重建後資料逐位元不變（新規則 223 在這些情境不觸發），只有 manifest 的版本與答案的新欄位。
+- **基準助手**（5 個資料包）：故障指標與 -02 相同；誤報 4 次（全在 05）；誤報率 5.46 次 / 100 機組小時（73.3 機組小時）；干擾 12 個認出 8 個（66.7 %），3 個被當故障。
+- **新測試**：
+  - `test_nuisance_events.py` 14 項：風場事件三種、事件前資料逐位元相同、Pt100 鬆線跳機與重啟、清掉後排程重設、標準答案 nuisance case、時間窗邊界、詞彙、資料包答案時間格式。
+  - PLC 223 規則 3 項；評分 / 基準 4 項；端點 13 項；Pt100 鬆線只改那支讀值的物理守門 1 項。
+- **既有測試調整**：
+  - 「每個故障滿嚴重度都跳機」與「key signal 偏離健康機組」排除 nuisance（另有專屬測試）。
+  - 標準答案測試：注入前 / 別台的事件改成環境性 case。
+  - PLC 液壓測試：偏航段給實際的偏航誤差（誤差 0 時 223 的允許時間只有 20 s）。
+- **完整 backend**：（見 §2.4）
+- **ruff / mypy**：與 origin/main 相比沒有新的 F / E / B；修掉兩個新的 mypy 型別錯誤；`engine.py` 的 `"None" not callable` 是既有的。
+
+### 2.4 code review
+
+（code-reviewer 進行中）
+
+## 3. 產出清單
+
+### 新增檔案
+
+- `modules/monitoring/simulator/farm_events.py`
+- `modules/monitoring/tests/test_nuisance_events.py`
+- `examples/rag_starter_kit/packs/z72-starter-05/`、`answers/z72-starter-05.ground_truth.json`
+- `work-logs/2026-10/2026-10-23-nuisance-negatives.md`
+
+### 修改檔案
+
+- **程式**：
+  - `modules/monitoring/simulator/engine.py`、`grid_model.py`、`ground_truth.py`
+  - `simulator/physics/plc_protection.py`、`turbine_physics.py`、`fault_engine.py`、`yaw_model.py`
+  - `server/routers/config.py`、`server/scenario_pack.py`
+  - `examples/rag_starter_kit/score.py`、`baseline_assistant.py`
+  - `tools/build_rag_starter_kit.py`
+- **資料**：`shared/data/rag_assistant_vocabulary.json`（1.5、`nuisance_causes`）、`examples/rag_starter_kit/`（重建）
+- **測試**：`test_fault_ground_truth.py`、`test_plc_protection.py`、`test_plc_integration.py`、`test_scenario_endpoints.py`、`tests/physics/test_fault_threshold_reach.py`、`tests/test_rag_starter_kit.py`
+- **文件**：合約 v1.5、`decision_log.md`（DEC-20261023-02）、EPIC-DS 設計文件 §6.16、`API_GUIDE.md`、`physics_model_status.md`、kit README、`ISSUES.md`、`STATUS.yaml`、`TODO.md`、`ROADMAP.md`、`CLAUDE.md`、`README.md`、架構文件
+
+## 4. 卡住 / 留給後續
+
+- 極端氣溫沒做進 05：額定風速、38 °C 時機艙控制櫃最高 49.7 °C（256 設定值 50 °C），要 39 °C 以上才跳，台灣沿海不切實際。
+- 暴風切出沒做進 05：24 m/s 以上全場切出後一直停著（回切要 20 m/s），會蓋掉其他干擾。
+- 上面兩種在情境裡出現時照樣標成環境性 case（合成事件測試）。
+- -08 其餘子項：故障庫擴充；多重故障 + 早期徵兆（同機組多 case 的評分規則要先定）。
+
+## 5. 下次怎麼接手
+
+- -08 下一個子項請劉老師挑：故障庫擴充，或多重故障 + 早期徵兆（後者要先定同機組多 case 的評分規則）。
+- 新增干擾來源：風場事件加進 `FARM_EVENT_KINDS`（`event_codes` 決定標準答案認領哪些碼），nuisance 情境用 `category="nuisance"` 加 `nuisance_cause`；成因先加進 `rag_assistant_vocabulary.json` 的 `nuisance_causes`。

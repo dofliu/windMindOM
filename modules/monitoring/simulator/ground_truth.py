@@ -610,6 +610,7 @@ class GroundTruthRecorder:
         ordered = sorted(observed, key=lambda o: o.ts)
         alarms = [o for o in ordered if o.kind in _ALARM_KINDS]
         trips = [o for o in ordered if o.kind == "trip"]
+        codes: List[JsonValue] = list(_codes_in_order(ordered))
         return {
             "case_id": case_id,
             "turbine_id": turbine_id,
@@ -620,7 +621,7 @@ class GroundTruthRecorder:
             "first_alarm_code": alarms[0].code if alarms else None,
             "trip_ts": iso_utc(trips[0].ts) if trips else None,
             "trip_code": trips[0].code if trips else None,
-            "observed_alarm_codes": _codes_in_order(ordered),
+            "observed_alarm_codes": codes,
             "other_observed_codes": [],
             "injection": None,
             "farm_event_id": farm_event_id,

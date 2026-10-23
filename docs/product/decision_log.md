@@ -1076,6 +1076,41 @@ WMOM-20261022-02 對照手冊修模擬器時，遇到三個需要決策的問題
 
 ---
 
+## DEC-20261023-02 — 誤報 / 健康負樣本：干擾來源、nuisance case 標準答案、加新指標不改舊規則
+
+**日期**：2026-10-23　**狀態**：accepted　**Decision maker**：劉老師（-08 先做誤報 / 健康負樣本，三組選項，2026-10-23 確認）＋ Claude（WMOM-20261021-08-b）
+
+### Context
+
+到 v1.4 為止，標準答案只有故障 case：評分只看「故障有沒有被診斷出來」，助手看到警報就報故障也不會被扣分（範例資料包裡健康機組幾乎沒有警報 / 跳機，`nuisance` 預測只統計不評分）。真實風場有大量不是故障的警報 / 跳機——電網擾動、風向變化快的偏航逾時、Pt100 鬆線（手冊 §11.3 點名的 nuisance trips）、暴風切出——RAG 維修助手要能說「這不是故障」，評分也要能量測誤報。
+
+### Considered Options
+
+1. 干擾來源：電網擾動（全場同時）、手冊 §11.3 的 nuisance 跳機、環境性停機的標記、全健康負樣本資料包——四個都做，或只做其中幾個。
+2. 標準答案格式：A. nuisance case（與故障 case 同一個清單、`category: nuisance`，時間窗 + 成因）；B. 只把事件標成「無故障」（沒有 case）。
+3. 評分：A. 加新指標、不改舊規則（故障指標只算故障 case）；B. 把干擾併進既有指標（例：偵測率分母含 nuisance case）。
+
+### Decision
+
+1. **四個都做**：
+   - 風場層級事件（`simulator/farm_events.py`，`generate-bulk` 的 `farm_events`）：電網電壓驟降、電網頻率越界——走既有的電網保護 / LVRT，全場發電中的機組幾乎同時跳 482 / 481 / 489 + 021、恢復後自動重啟；風向快速變化——風向以 180 s 週期正弦擺動，偏航追不上而逾時。
+   - 新 PLC 規則**偏航逾時 223**（Appendix D `SDYawTmOutFact` / `SDYawTmOutOffs`：對風開始時允許「factor × 偏航誤差 ÷ 偏航速度 + offset」秒，5 / 0 s，誤差下限 2°；解纜不算）。健康偏航實測最長 55 s、實際 / 允許 ≤ 1.34 倍，factor 5 有足夠裕度。
+   - 新 nuisance 情境 `main_bearing_temp_loose_contact`（手冊 §11.3「a loose wire in a generator Pt100」）：注入後 5–20 分鐘第一次、之後每 15–45 分鐘瞬斷 10–30 s，瞬斷時讀值同斷線（PLC 送 242 跳機），接回後自動重啟；不鎖機組（`FaultEngine.mark_tripped` 對 nuisance 不轉 tripped）。排程用自己的 RNG stream（`_contact_rng`），不動既有 RNG。
+   - 環境性停機：沒有注入、模擬自己產生的事件（暴風切出 201、極端氣溫 256 / 273）由標準答案歸類。
+   - 範例資料包 05（健康負樣本）：沒有故障，電網電壓驟降、頻率越界、風向快速變化、一台 Pt100 接點鬆動。
+2. **nuisance case（A）**：`category: "nuisance"`、`nuisance_cause`（`grid_disturbance` / `wind_direction_change` / `loose_contact` / `environment`，詞彙加 `nuisance_causes`）、時間窗 `window_end_ts`（風場事件 / 環境性：最後一個相關事件 + 30 分鐘）、`farm_event_id`；頂層 `farm_events`。風場事件每台有反應的機組一個 case；注入的 nuisance 每次一個；其餘沒被認領、發生在沒有故障的機組（或故障開始前）的事件歸成環境性 case（同機組 30 分鐘內一群）。`healthy_turbines` 改為「沒有故障 case」；`unattributed_events` 只剩故障連帶事件。合約 v1.5（加欄位）。
+3. **加新指標、不改舊規則（A）**：故障指標（偵測率…誤診）只算故障 case，規則不變；新增干擾辨識率（時間窗內有 `nuisance` 預測）、把干擾當故障（時間窗內的誤報）、誤報率（誤報次數 ÷ 沒有故障的機組時數 × 100）。`nuisance` 預測仍不撤回之前的故障診斷。
+
+### Consequences
+
+- 舊答案（v1.4 以前）照常評分：沒有 `window_end_ts` 一律到 `sim_end`、沒有 nuisance case。範例資料包 01–04 的資料逐位元不變（新規則 223 在這些情境不觸發），只有 manifest / 答案的版本與新欄位。
+- 基準助手加了「同一個碼 60 秒內已在另一台機組出現 → nuisance」：在 05 上認出 12 個干擾中的 8 個，誤報 4 次（全場一起跳的第一台、Pt100 鬆線），誤報率 5.46 / 100 機組小時——學生的助手要從事件模式（全場同時、反覆短暫、讀值立刻恢復）與環境量（電壓、頻率、風向）分辨。
+- 「把干擾當故障」與 `nuisance_during_fault` 互為制衡：狂報 `nuisance` 拿得到辨識率，但故障期間的 `nuisance` 會被列出；狂報故障則拉高誤報率。
+- 模擬假設（合約 §10）：風場事件全場同時、同一個量；風向擺動是規則的正弦；Pt100 瞬斷時間隨機但與嚴重度無關。
+- 留給後續：故障庫擴充；多重故障 + 早期徵兆（同機組多個 case 的評分規則要先定）；Appendix D 的暴風等級（204 Storm park）仍未模擬。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown
