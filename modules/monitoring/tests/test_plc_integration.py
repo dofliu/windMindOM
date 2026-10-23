@@ -75,8 +75,20 @@ def _run_until_tripped(scenario_id: str) -> Tuple[WindFarmSimulator, List[PlcEve
     return sim, events, states
 
 
-# nuisance 情境不鎖機組、不轉 tripped（Pt100 接觸不良另見 test_nuisance_events.py）
-FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance")
+# nuisance 情境不鎖機組、不轉 tripped（Pt100 接觸不良另見 test_nuisance_events.py）；沒有預期碼的故障
+#（偏航失準，WMOM-20261021-08-c）本來就不會跳機，另見下面的專屬測試
+FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance" and sc.alarm_codes)
+SILENT_FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance" and not sc.alarm_codes)
+
+
+@pytest.mark.parametrize("scenario_id", SILENT_FAULT_IDS)
+def test_silent_fault_never_raises_an_event_and_keeps_producing(scenario_id: str) -> None:
+    """沒有預期碼的故障滿嚴重度 3 h：PLC 沒有任何警報 / 跳機，機組一直在發電。"""
+    assert SILENT_FAULT_IDS == ["yaw_misalignment"]
+    sim, events, states = _run_until_tripped(scenario_id)
+    assert not sim.fault_engine.active_faults[0].tripped
+    assert [(e.kind, e.code) for e in events] == []
+    assert set(states) == {PRODUCING}
 
 
 @pytest.mark.parametrize("scenario_id", FAULT_IDS)
