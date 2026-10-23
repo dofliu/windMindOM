@@ -1590,7 +1590,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **starter kit**：`z72-starter-05` 健康負樣本（12 個 nuisance case、0 故障）；01–04 的資料逐位元不變。基準：干擾辨識率 66.7 %、誤報 4 次、5.46 / 100 機組小時。
   - **合約 v1.5**（§6 / §7 / §7.1 / §8 / §9 / §10 / §11）、API_GUIDE、設計文件 §6.16。
   - **code review**（沒有 must-fix）：S1–S6 全修——風場事件歸屬（最晚開始、進行中連帶、事件碼不讓故障認領）、A039 跟前一次跳機、`build()` 可重呼叫、評分加干擾判定準確率、合約維持 v1.5 並在 §2 註明；S2 的重現追到物理：下垂降載少送的功率被算成變頻器發熱（頻率 +1 Hz 未跳機時誤送 420），改為只算效率損失（健康資料逐位元不變）。
-  - **測試**：新 `test_nuisance_events.py` 24 項；PLC 223 規則 3 項；評分 / 基準 4 項；端點 13 項；Pt100 接觸不良物理守門 1 項。backend 1991 → 2046 passed / 7 skipped / 1 xfailed。
+  - **測試**：新 `test_nuisance_events.py` 24 項；PLC 223 規則 3 項；評分 / 基準 4 項；端點 13 項；Pt100 接觸不良物理守門 1 項。backend 1991 → 2051 passed / 7 skipped / 1 xfailed（含 Codex review 修正 5 項）。
   - work-log：`work-logs/2026-10/2026-10-23-nuisance-negatives.md`
 - **Depends on**: WMOM-20261022-02
 

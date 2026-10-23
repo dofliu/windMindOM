@@ -99,7 +99,7 @@
   - 「每個故障滿嚴重度都跳機」與「key signal 偏離健康機組」排除 nuisance（另有專屬測試）。
   - 標準答案測試：注入前 / 別台的事件改成環境性 case。
   - PLC 液壓測試：偏航段給實際的偏航誤差（誤差 0 時 223 的允許時間只有 20 s）。
-- **完整 backend**：1991 → 2046 passed / 7 skipped / 1 xfailed（review 修正後）；CI 綠燈。frontend 沒有改動（vitest 1513）。
+- **完整 backend**：1991 → 2051 passed / 7 skipped / 1 xfailed（code review 與 Codex review 修正後）。frontend 沒有改動（vitest 1513）。
 - **ruff / mypy**：與 origin/main 相比沒有新的 F / E / B；修掉兩個新的 mypy 型別錯誤；`engine.py` 的 `"None" not callable` 是既有的。
 
 ### 2.4 code review
