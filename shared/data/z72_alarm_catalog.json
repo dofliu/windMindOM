@@ -345,6 +345,17 @@
    "manual_page": null
   },
   {
+   "code": 39,
+   "level": "A",
+   "text": "Auto restart blocked",
+   "plc_tag": "Z72PLC__ActiveAlarm",
+   "cause": "Automatic restart of the turbine is not possible because the number of Max #/hr is exceeded.",
+   "rectification": "See Chapter 8.3",
+   "max_per_hour": null,
+   "manual_page": 106,
+   "manual_only": true
+  },
+  {
    "code": 45,
    "level": "T1",
    "text": "Converter dataset configuration fault",

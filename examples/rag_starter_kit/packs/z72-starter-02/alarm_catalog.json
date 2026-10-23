@@ -366,6 +366,17 @@
    "manual_page": null
   },
   {
+   "code": 39,
+   "event_id": "A_039",
+   "level": "A",
+   "text": "Auto restart blocked",
+   "plc_tag": "Z72PLC__ActiveAlarm",
+   "cause": "Automatic restart of the turbine is not possible because the number of Max #/hr is exceeded.",
+   "rectification": "See Chapter 8.3",
+   "max_per_hour": null,
+   "manual_page": 106
+  },
+  {
    "code": 45,
    "event_id": "T_045",
    "level": "T1",

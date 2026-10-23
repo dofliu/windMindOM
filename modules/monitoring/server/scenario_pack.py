@@ -6,7 +6,7 @@
 {pack_id}/
   manifest.json          合約版本、機型、機組、時間窗、取樣週期、統計慣例、各檔 sha256
   tag_dictionary.json    tag → 單位、說明、source: bachmann_real | synthetic
-  alarm_catalog.json     Z72 警報目錄快照（全部 314 碼）
+  alarm_catalog.json     Z72 警報目錄快照（xlsx 314 碼 + 手冊獨有的 A039）
   timeseries_raw.parquet timestamp(UTC), turbine_id, <Bachmann tag 名>...
   stats_10min.parquet    window_start / window_end(UTC), turbine_id, n_samples, is_partial,
                          <tag>_avg/_min/_max/_std

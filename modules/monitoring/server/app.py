@@ -131,7 +131,7 @@ def activate_simulation(run_loop: bool = True) -> None:
     if farm and farm.turbine_spec and broker.simulator:
         from simulator.physics.turbine_physics import TurbineSpec
         try:
-            spec = TurbineSpec.from_dict(farm.turbine_spec)
+            spec = TurbineSpec.from_farm_dict(farm.turbine_spec)
             for model in broker.simulator.turbines.values():
                 model.update_spec(spec)
         except Exception as e:  # noqa: BLE001

@@ -314,7 +314,7 @@ class DataBroker:
 
             from simulator.physics.turbine_physics import TurbineSpec
             if farm.turbine_spec:
-                spec = TurbineSpec.from_dict(farm.turbine_spec)
+                spec = TurbineSpec.from_farm_dict(farm.turbine_spec)
             else:
                 spec = TurbineSpec()
 

@@ -16,13 +16,13 @@
 > - 每次 session 開頭 / 結尾更新本檔
 > - 大局看 ROADMAP；今日工作看 ISSUES.md；本週/本月節奏看本檔
 
-最後更新：2026-10-22（`WMOM-20261022-03` done：架構全貌圖與專案文件同步——`docs/architecture/windMindOM-architecture.md` 改寫、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS；kit 範例網址 port 8000 → 8100）。前次：2026-10-22（`WMOM-20261022-01` done：EPIC-DS 全面程式碼檢查 + 功能驗證，三路 review＋真伺服器端到端；DEC-20261022-05：正式評測要強制登入、批次生成背景執行緒、正式評測總速率上限；新開 `WMOM-20261022-02` 手冊保真度）。前次：2026-10-22（`-08-a` done：感測器故障 vs 真故障（5 個情境、軸承 / 定子溫度 2、第四個範例資料包），合約 v1.3，DEC-20261022-04）。前次：2026-10-22（`-07` done：模仿 Bachmann Z72 tag 的 OPC UA server（回放 CLI `tools/opcua_server.py` ＋ 即時模擬 `WMOM_OPCUA_ENABLE`）、WS `?stream=false`，合約 v1.2，DEC-20261022-03）。前次：2026-10-22（`-06` done：WebSocket 回放 `/ws/replay`、回放 token、單次直播＋練習、伺服器蓋預測 ts，合約 v1.1，DEC-20261022-02）。前次：2026-10-22（`-12` done：健康機組葉片同步誤差修正、12 h 多起點守門測試，DEC-20261022-01）。前次：2026-10-21（**方向調整 DEC-20261021-01**：商業時程與真實風場 / OPC 暫緩；**現行主線 EPIC-DS 擬真資料源**——
+最後更新：2026-10-23（`WMOM-20261022-02` done：手冊保真度——Appendix C / D 衝突以 D 為準、自動重啟被封鎖改送 A039、拿掉全域每小時 3 次啟動上限、`yaw_sensor_drift` 每台都跳 233；合約 v1.4，DEC-20261023-01）。前次：2026-10-22（`WMOM-20261022-03` done：架構全貌圖與專案文件同步——`docs/architecture/windMindOM-architecture.md` 改寫、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS；kit 範例網址 port 8000 → 8100）。前次：2026-10-22（`WMOM-20261022-01` done：EPIC-DS 全面程式碼檢查 + 功能驗證，三路 review＋真伺服器端到端；DEC-20261022-05：正式評測要強制登入、批次生成背景執行緒、正式評測總速率上限；新開 `WMOM-20261022-02` 手冊保真度）。前次：2026-10-22（`-08-a` done：感測器故障 vs 真故障（5 個情境、軸承 / 定子溫度 2、第四個範例資料包），合約 v1.3，DEC-20261022-04）。前次：2026-10-22（`-07` done：模仿 Bachmann Z72 tag 的 OPC UA server（回放 CLI `tools/opcua_server.py` ＋ 即時模擬 `WMOM_OPCUA_ENABLE`）、WS `?stream=false`，合約 v1.2，DEC-20261022-03）。前次：2026-10-22（`-06` done：WebSocket 回放 `/ws/replay`、回放 token、單次直播＋練習、伺服器蓋預測 ts，合約 v1.1，DEC-20261022-02）。前次：2026-10-22（`-12` done：健康機組葉片同步誤差修正、12 h 多起點守門測試，DEC-20261022-01）。前次：2026-10-21（**方向調整 DEC-20261021-01**：商業時程與真實風場 / OPC 暫緩；**現行主線 EPIC-DS 擬真資料源**——
 模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手（學生專題）。
 設計：`docs/product/EPIC-DS_realistic_data_source.md`。**WMOM-20261021-02（Phase 1a）已完成**：Z72 真實警報目錄 + 情境改真實碼。
 **下個 session 起依此挑題**（2026-10-21 深夜更新：Phase 1b 三段、`-10` 切出風速、`-11` 風場時區、`-04` 標準答案、`-05` 資料包、`-09` starter kit + 合約 v1 都已完成）：
-- ▶️ 下一個：`WMOM-20261022-02` 手冊保真度（Appendix D 延遲 / 範圍、A039、yaw drift 233；劉老師排在 -08 其餘子項前）
-- 之後：`-08` 其餘子項（誤報 / 健康負樣本與評分、多重故障 + 早期徵兆〔先定同機組多 case 的評分規則〕、故障庫擴充）——開工時請劉老師挑
-- 📦 學生專題可以開始用：合約 `docs/integration/rag_assistant_data_contract_v1.md`（v1.3）、`examples/rag_starter_kit/`；即時回放用 `tools/replay_runs.py` 開 token，OPC UA 用 `tools/opcua_server.py` 播同一個回放
+- ▶️ 下一個：`-08` 其餘子項（誤報 / 健康負樣本與評分、多重故障 + 早期徵兆〔先定同機組多 case 的評分規則〕、故障庫擴充）——開工時請劉老師挑
+- 留給後續（手冊保真度沒對上的）：236 塔架加速度（手冊 1.75 m/s²，模型是 mm/s）、Appendix D 暴風等級（204 Storm park）
+- 📦 學生專題可以開始用：合約 `docs/integration/rag_assistant_data_contract_v1.md`（v1.4）、`examples/rag_starter_kit/`；即時回放用 `tools/replay_runs.py` 開 token，OPC UA 用 `tools/opcua_server.py` 播同一個回放
 - ⏸️ `WMOM-20260503-05`（客戶接觸）、`WMOM-20260509-F6`（PG row-lock）、M6 現場項目：deferred，不要再排
 
 前次最後更新：2026-10-06（**WMOM-20260505-25-c 完成**：振動 tab 軸承/齒輪診斷區塊，Part C 已做完；`-25` 剩 RUL 觸發時間軸。前次：**WMOM-20260505-26-a 完成**：SCADA 新增 `WSRV_ManualOverride`/

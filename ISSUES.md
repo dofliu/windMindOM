@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
+| open | 6 |
 | in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 143 |
+| done | 144 |
 | **total** | **154** |
 
-最後更新：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
+最後更新：2026-10-23（**WMOM-20261022-02 done**（手冊保真度，DEC-20261023-01）：手冊 Appendix C / D 衝突以 D 為準（液壓 170 / 150 bar、30 s、190 bar 解除；233 延時 60 s＋60 s 平均風速；Pt100 10 s 濾波；切出陣風 3 s；273 為 45 °C；編碼器 −5–95°）；自動重啟被封鎖改送 A039（手冊獨有碼，目錄 315 碼）、拿掉全域每小時 3 次啟動上限；`yaw_sensor_drift` 每台機組都跳 233；合約 v1.4、範例資料包重建。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 144 = 154。詳見 `work-logs/2026-10/2026-10-23-manual-fidelity.md`）。
+前次最後更新：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
 前次最後更新：2026-10-22（**WMOM-20261022-01 done**（EPIC-DS 全面檢查，-08 其餘子項前）：三路 code review（🔴 2、🟡 18、🟢 14）＋真伺服器端到端 47 項；修非 Z72 機型被 Z72 溫度保護跳機、Live 殘留 PLC 狀態漏進情境、評測 stream=false 搶先開播等；劉老師決定（DEC-20261022-05）正式評測要伺服器強制登入、批次生成移到背景執行緒、建立正式評測檢查總速率、手冊保真度另開 **WMOM-20261022-02（open，排在 -08 其餘子項前）**。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 142 = 153。詳見 `work-logs/2026-10/2026-10-22-epic-ds-verification.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-08-a done**（EPIC-DS Phase 4-a，-08 改 in_progress）：感測器故障 vs 真故障——PLC 只對注入的感測器改看量測值、5 個感測器故障情境（讀值像真故障的軸承 / 定子溫度量測回路劣化，與專屬碼 242 / 326 / 229）、component 填被量測的元件以 category 區分（劉老師確認，DEC-20261022-04）；新增真實 tag WGEN_GnBrgTmp2 / GnStaTmp2；starter kit 第四個範例資料包；合約 v1.3。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 141 = 151。詳見 `work-logs/2026-10/2026-10-22-sensor-faults.md`）。
 前次最後更新：2026-10-22（**WMOM-20261021-07 done**（EPIC-DS Phase 3c ③ OPC UA）：模仿 Bachmann Z72 tag 的 OPC UA server——NodeId＝真實 OPC DA item ID、讀值與盲測版資料包同一組、`WSpeedNacAvg10m` 由 server 算、事件碼陣列（`ActiveEventLists`，即時與回放同規則）；回放 CLI `tools/opcua_server.py`（正式評測在 server 啟動時開播、WS `?stream=false` 共用時鐘）＋ 即時模擬 `WMOM_OPCUA_ENABLE`；只收匿名、唯讀（劉老師確認，DEC-20261022-03）；starter kit `opcua_client.py`；合約 v1.2（§13）。逐條解析 header 核實：open 7 / in_progress 1 / deferred 2 / done 140 = 150。詳見 `work-logs/2026-10/2026-10-22-opcua-server.md`）。
@@ -1716,17 +1717,26 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261022-02 — 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw_sensor_drift 不跳 233
 
-- **Status**: open
+- **Status**: done（2026-10-23）
 - **Milestone**: EPIC-DS
 - **Priority**: high（排在 -08 其餘子項前，劉老師確認）
 - **Estimate**: 1 天
-- **Owner**: -
+- **Owner**: Claude
 - **Description**: WMOM-20261022-01 的模擬器 review 對照手冊找到的不一致，修了都會改變資料時間點，範例資料包要重建：
   - Appendix D 的設定值：液壓壓力低（260 / 228）延遲 30 s（`SDYwHyBrkTm`，模擬器 10 / 5 s）；風向標差異 233 延遲 60 s（`SDWndVnDiscrTm`，模擬器 0 s）；編碼器有效範圍 −5–95°（0–90° ± `SDVaneLimitTolerance` 5°，模擬器 −10–100° 且註明「手冊沒給」）；機艙 273 設定 45 °C（模擬器 46）；Pt100 濾波 10 s（`CDTauPT100`）。液壓 170 / 190 bar（Appendix D）與 180 bar（Appendix C）手冊自相矛盾，註明取捨。
   - 自動重啟被擋時真實 Z72 送 A039「Auto restart blocked」（手冊獨有碼，目錄的 `manual_only_codes`）；模擬器送自創的 `restart_blocked` 並帶跳機碼，物理層 `_max_restarts_exceeded` 停機時完全沒事件。
   - `yaw_sensor_drift`：漂移 18° 加上機組個體差（bias1 − bias2 < −3°）時差異到不了 15°，233 永遠不出現（種子 33 / 34 / 119…）；守門測試只測 seed 7。
 - **Deliverable**: PLC / spec 設定值與註解、A039、yaw drift、多種子守門測試、設計文件 §6.3 表格重量、範例資料包重建、合約說明
 - **Depends on**: WMOM-20261022-01
+- **完成紀錄（2026-10-23）**：三個決策由劉老師確認（DEC-20261023-01）。
+  - **手冊 Appendix C / D 衝突以 D 為準**：液壓 260 / 228 為 170 / 150 bar、延時 30 s、> 190 bar 解除；233 延時 60 s、風速條件 60 s 平均；切出陣風 3 s 平均；273 為 45 °C；PLC 溫度（Pt100）10 s 濾波取代假設的事件延時（斷線判定用未濾波讀值）；編碼器 −5–95°。
+  - **自動重啟被封鎖送 A039**：A039 收進警報目錄（`manual_only`，315 碼）；跳機碼超過每小時上限時保持鎖存、送 A039、機組進 SHUTDOWN，操作員 / 維護復位時解除；不再送 `restart_blocked`。
+  - **拿掉全域「每小時 3 次啟動」上限**：物理層保護停機（超速、電網）改照每碼計數，超過在跳機當下封鎖；低風速起停不再被卡在待機。
+  - **`yaw_sensor_drift`**：漂移 24° × 嚴重度²，任何安裝偏差下滿嚴重度都跳 233、0.5 不跳；300 種子機制測試＋極端種子端到端。
+  - **既有風場**：`TurbineSpec.from_farm_dict` 載入風場時不讓存檔裡的舊 PLC 設定值覆寫。
+  - 合約 v1.4；範例資料包重建（03 的低風速起停與 233 次數改變，01 / 02 / 04 事件不變）；設計文件 §6.3 實測重量、§6.15。
+  - 仍未對上（留給後續）：236 塔架加速度（手冊看 m/s²，模型是 mm/s）、Appendix D 的暴風等級（204 Storm park）。
+  - work-log：`work-logs/2026-10/2026-10-23-manual-fidelity.md`
 
 ### WMOM-20261022-03 — 架構全貌圖更新與專案文件同步（EPIC-DS 之後）
 

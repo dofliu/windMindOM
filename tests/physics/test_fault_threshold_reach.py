@@ -12,9 +12,11 @@ WMOM-20261021-03b），前提是故障物理真的能把量測值推過 Z72 手�
 3. 中等嚴重度（0.5）時還沒到跳機設定值——跳機發生在故障後期，不是一注入就跳
 4. 標準答案列的 ``key_signals`` 在高負載下確實偏離健康機組（WMOM-20261021-04）
 
-另有兩組守門測試：新感測器只用 ``_aux_rng``（既有 tag 的健康輸出不受影響）、熱阻倍率的邊界。
+另有兩組守門測試：新感測器只用 ``_aux_rng``（既有 tag 的健康輸出不受影響）、熱阻倍率的邊界；
+以及 ``yaw_sensor_drift`` 的多種子守門（WMOM-20261022-02：PLC 看到的是漂移 + 兩支風向標的安裝偏差差，
+只測 seed 7 時漏掉了偏差差 < −3° 的機組永遠不跳 233）。
 
-設定值來源見 ``TurbineSpec``（manual = 手冊 Appendix C、assumed = 手冊僅寫 See [ABB] 的假設）。
+設定值來源見 ``TurbineSpec``（manual = 手冊 Appendix D / C、assumed = 手冊僅寫 See [ABB] 的假設）。
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import pytest
 from simulator.physics import TurbinePhysicsModel
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.thermal_model import ThermalElement, ThermalSystem
-from simulator.physics.turbine_physics import TurbineSpec
+from simulator.physics.turbine_physics import YAW_SENSOR_DRIFT_MAX_DEG, TurbineSpec
 
 SPEC = TurbineSpec()
 NOMINAL_LN_KV = SPEC.nominal_voltage / math.sqrt(3.0) / 1000.0  # WCNV_VtgMsCnvGd* 為 kV 相電壓
@@ -173,10 +175,13 @@ def test_full_severity_overspeed_trips_on_software_overspeed() -> None:
 
 @pytest.mark.parametrize("severity", [0.8, 1.0])
 def test_grid_sag_trips_on_undervoltage(severity: float) -> None:
-    """grid_voltage_sag：端電壓持續低於 LVRT band 1（0.90 p.u.）或電網保護下限而停機（ARU 欠壓，事件 481）。"""
+    """grid_voltage_sag：端電壓持續低於 LVRT band 1（0.90 p.u.）或電網保護下限而停機（ARU 欠壓，事件 481）。
+
+    本檔關閉 PLC 量物理（沒有每碼重啟上限），機組會反覆停機 / 重啟：看取樣窗內有沒有停機，不看最後一筆。
+    """
     samples, cause = _run("grid_voltage_sag", severity, 14.0, 25.0)
     assert min(s["WCNV_VtgMsCnvGd1"] for s in samples) < LVRT_BAND1_PU * NOMINAL_LN_KV
-    assert samples[-1]["WTUR_TurSt"] != 6
+    assert any(s["WTUR_TurSt"] != 6 for s in samples)
     assert cause.startswith("ride_through:lvrt") or cause in ("grid_protection", "grid_trip"), cause
 
 
@@ -352,3 +357,47 @@ def test_cooling_degradation_is_floored_at_five_times_resistance() -> None:
 
     assert water_after(0.05) == pytest.approx(water_after(0.2))
     assert water_after(0.2) > water_after(0.5) > water_after(1.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# yaw_sensor_drift：每台機組都在滿嚴重度跳 233、半嚴重度不跳（WMOM-20261022-02）
+# ─────────────────────────────────────────────────────────────────────────
+
+# 風向標 1 / 2 安裝偏差的範圍（TurbinePhysicsModel：yaw_sensor_bias ±2.5°、_vane2_bias ±2°）
+VANE_BIAS_DIFF_MAX = 2.5 + 2.0
+# 每台機組的 PLC 濾波差異＝漂移 + (風向標 1 − 風向標 2 的偏差)；留 3° 餘裕（＝233 的解除遲滯）
+VANE_MARGIN_DEG = 3.0
+
+
+def _vane_bias_diff(seed: int) -> float:
+    model = TurbinePhysicsModel(seed=seed)
+    return float(model._individuality["yaw_sensor_bias"] - model._vane2_bias)
+
+
+def test_yaw_drift_reaches_233_for_every_vane_bias_but_not_at_half_severity() -> None:
+    """機制：偏差差在理論範圍內任何值，滿嚴重度都越過 15° + 餘裕、0.5 都還差餘裕。"""
+    full = YAW_SENSOR_DRIFT_MAX_DEG
+    half = YAW_SENSOR_DRIFT_MAX_DEG * 0.5 ** 2
+    assert full - VANE_BIAS_DIFF_MAX >= SPEC.vane_discrepancy_deg + VANE_MARGIN_DEG
+    assert half + VANE_BIAS_DIFF_MAX <= SPEC.vane_discrepancy_deg - VANE_MARGIN_DEG
+    diffs = [_vane_bias_diff(seed) for seed in range(1, 301)]
+    assert max(abs(d) for d in diffs) <= VANE_BIAS_DIFF_MAX
+
+
+def _extreme_vane_bias_seeds() -> List[int]:
+    diffs = sorted((_vane_bias_diff(seed), seed) for seed in range(1, 301))
+    # 偏差差最負 / 最正的機組，加上 review 找到的原始重現種子（33 / 34 / 119 修正前永遠不跳）
+    return sorted({diffs[0][1], diffs[-1][1], 33, 34, 119})
+
+
+@pytest.mark.parametrize("seed", _extreme_vane_bias_seeds())
+def test_yaw_drift_trips_233_on_extreme_vane_bias_turbines(seed: int) -> None:
+    """端到端（PLC 開啟）：滿嚴重度一小時內跳 233，嚴重度 0.5 不跳。"""
+    for severity, expect in ((1.0, True), (0.5, False)):
+        model = TurbinePhysicsModel(seed=seed)
+        model.active_faults = [{"scenario_id": "yaw_sensor_drift", "severity": severity}]
+        codes = set()
+        for _ in range(int(3600 / DT)):
+            model.step(wind_speed=12.0, wind_direction=180.0, ambient_temp=20.0, dt=DT)
+            codes |= {e.code for e in model.plc.drain_events() if e.kind == "trip"}
+        assert (233 in codes) is expect, f"seed {seed} severity {severity}: {codes}"

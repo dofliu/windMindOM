@@ -1040,6 +1040,40 @@ EPIC-DS Phase 2 要讓批次情境帶可觀測事件（PLC 警報 / 跳機、狀
 
 ---
 
+## DEC-20261023-01 — 手冊 Appendix C / D 衝突以 D 為準、自動重啟被封鎖送 A039、拿掉全域每小時啟動上限
+
+**日期**：2026-10-23　**狀態**：accepted　**Decision maker**：劉老師（三個選項，2026-10-23 確認）＋ Claude（WMOM-20261022-02 手冊保真度）
+
+### Context
+
+WMOM-20261022-02 對照手冊修模擬器時，遇到三個需要決策的問題：
+
+1. **手冊自相矛盾**：Appendix C（事件清單的說明文字）與 Appendix D（「控制系統最重要的可設定值及其實際設定」）有三處數字不同——液壓壓力低 260：C 寫 < 180 bar（額定 200 −10 %），D 寫 `SDHyPres_L` 170 bar、`SDHyPres_H` 190 bar 解除；切出陣風：C 寫 5 秒平均 > 35 m/s，D 寫 `SDVwind_hi_3s` 3 秒；233 的風速條件：C 寫 10 分鐘平均 > 4.5 m/s，D 的參數名是 `SDVw60sWndVnDiscr`（60 秒）。另外 §11.3 說每個跳機的出廠重啟設定是 0，Appendix C 的 Max #/hr 欄卻列了 1、2、5、10。
+2. **自動重啟被封鎖怎麼表示**：手冊 §8.3 / Appendix C：同一跳機碼一小時內超過上限時 PLC 送 A 級 **A039「Auto restart blocked」**（xlsx 事件清單沒有這個碼）。模擬器送自創的 `restart_blocked` 事件並帶跳機碼，這個值已寫進合約 v1.0 的 `event_type`。
+3. **物理層的全域上限**：digiWT 留下的「每小時最多啟動 3 次」把所有啟動都算進去，連低風速正常起停也算；手冊沒有這個機制（§6.8.1、§8.3、§11.3 都只講每個跳機碼各自的上限）。實測風速在切入風速附近擺動時，健康機組 3 小時內有 1–2.5 小時被卡在待機、而且沒有任何事件；物理層保護停機（超速、電網）也只靠它擋重複重啟、同樣沒事件。
+
+### Considered Options
+
+1. 手冊衝突：A. 以 Appendix D 為準（PLC 實際設定值）；B. C 有寫就以 C 為準，只有 C 沒寫的才用 D。
+2. 重啟封鎖：A. 改送 A039 `alarm_raised` / `alarm_cleared`、不再送 `restart_blocked`（合約升 v1.4、列舉值保留）；B. 兩個都送。
+3. 全域上限：A. 拿掉，物理層保護停機也照目錄每碼計數、超過送 A039；B. 保留，擋下時補送 A039。
+
+### Decision
+
+1. **以 Appendix D 為準（A）**：液壓 260 / 228 為 170 / 150 bar、> 190 bar 解除、延時 30 s（`SDYwHyBrkTm`）；切出陣風 3 s 平均；233 延時 60 s（`SDWndVnDiscrTm`）、風速條件 60 s 平均；機艙 273 為 45 °C（`SDNacTmp_H`，原假設值 46）；PLC 的溫度（Pt100）以 10 s 時間常數濾波後判定（`CDTauPT100`，取代原本假設的 10 s / 5 s 事件延時）；編碼器有效範圍 −5–95°（0–90° ± `SDVaneLimitTolerance` 5°）。重啟上限沿用 Appendix C 的 Max #/hr（§11.3 的 0 是出廠預設，Appendix C 是本機組的設定）。
+2. **改送 A039（A）**：跳機碼超過每小時上限時保持鎖存、送 A039 `alarm_raised`（多個碼封鎖只送一次），機組進 SHUTDOWN（TurSt 1）；操作員復位（事件 008）與維護清除時送 `alarm_cleared`。A039 收進警報目錄（`manual_only`，315 碼）。合約 v1.4：`restart_blocked` 不再送出，列舉值保留給舊資料包。
+3. **拿掉全域上限（A）**：`TurbineSpec.max_restarts_per_hour` 與物理層的啟動時間戳刪除；物理層保護停機的跳機與訊號判定的跳機共用每碼計數，超過上限時在跳機當下封鎖並送 A039。
+
+### Consequences
+
+- 事件時間點與 v1.3 不同（液壓多 30 s、233 多 60 s；溫度緩升時 10 s 濾波約落後 10 s，與原本 10 s / 5 s 的延時相近），範例資料包重建；RAG 查 Appendix C 會看到 180 bar / 5 秒 / 10 分鐘，與資料差幾 bar / 幾秒——合約 §10 註明。
+- 風速在切入風速附近的時段，健康機組會比以前多起停幾次（不再被卡在待機）；重複的超速 / 電網跳機現在看得到 A039。
+- 233 的風速條件改 60 s 平均後，跳機後風速掉到 4.5 m/s 以下就會解除、風回來再跳（真機同理）；範例資料包 03 的 WT003 因此跳 4 次。
+- 既有風場存在 farms.db 的 turbine_spec 是建立當時完整的 `to_dict()`，會把舊的 180 bar 帶回來：載入風場改用 `TurbineSpec.from_farm_dict`，PLC 設定值一律用程式的值（spec 更新 API 仍可明確修改）。
+- 仍未對上手冊、留給後續：236 塔架加速度（手冊 `SDNacVibR_HH` 1.75 m/s² 看合成加速度 `VibMsNacR`，模型的機艙振動是速度 mm/s，沿用假設值 7 mm/s）；Appendix D 的暴風等級（`SDVwind_Storm_10m` 27 m/s → 204 Storm park）沒有模擬。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

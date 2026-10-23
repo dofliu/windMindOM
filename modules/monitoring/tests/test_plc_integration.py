@@ -6,6 +6,8 @@ tripped」整條鏈，以及健康風場不會被訊號判定誤跳：
 1. 11 個故障情境在高負載（15 m/s、25 °C）滿嚴重度下，PLC 都以該情境的預期跳機碼跳機
 2. 跳機後的停機模式依手冊等級：T1 正常伺服停機（9）、T2 緊急變槳（7）
 3. 健康風場（自動風況，含紊流、偏航）2 h 內沒有任何訊號判定的事件
+4. 重複的保護停機照目錄每碼計數，超過每小時上限送 A039、機組進 SHUTDOWN，操作員復位才重啟；
+   低風速反覆起停不受限（手冊沒有全域啟動次數上限，WMOM-20261022-02）
 """
 
 from __future__ import annotations
@@ -134,7 +136,7 @@ def test_healthy_farm_has_no_signal_judged_events(monkeypatch: pytest.MonkeyPatc
 def test_other_presets_run_healthy_without_plc_events(preset: str) -> None:
     """非 Z72 機型（前端可選）共用 Z72 的 PLC 設定值：熱模型以額定功率正規化，健康機組不得被溫度保護跳機。
 
-    修正前 8 MW 機型在 12 m/s、30 °C 約 3 分鐘就 A420 → T437 / T021，之後 restart_blocked。
+    修正前 8 MW 機型在 12 m/s、30 °C 約 3 分鐘就 A420 → T437 / T021，之後自動重啟被封鎖。
     """
     from simulator.physics.turbine_physics import TURBINE_PRESETS, TurbinePhysicsModel
 
@@ -144,3 +146,48 @@ def test_other_presets_run_healthy_without_plc_events(preset: str) -> None:
         model.step(wind_speed=12.0, wind_direction=180.0, ambient_temp=30.0, dt=5.0)
         events += [(e.kind, e.code) for e in model.plc.drain_events() if e.kind != "info"]
     assert events == [] and model.tur_state == 6
+
+
+@pytest.mark.parametrize(("fault", "code", "trips_before_block"), [
+    ("generator_overspeed", 351, 6),    # 351 每小時上限 5：第 6 次封鎖
+    ("grid_voltage_sag", 481, 2),       # 481 / 021 每小時上限 1：第 2 次封鎖
+])
+def test_repeated_protection_trips_block_with_a039_until_operator_reset(
+        fault: str, code: int, trips_before_block: int) -> None:
+    from simulator.physics.turbine_physics import TurbinePhysicsModel
+
+    model = TurbinePhysicsModel(seed=7)
+    model.active_faults = [{"scenario_id": fault, "severity": 1.0}]
+    events: List[Tuple[str, int]] = []
+    for _ in range(int(3600 / DT)):
+        model.step(wind_speed=14.0, wind_direction=180.0, ambient_temp=20.0, dt=DT)
+        events += [(e.kind, e.code) for e in model.plc.drain_events()]
+    assert events.count(("trip", code)) == trips_before_block
+    assert events.count(("alarm_raised", 39)) == 1
+    assert model.plc.auto_restart_blocked and model.tur_state == 1      # SHUTDOWN
+    model.active_faults = []
+    model.cmd_reset()
+    for _ in range(int(600 / DT)):
+        model.step(wind_speed=14.0, wind_direction=180.0, ambient_temp=20.0, dt=DT)
+    events = [(e.kind, e.code) for e in model.plc.drain_events()]
+    assert events[:2] == [("operator_reset", 8), ("alarm_cleared", 39)]
+    assert model.tur_state == PRODUCING
+
+
+def test_low_wind_start_stop_cycling_is_not_limited() -> None:
+    """風速在切入風速附近擺動：正常起停不算跳機，不受每小時次數限制、也不送事件（舊版全域 3 次上限會卡住待機）。"""
+    import math
+
+    from simulator.physics.turbine_physics import TurbinePhysicsModel
+
+    model = TurbinePhysicsModel(seed=7)
+    starts = 0
+    prev = model.tur_state
+    for i in range(int(3 * 3600)):
+        wind = 3.3 + 0.9 * math.sin(2 * math.pi * i / 600.0)
+        model.step(wind_speed=wind, wind_direction=180.0, ambient_temp=20.0, dt=1.0)
+        starts += model.tur_state == 4 and prev != 4
+        prev = model.tur_state
+    assert starts >= 15                              # 每 10 分鐘一個風速週期都能起動
+    assert not model.plc.auto_restart_blocked
+    assert [e for e in model.plc.drain_events() if e.kind != "info"] == []

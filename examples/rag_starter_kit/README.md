@@ -1,7 +1,7 @@
 # Z72 RAG 維修助手 starter kit
 
 給學生專題用的入門包：windMindOM 模擬 Z72 風場產生的**範例資料包**、讀取程式、一個陽春的**基準助手**，
-以及**評分程式**。介面規格以 [資料介面合約 v1.3](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
+以及**評分程式**。介面規格以 [資料介面合約 v1.4](../../docs/integration/rag_assistant_data_contract_v1.md) 為準。
 資料有三種拿法：**資料包檔案**（離線）、**WebSocket 回放**（即時，見下方「即時回放」）與 **OPC UA**
 （像接真實 PLC，見「OPC UA」）。
 

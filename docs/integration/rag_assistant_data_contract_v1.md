@@ -1,6 +1,6 @@
-# windMindOM × RAG 維修助手：資料介面合約 v1.3
+# windMindOM × RAG 維修助手：資料介面合約 v1.4
 
-> **版本**：1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
+> **版本**：1.4（2026-10-23，WMOM-20261022-02：手冊保真度、自動重啟封鎖改送 A039）；1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
 > **評分欄位**經劉老師確認（2026-10-21）：診斷以「元件 + 類別」自動評分、手冊引用以事件碼評、時效報延遲與早期預警、各項指標分列不合成總分。
 > **範例與工具**：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)（範例資料包、讀取程式、基準助手、評分程式）。
 
@@ -41,7 +41,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 {pack_id}/
   manifest.json            資料包說明與各檔 sha256
   tag_dictionary.json      每個欄位（tag）的單位、說明、真實 / 自創
-  alarm_catalog.json       Z72 警報目錄快照（314 碼，含手冊原因 / 處置 / 頁碼）
+  alarm_catalog.json       Z72 警報目錄快照（315 碼：xlsx 314 碼＋手冊獨有的 A039，含手冊原因 / 處置 / 頁碼）
   timeseries_raw.parquet   原始時序（每台機組每個取樣週期一列）
   stats_10min.parquet      10 分鐘統計
   events.jsonl             可觀測事件（§4）
@@ -53,7 +53,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `contract_version` | str | `"1.3"`（讀取端只檢查主版本） |
+| `contract_version` | str | `"1.4"`（讀取端只檢查主版本） |
 | `pack_id` | str | 資料包 ID |
 | `turbine_model` | str | `"Z72"` |
 | `turbines` | list[str] | 機組 ID（`WT001`…） |
@@ -127,7 +127,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 |---|---|
 | `ts` | 時間（`YYYY-MM-DDTHH:MM:SS.ffffffZ`） |
 | `turbine_id` | 機組 |
-| `event_type` | `alarm_raised` 警報成立、`alarm_cleared` 警報解除、`trip` 跳機（T1 / T2）、`trip_cleared` 跳機解除、`restart_blocked` 超過重啟上限、`reset` 操作員復位、`info` 資訊事件、`state_change` 運轉狀態轉換 |
+| `event_type` | `alarm_raised` 警報成立、`alarm_cleared` 警報解除、`trip` 跳機（T1 / T2）、`trip_cleared` 跳機解除、`reset` 操作員復位、`info` 資訊事件、`state_change` 運轉狀態轉換。超過每小時重啟上限以 A039 的 `alarm_raised` / `alarm_cleared` 表示（§10）；`restart_blocked`（超過重啟上限）是 v1.4 之前的值，現在不再送出，讀取端遇到舊資料包仍要能讀 |
 | `alarm_code` / `alarm_level` / `alarm_text` / `event_id` / `plc_tag` | PLC 事件的事件碼（對應 `alarm_catalog.json`）、等級、文字、事件 ID、PLC tag |
 | `from_state` / `to_state` | `state_change`：Bachmann TurSt 1–9 |
 | `from_state_name` / `to_state_name` | 狀態名稱 |
@@ -282,6 +282,8 @@ case：
 - `synthetic` tag 是真實 Z72 沒有的訊號（§3.3）。`WMET_WSpeedNac` 在模擬裡是自由流風速（真實是風速計讀值），見 tag 字典的 `note`。
 - 標準答案 case 的 `simulation_notes` 列出個別故障與真實不同之處（例：超速在 351 跳機後故障凍結、不會出現 320）。
 - 健康機組也有事件：低風速 / 陣風造成的啟停是 `state_change`（`stop_reason` 為 `low_wind` 等）；偶發的警報 / 跳機 / 資訊事件沒有 case 能解釋時列在標準答案的 `unattributed_events`。助手要能分辨。
+- **手冊 Appendix C 與 D 不一致時以 Appendix D 為準**（v1.4，DEC-20261023-01）：Appendix D 是控制系統的實際設定值。事件時間點因此是：液壓壓力低 170 bar（260）/ 150 bar（228）、延時 30 s、回到 190 bar 以上才解除；風向標差異（233）延時 60 s、風速條件是 60 s 平均；溫度（Pt100）以 10 s 時間常數濾波後判定；切出陣風是 3 s 平均；機艙溫度 273 為 45 °C；編碼器範圍 −5–95°。Appendix C 的事件說明文字寫的是 180 bar、5 秒、10 分鐘平均——RAG 查到 Appendix C 時，數字可能和資料差幾 bar / 幾秒。
+- **自動重啟被封鎖**（v1.4）：手冊 §8.3，同一個跳機碼一小時內的跳機次數超過目錄的每小時上限（`max_per_hour`）時，PLC 不再自動重啟、送 **A039「Auto restart blocked」**（手冊 p.106，xlsx 事件清單沒有、目錄標 `manual_only`），機組停在 Shutdown，操作員復位（`reset`）才解除（A039 隨之 `alarm_cleared`）。物理層保護停機（超速、電網）也照同一套每碼計數。A039 是重複跳機的結果、不是根因，出現在標準答案 case 的 `other_observed_codes`。低風速的正常啟停不算跳機、不受次數限制。
 - **感測器故障**（v1.3）只改那支感測器的讀值，機器本身與其他訊號都正常。分辨的線索：同元件的第二支感測器（`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`）、振動、讀值與負載的關係。斷線 / 編碼器故障的讀值是固定的超出範圍值（模擬假設：Pt100 850 °C、壓力 −62.5 bar、編碼器 135°），PLC 送專屬故障碼、不再拿這支讀值判斷溫度過高 / 壓力過低 / 葉片差異。
 
 ### 10.1 開發集與正式評測
@@ -299,6 +301,7 @@ case：
 | 1.1 | 2026-10-22 | 新增 WebSocket 回放（§12，WMOM-20261021-06，DEC-20261022-02）：讀值 / 事件 / 10 分鐘統計與資料包逐筆相同，受測端在同一條連線送預測、`ts` 由伺服器蓋上。資料包與標準答案格式不變（只有 `contract_version` 標成 1.1） |
 | 1.2 | 2026-10-22 | 新增 OPC UA（§13，WMOM-20261021-07，DEC-20261022-03）：模仿 Bachmann Z72 tag 的目前值介面（回放或即時模擬）；WebSocket 回放加 `?stream=false`（只收預測、不送資料）與開播訊息的 `stream.data`。資料包與標準答案格式不變（只有 `contract_version` 標成 1.2） |
 | 1.3 | 2026-10-22 | 感測器故障情境（WMOM-20261021-08-a，DEC-20261022-04）：資料包新增兩個真實 tag `WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`（102 個欄位）；同元件可有真故障與感測器故障（§9 對照表）；新增可能出現的事件碼 241 / 242 / 243 / 245 / 250 / 251 / 263 / 265 / 229 / 326-328；第四個範例資料包。格式不變 |
+| 1.4 | 2026-10-23 | 手冊保真度（WMOM-20261022-02，DEC-20261023-01）：自動重啟被封鎖改送 A039 `alarm_raised` / `alarm_cleared`（手冊獨有碼，警報目錄快照 315 碼），不再送 `restart_blocked`（列舉值保留，舊資料包仍合法）；PLC 設定值以手冊 Appendix D 為準（§10），事件時間點與 1.3 不同；不再有全域「每小時 3 次啟動」上限，物理層保護停機改照每碼上限；`yaw_sensor_drift` 每台機組滿嚴重度都會跳 233。範例資料包重建。欄位不變 |
 | 1.3（修訂） | 2026-10-22 | EPIC-DS 全面檢查（WMOM-20261022-01，DEC-20261022-05），格式與版本號不變：正式評測要伺服器強制登入（§12.1、§13.1）；正式評測總速率上限是整台伺服器的（§12.1）；正式評測的 `?stream=false` 在 OPC UA 開播前也回 4412（不再搶先開始計時）；`manifest.wind_profile` 改寫生成時實際套用的風況；文字更正（§3.5 tag 數、§13.2 `Status` 的 `missing`、4410 的寬限期） |
 
 ## 12. WebSocket 回放（v1.1）
@@ -433,7 +436,7 @@ case：
 - **讀值**：每次更新寫入各機組**最新一筆**讀值；`SourceTimestamp`＝該筆的模擬時間，`ServerTimestamp`＝寫入的實際時間。缺值的 StatusCode 為 `BadNoData`；開播前（事件碼陣列也是）為 `BadWaitingForInitialData`；即時模擬換了風場、某台機組不見時，它的節點改為 `BadNoData`。值與 WebSocket `reading` / `timeseries_raw.parquet` 相同（REAL32 讀回 float32 逐位元相同）。
 - **事件碼陣列**（SINT16[21]，同真實 PLC）：依成立順序排列、空位為 0。規則（與 `events.jsonl` 一致）：
   - `alarm_raised`（A）加入 `ActiveAlarm`、`alarm_cleared` 移除。
-  - `trip` 依等級加入 `ActiveTrip1` / `ActiveTrip2`、`trip_cleared` 移除；`restart_blocked` 不移除（鎖存）。
+  - `trip` 依等級加入 `ActiveTrip1` / `ActiveTrip2`、`trip_cleared` 移除。超過每小時重啟上限時跳機碼留在陣列（鎖存），A039 加入 `ActiveAlarm`，操作員復位時移除。
   - 操作員復位（`reset`）本身不改陣列：被解除的跳機各有一筆 `trip_cleared`（條件仍成立的會再 `trip`）；維護清除故障時的復位不解除鎖存，陣列照舊。資訊事件（I）不在任何陣列。
   - 陣列＝PLC 目前成立的警報與鎖存中的跳機（即時模擬每一步都與 PLC 狀態一致，回放由事件流重建、規則相同）。
   - 真實 PLC 陣列的排列方式手冊沒有寫；這是模擬的約定。
