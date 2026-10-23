@@ -344,7 +344,7 @@ Newly implemented:
 - new SCADA tag: `WDRV_GbxOilTmp` (see #73)
 
 Newly implemented:
-- gear tooth contact model (#76): cyclic mesh-stiffness ripple from contact ratio (ε_α), deterministic GMF torque ripple fed into HSS torsion, Archard-like tooth wear accumulator with `gearbox_overheat` coupling, wear-driven GMF band + sideband amplification
+- gear tooth contact model (#76): cyclic mesh-stiffness ripple from contact ratio (ε_α), deterministic GMF torque ripple fed into HSS torsion, Archard-like tooth wear accumulator (the `gearbox_overheat` coupling was removed in WMOM-20261021-08-c), wear-driven GMF band + sideband amplification
 - new SCADA tag: `WDRV_GbxToothWear`
 
 Still missing:

@@ -8,6 +8,9 @@
 每小時約 1.3 次，健康機組約兩天一次葉片同步 T2 誤跳）。感測器故障以有標註的故障情境建模
 （WMOM-20261021-08-a）：被注入故障的那支感測器，PLC 判定的是它的故障讀值（漂移 → 同真故障的溫度碼；
 斷線 / 編碼器超出範圍 → 專屬的感測器故障碼 242/243、250/251、229、326-328，且該讀值不再參與越限判定）。
+另一個例外是風向標凍結（231 / 232，WMOM-20261021-08-c）：判的是含量測雜訊的 I/O 讀值——製程值在固定風向下
+本來就不變；感測器模型的雜訊遠大於解析度、卡值事件最長 20 s，健康讀值不會凍結 60 s（測試鎖住這兩個條件）。
+不是 SCADA tag 的 PLC 輸入（變頻器轉速、ABB 冷卻水流量、風向標 I/O 讀值）由 ``evaluate(..., internal=)`` 傳入。
 
 跳機語意：
 
@@ -434,6 +437,8 @@ class PlcProtection:
         self._pitch_i2t = [0.0, 0.0, 0.0]
         # 風向標 1 / 2 上一步的 I/O 讀值（凍結判定 231 / 232）
         self._vane_io_prev: List[Optional[float]] = [None, None]
+        # 轉速差（029）最近一次可比對時的值：轉子停下（判定窗關閉）時保持，不等於條件解除
+        self._rotor_speed_dev = 0.0
         self.signals: Dict[str, float] = {}
 
     @property
@@ -569,8 +574,7 @@ class PlcProtection:
             dt: 時間步長（秒）。
             internal: 不是 SCADA tag 的輸入——``converter_rotor_rpm``（變頻器量到的轉速：直驅 PMSG 由電氣頻率
                 算出、等於轉子實際轉速）、``cooling_flow_ratio``（ABB 冷卻單元流量，額定 = 1）、``vane1_io`` /
-                ``vane2_io``（風向標 I/O 讀值，含量測雜訊）。沒給的項目：轉速改比 ``WGEN_GnSpd``、流量視為額定、
-                不做凍結判定。
+                ``vane2_io``（風向標 I/O 讀值，含量測雜訊）。沒給的項目不判定（流量視為額定）。
         """
         spec = self.spec
         signals = self.signals
@@ -586,12 +590,14 @@ class PlcProtection:
             self._pitch_i2t[blade] += (load - self._pitch_i2t[blade]) * a_i2t
             signals[f"pitch{blade + 1}_i2t"] = self._pitch_i2t[blade]
         rotor_rpm = output["WROT_RotSpd"]
-        # 模擬的 WGEN_GnSpd 是傳動鏈模型的發電機轉速，快速變化時與轉子轉速有暫態差異（直驅機組實際上剛性
-        # 連接）；PLC 比對用變頻器的轉速（WMOM-20261021-08-c）
-        converter_rpm = internal.get("converter_rotor_rpm", output["WGEN_GnSpd"])
-        check = converter_rpm > spec.rotor_speed_check_min_rpm
+        # 模擬的 WGEN_GnSpd 是傳動鏈模型的發電機轉速，與轉子轉速有差異（有的機組長期偏離，WMOM-20261023-01；
+        # 直驅機組實際上剛性連接）：PLC 比對用變頻器的轉速（WMOM-20261021-08-c），沒給就不判定
+        converter_rpm = internal.get("converter_rotor_rpm")
+        check = converter_rpm is not None and converter_rpm > spec.rotor_speed_check_min_rpm
         signals["rotor_speed_check"] = 1.0 if check else 0.0
-        signals["rotor_speed_deviation"] = abs(rotor_rpm - converter_rpm) / converter_rpm if check else 0.0
+        if converter_rpm is not None and check:
+            self._rotor_speed_dev = abs(rotor_rpm - converter_rpm) / converter_rpm
+        signals["rotor_speed_deviation"] = self._rotor_speed_dev
         signals["rotor_turning"] = 1.0 if rotor_rpm > spec.anemometer_min_rotor_rpm else 0.0
         signals["anemometer_wind"] = output["WMET_WSpeedNac"]
         # 風速條件沿用 233 的 60 s 平均風速（_wind_avg，_update_signals 已更新）
@@ -817,6 +823,7 @@ class PlcProtection:
             st.trip_times.clear()
             st.blocked = False
         self._protection_blocked.clear()
+        self._rotor_speed_dev = 0.0  # 修好了：停機中保持的轉速差不再擋住重啟
         if released:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
         self._sync_restart_blocked_alarm(sim_time)
@@ -841,6 +848,8 @@ class PlcProtection:
                 released.append(code)
         unblocked = bool(self._protection_blocked)
         self._protection_blocked.clear()
+        # 停機中保持的轉速差（029）：復位後重新比對，條件仍成立就在轉子轉起來後再跳
+        self._rotor_speed_dev = 0.0
         if released or unblocked:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
         self._sync_restart_blocked_alarm(sim_time)

@@ -305,8 +305,9 @@ class WindFarmSimulator:
                 self._link_faults_to_plc(tid, model, turbine_faults, sim_time)
 
             # Capture yaw_error (deg) for this step; fed back next step to drive
-            # wake-steering deflection.
-            yaw_err_deg = float(scada_output.get("WYAW_YwVn1AlgnAvg5s", 0.0))
+            # wake-steering deflection. The vane 1 reading, except that an injected sensor
+            # fault on vane 1 must not reach the other turbines (WMOM-20261021-08-c).
+            yaw_err_deg = float(model.wake_yaw_reading_deg)
             self._last_yaw_err_rad[idx] = math.radians(yaw_err_deg)
 
             output = self._scada_to_output(tid, sim_time, scada_output, local_wind, wind_direction)

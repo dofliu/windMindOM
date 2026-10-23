@@ -591,10 +591,26 @@ def test_rotor_speed_sensor_fault_compares_with_the_converter_speed() -> None:
     assert d.run(1, internal=conv, WROT_RotSpd=17.9) == [(29, "T1")]
     slow = Driver()
     assert slow.run(60, internal={"converter_rotor_rpm": 6.0}, WROT_RotSpd=3.0) == []
-    # 沒給變頻器轉速時改比 WGEN_GnSpd
-    fallback = Driver()
-    fallback.run(5, WROT_RotSpd=15.0)
-    assert fallback.run(1, WROT_RotSpd=15.0) == [(29, "T1")]
+    # 沒給變頻器轉速就不判定（不拿 WGEN_GnSpd 比：模擬的傳動鏈發電機轉速會偏離轉子轉速）
+    assert Driver().run(60, WROT_RotSpd=15.0, WGEN_GnSpd=20.0) == []
+
+
+def test_rotor_speed_trip_stays_latched_while_the_rotor_is_stopped() -> None:
+    """029 跳機後轉子停下（判定窗關閉）不等於條件解除；維護清除或操作員復位後才重新比對。"""
+    for release in ("maintenance", "operator"):
+        d = Driver()
+        running = {"converter_rotor_rpm": 20.0}
+        d.run(5, internal=running, WROT_RotSpd=17.0)
+        assert d.run(1, internal=running, WROT_RotSpd=17.0) == [(29, "T1")]
+        stopped = {"converter_rotor_rpm": 0.0}
+        d.run(600, producing=False, internal=stopped, WROT_RotSpd=0.0)
+        assert d.kinds(29) == ["trip"] and d.plc.restart_inhibited
+        if release == "maintenance":
+            d.plc.maintenance_release(d.t)
+        else:
+            d.plc.operator_reset(d.t)
+        d.run(60, producing=False, internal=stopped, WROT_RotSpd=0.0)
+        assert d.kinds(29) == ["trip", "trip_cleared"] and not d.plc.restart_inhibited
 
 
 def test_wind_meter_fault_needs_a_turning_rotor_for_60s() -> None:
@@ -625,6 +641,15 @@ def test_frozen_wind_vane_trips_after_a_minute_with_wind() -> None:
     assert _drive_vanes(calm, [3.21] * 600, wind=3.0) == []
     # 沒給 I/O 讀值（例：單元測試）就不做凍結判定：製程值在固定風向下本來就不變
     assert Driver().run(600) == []
+
+
+def test_frozen_wind_vane_2_trips_232() -> None:
+    plc = PlcProtection(SPEC)
+    trips: List[tuple] = []
+    for t in range(1, 63):
+        trips += plc.evaluate(dict(HEALTHY), float(t), 1.0, True,
+                              internal={"vane1_io": 0.01 * t, "vane2_io": -2.5})
+    assert trips == [(232, "T1")]
 
 
 def test_cooling_water_flow_events_only_while_producing() -> None:

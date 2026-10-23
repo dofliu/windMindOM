@@ -15,7 +15,7 @@ import math
 import numpy as np
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Mapping, Optional, Tuple
 
 from simulator.physics.power_curve import PowerCurveModel, RotorSpeedModel
 from simulator.physics.thermal_model import ThermalSystem
@@ -87,6 +87,8 @@ class _RollingMean:
         return self._duration >= self.window_s - 1e-9
 
 
+# SCADA 擷取的卡值事件長度（秒，均勻分布）：必須遠短於風向標凍結判定的 60 s（231 / 232，WMOM-20261021-08-c）
+_SENSOR_STUCK_S = (6.0, 20.0)
 # 斷線 / 編碼器故障這類「一壞就壞」的感測器故障在嚴重度到這裡時發生（之前讀值正常；WMOM-20261021-08-a）
 SENSOR_BREAK_SEVERITY = 0.5
 # Pt100 接觸不良（nuisance，手冊 §11.3，WMOM-20261021-08-b）：注入後第一次瞬斷的時間、每次瞬斷的長度、
@@ -560,6 +562,12 @@ class TurbinePhysicsModel:
         self._sensor_bias: Dict[str, float] = {}
         self._sensor_stuck_until: Dict[str, float] = {}
         self._sensor_last: Dict[str, float] = {}
+        # 注入感測器故障的 tag「沒有故障時」的讀值（同一個雜訊樣本另算，WMOM-20261021-08-c）：風場尾流模型的偏航
+        # 輸入取風向標 1 讀值，感測器故障不能透過它影響其他機組
+        self._unfaulted_readings: Dict[str, float] = {}
+        self._sensor_last_unfaulted: Dict[str, float] = {}
+        # 尾流模型的偏航輸入（度）：風向標 1 讀值，風向標 1 有感測器故障時用沒有故障的讀值
+        self.wake_yaw_reading_deg = 0.0
 
         self.operator_stop = False
         self.operator_start_pending = False
@@ -886,9 +894,10 @@ class TurbinePhysicsModel:
         # therefore turns the nacelle until vane 1 reads ~0: the rotor is physically
         # misaligned by −drift, vane 1 still shows only the controller residual, and
         # vane 2 shows the true misalignment. Yaw slippage (hydraulic_leak) is a real
-        # misalignment seen by both vanes. yaw_out["yaw_error"] keeps feeding fatigue,
-        # yaw skew and wake steering with the physical misalignment (+ the per-turbine
-        # vane 1 mounting bias, as before).
+        # misalignment seen by both vanes. yaw_out["yaw_error"] keeps feeding fatigue
+        # and yaw skew with the physical misalignment (+ the per-turbine vane 1 mounting
+        # bias, as before); the farm wake model takes the vane 1 reading instead
+        # (wake_yaw_reading_deg).
         # Both vanes mounted off by the same angle (yaw_misalignment, WMOM-20261021-08-c): the controller nulls
         # vane 1, so the rotor sits misaligned by −offset while both vanes agree (no 233).
         vane1_drift = fault_physics["vane1_drift_deg"]
@@ -1240,7 +1249,10 @@ class TurbinePhysicsModel:
         # process (physics, control) is untouched. Both the PLC and SCADA see the faulty reading.
         sensor_faults: Dict[str, Tuple[str, float]] = fault_physics["sensor_faults"]  # type: ignore[assignment]  # 見 _get_fault_physics
         measured = self._apply_sensor_faults(output, sensor_faults)
-        sensorized = self._apply_sensor_model(measured)
+        sensorized = self._apply_sensor_model(
+            measured, unfaulted={tag: output[tag] for tag in sensor_faults if tag in output})
+        self.wake_yaw_reading_deg = self._unfaulted_readings.get(
+            "WYAW_YwVn1AlgnAvg5s", sensorized["WYAW_YwVn1AlgnAvg5s"])
         for tag, (mode, _value) in sensor_faults.items():
             if mode in ("pinned", "hold") and tag in sensorized:
                 # a broken wire / failed encoder / seized sensor reads a constant, no noise
@@ -1612,6 +1624,8 @@ class TurbinePhysicsModel:
         self._sensor_bias.clear()
         self._sensor_stuck_until.clear()
         self._sensor_last.clear()
+        self._unfaulted_readings.clear()
+        self._sensor_last_unfaulted.clear()
         self.drivetrain.reset()
         self.cooling.reset()
         self.electrical.reset()
@@ -1758,8 +1772,8 @@ class TurbinePhysicsModel:
             量測值；沒有感測器故障時就是 ``output`` 本身（健康機組不受影響）。
         """
         # 故障清掉（感測器修好）後，下次卡住從新的讀值起算
-        for tag in [t for t in self._held_sensor if sensor_faults.get(t, ("", 0.0))[0] != "hold"]:
-            del self._held_sensor[tag]
+        for tag in [t for t in list(self._held_sensor) if sensor_faults.get(t, ("", 0.0))[0] != "hold"]:
+            self._held_sensor.pop(tag, None)
         if not sensor_faults:
             return output
         measured = dict(output)
@@ -1776,8 +1790,10 @@ class TurbinePhysicsModel:
                 measured[tag] = held[1]
             elif mode == "scale":
                 measured[tag] = round(measured[tag] * value, 3)
-            else:
+            elif mode == "offset":
                 measured[tag] = round(measured[tag] + value, 2)
+            else:
+                raise ValueError(f"未知的感測器故障模式：{mode}（{tag}）")
         return measured
 
     def _pitch_motor_currents(self, pitch_rate_deg_s: float, thrust_kn: float,
@@ -1806,7 +1822,23 @@ class TurbinePhysicsModel:
         currents[0] += blade1_friction_a
         return currents
 
-    def _apply_sensor_model(self, output: Dict[str, float]) -> Dict[str, float]:
+    def _apply_sensor_model(self, output: Dict[str, float],
+                            unfaulted: Optional[Mapping[str, float]] = None) -> Dict[str, float]:
+        """量測值 → SCADA 讀值（雜訊、漂移、卡值、解析度）。
+
+        Args:
+            output: 量測值（注入感測器故障的那支為故障讀值）。
+            unfaulted: 注入感測器故障的 tag 的製程值；以同一個雜訊樣本另算「沒有故障時的讀值」，存進
+                ``self._unfaulted_readings``（抽樣次數不變，WMOM-20261021-08-c）。
+
+        Returns:
+            SCADA 讀值。
+        """
+        unfaulted = unfaulted or {}
+        self._unfaulted_readings = {}
+        # 故障結束（修好）的 tag：卡值事件回放的是沒有故障時的最後讀值
+        for tag in [t for t in self._sensor_last_unfaulted if t not in unfaulted]:
+            self._sensor_last[tag] = self._sensor_last_unfaulted.pop(tag)
         # Tags that should not be filtered through the sensor model
         _integer_tags = {"WTUR_TurSt", "WCNV_CnvMode", "WCNV_RtBand",
                          "WROT_RotLckd", "WROT_SrvcBrkAct", "WROT_LckngPnPos",
@@ -1842,26 +1874,35 @@ class TurbinePhysicsModel:
                 self._sensor_bias[tag] = self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["drift"])
                 self._sensor_bias[tag] = max(-cfg["bias_limit"], min(cfg["bias_limit"], self._sensor_bias[tag]))
             if self._sim_time >= self._sensor_stuck_until.get(tag, 0.0) and rng.uniform() < cfg["stuck_prob"]:
-                self._sensor_stuck_until[tag] = self._sim_time + rng.uniform(6.0, 20.0)
+                self._sensor_stuck_until[tag] = self._sim_time + rng.uniform(*_SENSOR_STUCK_S)
             if self._sim_time < self._sensor_stuck_until.get(tag, 0.0) and tag in self._sensor_last:
                 sensorized[tag] = self._sensor_last[tag]
+                if tag in unfaulted:
+                    self._unfaulted_readings[tag] = self._sensor_last_unfaulted.get(tag, self._sensor_last[tag])
                 continue
-            measured = value + self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["noise"])
-            # 上游物理若發散成 inf/nan，下一行 round() 會拋 OverflowError 弄垮整個 step()
-            # （這正是「生成情境」500 + 前端誤報 CORS 的根因）。非有限值直接歸零並繼續
-            # （引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
-            if not math.isfinite(measured):
-                self._sensor_last[tag] = 0.0
-                sensorized[tag] = 0.0
-                continue
-            resolution = cfg["resolution"]
-            if resolution > 0:
-                measured = round(measured / resolution) * resolution
-            measured = max(cfg["min"], measured) if cfg["min"] is not None else measured
-            measured = min(cfg["max"], measured) if cfg["max"] is not None else measured
-            self._sensor_last[tag] = measured
-            sensorized[tag] = measured
+            bias = self._sensor_bias.get(tag, 0.0)
+            noise = rng.normal(0.0, cfg["noise"])
+            # 加法順序（值 + 偏差 + 雜訊）不可改：浮點數不滿足結合律，改了健康輸出就不再逐位元相同
+            sensorized[tag] = self._sensor_last[tag] = self._sensor_reading(value + bias + noise, cfg)
+            if tag in unfaulted:
+                reading = self._sensor_reading(unfaulted[tag] + bias + noise, cfg)
+                self._unfaulted_readings[tag] = self._sensor_last_unfaulted[tag] = reading
         return sensorized
+
+    @staticmethod
+    def _sensor_reading(measured: float, cfg: Mapping[str, float]) -> float:
+        """量測值（含偏差與雜訊）→ 讀值：解析度、上下限。
+
+        上游物理若發散成 inf/nan，round() 會拋 OverflowError 弄垮整個 step()（這正是「生成情境」500 + 前端誤報
+        CORS 的根因）。非有限值直接歸零（引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
+        """
+        if not math.isfinite(measured):
+            return 0.0
+        resolution = cfg["resolution"]
+        if resolution > 0:
+            measured = round(measured / resolution) * resolution
+        measured = max(cfg["min"], measured) if cfg["min"] is not None else measured
+        return min(cfg["max"], measured) if cfg["max"] is not None else measured
 
     def _get_sensor_config(self, tag: str) -> Dict[str, float]:
         if tag.startswith("WGEN_Gn") and "Tmp" in tag:
@@ -2170,7 +2211,7 @@ class TurbinePhysicsModel:
             # converter_cooling_pump_wear: worn impeller → less flow (422 → 439); loop pressure follows flow²
             # (432) and the water runs hotter (convective heat transfer ∝ flow^0.8).
             elif scenario_id == "converter_cooling_pump_wear":
-                flow_scale = 1.0 - 0.5 * severity * severity
+                flow_scale = max(0.2, 1.0 - 0.5 * severity * severity)
                 fault_physics["pump_flow_scale"] *= flow_scale
                 fault_physics["cooling_bias"]["water"] *= flow_scale ** 0.8
             # cooling_water_deionizer_exhausted: ion exchange resin used up → conductivity climbs (423 → 440).

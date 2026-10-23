@@ -27,7 +27,7 @@ import pytest  # noqa: E402
 from simulator.engine import WindFarmSimulator  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 from simulator.physics.plc_protection import PlcEvent, PlcProtection  # noqa: E402
-from simulator.physics.turbine_physics import TurbineSpec  # noqa: E402
+from simulator.physics.turbine_physics import TurbinePhysicsModel, TurbineSpec  # noqa: E402
 
 DT = 5.0
 PRODUCING = 6
@@ -215,3 +215,75 @@ def test_tripped_sensor_fault_holds_the_turbine_until_repaired() -> None:
     reading = sim.latest_data["WT001"]["scada"]["WYAW_YwBrkHyPrs"]
     lo, hi = SPEC.yaw_pressure_valid_range_bar
     assert lo <= reading <= hi and reading != SPEC.yaw_pressure_broken_wire_bar, "修好後讀值回到正常範圍"
+
+
+# ── 故障庫擴充的感測器故障（WMOM-20261021-08-c）──────────────────────────────────
+
+
+def test_stuck_vane_does_not_reach_the_other_turbines_wake() -> None:
+    """風場尾流模型的偏航輸入取風向標 1 讀值：卡住的風向標不能透過尾流改變下游機組（逐位元相同）。
+
+    關掉 PLC：開著時 231 讓 WT001 停機，下游少了它的尾流是真的會變（那是跳機的後果，不是讀值外洩）。
+    """
+    def run(fault: bool) -> Tuple[List[Dict[str, Dict[str, float]]], float]:
+        sim = WindFarmSimulator(turbine_count=6)
+        for model in sim.turbines.values():
+            model.plc.enabled = False
+        sim.wind_model.set_override(wind_speed=10.0, wind_direction=270.0, ambient_temp=20.0)
+        rows: List[Dict[str, Dict[str, float]]] = []
+        for i in range(400):
+            if fault and i == 150:
+                assert sim.fault_engine.inject("wind_vane1_stuck", "WT001", severity_rate=0.0, initial_severity=0.6)
+            sim._run_one_step(T0 + timedelta(seconds=i * DT), DT)
+            rows.append({tid: dict(sim.latest_data[tid]["scada"]) for tid in sim.turbines if tid != "WT001"})
+        return rows, float(sim.latest_data["WT001"]["scada"]["WYAW_YwVn1AlgnAvg5s"])
+
+    healthy, healthy_vane = run(False)
+    faulty, held_vane = run(True)
+    assert held_vane != healthy_vane
+    assert faulty == healthy
+
+
+def test_held_vane_reading_follows_each_injection_and_reset() -> None:
+    """卡住的讀值屬於那一次注入：修好再卡住、換一次注入、機組 reset 都從新的讀值起算。"""
+    model = TurbinePhysicsModel(seed=3)
+    model.plc.enabled = False
+
+    def vane(steps: int, direction: float) -> float:
+        out: Dict[str, float] = {}
+        for _ in range(steps):
+            out = model.step(wind_speed=10.0, wind_direction=direction, ambient_temp=20.0, dt=DT)
+        return out["WYAW_YwVn1AlgnAvg5s"]
+
+    vane(200, 180.0)
+    model.active_faults = [{"scenario_id": "wind_vane1_stuck", "severity": 1.0, "instance_id": 1}]
+    held = vane(1, 180.0)
+    assert vane(30, 205.0) == held                      # 風向變了，讀值不動
+    model.active_faults = []
+    assert vane(1, 205.0) != held                       # 修好：讀值又跟著風向
+    model.active_faults = [{"scenario_id": "wind_vane1_stuck", "severity": 1.0, "instance_id": 1}]
+    again = vane(1, 205.0)
+    assert again != held and vane(10, 170.0) == again   # 再卡住：停在新的值
+    model.active_faults = [{"scenario_id": "wind_vane1_stuck", "severity": 1.0, "instance_id": 2}]
+    assert vane(1, 170.0) != again                      # 換一次注入（同一步）就重取
+    model.reset()
+    assert model._held_sensor == {} and model._sensor_last_unfaulted == {}
+
+
+def test_vane_sensor_noise_is_coarser_than_its_resolution_and_stuck_events_are_short() -> None:
+    """風向標凍結判定（231 / 232）看 I/O 讀值：健康讀值靠量測雜訊每步都在變、卡值事件到不了 60 s。"""
+    from simulator.physics import TurbinePhysicsModel as Model
+    from simulator.physics.turbine_physics import _SENSOR_STUCK_S
+
+    cfg = Model(seed=1)._get_sensor_config("WYAW_YwVn1AlgnAvg5s")
+    assert cfg["noise"] >= 4 * cfg["resolution"]
+    assert _SENSOR_STUCK_S[1] <= SPEC.vane_frozen_delay_s / 2
+
+
+def test_pump_wear_with_out_of_range_severity_does_not_break_the_step() -> None:
+    """API 沒擋嚴重度範圍：負的嚴重度不能讓冷卻水流量變成負數（** 0.8 → 複數）弄垮整個風場的模擬。"""
+    model = TurbinePhysicsModel(seed=1)
+    for severity in (-2.0, 3.0):
+        model.active_faults = [{"scenario_id": "converter_cooling_pump_wear", "severity": severity}]
+        out = model.step(wind_speed=12.0, wind_direction=180.0, ambient_temp=20.0, dt=DT)
+        assert out["WCNV_IGCTWtrPres1"] >= 0.0

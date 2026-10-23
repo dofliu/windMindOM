@@ -56,12 +56,14 @@ def _vib(o: Sample) -> float:
     return max(o["WNAC_VibMsNacXDir"], o["WNAC_VibMsNacYDir"])
 
 
-# ABB 冷卻單元的流量（額定 = 1）：不是 SCADA tag，_run 另外記在 sample 裡（WMOM-20261021-08-c）
+# 不是 SCADA tag 的 PLC 輸入，_run 另外記在 sample 裡（WMOM-20261021-08-c）：ABB 冷卻單元的流量（額定 = 1）、
+# 變頻器轉速（直驅＝轉子實際轉速；029 比的是它，不是模擬的 WGEN_GnSpd）
 _FLOW = "_cooling_flow_ratio"
+_ROTOR = "_rotor_rpm"
 
 
 def _rotor_speed_dev(o: Sample) -> float:
-    return abs(o["WROT_RotSpd"] - o["WGEN_GnSpd"]) / o["WGEN_GnSpd"]
+    return abs(o["WROT_RotSpd"] - o[_ROTOR]) / o[_ROTOR]
 
 
 def _pitch_current(o: Sample) -> float:
@@ -84,6 +86,7 @@ def _run(fault_id: str | None, severity: float, wind: float, ambient: float) -> 
         if i >= steps - SAMPLE_STEPS:
             sample = dict(out)
             sample[_FLOW] = model.cooling.water_loop.flow_lpm / model.cooling.spec.pump_flow_rated_lpm
+            sample[_ROTOR] = model.rotor_speed
             samples.append(sample)
     return tuple(samples), str(model.get_control_status()["shutdown_cause"])
 
@@ -418,8 +421,8 @@ def test_pitch_motor_currents_have_their_own_rng_stream() -> None:
     assert differs
 
 
-def test_pitch_motor_fault_raises_only_blade_1_current_and_is_load_dependent() -> None:
-    """變槳驅動劣化只抬高葉片 1 的電流，葉片角度與另外兩支不變；負載高時總電流較高。"""
+def test_pitch_motor_fault_raises_only_blade_1_current_and_total_current_follows_load() -> None:
+    """變槳驅動劣化只抬高葉片 1 的電流（固定多出一段），葉片角度與另外兩支不變；負載高時總電流較高。"""
     healthy, _ = _run(None, 0.0, 14.0, 25.0)
     faulty, _ = _run("pitch_motor_fault", 1.0, 14.0, 25.0)
     for tag in ("WROT_PtMotCurBl2", "WROT_PtMotCurBl3", "WROT_PtAngValBl1", "WROT_PtAngValBl2"):

@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-09T04:00:10.000000Z",
  "sim_end": "2026-03-09T10:00:00.000000Z",
- "generated_at": "2026-10-23T15:35:11.427959Z",
+ "generated_at": "2026-10-23T16:32:26.340123Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -143,13 +143,15 @@
    "fault_name_en": "Converter Cooling System Fault",
    "fault_name_zh": "變頻器冷卻系統故障",
    "component": "converter_cooling_system",
-   "root_cause": "變頻器 IGCT 水冷系統劣化：O-ring 劣化洩漏使冷卻液位下降、靜水壓降低，散熱能力下降，冷卻水與變頻器機櫃溫度上升，最後由變頻器要求跳機（437 + 021）。",
-   "root_cause_en": "Converter IGCT water-cooling degradation: O-ring leakage lowers the coolant level and static pressure, cooling capacity falls, and cooling-water and cabinet temperatures rise until the converter requests a trip (437 + 021).",
+   "root_cause": "變頻器 IGCT 水冷系統劣化：O-ring 劣化洩漏使冷卻液位下降，液位過低時冷卻泵空蝕、流量與靜水壓下降，散熱能力下降，冷卻水與變頻器機櫃溫度上升，最後由變頻器要求跳機——冷卻水溫過高（437）或流量很低（439），都伴隨 021。劣化快時多半先到溫度、慢慢洩漏時多半先到流量。",
+   "root_cause_en": "Converter IGCT water-cooling degradation: O-ring leakage lowers the coolant level; once it is low the cooling pump cavitates, flow and static pressure fall, cooling capacity drops, and cooling-water and cabinet temperatures rise until the converter requests a trip — cooling water temperature very high (437) or flow very low (439), both with 021. A fast degradation usually reaches the temperature first, a slow leak the flow.",
    "expected_alarm_codes": [
     420,
     421,
+    422,
     432,
     437,
+    439,
     21
    ],
    "expected_alarm_sequence": [
@@ -164,6 +166,11 @@
      "text": "Converter cabinet temperature high"
     },
     {
+     "code": 422,
+     "level": "A",
+     "text": "Cooling water flow low"
+    },
+    {
      "code": 432,
      "level": "A",
      "text": "Static water pressure L"
@@ -172,6 +179,11 @@
      "code": 437,
      "level": "T1",
      "text": "Cooling water temperature very high"
+    },
+    {
+     "code": 439,
+     "level": "T1",
+     "text": "Cooling water flow very low"
     },
     {
      "code": 21,
@@ -207,6 +219,18 @@
     {
      "doc": "Z72 User Manual",
      "section": "Appendix C",
+     "event_code": 422,
+     "event_id": "A_422",
+     "level": "A",
+     "text": "Cooling water flow low",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
      "event_code": 432,
      "event_id": "A_432",
      "level": "A",
@@ -223,6 +247,18 @@
      "event_id": "T_437",
      "level": "T1",
      "text": "Cooling water temperature very high",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 439,
+     "event_id": "T_439",
+     "level": "T1",
+     "text": "Cooling water flow very low",
      "page": 124,
      "cause": "See [ABB]",
      "rectification": "See [ABB]",
@@ -258,8 +294,12 @@
     "WCOL_CoolantLvl",
     "WCNV_CnvCabinTmp"
    ],
-   "simulation_notes": [],
-   "simulation_notes_en": [],
+   "simulation_notes": [
+    "流量低 / 很低（422 / 439）的設定值為模擬假設（額定流量的 90 % / 75 %，手冊只寫 See [ABB]）；冷卻水流量沒有 SCADA tag，只看得到冷卻液位、IGCT 水壓與水溫。"
+   ],
+   "simulation_notes_en": [
+    "The flow low / very low setpoints (422 / 439) are simulator assumptions (90 % / 75 % of rated flow; the manual only says See [ABB]); the cooling water flow has no SCADA tag — only the coolant level, IGCT water pressures and temperature are visible."
+   ],
    "onset_ts": "2026-03-09T05:00:00.000000Z",
    "window_end_ts": null,
    "first_alarm_ts": "2026-03-09T05:14:20.000000Z",
