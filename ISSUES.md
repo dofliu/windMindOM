@@ -1737,6 +1737,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - 合約 v1.4；範例資料包重建（PLC 事件都與 -02 前相同，只有 03 多了低風速起停）；設計文件 §6.3 實測重量、§6.15。
   - code review（無 must-fix）修正：情境開頭的乾淨機組也清每小時跳機計數（S1）、233 的風速條件改判定窗不再讓鎖存的跳機在風速低谷解除（S2）、每碼狀態在 reset 時建好避免 API 執行緒迭代競爭（S5）；021 跨成因計數與判定時點寫進 DEC（S3 / S4）。
   - 仍未對上（留給後續）：236 塔架加速度（手冊看 m/s²，模型是 mm/s）、Appendix D 的暴風等級（204 Storm park）。
+  - **測試**：backend 1963 → 1991 passed / 7 skipped / 1 xfailed。
   - work-log：`work-logs/2026-10/2026-10-23-manual-fidelity.md`
 
 ### WMOM-20261022-03 — 架構全貌圖更新與專案文件同步（EPIC-DS 之後）

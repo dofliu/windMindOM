@@ -20,7 +20,7 @@
 模擬器產生附標準答案的擬真 Z72 資料，經檔案 / 串流 / 模仿 tag 的 OPC UA server 餵給外部 RAG 即時維修助手（學生專題）。
 設計：`docs/product/EPIC-DS_realistic_data_source.md`。**WMOM-20261021-02（Phase 1a）已完成**：Z72 真實警報目錄 + 情境改真實碼。
 **下個 session 起依此挑題**（2026-10-21 深夜更新：Phase 1b 三段、`-10` 切出風速、`-11` 風場時區、`-04` 標準答案、`-05` 資料包、`-09` starter kit + 合約 v1 都已完成）：
-- ▶️ 下一個：`-08` 其餘子項（誤報 / 健康負樣本與評分、多重故障 + 早期徵兆〔先定同機組多 case 的評分規則〕、故障庫擴充）——開工時請劉老師挑
+- ▶️ 下一個：`-08` 誤報 / 健康負樣本與評分（劉老師 2026-10-23 排定先做）；之後其餘子項（誤報 / 健康負樣本與評分、多重故障 + 早期徵兆〔先定同機組多 case 的評分規則〕、故障庫擴充）——開工時請劉老師挑
 - 留給後續（手冊保真度沒對上的）：236 塔架加速度（手冊 1.75 m/s²，模型是 mm/s）、Appendix D 暴風等級（204 Storm park）
 - 📦 學生專題可以開始用：合約 `docs/integration/rag_assistant_data_contract_v1.md`（v1.4）、`examples/rag_starter_kit/`；即時回放用 `tools/replay_runs.py` 開 token，OPC UA 用 `tools/opcua_server.py` 播同一個回放
 - ⏸️ `WMOM-20260503-05`（客戶接觸）、`WMOM-20260509-F6`（PG row-lock）、M6 現場項目：deferred，不要再排

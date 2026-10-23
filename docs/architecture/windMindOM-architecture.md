@@ -356,7 +356,7 @@ gantt
 | M6 PoC 與合約 | 暫緩（DEC-20261021-01）；auth 已完成部分保留 |
 | EPIC-DS | 94%：Phase 1a–3d、4-a、全面檢查、手冊保真度完成；下一步 -08 其餘子項（先請劉老師挑） |
 
-測試：backend 1963 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-22）。
+測試：backend 1991 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-23）。
 
 ---
 

@@ -95,7 +95,7 @@ WMOM-20261022-01 的模擬器 review 對照手冊，找到三類不一致，劉�
   - 01 / 02 / 04 完全不變。
   - 03 的 WT001 / WT002 多了低風速起停（不再被全域上限卡在待機，240 → 291 筆事件）。
   - 基準助手成績不變（8 case 全偵測、元件 87.5 %、類別 75 %）。
-- **完整 backend**：（待補）
+- **完整 backend**：1963 → 1991 passed / 7 skipped / 1 xfailed（+28）；frontend 沒有改動（CI vitest / tsc / build 通過）。ruff（E9 / F / B）與 mypy 與 main 相同，沒有新問題。
 - **code review**（code-reviewer，沒有 must-fix）：
   - 審查者自己的驗證：
     - PLC 層 fuzz（150 種子 × 400 步，隨機穿插 evaluate / 保護停機 / 起動 / 復位 / 維護清除）與全模擬器 fuzz：A039 的成立 / 解除交替正確，事件碼陣列與 `active_codes()` 一致（只有碼 021 例外，見 S3）。
