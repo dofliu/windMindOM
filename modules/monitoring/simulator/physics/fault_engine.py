@@ -741,9 +741,11 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
         ),
         simulation_notes_zh=(
             "注入後 5–20 分鐘第一次瞬斷，之後每 15–45 分鐘一次、每次 10–30 秒；瞬斷時讀值同斷線（850 °C），與嚴重度無關。",
+            "模擬器假設這個跳機的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。",
         ),
         simulation_notes_en=(
             "The first glitch comes 5–20 min after injection, then every 15–45 min for 10–30 s each; during a glitch the reading is the broken-wire value (850 °C), independent of severity.",
+            "The simulator assumes auto restart is enabled for this trip (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0).",
         ),
     ),
 

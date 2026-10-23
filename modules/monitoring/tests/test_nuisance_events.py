@@ -105,6 +105,37 @@ def test_grid_frequency_excursion_trips_on_frequency_out_of_bounds(monkeypatch: 
         assert {code for t, code, at in _plc(observed) if t == turbine} == {489, 21}
 
 
+def _at(rows: List[dict], tag: str, start_s: float, end_s: float) -> List[float]:
+    return [r["scada"][tag] for r in rows
+            if start_s <= (datetime.fromisoformat(r["timestamp"]) - T0).total_seconds() < end_s]
+
+
+def test_frequency_excursion_below_the_trip_only_derates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """+1 Hz（未達 489 的 1.4 Hz）：下垂降載、不跳機；降載少送的功率不算變頻器發熱（不再誤送 420，review S2）。"""
+    sim = _farm(monkeypatch, turbines=1)
+    rows, observed, _ = _bulk(sim, 0.6, [FarmEvent("grid_frequency_excursion", 1500.0, 60.0, 1.0)])
+    assert [(e.kind, e.plc_event.code) for e in observed if e.plc_event is not None] == []
+    assert min(_at(rows, "WCNV_FreqWattDerate", 1500, 1560)) < 0.8
+    before = max(_at(rows, "WCNV_IGCTWtrTmp", 1200, 1500))
+    assert max(_at(rows, "WCNV_IGCTWtrTmp", 1500, 2100)) < before + 2.0
+
+
+@pytest.mark.parametrize("kind, magnitude", [
+    ("grid_voltage_dip", 0.7), ("grid_frequency_excursion", 1.0), ("rapid_wind_direction_change", 60.0),
+])
+def test_farm_event_key_signals_deviate_during_the_event(monkeypatch: pytest.MonkeyPatch, kind: str,
+                                                          magnitude: float) -> None:
+    """標準答案列的 key signal 在事件期間明顯偏離事件前（風場事件版的 key signal 守門）。"""
+    sim = _farm(monkeypatch, turbines=1)
+    rows, _, _ = _bulk(sim, 0.6, [FarmEvent(kind, 1500.0, 300.0, magnitude)])
+    for tag in FARM_EVENT_KINDS[kind].key_signals:
+        before = _at(rows, tag, 900, 1500)
+        during = _at(rows, tag, 1500, 1800)
+        mean = sum(before) / len(before)
+        spread = max(abs(v - mean) for v in before)
+        assert max(abs(v - mean) for v in during) > max(3.0 * spread, 0.005 * max(abs(mean), 1.0)), tag
+
+
 def test_data_before_a_farm_event_is_identical_to_a_run_without_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """事件只在進行中改變電網 / 風向；之前的資料逐位元相同（電網雜訊的亂數抽樣次數不變）。"""
     plain, _, _ = _bulk(_farm(monkeypatch), 0.5)
@@ -122,6 +153,38 @@ def test_rapid_wind_direction_change_times_out_the_yaw(monkeypatch: pytest.Monke
     assert yaw_timeouts and all(1200 <= at <= 2700 for _, at in yaw_timeouts), yaw_timeouts
     assert {code for _, code, _ in _plc(observed)} == {223}
     assert sim._direction_offset_deg == 0.0
+
+
+def test_overlapping_dip_and_frequency_events_combine_and_restore_the_manual_override(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """電壓驟降與頻率越界重疊：兩個量各自覆寫；事件都結束後回到批次前的手動覆寫。"""
+    sim = _farm(monkeypatch, turbines=1)
+    sim.grid_model.set_override(voltage_v=sim.grid_model.base_voltage_v * 0.98)
+    before = sim.grid_model.snapshot()
+    events = [FarmEvent("grid_voltage_dip", 100.0, 100.0, 0.8), FarmEvent("grid_frequency_excursion", 150.0, 100.0, 0.5)]
+    state = sim.grid_model.snapshot()
+    overridden = sim._apply_farm_events(events, 175.0, T0, set(), state, False, None)
+    status = sim.grid_model.get_status()
+    assert overridden and status["profile"] == "farm_event"
+    assert status["override_voltage_v"] == pytest.approx(sim.grid_model.base_voltage_v * 0.8)
+    assert status["override_frequency_hz"] == pytest.approx(sim.grid_model.base_frequency_hz + 0.5)
+    sim._apply_farm_events(events, 225.0, T0, set(), state, True, None)     # 只剩頻率：電壓回到批次前的值
+    assert sim.grid_model.get_status()["override_voltage_v"] == before[1]
+    assert not sim._apply_farm_events(events, 300.0, T0, set(), state, True, None)
+    assert sim.grid_model.snapshot() == before
+
+
+def test_farm_event_state_is_restored_when_the_batch_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    sim = _farm(monkeypatch, turbines=1)
+    before = sim.grid_model.snapshot()
+
+    def boom(_rows: List[dict]) -> None:
+        raise RuntimeError("store failed")
+
+    with pytest.raises(RuntimeError):
+        sim.generate_bulk(0.2, time_step=10.0, callback=boom, farm_events=[
+            FarmEvent("grid_voltage_dip", 0.0, 600.0, 0.7), FarmEvent("rapid_wind_direction_change", 0.0, 600.0, 60.0)])
+    assert sim.grid_model.snapshot() == before and sim._direction_offset_deg == 0.0
 
 
 # ── 2. Pt100 接觸不良 ─────────────────────────────────────────────────────────
@@ -220,15 +283,17 @@ def test_farm_event_gives_one_nuisance_case_per_reacting_turbine() -> None:
         _ev("WT002", 3606, "trip", 482), _ev("WT002", 3606, "trip", 21),
         _ev("WT001", 3650, "trip_cleared", 482),
         _ev("WT002", 3700, "alarm_raised", 39),            # 跟在後面的自動重啟封鎖
-        _ev("WT003", 3610, "trip", 223),                   # 不是這個事件會送的碼
+        _ev("WT003", 3610, "alarm_raised", 420),           # 不是事件的碼，但在事件進行中：連帶
+        _ev("WT003", 3620 + 900, "alarm_raised", 273),     # 事件結束 15 分鐘後、不是事件的碼：環境性
         _ev("WT001", 9000, "trip", 482),                   # 事件 + 寬限之後
     ])
     gt = _build(rec)
     assert _brief(gt) == [
         ("C001", "WT001", "nuisance", "grid_disturbance", [482, 21], "E01"),
         ("C002", "WT002", "nuisance", "grid_disturbance", [482, 21, 39], "E01"),
-        ("C003", "WT001", "nuisance", "environment", [482], None),
-        ("C004", "WT003", "nuisance", "environment", [223], None),
+        ("C003", "WT003", "nuisance", "grid_disturbance", [420], "E01"),
+        ("C004", "WT001", "nuisance", "environment", [482], None),
+        ("C005", "WT003", "nuisance", "environment", [273], None),
     ]
     dip = gt["cases"][1]
     assert dip["fault_id"] == "grid_voltage_dip" and dip["component"] is None and dip["origin"] == "external_grid"
@@ -241,7 +306,7 @@ def test_farm_event_gives_one_nuisance_case_per_reacting_turbine() -> None:
         "event_id": "E01", "kind": "grid_voltage_dip", "name_zh": "電網電壓驟降", "name_en": "Grid voltage dip",
         "nuisance_cause": "grid_disturbance", "start_ts": "2026-03-01T01:00:00.000000+00:00",
         "end_ts": "2026-03-01T01:00:20.000000+00:00", "magnitude": 0.7,
-        "magnitude_unit": FARM_EVENT_KINDS["grid_voltage_dip"].magnitude_unit, "case_ids": ["C001", "C002"],
+        "magnitude_unit": FARM_EVENT_KINDS["grid_voltage_dip"].magnitude_unit, "case_ids": ["C001", "C002", "C003"],
     }]
     assert gt["unattributed_events"] == [] and gt["healthy_turbines"] == ["WT001", "WT002", "WT003"]
 
@@ -287,10 +352,64 @@ def test_injected_nuisance_scenario_is_a_nuisance_case_and_claims_its_restart_bl
 
 def test_nuisance_windows_never_extend_past_the_scenario_end() -> None:
     rec = GroundTruthRecorder(["WT001"])
-    _farm_event(rec, FarmEvent("rapid_wind_direction_change", 5.5 * 3600, 1500.0, 60.0))
+    _farm_event(rec, FarmEvent("rapid_wind_direction_change", 5.2 * 3600, 1500.0, 60.0))
     rec.on_events([_ev("WT001", 5.6 * 3600, "trip", 223), _ev("WT001", 5.9 * 3600, "info", 201)])
     gt = _build(rec, hours=6.0)
-    assert [c["window_end_ts"] for c in gt["cases"]] == ["2026-03-01T06:00:00.000000+00:00"] * 2
+    assert [(c["nuisance_cause"], c["window_end_ts"]) for c in gt["cases"]] == [
+        ("wind_direction_change", "2026-03-01T06:00:00.000000+00:00"),
+        ("environment", "2026-03-01T06:00:00.000000+00:00"),
+    ]
+
+
+def test_each_of_two_dips_within_an_hour_gets_its_own_cases() -> None:
+    """同種風場事件相隔不到寬限：後面的事件碼歸給後開始的事件，A039 跟著它前一次跳機（review S1 / S6）。"""
+    rec = GroundTruthRecorder(["WT001"])
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 1200.0, 30.0, 0.7))
+    rec.on_events([_ev("WT001", 1205, "trip", 482), _ev("WT001", 1205, "trip", 21)])
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 2400.0, 30.0, 0.7))
+    rec.on_events([_ev("WT001", 2405, "trip", 482), _ev("WT001", 2405, "trip", 21),
+                   _ev("WT001", 2425, "alarm_raised", 39)])
+    gt = _build(rec)
+    assert _brief(gt) == [
+        ("C001", "WT001", "nuisance", "grid_disturbance", [482, 21], "E01"),
+        ("C002", "WT001", "nuisance", "grid_disturbance", [482, 21, 39], "E02"),
+    ]
+    assert [e["case_ids"] for e in gt["farm_events"]] == [["C001"], ["C002"]]
+
+
+def test_restart_block_follows_the_trip_right_before_it() -> None:
+    """Pt100 鬆線的機組遇到電壓驟降：電網跳機之後的 A039 歸電網事件，不歸鬆線（review S6）。"""
+    rec = GroundTruthRecorder(["WT001"])
+    rec.on_fault_injected(PlanStep(0, LOOSE, "WT001", 0.001, 0.0), T0)
+    rec.on_events([_ev("WT001", 600, "trip", 242), _ev("WT001", 625, "trip_cleared", 242)])
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 1800.0, 30.0, 0.7))
+    rec.on_events([_ev("WT001", 1805, "trip", 482), _ev("WT001", 1805, "trip", 21),
+                   _ev("WT001", 1830, "alarm_raised", 39)])
+    gt = _build(rec, final=[ActiveFault(scenario_id=LOOSE, turbine_id="WT001", severity=1.0)])
+    loose, dip = gt["cases"]
+    assert loose["nuisance_cause"] == "loose_contact" and loose["observed_alarm_codes"] == [242]
+    assert dip["observed_alarm_codes"] == [482, 21, 39]
+
+
+def test_farm_event_codes_are_not_claimed_by_a_fault_expecting_them() -> None:
+    """converter_cooling_fault 預期 021：電壓驟降時的 021 歸風場事件，不當成故障的第一個警報（review S2）。"""
+    rec = GroundTruthRecorder(["WT001"])
+    rec.on_fault_injected(PlanStep(0, "converter_cooling_fault", "WT001", 0.001, 0.0), T0)
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 1800.0, 30.0, 0.7))
+    rec.on_events([_ev("WT001", 1805, "trip", 482), _ev("WT001", 1805, "trip", 21)])
+    fault, dip = _build(rec, final=[ActiveFault(scenario_id="converter_cooling_fault", turbine_id="WT001",
+                                                severity=0.5)])["cases"]
+    assert 21 in [a["code"] for a in FAULT_SCENARIOS["converter_cooling_fault"].alarm_codes]
+    assert fault["first_alarm_ts"] is None and fault["observed_alarm_codes"] == []
+    assert dip["observed_alarm_codes"] == [482, 21]
+
+
+def test_build_can_be_called_twice() -> None:
+    rec = GroundTruthRecorder(["WT001"])
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 600.0, 20.0, 0.7))
+    rec.on_events([_ev("WT001", 605, "trip", 482), _ev("WT001", 3 * 3600, "info", 201)])
+    first, second = _build(rec), _build(rec)
+    assert _brief(first) == _brief(second) and len(first["cases"]) == 2
 
 
 def test_vocabulary_lists_every_nuisance_cause() -> None:

@@ -142,9 +142,13 @@ FARM_EVENT_KINDS: Dict[str, FarmEventKind] = {
         ),
         simulation_notes_zh=(
             f"風向以 {int(WIND_SWING_PERIOD_S)} 秒週期正弦擺動（開頭 / 結尾各 {int(WIND_SWING_RAMP_S)} 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。",
+            "振幅約 26° 以下時風向變化率不超過偏航最快速度，偏航追得上、不會逾時（事件照樣記在標準答案，但沒有 case）。",
+            "模擬器假設偏航逾時的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。",
         ),
         simulation_notes_en=(
             f"The direction swings sinusoidally with a {int(WIND_SWING_PERIOD_S)} s period (ramped in / out over {int(WIND_SWING_RAMP_S)} s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times.",
+            "Below an amplitude of about 26° the direction changes no faster than the yaw can turn, so it never times out (the event is still listed in the answer key, with no cases).",
+            "The simulator assumes auto restart is enabled for the yaw time-out (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0).",
         ),
     ),
 }

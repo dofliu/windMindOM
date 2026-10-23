@@ -4,7 +4,7 @@ import time
 import math
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, Set
 from collections import deque
 
 import numpy as np
@@ -20,6 +20,7 @@ from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 from simulator.bulk_events import STATE_CHANGE, BulkEvent
 from simulator.farm_events import FarmEvent
+from simulator.grid_model import GridOverrideState
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, utc_now
 
 
@@ -482,9 +483,11 @@ class WindFarmSimulator:
         sched_idx = 0
         # 風場事件：開始過的事件（回呼一次）與批次開始前的電網覆寫狀態（事件結束 / 批次結束時恢復）
         events_sorted = sorted(farm_events or [], key=lambda e: e.offset_seconds)
-        started_events: set = set()
+        started_events: Set[int] = set()
         grid_state = self.grid_model.snapshot()
         grid_overridden = False
+        # 最後一個事件結束、狀態也復原後就不必每個子步掃一遍
+        farm_events_end_s = max((e.end_seconds for e in events_sorted), default=0.0)
 
         # 批次續跑旗標與 Live 的 _running **解耦**：即使 Live 未在跑（stop_live_loop 後 _running
         # 為 False）批次仍應執行；且「停 Live」與「跑批次」不再共用旗標互相干擾（見 stop_live_loop
@@ -525,7 +528,8 @@ class WindFarmSimulator:
                 readings: List[Dict] = []
                 step_events: List[BulkEvent] = []
                 for sub_i in range(n_sub):
-                    if events_sorted:
+                    if events_sorted and (elapsed_seconds + sub_i * sub_dt <= farm_events_end_s
+                                          or grid_overridden or self._direction_offset_deg):
                         grid_overridden = self._apply_farm_events(
                             events_sorted, elapsed_seconds + sub_i * sub_dt, sim_time, started_events,
                             grid_state, grid_overridden, on_farm_event)
@@ -557,7 +561,7 @@ class WindFarmSimulator:
         return total_readings
 
     def _apply_farm_events(self, events: List[FarmEvent], elapsed_s: float, sim_time: datetime,
-                           started: set, grid_state: tuple, grid_overridden: bool,
+                           started: Set[int], grid_state: GridOverrideState, grid_overridden: bool,
                            on_farm_event: Optional[Callable[[FarmEvent, datetime, datetime], None]]) -> bool:
         """套用 ``elapsed_s`` 時進行中的風場事件（一個物理子步開始前）。
 

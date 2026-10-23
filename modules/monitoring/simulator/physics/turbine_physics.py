@@ -793,7 +793,11 @@ class TurbinePhysicsModel:
         )
 
         # Apply frequency-watt derate to grid-side power
+        # 下垂降載少送出的功率（變槳少擷取）不是變頻器的熱：熱只算效率損失。原本整段差額都算進變頻器發熱，
+        # 頻率偏高未跳機時冷卻水溫一分鐘升 18 °C、誤送 420（WMOM-20261021-08-b）。沒有降載時為 0，健康輸出不變
+        withheld_kw = 0.0
         if is_producing:
+            withheld_kw = cnv_gd_pwr * (1.0 - elec_out["freq_watt_derate"])
             cnv_gd_pwr = elec_out["active_power_kw"]
 
         # Check ride-through trip
@@ -864,7 +868,7 @@ class TurbinePhysicsModel:
             "rotor": brake_heat_kw * 0.30,
             "hub": brake_heat_kw * 0.24,
             "nacelle": brake_heat_kw * 0.10 + gbx_brg_heat * 0.4,
-            "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr),
+            "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr - withheld_kw),
         }.items():
             extra_heat[key] = extra_heat.get(key, 0.0) + value
 

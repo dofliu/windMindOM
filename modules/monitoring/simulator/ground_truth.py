@@ -54,6 +54,9 @@ FAULT_CATEGORIES = frozenset({"real_fault", "sensor_fault"})
 # nuisance case 的時間窗在最後一個相關事件（風場事件則取事件結束與最後一個事件較晚者）之後多留這麼久：
 # 機組自動重啟、助手的判斷可能稍晚；環境性 case 也以此為分群間隔
 NUISANCE_WINDOW_GRACE_S = 1800.0
+# 風場事件進行中到結束後這麼久：該機組任何沒被認領的警報 / 跳機都歸這個事件（例：降載期間的連帶警報）；
+# 事件自己的碼（FarmEventKind.event_codes）在這段時間也不讓故障 case 認領（例：故障預期碼 021 / 481）
+FARM_EVENT_SETTLE_S = 600.0
 # 自動重啟被封鎖（A039）：跟在 nuisance 跳機之後，歸給同一個 nuisance case
 RESTART_BLOCKED_CODE = 39
 # 環境性 nuisance case 的成因說明：依出現的事件碼挑（沒列的碼只用通用說明）
@@ -253,15 +256,21 @@ def environment_answer(codes: Sequence[int]) -> Dict[str, JsonValue]:
     )
 
 
-@dataclass
+@dataclass(eq=False)
 class _Observed:
-    """一筆沒被故障 / 注入的 nuisance case 認領的事件（``build`` 時再歸給風場事件或環境性 case）。"""
+    """一筆沒被故障 / 注入的 nuisance case 認領的事件（``build`` 時再歸給風場事件或環境性 case）。
+
+    Attributes:
+        follows: A039 前一個跳機（沒被認領者）；A039 跟著它歸屬。
+        case_id: ``build`` 時歸給的 case。
+    """
 
     ts: datetime
     turbine_id: str
     kind: str
     code: int
     record: Dict[str, JsonValue]
+    follows: Optional["_Observed"] = None
     case_id: Optional[str] = None
 
 
@@ -314,6 +323,8 @@ class GroundTruthRecorder:
         self._cases: List[_Case] = []
         self._unclaimed: List[_Observed] = []
         self._farm_events: List[_FarmEventRecord] = []
+        # 各機組最近一次跳機的歸屬（認領它的 case，或沒被認領的事件）：A039 跟著它
+        self._last_trip: Dict[str, Union[_Case, _Observed]] = {}
 
     def on_fault_injected(self, step: TestPlanStep, sim_time: datetime) -> None:
         """一次故障注入成為一個 case（``generate_bulk`` 的 ``on_fault_injected``）。
@@ -368,8 +379,9 @@ class GroundTruthRecorder:
         """可觀測事件歸到同機組、已開始的 case（``generate_bulk`` 的 ``on_events``）。
 
         預期碼 → ``first_alarm`` / ``observed_alarm_codes``；其他 A / T 碼 → ``other_observed_codes``
-        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。注入的 nuisance case 另外認領自己跳機之後的
-        A039（自動重啟被封鎖），並以第一次跳機為 ``trip``（nuisance 不鎖機組，``on_fault_tripped`` 不會來）。
+        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。風場事件進行中到結束後 ``FARM_EVENT_SETTLE_S``，
+        事件自己的碼不讓故障 case 認領。注入的 nuisance case 以第一次跳機為 ``trip``（nuisance 不鎖機組，
+        ``on_fault_tripped`` 不會來）。A039（自動重啟被封鎖）沒有寫是哪個碼造成的：跟著同機組前一次跳機歸屬。
         沒有任何 case 認領的警報 / 跳機 / 資訊事件留到 ``build``：歸給風場事件或環境性 nuisance case，
         都不是的列進 ``unattributed_events``——評分端才知道 RAG 面對的每一筆事件有沒有答案。
 
@@ -380,13 +392,15 @@ class GroundTruthRecorder:
             plc = event.plc_event
             if plc is None:
                 continue
-            claimed = False
+            claimer: Optional[_Case] = None
+            blocked_after = self._last_trip.get(event.turbine_id) if plc.code == RESTART_BLOCKED_CODE else None
             if event.kind in _ALARM_KINDS:
+                reserved = self._reserved_by_farm_event(event.timestamp, plc.code)
                 for case in self._active_cases(event.turbine_id):
                     if event.timestamp < case.onset:
                         continue
-                    if plc.code in case.expected_codes:
-                        claimed = True
+                    if plc.code in case.expected_codes and not reserved:
+                        claimer = claimer or case
                         if case.first_alarm is None:
                             case.first_alarm = (event.timestamp, plc.code)
                         if plc.code not in case.observed_codes:
@@ -394,12 +408,13 @@ class GroundTruthRecorder:
                         if not case.is_fault and event.kind == "trip" and case.trip is None:
                             case.trip = (event.timestamp, plc.code)
                     else:
-                        if not case.is_fault and plc.code == RESTART_BLOCKED_CODE and case.trip is not None:
-                            claimed = True
+                        if blocked_after is case and not case.is_fault:
+                            claimer = claimer or case
                         if plc.code not in case.other_codes:
                             case.other_codes.append(plc.code)
-            if not claimed and event.kind in _UNATTRIBUTED_KINDS:
-                self._unclaimed.append(_Observed(
+            observed: Optional[_Observed] = None
+            if claimer is None and event.kind in _UNATTRIBUTED_KINDS:
+                observed = _Observed(
                     ts=event.timestamp,
                     turbine_id=event.turbine_id,
                     kind=event.kind,
@@ -412,7 +427,19 @@ class GroundTruthRecorder:
                         "level": plc.level,
                         "text": plc.text,
                     },
-                ))
+                    follows=blocked_after if isinstance(blocked_after, _Observed) else None,
+                )
+                self._unclaimed.append(observed)
+            if event.kind == "trip":
+                owner = claimer or observed
+                if owner is not None:
+                    self._last_trip[event.turbine_id] = owner
+
+    def _reserved_by_farm_event(self, ts: datetime, code: int) -> bool:
+        """``ts`` 時這個碼是否是進行中（含結束後 ``FARM_EVENT_SETTLE_S``）的風場事件自己的碼。"""
+        settle = timedelta(seconds=FARM_EVENT_SETTLE_S)
+        return any(rec.start <= ts <= rec.end + settle and code in FARM_EVENT_KINDS[rec.event.kind].event_codes
+                   for rec in self._farm_events)
 
     def build(self, *, scenario_id: Optional[int], scenario_name: Optional[str],
               site_timezone: Optional[str], sim_start: Optional[str], sim_end: Optional[str],
@@ -485,6 +512,8 @@ class GroundTruthRecorder:
                 "pre_existing": True,
             })
         sim_end_dt = parse_iso(sim_end) if sim_end else None
+        for observed in self._unclaimed:  # build 可重複呼叫：歸屬每次重算
+            observed.case_id = None
         farm_events = self._farm_event_cases(cases, sim_end_dt)
         # 故障開始時刻（pre_existing 從情境一開始就在）：之後的事件是故障連帶，不歸環境性 case
         fault_onsets: Dict[str, Optional[datetime]] = {}
@@ -519,35 +548,45 @@ class GroundTruthRecorder:
     def _farm_event_cases(self, cases: List[JsonValue], sim_end: Optional[datetime]) -> List[JsonValue]:
         """風場事件 → 每台有反應的機組一個 nuisance case（就地加進 ``cases``）。
 
-        事件期間到結束後 ``NUISANCE_WINDOW_GRACE_S``、沒被認領的該事件碼（與跟在後面的 A039）歸給它。
+        沒被認領的事件歸給涵蓋它的風場事件：事件進行中到結束後 ``FARM_EVENT_SETTLE_S`` 的任何碼，或到結束後
+        ``NUISANCE_WINDOW_GRACE_S`` 的事件自己的碼（``event_codes``）。同時被幾個事件涵蓋時歸給最晚開始的
+        （例：一小時內兩次電壓驟降，各自有 case）。跟在這些跳機後面的 A039 一起歸過去。
 
         Returns:
             標準答案的 ``farm_events`` 清單。
         """
-        out: List[JsonValue] = []
         grace = timedelta(seconds=NUISANCE_WINDOW_GRACE_S)
-        for index, rec in enumerate(self._farm_events, start=1):
+        settle = timedelta(seconds=FARM_EVENT_SETTLE_S)
+        owned: Dict[Tuple[int, str], List[_Observed]] = {}
+        for o in self._unclaimed:
+            if o.code == RESTART_BLOCKED_CODE and o.follows is not None:
+                continue  # 跟著前一次跳機
+            covering = [
+                i for i, rec in enumerate(self._farm_events)
+                if rec.start <= o.ts and (
+                    o.ts <= rec.end + settle
+                    or (o.ts <= rec.end + grace and o.code in FARM_EVENT_KINDS[rec.event.kind].event_codes))
+            ]
+            if covering:
+                index = max(covering, key=lambda i: (self._farm_events[i].start, i))
+                owned.setdefault((index, o.turbine_id), []).append(o)
+        out: List[JsonValue] = []
+        for index, rec in enumerate(self._farm_events):
             kind = FARM_EVENT_KINDS[rec.event.kind]
-            event_id = f"E{index:02d}"
-            codes = set(kind.event_codes)
+            event_id = f"E{index + 1:02d}"
             case_ids: List[JsonValue] = []
             for turbine_id in self._turbine_ids:
-                mine = [o for o in self._unclaimed
-                        if o.case_id is None and o.turbine_id == turbine_id and rec.start <= o.ts <= rec.end + grace
-                        and o.code in codes]
+                mine = owned.get((index, turbine_id))
                 if not mine:
                     continue
-                last = max(o.ts for o in mine)
-                blocked = [o for o in self._unclaimed
-                           if o.case_id is None and o.turbine_id == turbine_id and o.code == RESTART_BLOCKED_CODE
-                           and mine[0].ts <= o.ts <= last + grace]
+                mine = mine + _blocked_after(self._unclaimed, mine)
                 case_id = f"C{len(cases) + 1:03d}"
-                for o in mine + blocked:
+                for o in mine:
                     o.case_id = case_id
-                window_end = max(rec.end, max(o.ts for o in mine + blocked)) + grace
+                window_end = max(rec.end, max(o.ts for o in mine)) + grace
                 cases.append(self._nuisance_case(
-                    case_id, turbine_id, farm_event_answer(kind.id, _codes_in_order(mine + blocked)),
-                    rec.start, window_end, sim_end, mine + blocked, farm_event_id=event_id))
+                    case_id, turbine_id, farm_event_answer(kind.id, _codes_in_order(mine)),
+                    rec.start, window_end, sim_end, mine, farm_event_id=event_id))
                 case_ids.append(case_id)
             out.append({
                 "event_id": event_id,
@@ -556,7 +595,7 @@ class GroundTruthRecorder:
                 "name_en": kind.name_en,
                 "nuisance_cause": kind.nuisance_cause,
                 "start_ts": iso_utc(rec.start),
-                "end_ts": iso_utc(rec.end),
+                "end_ts": iso_utc(rec.end if sim_end is None else min(rec.end, sim_end)),
                 "magnitude": rec.event.magnitude,
                 "magnitude_unit": kind.magnitude_unit,
                 "case_ids": case_ids,
@@ -582,7 +621,8 @@ class GroundTruthRecorder:
                 if limit is None:
                     continue  # 故障從情境一開始就在（pre_existing）
             pending = [o for o in self._unclaimed
-                       if o.case_id is None and o.turbine_id == turbine_id and (limit is None or o.ts < limit)]
+                       if o.case_id is None and o.turbine_id == turbine_id and (limit is None or o.ts < limit)
+                       and not (o.code == RESTART_BLOCKED_CODE and o.follows is not None)]
             groups: List[List[_Observed]] = []
             for o in sorted(pending, key=lambda x: x.ts):
                 if groups and o.ts - groups[-1][-1].ts <= grace:
@@ -590,10 +630,11 @@ class GroundTruthRecorder:
                 else:
                     groups.append([o])
             for group in groups:
+                group = group + _blocked_after(self._unclaimed, group)
                 case_id = f"C{len(cases) + 1:03d}"
                 for o in group:
                     o.case_id = case_id
-                window_end = group[-1].ts + grace
+                window_end = max(o.ts for o in group) + grace
                 if limit is not None:
                     window_end = min(window_end, limit)
                 cases.append(self._nuisance_case(
@@ -633,6 +674,12 @@ class GroundTruthRecorder:
     def _active_cases(self, turbine_id: str) -> List[_Case]:
         """該機組尚未被取代的 case。"""
         return [c for c in self._cases if c.turbine_id == turbine_id and not c.superseded]
+
+
+def _blocked_after(observed: Sequence[_Observed], trips: Sequence[_Observed]) -> List[_Observed]:
+    """``observed`` 中跟在 ``trips`` 某個跳機之後的 A039（還沒歸屬的）。"""
+    ids = {id(o) for o in trips}
+    return [o for o in observed if o.case_id is None and o.follows is not None and id(o.follows) in ids]
 
 
 def _codes_in_order(observed: Sequence[_Observed]) -> List[int]:

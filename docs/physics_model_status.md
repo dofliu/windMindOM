@@ -223,7 +223,8 @@ Included:
   with a 60 s wind average, Pt100 temperatures filtered with τ 10 s, cut-out gust on a 3 s average
 - yaw time-out 223 (Appendix D `SDYawTmOutFact` 5 / `SDYawTmOutOffs` 0 s, WMOM-20261021-08-b): each
   aligning yaw run (unwinding excluded) may last factor × max(|vane 1 error|, 2°) ÷ yaw rate
-  (0.5 °/s) + offset, fixed when the run starts; healthy yaw runs reach ≤ 1.34× the allowance, so it
+  (0.5 °/s) + offset, fixed when the run starts; healthy yaw runs take at most ~1.4× error ÷ rate (0.29 of
+  the allowance), so it
   fires only when the wind direction swings faster than the yaw can follow
 - physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT band 1 → 481 and
   band ≥ 2 → 482 (+ 021), HVRT 475 + 021, grid protection by measured voltage (< 0.81 → 482,
@@ -241,6 +242,9 @@ unchanged, so data before an event is bit-identical) and adds a sinusoidal wind-
 scenario `main_bearing_temp_loose_contact` pins `WGEN_GnBrgTmp1` to the broken-wire value for
 10–30 s every 15–45 min (first 5–20 min after injection; own `_contact_rng` stream, schedule reset
 when the fault is cleared); it never marks the fault tripped, so the turbine restarts on its own.
+The frequency-watt (droop) derate no longer counts the withheld power as converter heat (only the
+converter's efficiency loss heats it; with no derate the term is exactly 0, so healthy data is unchanged) —
+before, a +1 Hz excursion below the 489 trip heated the IGCT cooling water by 18 °C in a minute and raised 420.
 
 Verified:
 - healthy 3-turbine farm, 2 h automatic wind: no signal-judged events

@@ -332,6 +332,7 @@ def test_nuisance_cases_are_scored_apart_from_faults() -> None:
     assert (report.nuisance_misread_as_fault, report.false_alarms_during_nuisance) == (1, 1)
     assert (report.false_alarm_predictions, report.false_alarm_episodes) == (1, 1)
     assert (report.nuisance_predictions, report.nuisance_during_fault) == (2, 0)
+    assert (report.nuisance_unmatched, report.nuisance_precision) == (1, 0.5), "時間窗已過的那筆落空"
     results = {r.case_id: r for r in report.nuisance_case_results}
     assert results["C002"].recognized and results["C002"].first_recognized_ts == "2026-01-01T02:00:05.000000Z"
     assert (results["C002"].nuisance_predictions, results["C002"].fault_predictions) == (1, 1)

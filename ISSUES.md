@@ -1583,7 +1583,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **完成紀錄**:
   - **劉老師確認**（2026-10-23，DEC-20261023-02）：干擾來源四個都做（電網擾動、手冊 §11.3 nuisance 跳機、環境性停機標記、全健康負樣本資料包）；答案用 nuisance case；評分加新指標、不改舊規則；-08 每個子項各一個 PR。
   - **風場層級事件**（`simulator/farm_events.py`、`generate-bulk` 的 `farm_events`）：`grid_voltage_dip`（482 / 481 + 021）、`grid_frequency_excursion`（489 + 021）、`rapid_wind_direction_change`（180 s 週期正弦擺動 → 223）；事件前的資料逐位元不變，批次結束後電網 / 風向復原。
-  - **新 PLC 規則 223 偏航逾時**（Appendix D `SDYawTmOutFact` 5 / `SDYawTmOutOffs` 0 s；解纜不算；健康偏航實際 / 允許 ≤ 1.34 倍）。
+  - **新 PLC 規則 223 偏航逾時**（Appendix D `SDYawTmOutFact` 5 / `SDYawTmOutOffs` 0 s；解纜不算；健康偏航最多用到允許時間的 0.29）。
   - **nuisance 情境 `main_bearing_temp_loose_contact`**：Pt100 間歇瞬斷 → 242 跳機、自動重啟，不鎖機組；排程用獨立 `_contact_rng`；故障清掉後排程重設。
   - **標準答案**：nuisance case（風場事件每台有反應的機組一個、注入的 nuisance 一個、其餘沒有故障時的事件歸環境性 case）；`nuisance_cause` / `window_end_ts` / `farm_event_id` / 頂層 `farm_events`；`healthy_turbines` 只看故障 case；跟在 nuisance 跳機後的 A039 歸同一個 case。詞彙加 `nuisance_causes`。
   - **評分**：干擾辨識率、把干擾當故障、誤報率（誤報次數 ÷ 沒有故障的機組時數 × 100）；故障指標只算故障 case、規則不變；舊答案照常評分。基準助手加「同一個碼 60 秒內另一台也出現 → nuisance」。

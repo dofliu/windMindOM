@@ -5,6 +5,9 @@ import numpy as np
 
 from simulator.time_utils import to_utc, utc_now
 
+# snapshot() / restore() 的覆寫狀態：(頻率, 電壓, profile, profile 開始時間)
+GridOverrideState = Tuple[Optional[float], Optional[float], Optional[str], Optional[datetime]]
+
 
 class GridEnvironmentModel:
     """Simple grid-side environment model for frequency and voltage events."""
@@ -27,11 +30,11 @@ class GridEnvironmentModel:
         if self._active_profile:
             self._profile_start_time = utc_now()
 
-    def snapshot(self) -> Tuple[Optional[float], Optional[float], Optional[str], Optional[datetime]]:
+    def snapshot(self) -> GridOverrideState:
         """目前的覆寫狀態（批次套用風場事件前存下，結束時 ``restore``）。"""
         return (self._override_frequency, self._override_voltage, self._active_profile, self._profile_start_time)
 
-    def restore(self, state: Tuple[Optional[float], Optional[float], Optional[str], Optional[datetime]]) -> None:
+    def restore(self, state: GridOverrideState) -> None:
         """回到 ``snapshot`` 存下的覆寫狀態。"""
         (self._override_frequency, self._override_voltage,
          self._active_profile, self._profile_start_time) = state

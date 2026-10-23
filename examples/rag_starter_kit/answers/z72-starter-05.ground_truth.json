@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-07-20T03:00:10.000000Z",
  "sim_end": "2026-07-20T09:00:00.000000Z",
- "generated_at": "2026-10-23T10:23:41.137012Z",
+ "generated_at": "2026-10-23T11:37:34.184913Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -73,10 +73,12 @@
     "WGEN_GnBrgTmp1"
    ],
    "simulation_notes": [
-    "注入後 5–20 分鐘第一次瞬斷，之後每 15–45 分鐘一次、每次 10–30 秒；瞬斷時讀值同斷線（850 °C），與嚴重度無關。"
+    "注入後 5–20 分鐘第一次瞬斷，之後每 15–45 分鐘一次、每次 10–30 秒；瞬斷時讀值同斷線（850 °C），與嚴重度無關。",
+    "模擬器假設這個跳機的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。"
    ],
    "simulation_notes_en": [
-    "The first glitch comes 5–20 min after injection, then every 15–45 min for 10–30 s each; during a glitch the reading is the broken-wire value (850 °C), independent of severity."
+    "The first glitch comes 5–20 min after injection, then every 15–45 min for 10–30 s each; during a glitch the reading is the broken-wire value (850 °C), independent of severity.",
+    "The simulator assumes auto restart is enabled for this trip (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0)."
    ],
    "onset_ts": "2026-07-20T03:30:00.000000Z",
    "window_end_ts": null,
@@ -884,10 +886,14 @@
     "WYAW_YwVn1AlgnAvg5s"
    ],
    "simulation_notes": [
-    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。",
+    "振幅約 26° 以下時風向變化率不超過偏航最快速度，偏航追得上、不會逾時（事件照樣記在標準答案，但沒有 case）。",
+    "模擬器假設偏航逾時的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。"
    ],
    "simulation_notes_en": [
-    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times.",
+    "Below an amplitude of about 26° the direction changes no faster than the yaw can turn, so it never times out (the event is still listed in the answer key, with no cases).",
+    "The simulator assumes auto restart is enabled for the yaw time-out (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0)."
    ],
    "onset_ts": "2026-07-20T07:00:00.000000Z",
    "window_end_ts": "2026-07-20T07:55:00.000000Z",
@@ -958,10 +964,14 @@
     "WYAW_YwVn1AlgnAvg5s"
    ],
    "simulation_notes": [
-    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。",
+    "振幅約 26° 以下時風向變化率不超過偏航最快速度，偏航追得上、不會逾時（事件照樣記在標準答案，但沒有 case）。",
+    "模擬器假設偏航逾時的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。"
    ],
    "simulation_notes_en": [
-    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times.",
+    "Below an amplitude of about 26° the direction changes no faster than the yaw can turn, so it never times out (the event is still listed in the answer key, with no cases).",
+    "The simulator assumes auto restart is enabled for the yaw time-out (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0)."
    ],
    "onset_ts": "2026-07-20T07:00:00.000000Z",
    "window_end_ts": "2026-07-20T07:55:00.000000Z",
@@ -1032,10 +1042,14 @@
     "WYAW_YwVn1AlgnAvg5s"
    ],
    "simulation_notes": [
-    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。"
+    "風向以 180 秒週期正弦擺動（開頭 / 結尾各 60 秒漸強 / 漸弱），全場同一個擺動；真實的風向變化不規則、各機組略有時差。",
+    "振幅約 26° 以下時風向變化率不超過偏航最快速度，偏航追得上、不會逾時（事件照樣記在標準答案，但沒有 case）。",
+    "模擬器假設偏航逾時的自動重啟已開啟（上限照手冊 Appendix C 的每小時次數；手冊 §11.3 的出廠設定是 0）。"
    ],
    "simulation_notes_en": [
-    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times."
+    "The direction swings sinusoidally with a 180 s period (ramped in / out over 60 s) and is identical across the farm; real direction changes are irregular and reach the turbines at slightly different times.",
+    "Below an amplitude of about 26° the direction changes no faster than the yaw can turn, so it never times out (the event is still listed in the answer key, with no cases).",
+    "The simulator assumes auto restart is enabled for the yaw time-out (limited per hour as in the manual's Appendix C; the factory setting in §11.3 is 0)."
    ],
    "onset_ts": "2026-07-20T07:00:00.000000Z",
    "window_end_ts": "2026-07-20T07:55:00.000000Z",

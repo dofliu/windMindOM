@@ -408,7 +408,8 @@ requests.post("http://localhost:8100/api/faults/clear", json={
 > override, wind-direction offset) and are undone afterwards. The response adds `farm_events_scheduled`; a
 > named scenario records them in `config.farm_events`, and its ground truth labels the alarms / trips they
 > cause as `nuisance` cases and lists them under `farm_events` (contract v1.5). They never appear in the
-> blind pack or replay. `main_bearing_temp_loose_contact` is a nuisance fault scenario (category
+> blind pack or replay. A wind swing below ~26° never times out the yaw (the direction changes no faster than
+> the yaw turns). `main_bearing_temp_loose_contact` is a nuisance fault scenario (category
 > `nuisance`): it trips 242 now and then and restarts on its own (no maintenance lock, never `tripped`).
 >
 > `GET /api/scenarios/{id}/ground-truth` (supervisor; always requires a token, even when

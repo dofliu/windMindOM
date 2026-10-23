@@ -19,7 +19,8 @@
   它早於第一個預期警報就是早期預警。中途猜錯的元件另計誤診，狂猜不會換到早期預警。
 - 干擾（v1.5，WMOM-20261021-08-b）：``nuisance`` 預測依機組與時間對到 nuisance case（電網擾動、風向快速變化、
   感測器接點鬆動、環境性停機）＝認出干擾；在 nuisance case 時間窗內下故障診斷照樣是誤報（另計「把干擾當故障」）。
-  ``nuisance`` 預測不會撤回之前的故障診斷。誤報率＝誤報次數 ÷ 沒有故障的機組時數（每 100 機組小時）。
+  對不到 nuisance case 的 ``nuisance`` 預測另列（落空），報干擾判定的準確率——每台每分鐘都報干擾拿得到辨識率，
+  但準確率會很低。``nuisance`` 預測不會撤回之前的故障診斷。誤報率＝誤報次數 ÷ 沒有故障的機組時數（每 100 機組小時）。
 - 各項指標分開列，不合成總分。
 """
 
@@ -235,8 +236,8 @@ def healthy_turbine_hours(ground_truth: JsonObject, cases: Sequence[Case]) -> Op
         return None
     sim_start = parse_ts(str(ground_truth["sim_start"]))
     sim_end = parse_ts(str(ground_truth["sim_end"]))
-    turbines = ground_truth.get("turbines") or sorted({c.turbine_id for c in cases})
-    assert isinstance(turbines, list)
+    listed = ground_truth.get("turbines")
+    turbines = listed if isinstance(listed, list) and listed else sorted({c.turbine_id for c in cases})
     total = 0.0
     for turbine in turbines:
         spans = sorted((max(c.window_start, sim_start), min(c.window_end or sim_end, sim_end))
@@ -336,6 +337,8 @@ class Report:
     nuisance_recognition_rate: float = 0.0
     nuisance_misread_as_fault: int = 0
     false_alarms_during_nuisance: int = 0
+    nuisance_unmatched: int = 0
+    nuisance_precision: Optional[float] = None
     healthy_turbine_hours: Optional[float] = None
     false_alarm_rate_per_100h: Optional[float] = None
     nuisance_case_results: List[NuisanceCaseResult] = field(default_factory=list)
@@ -442,7 +445,7 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
     nuisance_matched: Dict[Tuple[str, str], List[Prediction]] = {}
     faults_on_nuisance: Dict[Tuple[str, str], List[Prediction]] = {}
     false_alarms: List[Prediction] = []
-    nuisance = nuisance_during_fault = ignored = 0
+    nuisance = nuisance_during_fault = nuisance_unmatched = ignored = 0
     for prediction in sorted(predictions, key=lambda p: (p.ts, p.line)):
         cases = cases_by_pack.get(prediction.pack_id)
         if cases is None:
@@ -457,6 +460,8 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
             hit = _match_nuisance(prediction, cases)
             if hit is not None:
                 nuisance_matched.setdefault((hit.pack_id, hit.case_id), []).append(prediction)
+            else:
+                nuisance_unmatched += 1  # 落空：那時那台機組沒有干擾
             continue
         case = _match(prediction, cases)
         if case is None:
@@ -521,6 +526,8 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         nuisance_recognition_rate=recognized / n_nuisance if n_nuisance else 0.0,
         nuisance_misread_as_fault=sum(r.fault_predictions > 0 for r in nuisance_results),
         false_alarms_during_nuisance=sum(r.fault_predictions for r in nuisance_results),
+        nuisance_unmatched=nuisance_unmatched,
+        nuisance_precision=(nuisance - nuisance_unmatched) / nuisance if nuisance else None,
         healthy_turbine_hours=healthy_hours,
         false_alarm_rate_per_100h=(episodes / healthy_hours * 100.0) if healthy_hours else None,
         nuisance_case_results=nuisance_results,
@@ -572,7 +579,8 @@ def format_report(report: Report) -> str:
 
     lines = [
         f"資料包：{', '.join(report.packs)}",
-        f"case：{report.cases}　偵測到：{report.detected}（{pct(report.detection_rate).strip()}）",
+        f"case：{report.cases}　偵測到：{report.detected}（{pct(report.detection_rate).strip()}）"
+        f"{'　（沒有故障 case：下面的故障比例都是 0）' if not report.cases else ''}",
         "",
         f"  元件正確率          {pct(report.component_accuracy)}",
         f"  元件群組正確率      {pct(report.component_group_accuracy)}",
@@ -593,8 +601,9 @@ def format_report(report: Report) -> str:
         f"（{pct(report.nuisance_recognition_rate).strip()}）",
         f"  把干擾當故障        {report.nuisance_misread_as_fault} 個 case"
         f"（{report.false_alarms_during_nuisance} 筆故障診斷，已算進誤報）",
-        f"  干擾判定            {report.nuisance_predictions} 筆，其中 {report.nuisance_during_fault} 筆在故障期間"
-        "（不會撤回故障診斷）",
+        f"  干擾判定            {report.nuisance_predictions} 筆：落空 {report.nuisance_unmatched} 筆"
+        f"（準確率 {'-' if report.nuisance_precision is None else pct(report.nuisance_precision).strip()}），"
+        f"{report.nuisance_during_fault} 筆在故障期間（不會撤回故障診斷）",
     ]
     if report.ignored_predictions:
         lines.append(f"  略過（不在答案裡的資料包）{report.ignored_predictions} 筆")
