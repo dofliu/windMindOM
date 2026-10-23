@@ -35,10 +35,11 @@ Usage:
     turbine_model.fault_modifiers = modifiers.get("WT003", {})
 """
 
+import itertools
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 from datetime import datetime
 
 from ..time_utils import iso_utc, utc_now
@@ -831,6 +832,10 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
 }
 
 
+# ActiveFault.instance_id 的來源（每次注入遞增）
+_FAULT_INSTANCE_IDS: Iterator[int] = itertools.count(1)
+
+
 @dataclass
 class ActiveFault:
     """An active fault instance on a specific turbine."""
@@ -842,6 +847,8 @@ class ActiveFault:
     tripped: bool = False
     trip_code: Optional[int] = None          # PLC trip code that tripped this fault
     active_alarms: List[Dict] = field(default_factory=list)  # expected codes the PLC has active
+    # 每次注入一個新編號：同機組同情境再注入時，物理模型據此重新起算（例：Pt100 接觸不良的瞬斷排程）
+    instance_id: int = field(default_factory=lambda: next(_FAULT_INSTANCE_IDS))
 
 
 class FaultEngine:

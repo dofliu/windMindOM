@@ -532,6 +532,14 @@ def _generate_bulk_in_slot(body: dict) -> dict:
             },
         )
 
+    def on_farm_event(event: FarmEvent, start: datetime, end: datetime) -> None:
+        """風場事件開始：交給標準答案；事件時刻也納入情境時間窗下界（offset 0 的事件早於第一筆讀值，同 on_inject）。"""
+        start_ts = iso_utc(start)
+        if sim_window["start"] is None or start_ts < sim_window["start"]:
+            sim_window["start"] = start_ts
+        if recorder is not None:
+            recorder.on_farm_event(event, start, end)
+
     def on_events(events: List[BulkEvent]) -> None:
         """批次的可觀測事件（PLC 警報 / 跳機、狀態轉換，模擬時間戳）→ history_events（WMOM-20261021-04）。"""
         b.record_bulk_events(events, session_id)
@@ -560,7 +568,7 @@ def _generate_bulk_in_slot(body: dict) -> dict:
                 on_fault_tripped=on_trip if schedule else None,
                 on_events=on_events,
                 farm_events=farm_events or None,
-                on_farm_event=recorder.on_farm_event if recorder is not None else None,
+                on_farm_event=on_farm_event if farm_events else None,
             )
             # Run downsampling after bulk generation
             b.storage.run_downsampling()

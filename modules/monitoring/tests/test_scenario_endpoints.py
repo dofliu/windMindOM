@@ -1087,3 +1087,14 @@ def test_generate_bulk_with_farm_events_labels_nuisance_cases_and_keeps_them_out
             assert "grid_voltage_dip" not in text and "farm_event" not in text, path.name
     assert "farm_events" not in manifest
     assert broker.simulator.grid_model.get_status()["mode"] == "auto"
+
+
+def test_farm_event_at_offset_zero_is_inside_the_scenario_window(broker):
+    """offset 0 的風場事件早於第一筆讀值：情境時間窗下界要含它（同 offset 0 的故障注入，Codex review）。"""
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.05, "time_step": 10.0, "name": "開頭就驟降",
+        "farm_events": [{"kind": "grid_voltage_dip", "offset_seconds": 0, "duration_s": 20, "magnitude": 0.7}],
+    }))
+    gt = broker.storage.get_ground_truth(res["scenario_id"])
+    config = broker.storage.get_scenario(res["scenario_id"])["config"]
+    assert gt["sim_start"] == gt["farm_events"][0]["start_ts"] == config["sim_start"]

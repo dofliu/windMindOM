@@ -343,6 +343,8 @@ class TurbinePhysicsModel:
         self._contact_rng = np.random.RandomState(None if seed is None else (seed + 104723) % (2 ** 32))
         self._contact_glitch_until = -1.0
         self._contact_next_glitch: Optional[float] = None
+        # 排程屬於哪一次注入（FaultEngine 的 instance_id）：再注入就重新起算
+        self._contact_instance: Optional[int] = None
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -1537,6 +1539,7 @@ class TurbinePhysicsModel:
         self.maintenance_lock = False
         self._contact_glitch_until = -1.0
         self._contact_next_glitch = None
+        self._contact_instance = None
 
     def _enter_state(self, state: int):
         self.tur_state = state
@@ -1770,15 +1773,23 @@ class TurbinePhysicsModel:
             return {"noise": 0.08, "drift": 0.001, "bias_limit": 0.8, "resolution": 0.01, "stuck_prob": 0.00012, "min": -360.0, "max": 360.0}
         return {"noise": 0.02, "drift": 0.0002, "bias_limit": 0.2, "resolution": 0.01, "stuck_prob": 0.0, "min": -1.0e9, "max": 1.0e9}
 
-    def _loose_contact_glitch(self) -> bool:
+    def _loose_contact_glitch(self, instance: Optional[int]) -> bool:
         """Pt100 接觸不良：現在是否在瞬斷中（第一次在注入後 5–20 分鐘，之後每 15–45 分鐘一次、每次 10–30 秒）。
 
-        時間排程只用 ``_contact_rng``、只在這個 nuisance 進行中抽樣；同一個模擬時刻重複呼叫結果相同。
+        時間排程只用 ``_contact_rng``、只在這個 nuisance 進行中抽樣；同一個模擬時刻重複呼叫結果相同。換了一次注入
+        （``instance`` 不同，例：連續兩個命名情境都在開頭注入）就從現在重新排程，不沿用上一次的時刻。
+
+        Args:
+            instance: 這次注入的 ``ActiveFault.instance_id``。
 
         Returns:
             True＝讀值斷線。
         """
         t = self._sim_time
+        if instance != self._contact_instance:
+            self._contact_instance = instance
+            self._contact_next_glitch = None
+            self._contact_glitch_until = -1.0
         if self._contact_next_glitch is None:
             self._contact_next_glitch = t + self._contact_rng.uniform(*LOOSE_CONTACT_FIRST_S)
         if t >= self._contact_next_glitch and t >= self._contact_glitch_until:
@@ -1938,7 +1949,7 @@ class TurbinePhysicsModel:
                         "pinned", self.spec.yaw_pressure_broken_wire_bar)
             # nuisance（手冊 §11.3「a loose wire in a generator Pt100」）：偶爾瞬間斷線又自己接上
             elif scenario_id == "main_bearing_temp_loose_contact":
-                if self._loose_contact_glitch():
+                if self._loose_contact_glitch(fault.get("instance_id")):
                     fault_physics["sensor_faults"]["WGEN_GnBrgTmp1"] = ("pinned", self.spec.pt100_broken_wire_c)
 
             # ── stator_winding_degradation ───────────────────────────
@@ -2031,9 +2042,4 @@ class TurbinePhysicsModel:
                 fault_physics["wind_scale"] *= max(0.72, math.cos(math.radians(min(35.0, abs(yaw_deg)))))
                 fault_physics["yaw_brake_bias"] -= 25.0 * severity
 
-        if self._contact_next_glitch is not None and not any(
-                f.get("scenario_id") == "main_bearing_temp_loose_contact" for f in self.active_faults):
-            # 接觸不良修好（故障清掉）：下次再注入重新排程瞬斷，不沿用舊的時刻（不抽亂數）
-            self._contact_next_glitch = None
-            self._contact_glitch_until = -1.0
         return fault_physics

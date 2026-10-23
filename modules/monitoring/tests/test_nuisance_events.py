@@ -155,28 +155,50 @@ def test_rapid_wind_direction_change_times_out_the_yaw(monkeypatch: pytest.Monke
     assert sim._direction_offset_deg == 0.0
 
 
-def test_overlapping_dip_and_frequency_events_combine_and_restore_the_manual_override(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """電壓驟降與頻率越界重疊：兩個量各自覆寫；事件都結束後回到批次前的手動覆寫。"""
+def test_farm_events_override_only_their_own_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """電壓驟降與頻率越界重疊：各自只覆寫自己的量；另一個量照原本的手動覆寫 / profile（Codex review）。"""
     sim = _farm(monkeypatch, turbines=1)
-    sim.grid_model.set_override(voltage_v=sim.grid_model.base_voltage_v * 0.98)
-    before = sim.grid_model.snapshot()
+    grid = sim.grid_model
+    grid.set_override(voltage_v=grid.base_voltage_v * 0.98)
     events = [FarmEvent("grid_voltage_dip", 100.0, 100.0, 0.8), FarmEvent("grid_frequency_excursion", 150.0, 100.0, 0.5)]
-    state = sim.grid_model.snapshot()
-    overridden = sim._apply_farm_events(events, 175.0, T0, set(), state, False, None)
-    status = sim.grid_model.get_status()
-    assert overridden and status["profile"] == "farm_event"
-    assert status["override_voltage_v"] == pytest.approx(sim.grid_model.base_voltage_v * 0.8)
-    assert status["override_frequency_hz"] == pytest.approx(sim.grid_model.base_frequency_hz + 0.5)
-    sim._apply_farm_events(events, 225.0, T0, set(), state, True, None)     # 只剩頻率：電壓回到批次前的值
-    assert sim.grid_model.get_status()["override_voltage_v"] == before[1]
-    assert not sim._apply_farm_events(events, 300.0, T0, set(), state, True, None)
-    assert sim.grid_model.snapshot() == before
+    assert sim._apply_farm_events(events, 175.0, 5.0, T0, set(), False, None)
+    status = grid.get_status()
+    assert status["event_voltage_v"] == pytest.approx(grid.base_voltage_v * 0.8)
+    assert status["event_frequency_hz"] == pytest.approx(grid.base_frequency_hz + 0.5)
+    assert grid.get_voltage(T0) == pytest.approx(grid.base_voltage_v * 0.8, rel=0.01)
+    sim._apply_farm_events(events, 225.0, 5.0, T0, set(), True, None)     # 只剩頻率：電壓回到手動覆寫
+    assert grid.get_status()["event_voltage_v"] is None
+    assert grid.get_voltage(T0) == pytest.approx(grid.base_voltage_v * 0.98, rel=0.01)
+    assert not sim._apply_farm_events(events, 300.0, 5.0, T0, set(), True, None)
+    assert grid.get_status() == {"mode": "manual", "profile": "manual", "override_frequency_hz": None,
+                                 "override_voltage_v": grid.base_voltage_v * 0.98,
+                                 "event_frequency_hz": None, "event_voltage_v": None}
+
+
+def test_frequency_event_keeps_the_voltage_recovery_ramp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """recovery profile 進行中來了頻率事件：電壓照樣沿恢復斜坡，不跳回自動（Codex review）。"""
+    sim = _farm(monkeypatch, turbines=1)
+    grid = sim.grid_model
+    monkeypatch.setattr("simulator.grid_model.utc_now", lambda: T0)
+    grid.set_profile("recovery")
+    sim._apply_farm_events([FarmEvent("grid_frequency_excursion", 0.0, 60.0, 1.0)], 0.0, 5.0, T0, set(), False, None)
+    assert grid.get_status()["profile"] == "recovery"
+    assert grid.get_voltage(T0) == pytest.approx(grid.base_voltage_v * 0.90, rel=0.01)   # 斜坡起點 0.90 p.u.
+
+
+def test_an_event_shorter_than_a_physics_step_is_still_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """落在兩個取樣點之間的短事件也套用一個子步、回呼排定的開始時刻（Codex review）。"""
+    sim = _farm(monkeypatch, turbines=1)
+    started: List[Tuple[datetime, datetime]] = []
+    blip = FarmEvent("grid_voltage_dip", 1.0, 1.0, 0.7)
+    assert sim._apply_farm_events([blip], 0.0, 5.0, T0, set(), False, lambda e, s, en: started.append((s, en)))
+    assert started == [(T0 + timedelta(seconds=1), T0 + timedelta(seconds=2))]
+    assert not sim._apply_farm_events([blip], 5.0, 5.0, T0, set(), True, None)
 
 
 def test_farm_event_state_is_restored_when_the_batch_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     sim = _farm(monkeypatch, turbines=1)
-    before = sim.grid_model.snapshot()
+    before = sim.grid_model.get_status()
 
     def boom(_rows: List[dict]) -> None:
         raise RuntimeError("store failed")
@@ -184,7 +206,7 @@ def test_farm_event_state_is_restored_when_the_batch_fails(monkeypatch: pytest.M
     with pytest.raises(RuntimeError):
         sim.generate_bulk(0.2, time_step=10.0, callback=boom, farm_events=[
             FarmEvent("grid_voltage_dip", 0.0, 600.0, 0.7), FarmEvent("rapid_wind_direction_change", 0.0, 600.0, 60.0)])
-    assert sim.grid_model.snapshot() == before and sim._direction_offset_deg == 0.0
+    assert sim.grid_model.get_status() == before and sim._direction_offset_deg == 0.0
 
 
 # ── 2. Pt100 接觸不良 ─────────────────────────────────────────────────────────
@@ -231,7 +253,6 @@ def test_loose_contact_schedule_restarts_after_the_fault_is_cleared(monkeypatch:
     sim.fault_engine.clear()
     sim._run_one_step(T0 + timedelta(seconds=i * 5.0), 5.0)
     i += 1
-    assert model._contact_next_glitch is None
     model.cmd_reset()  # 一小時內反覆跳機可能已封鎖自動重啟（A039）：操作員復位
     for _ in range(300):
         sim._run_one_step(T0 + timedelta(seconds=i * 5.0), 5.0)
@@ -245,6 +266,25 @@ def test_loose_contact_schedule_restarts_after_the_fault_is_cleared(monkeypatch:
         sim._run_one_step(T0 + timedelta(seconds=i * 5.0), 5.0)
         i += 1
     assert [(e.kind, e.code) for e in model.plc.drain_events() if e.code == 242] == []
+
+
+def test_reinjecting_without_a_step_in_between_restarts_the_schedule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """連續兩個命名情境都在開頭注入（中間沒有物理步）：新的一次注入重新排程，不沿用上一次的時刻（Codex review）。"""
+    sim, i = _producing_sim(monkeypatch)
+    model = sim.turbines["WT001"]
+    sim.fault_engine.inject(LOOSE, "WT001", severity_rate=0.0, initial_severity=1.0)
+    for _ in range(int(3600 / 5.0)):
+        sim._run_one_step(T0 + timedelta(seconds=i * 5.0), 5.0)
+        i += 1
+    first = sim.fault_engine.active_faults[0].instance_id
+    sim.fault_engine.clear()
+    sim.fault_engine.inject(LOOSE, "WT001", severity_rate=0.0, initial_severity=1.0)
+    second = sim.fault_engine.active_faults[0].instance_id
+    t_inject = model._sim_time
+    sim._run_one_step(T0 + timedelta(seconds=i * 5.0), 5.0)
+    assert second != first and model._contact_instance == second
+    assert model._contact_next_glitch is not None
+    assert 300.0 <= model._contact_next_glitch - t_inject <= 1200.0 + 5.0
 
 
 # ── 3. 標準答案的 nuisance case ───────────────────────────────────────────────
@@ -389,6 +429,17 @@ def test_restart_block_follows_the_trip_right_before_it() -> None:
     loose, dip = gt["cases"]
     assert loose["nuisance_cause"] == "loose_contact" and loose["observed_alarm_codes"] == [242]
     assert dip["observed_alarm_codes"] == [482, 21, 39]
+
+
+def test_farm_event_codes_stay_reserved_for_the_whole_grace_window() -> None:
+    """事件結束 20 分鐘後的 021 仍歸風場事件，與 build 歸屬的 30 分鐘一致（Codex review）。"""
+    rec = GroundTruthRecorder(["WT001"])
+    rec.on_fault_injected(PlanStep(0, "converter_cooling_fault", "WT001", 0.001, 0.0), T0)
+    _farm_event(rec, FarmEvent("grid_voltage_dip", 1800.0, 30.0, 0.7))
+    rec.on_events([_ev("WT001", 1805, "trip", 482), _ev("WT001", 1830 + 1200, "trip", 21)])
+    fault, dip = _build(rec, final=[ActiveFault(scenario_id="converter_cooling_fault", turbine_id="WT001",
+                                                severity=0.5)])["cases"]
+    assert fault["observed_alarm_codes"] == [] and dip["observed_alarm_codes"] == [482, 21]
 
 
 def test_farm_event_codes_are_not_claimed_by_a_fault_expecting_them() -> None:

@@ -54,8 +54,8 @@ FAULT_CATEGORIES = frozenset({"real_fault", "sensor_fault"})
 # nuisance case 的時間窗在最後一個相關事件（風場事件則取事件結束與最後一個事件較晚者）之後多留這麼久：
 # 機組自動重啟、助手的判斷可能稍晚；環境性 case 也以此為分群間隔
 NUISANCE_WINDOW_GRACE_S = 1800.0
-# 風場事件進行中到結束後這麼久：該機組任何沒被認領的警報 / 跳機都歸這個事件（例：降載期間的連帶警報）；
-# 事件自己的碼（FarmEventKind.event_codes）在這段時間也不讓故障 case 認領（例：故障預期碼 021 / 481）
+# 風場事件進行中到結束後這麼久：該機組任何沒被認領的警報 / 跳機都歸這個事件（例：降載期間的連帶警報）。
+# 事件自己的碼（FarmEventKind.event_codes）則到結束後 NUISANCE_WINDOW_GRACE_S 都歸事件、不讓故障 case 認領
 FARM_EVENT_SETTLE_S = 600.0
 # 自動重啟被封鎖（A039）：跟在 nuisance 跳機之後，歸給同一個 nuisance case
 RESTART_BLOCKED_CODE = 39
@@ -379,8 +379,8 @@ class GroundTruthRecorder:
         """可觀測事件歸到同機組、已開始的 case（``generate_bulk`` 的 ``on_events``）。
 
         預期碼 → ``first_alarm`` / ``observed_alarm_codes``；其他 A / T 碼 → ``other_observed_codes``
-        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。風場事件進行中到結束後 ``FARM_EVENT_SETTLE_S``，
-        事件自己的碼不讓故障 case 認領。注入的 nuisance case 以第一次跳機為 ``trip``（nuisance 不鎖機組，
+        （例：定子過熱連帶軸承警報、同時發生的環境性跳機）。風場事件進行中到結束後 ``NUISANCE_WINDOW_GRACE_S``，
+        事件自己的碼不讓故障 case 認領（與 ``build`` 歸給風場事件的時間窗一致）。注入的 nuisance case 以第一次跳機為 ``trip``（nuisance 不鎖機組，
         ``on_fault_tripped`` 不會來）。A039（自動重啟被封鎖）沒有寫是哪個碼造成的：跟著同機組前一次跳機歸屬。
         沒有任何 case 認領的警報 / 跳機 / 資訊事件留到 ``build``：歸給風場事件或環境性 nuisance case，
         都不是的列進 ``unattributed_events``——評分端才知道 RAG 面對的每一筆事件有沒有答案。
@@ -436,9 +436,9 @@ class GroundTruthRecorder:
                     self._last_trip[event.turbine_id] = owner
 
     def _reserved_by_farm_event(self, ts: datetime, code: int) -> bool:
-        """``ts`` 時這個碼是否是進行中（含結束後 ``FARM_EVENT_SETTLE_S``）的風場事件自己的碼。"""
-        settle = timedelta(seconds=FARM_EVENT_SETTLE_S)
-        return any(rec.start <= ts <= rec.end + settle and code in FARM_EVENT_KINDS[rec.event.kind].event_codes
+        """``ts`` 時這個碼是否是進行中（含結束後 ``NUISANCE_WINDOW_GRACE_S``）的風場事件自己的碼。"""
+        grace = timedelta(seconds=NUISANCE_WINDOW_GRACE_S)
+        return any(rec.start <= ts <= rec.end + grace and code in FARM_EVENT_KINDS[rec.event.kind].event_codes
                    for rec in self._farm_events)
 
     def build(self, *, scenario_id: Optional[int], scenario_name: Optional[str],
