@@ -41,7 +41,7 @@ from shared.alarm_codes import get_alarm  # noqa: E402
 
 # 介面合約版本：v1 定稿見 docs/integration/rag_assistant_data_contract_v1.md（WMOM-20261021-09）。
 # 加欄位升次版本（1.x），改名 / 刪欄位 / 改語意升主版本
-CONTRACT_VERSION = "1.5"
+CONTRACT_VERSION = "1.6"
 MANUAL_DOC = "Z72 User Manual"
 MANUAL_SECTION = "Appendix C"
 _ABB_MARKER = "See [ABB]"
@@ -113,10 +113,13 @@ def manual_coverage(refs: Sequence[Dict[str, JsonValue]]) -> str:
         refs: ``manual_refs`` 的結果。
 
     Returns:
-        ``z72_manual``（全部有 Z72 手冊內容）、``abb_manual``（全部只寫 See [ABB]）或 ``mixed``。
+        ``z72_manual``（全部有 Z72 手冊內容）、``abb_manual``（全部只寫 See [ABB]）、``mixed``，或 ``none``
+        （沒有預期事件碼、手冊條目不適用，例：沒有警報的偏航失準；WMOM-20261021-08-c）。
     """
+    if not refs:
+        return "none"
     abb = [bool(r["see_abb"]) for r in refs]
-    if abb and all(abb):
+    if all(abb):
         return "abb_manual"
     return "mixed" if any(abb) else "z72_manual"
 

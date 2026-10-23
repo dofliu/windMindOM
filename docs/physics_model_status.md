@@ -344,7 +344,7 @@ Newly implemented:
 - new SCADA tag: `WDRV_GbxOilTmp` (see #73)
 
 Newly implemented:
-- gear tooth contact model (#76): cyclic mesh-stiffness ripple from contact ratio (ε_α), deterministic GMF torque ripple fed into HSS torsion, Archard-like tooth wear accumulator with `gearbox_overheat` coupling, wear-driven GMF band + sideband amplification
+- gear tooth contact model (#76): cyclic mesh-stiffness ripple from contact ratio (ε_α), deterministic GMF torque ripple fed into HSS torsion, Archard-like tooth wear accumulator (the `gearbox_overheat` coupling was removed in WMOM-20261021-08-c), wear-driven GMF band + sideband amplification
 - new SCADA tag: `WDRV_GbxToothWear`
 
 Still missing:
@@ -361,10 +361,9 @@ Implemented:
 - X and Y direction separation for each band
 - crest factor (peak/RMS ratio — bearing defect indicator)
 - kurtosis (signal impulsiveness — condition indicator)
-- fault-specific vibration signatures for all 11 fault scenarios:
+- fault-specific vibration signatures for the original fault scenarios:
   - bearing_wear → elevated HF, high crest factor and kurtosis
   - pitch_imbalance → elevated 1P (asymmetric Y dominant)
-  - gearbox_overheat → elevated gear mesh band
   - blade_icing → elevated 1P + 3P (mass + aero imbalance)
   - generator_overspeed → elevated HF
   - yaw_misalignment → elevated 3P
@@ -377,7 +376,7 @@ Implemented:
 - per-turbine ±3% bearing geometry variation (manufacturing tolerance)
 
 - gear mesh sideband analysis: GMF computation, 1st/2nd order sideband amplitudes, sideband energy ratio
-- sideband fault coupling: gearbox_overheat amplifies sidebands with severity × load_factor
+- (the gearbox_overheat sideband coupling was removed with that alias, WMOM-20261021-08-c: the Z72 is direct drive)
 
 ### 2.4 Cooling System — Active Component Model
 File: `simulator/physics/cooling_model.py`
@@ -571,7 +570,7 @@ Implemented:
 - emergency stop transient load amplification (1.8× tower FA)
 - 16 SCADA tags (WLOD_ prefix), including 3 alarm/RUL tags
 - frontend Load/Fatigue tab with instantaneous loads, DEL, and damage
-- fault coupling: blade_icing, pitch_imbalance, yaw_misalignment, bearing_wear, gearbox_overheat
+- fault coupling: blade_icing, pitch_imbalance, yaw_misalignment, bearing_wear
 - fatigue alarm thresholds: 4-level alarm (notice ≥0.30, warning ≥0.60, danger ≥0.80, shutdown ≥0.95)
 - remaining useful life (RUL) estimation from average damage rate
 

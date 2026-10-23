@@ -137,6 +137,24 @@ STARTER_PACKS: List[StarterPack] = [
             {"kind": "rapid_wind_direction_change", "offset_seconds": 14400, "duration_s": 1500, "magnitude": 60.0},
         ),
     ),
+    StarterPack(
+        pack_id="z72-starter-06",
+        title="故障庫擴充：變槳驅動過載、冷卻水泵磨耗、冷卻水導電度、轉速 / 風速計 / 風向標感測器故障、沒有警報的偏航失準",
+        start=datetime(2026, 4, 6, 5, 0, tzinfo=timezone.utc),
+        turbines=8, hours=5.0, wind_profile="rated",
+        faults=(
+            {"scenario_id": "yaw_misalignment", "turbine_id": "WT007", "offset_seconds": 900, "severity_rate": 0.0002},
+            {"scenario_id": "pitch_motor_fault", "turbine_id": "WT001", "offset_seconds": 1200, "severity_rate": 0.0002},
+            {"scenario_id": "converter_cooling_pump_wear", "turbine_id": "WT002", "offset_seconds": 1800,
+             "severity_rate": 0.0002},
+            {"scenario_id": "cooling_water_deionizer_exhausted", "turbine_id": "WT003", "offset_seconds": 2400,
+             "severity_rate": 0.0002},
+            {"scenario_id": "rotor_speed_sensor_fault", "turbine_id": "WT004", "offset_seconds": 3600,
+             "severity_rate": 0.0002},
+            {"scenario_id": "anemometer_fault", "turbine_id": "WT005", "offset_seconds": 4800, "severity_rate": 0.0002},
+            {"scenario_id": "wind_vane1_stuck", "turbine_id": "WT006", "offset_seconds": 6000, "severity_rate": 0.0002},
+        ),
+    ),
 ]
 
 

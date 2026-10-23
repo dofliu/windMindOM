@@ -906,6 +906,42 @@ Pt100 濾波：越限判定用濾波值；斷線判定（242 / 243 / 250 / 251�
 
 **沒有做進 05 的**：極端氣溫——額定風速、38 °C 的機艙控制櫃最高 49.7 °C（256 設定值 50 °C），要 39 °C 以上才會跳，台灣沿海不切實際；暴風切出——24 m/s 以上全場切出後一直停著（回切要 20 m/s），會蓋掉其他干擾。這兩種在情境裡出現時照樣標成環境性 case（`test_nuisance_events.py`、`test_fault_ground_truth.py` 以合成事件驗證）。
 
+### 6.17 Phase 4-c 故障庫擴充（WMOM-20261021-08-c，2026-10-23）
+
+故障庫 17 → 24 個情境，三個 alias 處理完。設計四個選項由劉老師確認（DEC-20261023-03）。
+
+**新故障**
+
+| 情境 | 類別 / 元件 | 物理 | PLC 事件（設定值來源） |
+|---|---|---|---|
+| `pitch_motor_fault`（升格 alias） | real / `pitch_system_blade_1` | 葉片 1 變槳軸承 / 齒輪摩擦：直流變槳馬達電流＋16 A × 嚴重度（新增真實 tag `WROT_PtMotCurBl1-3`；健康電流＝通電時 2 A＋7 A × 推力比＋1.2 A / (°/s)） | A381 I2t（RMS > 14 A、τ 60 s，assumed）→ T1 367（10 分鐘 > 18 A / 60 秒 > 20 A / 5 秒 > 22 A，manual `CDOvrCurr*`） |
+| `converter_cooling_pump_wear` | real / `converter_cooling_system` | 泵流量 × (1 − 0.5 嚴重度²)；壓力隨流量平方、水路熱傳 ∝ 流量^0.8 | A422（< 90 %）→ A432 → T1 439 + 021（< 75 %，assumed） |
+| `cooling_water_deionizer_exhausted` | real / `converter_cooling_system` | 導電度＋0.9 µS/cm × 嚴重度² | A423（> 0.5 µS/cm）→ T1 440 + 021（> 1.0，assumed） |
+| `rotor_speed_sensor_fault` | sensor / `rotor_speed_sensor` | `WROT_RotSpd` 讀值 × (1 − 0.3 嚴重度²) | T1 029（與變頻器轉速差 > 10 %，manual；延時 5 s、最低 6.5 rpm assumed） |
+| `anemometer_fault` | sensor / `nacelle_anemometer` | 兩個風速 tag × (1 − 0.3 嚴重度)，嚴重度 0.8 卡死讀 0 | T1 230（轉子 > 6.5 rpm、風速 < 0.5 m/s 持續 60 s，manual Appendix D） |
+| `wind_vane1_stuck` | sensor / `wind_vane_1` | 嚴重度 0.5 時讀值停在當下的值 | T1 231（凍結 60 s、1 分鐘平均風速 > 4 m/s，manual） |
+| `yaw_misalignment`（升格 alias） | real / `wind_vane_alignment` | 兩支風向標一起偏 16° × 嚴重度，控制器照風向標對風 → 轉子偏 16°；發電 × cos³ | 無 |
+
+嚴重度依 0.0002 /s 上升時（約 1.4 h 滿），額定風速下的事件時點：381 約 0.54 → 367 約 0.84；422 0.45 → 432 0.54 → 439 0.71；423 0.51 → 440 0.85；029 0.58；230 0.81；231 0.51。
+
+**alias**：`gearbox_overheat` 刪除（Z72 直驅、目錄與手冊沒有齒輪箱事件；物理、振動頻譜、傳動鏈的 `gearbox_overheat_severity` 一起拿掉，齒輪箱合成 tag 照舊）。`pitch_motor_fault` 原本是葉片 1 角度偏 8°（等於更大的 `pitch_imbalance`），改寫成上面的驅動過載；`yaw_misalignment` 原本把風向標讀值直接加 20°、控制器卻不修正，改寫成兩支風向標一起裝偏。
+
+**`WCNV_IGCTWtrCond` 改正**：真實 tag 是 ABB 去離子水的導電度；此前誤算成冷卻水流量比 0–1。改為每台 0.15–0.25 µS/cm（新 stream `_ext_rng` 抽，25 °C 值）× (1 + 0.02 × (水溫 − 25))。感測器模型的設定換成導電度的量級，但抽樣次數不變（drift > 0、不卡值），其他 tag 的健康輸出逐位元不變。冷卻水流量沒有 SCADA tag：PLC 以內部輸入判定（`evaluate(..., internal=)`），資料裡只看得到隨流量下降的 IGCT 水壓與水溫。
+
+**健康機組守門**：
+- 新規則不誤跳：`test_fault_threshold_reach.py` 的健康上限（30 / 37 °C、9 / 14 / 20 m/s）、`test_plc_integration.py`、`test_healthy_blade_sync.py` 12 h。
+- 健康輸出逐位元比對（seed 1 / 7 / 42、dt 1 / 5 s、變動風速與風向，1500 步）：既有 tag 只有 `WCNV_IGCTWtrCond` 改變。
+
+**兩個判定上的取捨**：
+- **029 比對的是變頻器轉速（＝轉子實際轉速）**，不是 SCADA 的 `WGEN_GnSpd`：模擬的傳動鏈發電機轉速與轉子轉速有差異（第一版直接比 `WGEN_GnSpd`，健康機組併網後 24 秒就跳 029；code review 另查到有的健康機組長期偏離 2–3 倍，既有問題，另開 WMOM-20261023-01）。直驅 PMSG 的變頻器由電氣頻率算轉速，等於轉子轉速，所以 PLC 用這個內部輸入（沒給就不判定）。跳機後轉子停下時保持停機前的轉速差（判定窗關閉不等於條件解除），維護清除或操作員復位才重新比對。
+- **231 / 232 看 I/O 讀值（含量測雜訊）**：其他規則判製程值；風向誤差的製程值在固定風向下本來就不變（物理測試與單元測試都用固定風向），判製程值會讓健康機組誤跳。感測器模型的卡值事件最長 20 s，到不了 60 s。
+
+**偏航失準的損失套在功率上**：第一版把轉子面對的風乘 cos，額定以上反而多發電（1820 → 2020 kW）——本模型的全載變槳依風速決定，風小就少變槳、Cp 變高。改為功率 × cos³（14 m/s：1820 → 1616 kW），側向彎矩 ×3、3P 振動 ×3（既有的疲勞 / 頻譜模型吃實際偏航角）。
+
+**沒有警報的故障**：`expected_alarm_codes` 為空、`manual_coverage` 新增 `none`、first_alarm / trip 為 null；評分既有規則不評延遲、偵測到算早期預警。手冊引用三項指標的分母改為有預期事件碼的故障 case（沒有可引用的正解；既有資料包都有碼，成績不變）。
+
+**範例資料包 06**：8 台、5 h、額定風況，七個新故障各一台（WT001–WT007，注入時間錯開 15–100 分鐘、嚴重度 0.0002 /s），WT008 健康。14 400 列、55 筆事件；七個 case 都出現預期碼（偏航失準沒有），沒有未歸屬事件。範例 01–05 重建後事件與既有欄位逐位元不變（只多三個電流欄、導電度欄改值）。基準助手在六個資料包：15 個故障 case 偵測 14 個（偏航失準偵測不到）、元件 80 %、群組 93.3 %、類別 66.7 %（230 / 231 的警報文字沒寫 sensor）。
+
 ## 7. 不做的事
 
 - 不在 windMindOM 內實作 RAG 維修助手（學生專題負責；windMindOM 只提供資料與合約）

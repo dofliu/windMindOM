@@ -182,6 +182,42 @@
    "note": null
   },
   {
+   "tag": "Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl1",
+   "opc_path": "WROT.Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl1",
+   "id": "WROT_PtMotCurBl1",
+   "subsystem": "WROT",
+   "data_type": "REAL32",
+   "unit": "A",
+   "label_en": "Blade 1 Pitch Motor Current",
+   "label_zh": "葉片1變槳馬達電流",
+   "source": "bachmann_real",
+   "note": null
+  },
+  {
+   "tag": "Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl2",
+   "opc_path": "WROT.Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl2",
+   "id": "WROT_PtMotCurBl2",
+   "subsystem": "WROT",
+   "data_type": "REAL32",
+   "unit": "A",
+   "label_en": "Blade 2 Pitch Motor Current",
+   "label_zh": "葉片2變槳馬達電流",
+   "source": "bachmann_real",
+   "note": null
+  },
+  {
+   "tag": "Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl3",
+   "opc_path": "WROT.Z72PLC__UI_Loc_WROT_Analogue_PtMotCurBl3",
+   "id": "WROT_PtMotCurBl3",
+   "subsystem": "WROT",
+   "data_type": "REAL32",
+   "unit": "A",
+   "label_en": "Blade 3 Pitch Motor Current",
+   "label_zh": "葉片3變槳馬達電流",
+   "source": "bachmann_real",
+   "note": null
+  },
+  {
    "tag": "Z72PLC__UI_Loc_WROT_Analogue_RotTmp",
    "opc_path": "WROT.Z72PLC__UI_Loc_WROT_Analogue_RotTmp",
    "id": "WROT_RotTmp",
@@ -343,9 +379,9 @@
    "id": "WCNV_IGCTWtrCond",
    "subsystem": "WCNV",
    "data_type": "REAL32",
-   "unit": "",
-   "label_en": "IGCT Water Condition",
-   "label_zh": "變頻器IGCT水壓狀態",
+   "unit": "µS/cm",
+   "label_en": "IGCT Cooling Water Conductivity",
+   "label_zh": "變頻器IGCT冷卻水導電度",
    "source": "bachmann_real",
    "note": null
   },
@@ -407,7 +443,7 @@
    "label_en": "Nacelle Wind Speed",
    "label_zh": "機艙風速",
    "source": "bachmann_real",
-   "note": "Simulated free-stream wind speed at the rotor (wake deficit applied, no nacelle anemometer error). On a real Z72 this tag is the nacelle anemometer reading; the simulated anemometer reading (nacelle transfer function applied) is Z72PLC__UI_Loc_WMET_Analogue_WSpeedRaw."
+   "note": "Simulated free-stream wind speed at the rotor (wake deficit applied, no nacelle anemometer error). On a real Z72 this tag is the nacelle anemometer reading; the simulated anemometer reading (nacelle transfer function applied) is Z72PLC__UI_Loc_WMET_Analogue_WSpeedRaw. An anemometer fault (wind meter fault 230) affects both tags."
   },
   {
    "tag": "Z72PLC__UI_Loc_WMET_Analogue_WDirAbs",

@@ -28,13 +28,14 @@ def test_known_real_and_synthetic_tags() -> None:
     assert len(real_plc_tags()) >= 1500
 
 
-def test_simulator_tags_split_into_47_real_and_71_synthetic() -> None:
-    """118 個 tag：47 個真實 Bachmann tag（含 -03-a 補的 5 個、-08-a 補的軸承 / 定子溫度 2）、71 個依命名規則自創。"""
+def test_simulator_tags_split_into_50_real_and_71_synthetic() -> None:
+    """121 個 tag：50 個真實 Bachmann tag（含 -03-a 補的 5 個、-08-a 補的軸承 / 定子溫度 2、-08-c 補的變槳馬達
+    電流 3 個）、71 個依命名規則自創。"""
     real = [t.id for t in SCADA_REGISTRY.all_tags if is_real_plc_tag(t.opc_tag)]
-    assert len(SCADA_REGISTRY.all_tags) == 118
-    assert len(real) == 47
+    assert len(SCADA_REGISTRY.all_tags) == 121
+    assert len(real) == 50
     for tag_id in ("WYAW_YwVn2AlgnAvg5s", "WCNV_VtgMsCnvGd1", "WYAW_YwBrkSealsLeak", "WGEN_GnBrgTmp1",
-                   "WGEN_GnBrgTmp2", "WGEN_GnStaTmp2"):
+                   "WGEN_GnBrgTmp2", "WGEN_GnStaTmp2", "WROT_PtMotCurBl1", "WROT_PtMotCurBl2", "WROT_PtMotCurBl3"):
         assert tag_id in real
 
 

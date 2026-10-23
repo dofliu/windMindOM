@@ -78,11 +78,14 @@ def test_sensor_and_external_categories_match_the_physics() -> None:
     sensor = {sid for sid, sc in FAULT_SCENARIOS.items() if sc.category == "sensor_fault"}
     assert sensor == {"yaw_sensor_drift", "main_bearing_temp_sensor_drift", "stator_temp_sensor_drift",
                       "main_bearing_temp_sensor_wire_break", "blade1_pitch_encoder_fault",
-                      "yaw_brake_pressure_sensor_fault"}
-    # 感測器故障與真故障同元件、不同類別（WMOM-20261021-08-a）：只看警報碼猜不出類別
+                      "yaw_brake_pressure_sensor_fault",
+                      "rotor_speed_sensor_fault", "anemometer_fault", "wind_vane1_stuck"}
+    # 感測器故障與真故障同元件、不同類別（WMOM-20261021-08-a）：只看警報碼猜不出類別。量測儀器本身就是元件的
+    # （風向標、風速計、轉速編碼器，WMOM-20261021-08-c）沒有對應的真故障
     real = {sc.component for sc in FAULT_SCENARIOS.values() if sc.category == "real_fault"}
     assert {"main_bearing", "generator_stator", "pitch_system_blade_1", "yaw_brake_hydraulics"} <= real
-    assert {FAULT_SCENARIOS[s].component for s in sensor} - {"wind_vane_1"} <= real
+    instruments = {"wind_vane_1", "nacelle_anemometer", "rotor_speed_sensor"}
+    assert {FAULT_SCENARIOS[s].component for s in sensor} - instruments <= real
 
 
 # ── 2. 手冊條目 ───────────────────────────────────────────────────────────────

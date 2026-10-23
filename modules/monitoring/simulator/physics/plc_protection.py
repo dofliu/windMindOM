@@ -8,6 +8,9 @@
 每小時約 1.3 次，健康機組約兩天一次葉片同步 T2 誤跳）。感測器故障以有標註的故障情境建模
 （WMOM-20261021-08-a）：被注入故障的那支感測器，PLC 判定的是它的故障讀值（漂移 → 同真故障的溫度碼；
 斷線 / 編碼器超出範圍 → 專屬的感測器故障碼 242/243、250/251、229、326-328，且該讀值不再參與越限判定）。
+另一個例外是風向標凍結（231 / 232，WMOM-20261021-08-c）：判的是含量測雜訊的 I/O 讀值——製程值在固定風向下
+本來就不變；感測器模型的雜訊遠大於解析度、卡值事件最長 20 s，健康讀值不會凍結 60 s（測試鎖住這兩個條件）。
+不是 SCADA tag 的 PLC 輸入（變頻器轉速、ABB 冷卻水流量、風向標 I/O 讀值）由 ``evaluate(..., internal=)`` 傳入。
 
 跳機語意：
 
@@ -84,6 +87,8 @@ _PT100_SIGNALS: Tuple[Tuple[str, str], ...] = (
 )
 # 物理層保護停機可能補上的跳機碼（超速、ARU 欠壓 / 過壓、電網頻率、變頻器跳機要求）
 PROTECTION_TRIP_CODES: Tuple[int, ...] = (351, 320, 475, 481, 482, 489, _CONVERTER_TRIP_REQUEST)
+# 變槳馬達電流的平均窗（手冊 Appendix D CDOvrCurr5s / 60s / 10m；以同時間常數的一階濾波近似）
+_PITCH_CURRENT_WINDOWS: Tuple[Tuple[str, float], ...] = (("5s", 5.0), ("60s", 60.0), ("10m", 600.0))
 # 延時比較的浮點容差（子步 dt 累加誤差）
 _DELAY_EPS_S = 1e-6
 # 電網保護停機依量測電壓分類（p.u.）：< 0.81 對齊物理層嚴重欠壓限值 → 482；< 0.90 → 481；
@@ -248,7 +253,34 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
         ProtectionRule(236, "vibration", True, spec.tower_vibration_trip_mm_s, 1.0, 10.0),
         # 偏航逾時（manual Appendix D SDYawTmOutFact / SDYawTmOutOffs；逾時與否在 signals 內算）
         ProtectionRule(223, "yaw_timeout", True, 0.5, 0.0, 0.0),
+        # ── 故障庫擴充（WMOM-20261021-08-c）──
+        # 轉速感測器 029：PLC 量的轉子轉速與變頻器的發電機轉速差 > 10 %（manual；轉速下限與延時 assumed）
+        ProtectionRule(29, "rotor_speed_deviation", True, spec.rotor_speed_deviation, 0.02,
+                       spec.rotor_speed_deviation_delay_s, gate="rotor_speed_check"),
+        # 風速計 230：轉子 > 6.5 rpm 時風速讀值 < 0.5 m/s 持續 60 s（manual Appendix D SDWspdMinRange /
+        # SDRotSpdMinRange / SDWndMtrFltTm）
+        ProtectionRule(230, "anemometer_wind", False, spec.anemometer_min_wind, 0.5, spec.anemometer_fault_delay_s,
+                       gate="rotor_turning"),
+        # 風向標 231 / 232：I/O 讀值凍結 > 1 分鐘、1 分鐘平均風速 > 4.0 m/s（manual）
+        ProtectionRule(231, "vane1_frozen", True, 0.5, 0.0, spec.vane_frozen_delay_s, gate="vane_frozen_wind_ok"),
+        ProtectionRule(232, "vane2_frozen", True, 0.5, 0.0, spec.vane_frozen_delay_s, gate="vane_frozen_wind_ok"),
+        # ABB 冷卻水流量 422 / 439、導電度 423 / 440（assumed；ABB 跳機同時送出變頻器跳機要求 021）
+        ProtectionRule(422, "cooling_flow", False, spec.cooling_flow_alarm_ratio, 0.03, a_delay, producing_only=True),
+        ProtectionRule(439, "cooling_flow", False, spec.cooling_flow_trip_ratio, 0.03, t_delay, producing_only=True),
+        ProtectionRule(_CONVERTER_TRIP_REQUEST, "cooling_flow", False, spec.cooling_flow_trip_ratio, 0.03, t_delay,
+                       producing_only=True),
+        ProtectionRule(423, "cooling_conductivity", True, spec.cooling_conductivity_alarm_us_cm, 0.05, a_delay),
+        ProtectionRule(440, "cooling_conductivity", True, spec.cooling_conductivity_trip_us_cm, 0.05, t_delay),
+        ProtectionRule(_CONVERTER_TRIP_REQUEST, "cooling_conductivity", True, spec.cooling_conductivity_trip_us_cm, 0.05,
+                       t_delay),
     ]
+    # 變槳馬達過載 367-369（manual Appendix D：5 s 平均 > 22 A、60 s > 20 A、10 分鐘 > 18 A）與伺服驅動 I2t
+    # 限流 381-383（驅動器熱狀態 > 1＝RMS 電流超過連續額定；assumed）
+    for blade, (overload, i2t) in enumerate(((367, 381), (368, 382), (369, 383)), start=1):
+        for window, setpoint in (("5s", spec.pitch_motor_overcurrent_5s_a), ("60s", spec.pitch_motor_overcurrent_60s_a),
+                                 ("10m", spec.pitch_motor_overcurrent_10m_a)):
+            rules.append(ProtectionRule(overload, f"pitch{blade}_current_{window}", True, setpoint, 1.0))
+        rules.append(ProtectionRule(i2t, f"pitch{blade}_i2t", True, 1.0, 0.1))
     # 感測器訊號故障（WMOM-20261021-08-a；手冊：I/O 模組偵測到斷線 / 編碼器角度超出範圍）：讀值超出有效範圍
     pt_lo, pt_hi = spec.pt100_valid_range_c
     yaw_lo, yaw_hi = spec.yaw_pressure_valid_range_bar
@@ -400,6 +432,13 @@ class PlcProtection:
         # 這一段對風偏航已持續的秒數與允許的時間（偏航逾時 223；不在偏航時為 None）
         self._yaw_run_s = 0.0
         self._yaw_timeout_s: Optional[float] = None
+        # 變槳馬達電流的各窗平均（葉片 → 窗 → 值）與伺服驅動 I2t 熱狀態（WMOM-20261021-08-c）
+        self._pitch_current_avg: List[Dict[str, float]] = [{}, {}, {}]
+        self._pitch_i2t = [0.0, 0.0, 0.0]
+        # 風向標 1 / 2 上一步的 I/O 讀值（凍結判定 231 / 232）
+        self._vane_io_prev: List[Optional[float]] = [None, None]
+        # 轉速差（029）最近一次可比對時的值：轉子停下（判定窗關閉）時保持，不等於條件解除
+        self._rotor_speed_dev = 0.0
         self.signals: Dict[str, float] = {}
 
     @property
@@ -451,7 +490,7 @@ class PlcProtection:
     # ── 判定 ───────────────────────────────────────────────────────────────
 
     def _update_signals(self, output: Mapping[str, float], dt: float, producing: bool, yawing: bool,
-                        unwinding: bool = False) -> None:
+                        unwinding: bool = False, internal: Optional[Mapping[str, float]] = None) -> None:
         b1 = output["WROT_PtAngValBl1"]
         b2 = output["WROT_PtAngValBl2"]
         b3 = output["WROT_PtAngValBl3"]
@@ -510,6 +549,7 @@ class PlcProtection:
             "pitch_settled": 1.0 if self._producing_s >= _PITCH_SETTLE_S else 0.0,
             "yaw_brake_settled": 1.0 if self._brake_applied_s >= _YAW_BRAKE_SETTLE_S else 0.0,
         }
+        self._update_expansion_signals(output, dt, internal or {})
         # Pt100：越限判定用濾波值（<鍵>）、斷線判定用讀值（<鍵>_raw）、有效旗標（<鍵>_ok）
         a_pt = 1.0 - math.exp(-dt / spec.pt100_filter_tau_s)
         for key, tag in _PT100_SIGNALS:
@@ -524,6 +564,51 @@ class PlcProtection:
             self.signals[key] = raw if filtered is None else filtered
             self.signals[f"{key}_raw"] = raw
             self.signals[f"{key}_ok"] = ok
+
+    def _update_expansion_signals(self, output: Mapping[str, float], dt: float,
+                                  internal: Mapping[str, float]) -> None:
+        """故障庫擴充的訊號（WMOM-20261021-08-c）：變槳馬達電流、轉速比對、風速計、風向標凍結、冷卻水。
+
+        Args:
+            output: 製程值（注入感測器故障的那支為故障讀值）。
+            dt: 時間步長（秒）。
+            internal: 不是 SCADA tag 的輸入——``converter_rotor_rpm``（變頻器量到的轉速：直驅 PMSG 由電氣頻率
+                算出、等於轉子實際轉速）、``cooling_flow_ratio``（ABB 冷卻單元流量，額定 = 1）、``vane1_io`` /
+                ``vane2_io``（風向標 I/O 讀值，含量測雜訊）。沒給的項目不判定（流量視為額定）。
+        """
+        spec = self.spec
+        signals = self.signals
+        for blade in range(3):
+            current = output[f"WROT_PtMotCurBl{blade + 1}"]
+            averages = self._pitch_current_avg[blade]
+            for window, tau in _PITCH_CURRENT_WINDOWS:
+                prev = averages.get(window)
+                averages[window] = current if prev is None else prev + (current - prev) * (1.0 - math.exp(-dt / tau))
+                signals[f"pitch{blade + 1}_current_{window}"] = averages[window]
+            a_i2t = 1.0 - math.exp(-dt / spec.pitch_drive_i2t_tau_s)
+            load = (current / spec.pitch_drive_continuous_a) ** 2
+            self._pitch_i2t[blade] += (load - self._pitch_i2t[blade]) * a_i2t
+            signals[f"pitch{blade + 1}_i2t"] = self._pitch_i2t[blade]
+        rotor_rpm = output["WROT_RotSpd"]
+        # 模擬的 WGEN_GnSpd 是傳動鏈模型的發電機轉速，與轉子轉速有差異（有的機組長期偏離，WMOM-20261023-01；
+        # 直驅機組實際上剛性連接）：PLC 比對用變頻器的轉速（WMOM-20261021-08-c），沒給就不判定
+        converter_rpm = internal.get("converter_rotor_rpm")
+        check = converter_rpm is not None and converter_rpm > spec.rotor_speed_check_min_rpm
+        signals["rotor_speed_check"] = 1.0 if check else 0.0
+        if converter_rpm is not None and check:
+            self._rotor_speed_dev = abs(rotor_rpm - converter_rpm) / converter_rpm
+        signals["rotor_speed_deviation"] = self._rotor_speed_dev
+        signals["rotor_turning"] = 1.0 if rotor_rpm > spec.anemometer_min_rotor_rpm else 0.0
+        signals["anemometer_wind"] = output["WMET_WSpeedNac"]
+        # 風速條件沿用 233 的 60 s 平均風速（_wind_avg，_update_signals 已更新）
+        signals["vane_frozen_wind_ok"] = 1.0 if (self._wind_avg or 0.0) > spec.vane_frozen_min_wind else 0.0
+        for idx, key in enumerate(("vane1_io", "vane2_io")):
+            reading = internal.get(key)
+            prev = self._vane_io_prev[idx]
+            signals[f"vane{idx + 1}_frozen"] = 1.0 if reading is not None and reading == prev else 0.0
+            self._vane_io_prev[idx] = reading
+        signals["cooling_flow"] = internal.get("cooling_flow_ratio", 1.0)
+        signals["cooling_conductivity"] = output["WCNV_IGCTWtrCond"]
 
     def _rule_on(self, idx: int, rule: ProtectionRule, dt: float, producing: bool) -> bool:
         st = self._rule_state[idx]
@@ -553,7 +638,8 @@ class PlcProtection:
         return st.on
 
     def evaluate(self, output: Mapping[str, float], sim_time: float, dt: float,
-                 producing: bool, yawing: bool = False, unwinding: bool = False) -> List[Tuple[int, str]]:
+                 producing: bool, yawing: bool = False, unwinding: bool = False,
+                 internal: Optional[Mapping[str, float]] = None) -> List[Tuple[int, str]]:
         """判定一步，回傳本步新跳機的 ``(code, level)``（呼叫端依等級要求停機）。
 
         Args:
@@ -564,6 +650,8 @@ class PlcProtection:
             producing: 機組是否在發電狀態（TurSt 6）。
             yawing: 是否正在偏航（煞車鬆開；含解纜）。
             unwinding: 是否正在解纜（偏航逾時不計）。
+            internal: 不是 SCADA tag 的 PLC 輸入（冷卻水流量、風向標 I/O 讀值；WMOM-20261021-08-c），
+                見 ``_update_expansion_signals``。
 
         Returns:
             新跳機清單。
@@ -572,7 +660,7 @@ class PlcProtection:
         self._last_trip_codes = tuple(pending)
         if not self.enabled:
             return []
-        self._update_signals(output, dt, producing, yawing, unwinding)
+        self._update_signals(output, dt, producing, yawing, unwinding, internal)
         code_on: Dict[int, bool] = {}
         firing: Dict[int, ProtectionRule] = {}
         for idx, rule in enumerate(self.rules):
@@ -735,6 +823,7 @@ class PlcProtection:
             st.trip_times.clear()
             st.blocked = False
         self._protection_blocked.clear()
+        self._rotor_speed_dev = 0.0  # 修好了：停機中保持的轉速差不再擋住重啟
         if released:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
         self._sync_restart_blocked_alarm(sim_time)
@@ -759,6 +848,8 @@ class PlcProtection:
                 released.append(code)
         unblocked = bool(self._protection_blocked)
         self._protection_blocked.clear()
+        # 停機中保持的轉速差（029）：復位後重新比對，條件仍成立就在轉子轉起來後再跳
+        self._rotor_speed_dev = 0.0
         if released or unblocked:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
         self._sync_restart_blocked_alarm(sim_time)

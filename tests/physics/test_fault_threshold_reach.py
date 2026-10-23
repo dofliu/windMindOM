@@ -56,6 +56,20 @@ def _vib(o: Sample) -> float:
     return max(o["WNAC_VibMsNacXDir"], o["WNAC_VibMsNacYDir"])
 
 
+# 不是 SCADA tag 的 PLC 輸入，_run 另外記在 sample 裡（WMOM-20261021-08-c）：ABB 冷卻單元的流量（額定 = 1）、
+# 變頻器轉速（直驅＝轉子實際轉速；029 比的是它，不是模擬的 WGEN_GnSpd）
+_FLOW = "_cooling_flow_ratio"
+_ROTOR = "_rotor_rpm"
+
+
+def _rotor_speed_dev(o: Sample) -> float:
+    return abs(o["WROT_RotSpd"] - o[_ROTOR]) / o[_ROTOR]
+
+
+def _pitch_current(o: Sample) -> float:
+    return max(o["WROT_PtMotCurBl1"], o["WROT_PtMotCurBl2"], o["WROT_PtMotCurBl3"])
+
+
 @lru_cache(maxsize=None)
 def _run(fault_id: str | None, severity: float, wind: float, ambient: float) -> Tuple[Tuple[Sample, ...], str]:
     """跑 3 h，回傳最後 5 分鐘的 samples 與結束時的 shutdown cause。"""
@@ -70,7 +84,10 @@ def _run(fault_id: str | None, severity: float, wind: float, ambient: float) -> 
     for i in range(steps):
         out = model.step(wind_speed=wind, wind_direction=180.0, ambient_temp=ambient, dt=DT)
         if i >= steps - SAMPLE_STEPS:
-            samples.append(dict(out))
+            sample = dict(out)
+            sample[_FLOW] = model.cooling.water_loop.flow_lpm / model.cooling.spec.pump_flow_rated_lpm
+            sample[_ROTOR] = model.rotor_speed
+            samples.append(sample)
     return tuple(samples), str(model.get_control_status()["shutdown_cause"])
 
 
@@ -104,6 +121,12 @@ HEALTHY_LIMITS: List[Tuple[str, Callable[[Sample], float], str, float]] = [
     ("335 blade discrepancy", _blade_disc, "<", SPEC.blade_discrepancy_5s_deg),
     ("236 tower vibration", _vib, "<", SPEC.tower_vibration_trip_mm_s),
     ("481 grid voltage", _tag("WCNV_VtgMsCnvGd1"), ">", LVRT_BAND1_PU * NOMINAL_LN_KV),
+    # WMOM-20261021-08-c：健康機組的變槳馬達電流連 I2t 的連續額定都不到（手冊過載限值 18 A 以下）
+    ("381 pitch drive I2t", _pitch_current, "<", SPEC.pitch_drive_continuous_a),
+    ("423 conductivity", _tag("WCNV_IGCTWtrCond"), "<", SPEC.cooling_conductivity_alarm_us_cm),
+    ("422 cooling flow", _tag(_FLOW), ">", SPEC.cooling_flow_alarm_ratio),
+    ("029 rotor speed", _rotor_speed_dev, "<", SPEC.rotor_speed_deviation),
+    ("230 wind meter", _tag("WMET_WSpeedNac"), ">", SPEC.anemometer_min_wind),
 ]
 
 # 37 °C 時健康機組會碰到、且真機也會碰到的手冊設定值（不是模擬器假設值，不調）
@@ -147,6 +170,14 @@ TRIP_REACH: List[Tuple[str, str, Callable[[Sample], float], str, float]] = [
     ("yaw_sensor_drift", "233", _vane_disc, ">", SPEC.vane_discrepancy_deg),
     ("pitch_imbalance", "335", _blade_disc, ">", SPEC.blade_discrepancy_5s_deg),
     ("blade_icing", "236", _vib, ">", SPEC.tower_vibration_trip_mm_s),
+    # 故障庫擴充（WMOM-20261021-08-c）
+    ("pitch_motor_fault", "367", _tag("WROT_PtMotCurBl1"), ">", SPEC.pitch_motor_overcurrent_10m_a),
+    ("converter_cooling_pump_wear", "439", _tag(_FLOW), "<", SPEC.cooling_flow_trip_ratio),
+    ("converter_cooling_pump_wear", "432", _tag("WCNV_IGCTWtrPres1"), "<", SPEC.cooling_static_pressure_low_bar),
+    ("cooling_water_deionizer_exhausted", "440", _tag("WCNV_IGCTWtrCond"), ">",
+     SPEC.cooling_conductivity_trip_us_cm),
+    ("rotor_speed_sensor_fault", "029", _rotor_speed_dev, ">", SPEC.rotor_speed_deviation),
+    ("anemometer_fault", "230", _tag("WMET_WSpeedNac"), "<", SPEC.anemometer_min_wind),
 ]
 
 
@@ -248,23 +279,32 @@ def test_ground_truth_key_signals_deviate_from_healthy(fault_id: str) -> None:
 # ── 感測器故障只改那支感測器的讀值（WMOM-20261021-08-a）──
 # 同一個種子：故障機組除了故障的那支感測器，每個 tag 每一步都與健康機組逐位元相同（製程、控制、其他感測器
 # 的雜訊都不受影響）；故障讀值確實不同。
-_SENSOR_FAULT_TAG = {
-    "main_bearing_temp_sensor_drift": "WGEN_GnBrgTmp1",
-    "stator_temp_sensor_drift": "WGEN_GnStaTmp1",
-    "main_bearing_temp_sensor_wire_break": "WGEN_GnBrgTmp1",
-    "blade1_pitch_encoder_fault": "WROT_PtAngValBl1",
-    "yaw_brake_pressure_sensor_fault": "WYAW_YwBrkHyPrs",
+_SENSOR_FAULT_TAGS: Dict[str, Tuple[str, ...]] = {
+    "main_bearing_temp_sensor_drift": ("WGEN_GnBrgTmp1",),
+    "stator_temp_sensor_drift": ("WGEN_GnStaTmp1",),
+    "main_bearing_temp_sensor_wire_break": ("WGEN_GnBrgTmp1",),
+    "blade1_pitch_encoder_fault": ("WROT_PtAngValBl1",),
+    "yaw_brake_pressure_sensor_fault": ("WYAW_YwBrkHyPrs",),
+    # WMOM-20261021-08-c；風速計的兩個風速 tag 都來自同一支風速計
+    "rotor_speed_sensor_fault": ("WROT_RotSpd",),
+    "anemometer_fault": ("WMET_WSpeedNac", "WMET_WSpeedRaw"),
+    "wind_vane1_stuck": ("WYAW_YwVn1AlgnAvg5s",),
 }
 
 
-@pytest.mark.parametrize("fault_id", sorted(_SENSOR_FAULT_TAG))
+def test_every_sensor_fault_is_covered() -> None:
+    assert set(_SENSOR_FAULT_TAGS) == {sid for sid, sc in FAULT_SCENARIOS.items() if sc.category == "sensor_fault"
+                                       and sid != "yaw_sensor_drift"}  # 漂移的風向標會讓控制器轉錯方向（製程跟著變）
+
+
+@pytest.mark.parametrize("fault_id", sorted(_SENSOR_FAULT_TAGS))
 def test_sensor_faults_change_only_the_faulty_reading(fault_id: str) -> None:
     healthy, _ = _run(None, 0.0, 14.0, 25.0)
     faulty, _ = _run(fault_id, 1.0, 14.0, 25.0)
-    tag = _SENSOR_FAULT_TAG[fault_id]
+    tags = _SENSOR_FAULT_TAGS[fault_id]
     for h, f in zip(healthy, faulty, strict=True):
-        assert {k: v for k, v in h.items() if k != tag} == {k: v for k, v in f.items() if k != tag}
-        assert f[tag] != h[tag]
+        assert {k: v for k, v in h.items() if k not in tags} == {k: v for k, v in f.items() if k not in tags}
+        assert all(f[tag] != h[tag] for tag in tags)
 
 
 def test_loose_contact_glitches_only_the_bearing_reading_now_and_then() -> None:
@@ -298,10 +338,16 @@ def test_broken_sensors_read_a_constant_out_of_range_value() -> None:
     assert {s["WROT_PtAngValBl1"] for s in encoder} == {SPEC.blade_encoder_fault_deg}
     pressure, _ = _run("yaw_brake_pressure_sensor_fault", 1.0, 14.0, 25.0)
     assert {s["WYAW_YwBrkHyPrs"] for s in pressure} == {SPEC.yaw_pressure_broken_wire_bar}
+    # WMOM-20261021-08-c：卡死的風速計讀 0、卡住的風向標停在一個值（沒有雜訊）
+    anemometer, _ = _run("anemometer_fault", 1.0, 14.0, 25.0)
+    assert {s["WMET_WSpeedNac"] for s in anemometer} == {s["WMET_WSpeedRaw"] for s in anemometer} == {0.0}
+    vane, _ = _run("wind_vane1_stuck", 1.0, 14.0, 25.0)
+    assert len({s["WYAW_YwVn1AlgnAvg5s"] for s in vane}) == 1
     # 嚴重度還沒到 SENSOR_BREAK_SEVERITY：讀值正常
     healthy, _ = _run(None, 0.0, 14.0, 25.0)
     early, _ = _run("main_bearing_temp_sensor_wire_break", 0.4, 14.0, 25.0)
     assert early == healthy
+    assert _run("wind_vane1_stuck", 0.4, 14.0, 25.0)[0] == healthy
 
 
 def test_second_sensors_follow_the_same_component() -> None:
@@ -356,6 +402,43 @@ def test_second_pt100s_have_their_own_rng_stream() -> None:
         assert {k: v for k, v in oa.items() if k not in rtd} == {k: v for k, v in ob.items() if k not in rtd}
         differs = differs or any(oa[k] != ob[k] for k in rtd)
     assert differs
+
+
+def test_pitch_motor_currents_have_their_own_rng_stream() -> None:
+    """變槳馬達電流的雜訊走 ``_ext_rng``（WMOM-20261021-08-c）：換掉它只改變這三個 tag。"""
+    a = TurbinePhysicsModel(seed=5)
+    b = TurbinePhysicsModel(seed=5)
+    b._ext_rng = np.random.RandomState(999)
+    ext = TurbinePhysicsModel._EXT_SENSOR_TAGS
+    assert not ext & (TurbinePhysicsModel._AUX_SENSOR_TAGS | TurbinePhysicsModel._RTD_SENSOR_TAGS)
+    differs = False
+    for i in range(300):
+        wind = 11.0 + (i % 40) * 0.05
+        oa = a.step(wind_speed=wind, wind_direction=180.0, ambient_temp=20.0, dt=1.0)
+        ob = b.step(wind_speed=wind, wind_direction=180.0, ambient_temp=20.0, dt=1.0)
+        assert {k: v for k, v in oa.items() if k not in ext} == {k: v for k, v in ob.items() if k not in ext}
+        differs = differs or any(oa[k] != ob[k] for k in ext)
+    assert differs
+
+
+def test_pitch_motor_fault_raises_only_blade_1_current_and_total_current_follows_load() -> None:
+    """變槳驅動劣化只抬高葉片 1 的電流（固定多出一段），葉片角度與另外兩支不變；負載高時總電流較高。"""
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    faulty, _ = _run("pitch_motor_fault", 1.0, 14.0, 25.0)
+    for tag in ("WROT_PtMotCurBl2", "WROT_PtMotCurBl3", "WROT_PtAngValBl1", "WROT_PtAngValBl2"):
+        assert _mean(faulty, _tag(tag)) == pytest.approx(_mean(healthy, _tag(tag)))
+    low, _ = _run("pitch_motor_fault", 1.0, 9.0, 25.0)
+    assert _mean(low, _tag("WROT_PtMotCurBl1")) < _mean(faulty, _tag("WROT_PtMotCurBl1"))
+
+
+def test_yaw_misalignment_loses_power_with_no_vane_disagreement() -> None:
+    """靜態偏航失準：兩支風向標一致（不會 233）、發電低於健康機組約 cos³、側向彎矩增加。"""
+    healthy, _ = _run(None, 0.0, 14.0, 25.0)
+    misaligned, _ = _run("yaw_misalignment", 1.0, 14.0, 25.0)
+    assert _mean(misaligned, _vane_disc) == pytest.approx(_mean(healthy, _vane_disc), abs=0.5)
+    ratio = _mean(misaligned, _tag("WTUR_TotPwrAt")) / _mean(healthy, _tag("WTUR_TotPwrAt"))
+    assert ratio == pytest.approx(math.cos(math.radians(16.0)) ** 3, abs=0.02)
+    assert _mean(misaligned, _tag("WLOD_TwrSsMom")) > 2.0 * _mean(healthy, _tag("WLOD_TwrSsMom"))
 
 
 def test_resistance_scale_raises_steady_state_and_never_lowers_it() -> None:

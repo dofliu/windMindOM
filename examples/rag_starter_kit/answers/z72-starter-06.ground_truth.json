@@ -1,0 +1,676 @@
+{
+ "contract_version": "1.6",
+ "kind": "scenario_ground_truth",
+ "scenario_id": 2,
+ "scenario_name": "故障庫擴充：變槳驅動過載、冷卻水泵磨耗、冷卻水導電度、轉速 / 風速計 / 風向標感測器故障、沒有警報的偏航失準",
+ "turbine_model": "Z72",
+ "site_timezone": "Asia/Taipei",
+ "sim_start": "2026-04-06T05:00:10.000000Z",
+ "sim_end": "2026-04-06T10:00:00.000000Z",
+ "generated_at": "2026-10-23T16:35:07.265759Z",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004",
+  "WT005",
+  "WT006",
+  "WT007",
+  "WT008"
+ ],
+ "healthy_turbines": [
+  "WT008"
+ ],
+ "cases": [
+  {
+   "case_id": "C001",
+   "turbine_id": "WT007",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "yaw_misalignment",
+   "fault_name_en": "Static Yaw Misalignment (Wind Vane Mounting Offset)",
+   "fault_name_zh": "靜態偏航失準（風向標安裝偏差）",
+   "component": "wind_vane_alignment",
+   "root_cause": "兩支風向標的安裝方向一起偏了一個角度（例：更換或維修風向標後沒有對準）：偏航控制讓風向標讀值歸零，轉子因此長期偏離真實風向，發電隨偏航角約以 cos³ 減少，塔架側向彎矩與 3P 振動增加。兩支風向標讀值一致，PLC 沒有任何警報或跳機，只能從功率曲線（同風速下發電偏低）與負載趨勢發現。",
+   "root_cause_en": "Both wind vanes are mounted off by the same angle (e.g. not aligned after a vane replacement or repair): the yaw control nulls the vane readings, so the rotor runs permanently misaligned with the real wind, power falls roughly with cos³ of the yaw angle, and tower side-side moment and 3P vibration rise. The two vanes agree, the PLC raises no alarm or trip; it only shows in the power curve (low output for the wind speed) and the load trends.",
+   "expected_alarm_codes": [],
+   "expected_alarm_sequence": [],
+   "manual_refs": [],
+   "manual_coverage": "none",
+   "expected_actions": [
+    "依手冊 §6.8.2.2，風向標是讓機艙對風的依據：檢查兩支風向標的安裝方向（對準標記）與校正（手冊）",
+    "用功率曲線比對同風場其他機組：同風速下發電持續偏低、沒有警報時，懷疑對風偏差",
+    "以 LiDAR / 鄰機風向比對確認偏航角後重新對準風向標"
+   ],
+   "expected_actions_en": [
+    "Per manual §6.8.2.2 the wind vanes are what the nacelle aligns to: check both vanes' mounting direction (alignment mark) and calibration (manual).",
+    "Compare the power curve with the farm's other turbines: persistently low output for the wind speed with no alarm suggests a yaw misalignment.",
+    "Confirm the misalignment with a LiDAR or the neighbours' wind direction and realign the vanes."
+   ],
+   "key_signals": [
+    "WTUR_TotPwrAt",
+    "WLOD_TwrSsMom",
+    "WVIB_Band3pX"
+   ],
+   "simulation_notes": [
+    "滿嚴重度偏 16°；發電損失以 cos³ 套在功率上（本模型的全載變槳依風速決定，若改成減少轉子面對的風，全載時反而會少變槳、多發電）。",
+    "這個情境沒有任何預期警報碼：標準答案的 first_alarm / trip 為 null，評分不評延遲、偵測到就算早期預警。",
+    "「沒有警報」指 PLC 事件：自創的振動頻帶警報 tag（WVIB_Alarm3p）可能亮。風場尾流模型的偏航輸入取風向標讀值，看不到這個偏差，下游機組的尾流不受影響。發電損失在全載也照 cos³ 套用（真機全載時可能還發得到額定）。"
+   ],
+   "simulation_notes_en": [
+    "16° at full severity; the power loss is applied as cos³ on the power (this model's full-load pitch follows the wind speed, so reducing the wind the rotor faces would pitch less and produce more at full load).",
+    "This scenario has no expected alarm codes: the answer's first_alarm / trip are null, and scoring does not time it — any detection counts as early warning.",
+    "\"No alarm\" means no PLC event: the synthetic vibration band alarm tag (WVIB_Alarm3p) may light up. The farm wake model takes its yaw input from the vane reading, so it does not see this offset and downstream wakes are unaffected. The power loss is applied as cos³ at full load too (a real turbine may still reach rated power there)."
+   ],
+   "onset_ts": "2026-04-06T05:15:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 900.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 1.0,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C002",
+   "turbine_id": "WT001",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "pitch_motor_fault",
+   "fault_name_en": "Blade 1 Pitch Drive Overload (Bearing / Gear Friction)",
+   "fault_name_zh": "葉片 1 變槳驅動過載（軸承 / 齒輪摩擦）",
+   "component": "pitch_system_blade_1",
+   "root_cause": "葉片 1 變槳軸承 / 變槳齒輪摩擦增加（潤滑劣化）：直流變槳馬達要用更大的電流才能維持同樣的變槳動作，葉片 1 的馬達電流明顯高於葉片 2、3（多出的電流固定，總電流隨負載增加，所以高負載時先到限值）；RMS 電流超過驅動器連續額定時 I2t 限流警報（381），電流平均值超過手冊限值（10 分鐘 > 18 A、60 秒 > 20 A、5 秒 > 22 A）時 PLC 以葉片 1 變槳馬達過載（367）跳機。葉片角度與同步正常——不是校正漂移。",
+   "root_cause_en": "Increased friction in the blade 1 pitch bearing / pitch gear (deteriorating lubrication): the DC pitch motor needs more current for the same pitch action, so blade 1's motor current is clearly above blades 2 and 3 (a constant excess on top of a total that rises with load, so high load reaches the limits first). When the RMS current exceeds the drive's continuous rating the I2t current limiter warns (381); when the averaged current exceeds the manual's limits (10 min > 18 A, 60 s > 20 A, 5 s > 22 A) the PLC trips on pitch motor blade 1 overload (367). Blade angles and synchronisation are normal — this is not a calibration drift.",
+   "expected_alarm_codes": [
+    381,
+    367
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 381,
+     "level": "A",
+     "text": "I2t protection servo drive 1 active"
+    },
+    {
+     "code": 367,
+     "level": "T1",
+     "text": "Pitch motor blade 1 overload"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 381,
+     "event_id": "A_381",
+     "level": "A",
+     "text": "I2t protection servo drive 1 active",
+     "page": 122,
+     "cause": "The current limiter of the drive of blade 1 is active, possibly causing loss of synchronisation between blade 1 and the other blades",
+     "rectification": "The message should disappear automatically when the limiter becomes inactive. Too frequent occurrence of this alarm is an indication of a mechanical problem of blade 1. See also [Control Techniques].",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 367,
+     "event_id": "T_367",
+     "level": "T1",
+     "text": "Pitch motor blade 1 overload",
+     "page": 121,
+     "cause": "The pitch motor current has exceeded the limits",
+     "rectification": "Check pitch motor and pitch gear. Notify Harakosan",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查葉片 1 的變槳馬達與變槳齒輪（手冊）",
+    "I2t 警報太頻繁表示葉片 1 有機械問題（手冊）",
+    "比較三支葉片的馬達電流；檢查變槳軸承與齒輪的潤滑（含變槳軸承潤滑系統），修復後確認葉片 1 電流回到與另外兩支相同"
+   ],
+   "expected_actions_en": [
+    "Check the blade 1 pitch motor and pitch gear (manual).",
+    "Too frequent I2t alarms indicate a mechanical problem of blade 1 (manual).",
+    "Compare the three blades' motor currents; check pitch bearing and gear lubrication (including the pitch bearing grease system), and after the repair confirm blade 1's current matches the other two."
+   ],
+   "key_signals": [
+    "WROT_PtMotCurBl1"
+   ],
+   "simulation_notes": [
+    "變槳馬達電流是模擬假設的模型（通電時基本電流＋隨推力的氣動扭矩＋隨變槳速度）；I2t 限流的連續電流 14 A 與時間常數 60 s 為模擬假設（手冊只寫 See [Control Techniques]），過載限值照手冊 Appendix D。",
+    "I2t 限流在模擬中不會讓葉片 1 變慢，所以不會連帶出現葉片同步差異（335 / 336）。",
+    "跳機後葉片停在順槳、馬達電流歸零，電流平均值下降，367 約一分鐘後解除（trip_cleared）；故障還在，機組由維修鎖擋住、不會自己重啟。"
+   ],
+   "simulation_notes_en": [
+    "The pitch motor current is a simulator model (base current when energised + aerodynamic torque with thrust + pitch speed); the I2t limiter's 14 A continuous current and 60 s time constant are simulator assumptions (the manual only says see [Control Techniques]); the overload limits follow the manual's Appendix D.",
+    "In the simulator the I2t limiter does not slow blade 1, so no blade discrepancy (335 / 336) follows.",
+    "After the trip the blades park in vane and the motor current drops to zero, so the averages fall and 367 clears after about a minute (trip_cleared); the fault is still there and the maintenance lock keeps the turbine from restarting."
+   ],
+   "onset_ts": "2026-04-06T05:20:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T06:03:35.000000Z",
+   "first_alarm_code": 381,
+   "trip_ts": "2026-04-06T06:33:35.000000Z",
+   "trip_code": 367,
+   "observed_alarm_codes": [
+    381,
+    367
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 1200.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.883,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C003",
+   "turbine_id": "WT002",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "converter_cooling_pump_wear",
+   "fault_name_en": "Converter Cooling Water Pump Wear",
+   "fault_name_zh": "變頻器冷卻水泵磨耗",
+   "component": "converter_cooling_system",
+   "root_cause": "變頻器冷卻水泵葉輪磨耗：泵送流量與迴路壓力逐漸下降（壓力約隨流量平方），冷卻液位正常、沒有洩漏；流量低於額定約九成時冷卻水流量低警報（422），壓力再低出靜水壓低（432），流量很低時變頻器要求跳機（439 + 021）。流量不足使 IGCT 冷卻水溫比平常高幾度，但通常在溫度警報之前就先跳機。",
+   "root_cause_en": "Worn converter cooling water pump impeller: pump flow and loop pressure fall gradually (pressure roughly with flow squared) while the coolant level is normal and nothing leaks; below about 90 % of rated flow the cooling water flow low alarm (422) comes, with lower pressure the static water pressure low alarm (432), and at very low flow the converter requests a trip (439 + 021). The reduced flow runs the IGCT cooling water a few degrees warmer, but the trip usually comes before any temperature alarm.",
+   "expected_alarm_codes": [
+    422,
+    432,
+    439,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 422,
+     "level": "A",
+     "text": "Cooling water flow low"
+    },
+    {
+     "code": 432,
+     "level": "A",
+     "text": "Static water pressure L"
+    },
+    {
+     "code": 439,
+     "level": "T1",
+     "text": "Cooling water flow very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 422,
+     "event_id": "A_422",
+     "level": "A",
+     "text": "Cooling water flow low",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 432,
+     "event_id": "A_432",
+     "level": "A",
+     "text": "Static water pressure L",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 439,
+     "event_id": "T_439",
+     "level": "T1",
+     "text": "Cooling water flow very low",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "依 ABB 變頻器手冊檢查冷卻水流量與泵（手冊：Z72 手冊此類事件只寫 See [ABB]）",
+    "確認冷卻液位正常、沒有洩漏（與漏水造成的壓力低區分）",
+    "檢查冷卻水泵（葉輪磨耗、馬達、過濾器堵塞），修復或更換後確認流量與壓力恢復再復位"
+   ],
+   "expected_actions_en": [
+    "Check the cooling water flow and pump per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
+    "Confirm the coolant level is normal and nothing leaks (to tell it apart from a leak-driven pressure drop).",
+    "Inspect the cooling water pump (impeller wear, motor, clogged filter); after repair or replacement confirm flow and pressure are back before resetting."
+   ],
+   "key_signals": [
+    "WCNV_IGCTWtrPres1",
+    "WCNV_IGCTWtrPres2",
+    "WCNV_IGCTWtrTmp"
+   ],
+   "simulation_notes": [
+    "流量低 / 很低的設定值（額定的 90 % / 75 %）為模擬假設（手冊只寫 See [ABB]）；冷卻水流量沒有 SCADA tag，只看得到隨流量下降的 IGCT 水壓與水溫。",
+    "模擬的靜水壓低（432）判的是迴路壓力 WCNV_IGCTWtrPres1，所以泵磨耗也會觸發。"
+   ],
+   "simulation_notes_en": [
+    "The flow low / very low setpoints (90 % / 75 % of rated) are simulator assumptions (the manual only says See [ABB]); the cooling water flow has no SCADA tag — only the IGCT water pressures and temperature that follow it are visible.",
+    "The simulator's static water pressure low (432) is judged on the loop pressure WCNV_IGCTWtrPres1, so pump wear triggers it too."
+   ],
+   "onset_ts": "2026-04-06T05:30:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T06:07:30.000000Z",
+   "first_alarm_code": 422,
+   "trip_ts": "2026-04-06T06:29:05.000000Z",
+   "trip_code": 439,
+   "observed_alarm_codes": [
+    422,
+    432,
+    21,
+    439
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 1800.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.709,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C004",
+   "turbine_id": "WT003",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "cooling_water_deionizer_exhausted",
+   "fault_name_en": "Converter Cooling Water Deionizer Exhausted",
+   "fault_name_zh": "變頻器冷卻水去離子樹脂耗盡",
+   "component": "converter_cooling_system",
+   "root_cause": "變頻器冷卻水的去離子樹脂（離子交換器）耗盡：冷卻水導電度逐漸上升（水溫高時讀值也較高），IGCT 的漏電風險增加；超過警報值出冷卻水導電度高（423），再高時變頻器要求跳機（440 + 021）。冷卻水溫度、壓力與流量正常。",
+   "root_cause_en": "The deionizer (ion exchange resin) of the converter cooling water is exhausted: the water's conductivity climbs gradually (reading higher when the water is warmer), raising the IGCT leakage-current risk; above the alarm value the cooling water conductivity high alarm (423) comes, and higher still the converter requests a trip (440 + 021). Cooling water temperature, pressure and flow are normal.",
+   "expected_alarm_codes": [
+    423,
+    440,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 423,
+     "level": "A",
+     "text": "Cooling water conductivity high"
+    },
+    {
+     "code": 440,
+     "level": "T1",
+     "text": "Cooling water conductivity very high"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 423,
+     "event_id": "A_423",
+     "level": "A",
+     "text": "Cooling water conductivity high",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 440,
+     "event_id": "T_440",
+     "level": "T1",
+     "text": "Cooling water conductivity very high",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "依 ABB 變頻器手冊處理冷卻水導電度（手冊：Z72 手冊此類事件只寫 See [ABB]）",
+    "更換去離子樹脂（離子交換器濾芯），必要時換冷卻水",
+    "確認導電度降回正常值後再復位"
+   ],
+   "expected_actions_en": [
+    "Handle the cooling water conductivity per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
+    "Replace the deionizer resin (ion exchange cartridge) and, if needed, the cooling water.",
+    "Reset only after the conductivity is back to normal."
+   ],
+   "key_signals": [
+    "WCNV_IGCTWtrCond"
+   ],
+   "simulation_notes": [
+    "導電度的健康值（25 °C 時 0.15–0.25 µS/cm、每 °C 約 +2 %）與警報 / 跳機設定值（0.5 / 1.0 µS/cm）為模擬假設（手冊只寫 See [ABB]）。"
+   ],
+   "simulation_notes_en": [
+    "The healthy conductivity (0.15–0.25 µS/cm at 25 °C, about +2 % per °C) and the alarm / trip setpoints (0.5 / 1.0 µS/cm) are simulator assumptions (the manual only says See [ABB])."
+   ],
+   "onset_ts": "2026-04-06T05:40:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T06:16:40.000000Z",
+   "first_alarm_code": 423,
+   "trip_ts": "2026-04-06T06:48:15.000000Z",
+   "trip_code": 440,
+   "observed_alarm_codes": [
+    423,
+    21,
+    440
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 2400.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.819,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C005",
+   "turbine_id": "WT004",
+   "category": "sensor_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "rotor_speed_sensor_fault",
+   "fault_name_en": "Rotor Speed Sensor Fault (Loose Encoder Connection)",
+   "fault_name_zh": "轉子轉速感測器故障（編碼器接線鬆動）",
+   "component": "rotor_speed_sensor",
+   "root_cause": "輪轂內轉子轉速編碼器接線鬆動（感測器故障）：PLC 量的轉子轉速漏脈波而偏低、偏差越來越大，轉子實際轉速、變頻器量的轉速與發電都正常；兩者差超過 10 % 時 PLC 以轉子轉速感測器故障（029）跳機。",
+   "root_cause_en": "A loose connection of the rotor speed encoder in the hub (sensor fault): the PLC's rotor speed misses pulses and reads low, increasingly so, while the real rotor speed, the converter's speed and the production are normal; once they differ by more than 10 % the PLC trips on rotor speed sensor fault (029).",
+   "expected_alarm_codes": [
+    29
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 29,
+     "level": "T1",
+     "text": "Rotor speed sensor fault"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 29,
+     "event_id": "T_029",
+     "level": "T1",
+     "text": "Rotor speed sensor fault",
+     "page": 106,
+     "cause": "The rotor speed measured by the control system deviates > 10% with the generator speed measured by the converter",
+     "rectification": "Check connections of rotor speed encoder in the hub",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查輪轂內轉子轉速編碼器的接線（手冊）",
+    "看轉子轉速讀值與發電、風速的關係：讀值越來越低、發電卻和同風速的其他機組一樣，是量測問題而不是轉子真的變慢",
+    "修復接線或更換編碼器，確認轉速讀值與發電、風速的關係恢復正常再復機"
+   ],
+   "expected_actions_en": [
+    "Check the connections of the rotor speed encoder in the hub (manual).",
+    "Look at the rotor speed reading against power and wind: a reading that keeps falling while the turbine produces like its neighbours at the same wind points to the measurement, not a slower rotor.",
+    "Repair the wiring or replace the encoder and confirm the speed reading matches power and wind again before restarting."
+   ],
+   "key_signals": [
+    "WROT_RotSpd"
+   ],
+   "simulation_notes": [
+    "讀值偏低隨嚴重度平方增加（滿嚴重度少 30 %，約 0.58 時超過 10 %）；PLC 比對用變頻器的轉速（直驅機組＝轉子實際轉速），不是 WGEN_GnSpd——模擬的 WGEN_GnSpd 是傳動鏈模型的量，有的健康機組也長期偏離轉子轉速（WMOM-20261023-01），不能拿來比。跳機後轉子停下時保持停機前的轉速差，操作員復位或維護清除後才重新比對。",
+    "轉速差判定的最低轉速（6.5 rpm）與延時（5 s）為模擬假設（手冊只寫 > 10 %）。"
+   ],
+   "simulation_notes_en": [
+    "The reading falls short with severity squared (30 % at full severity, past 10 % at about 0.58); the PLC compares with the converter's speed (on a direct-drive turbine the real rotor speed), not WGEN_GnSpd — the simulated WGEN_GnSpd comes from the drivetrain model and stays far from the rotor speed on some healthy turbines too (WMOM-20261023-01), so it cannot be used for the comparison. After the trip the stopped rotor keeps the last speed difference until an operator reset or maintenance clears it.",
+    "The minimum speed (6.5 rpm) and delay (5 s) of the check are simulator assumptions (the manual only gives > 10 %)."
+   ],
+   "onset_ts": "2026-04-06T06:00:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T06:48:15.000000Z",
+   "first_alarm_code": 29,
+   "trip_ts": "2026-04-06T06:48:15.000000Z",
+   "trip_code": 29,
+   "observed_alarm_codes": [
+    29
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 3600.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.579,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C006",
+   "turbine_id": "WT005",
+   "category": "sensor_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "anemometer_fault",
+   "fault_name_en": "Nacelle Anemometer Fault (Bearing Wear → Seized)",
+   "fault_name_zh": "機艙風速計故障（軸承磨耗 → 卡死）",
+   "component": "nacelle_anemometer",
+   "root_cause": "機艙杯式風速計軸承磨耗後卡死（感測器故障）：故障前期讀值偏低（功率、轉速對同樣讀值看起來比功率曲線高），最後杯子停轉、讀值 0；轉子轉速仍高於 6.5 rpm 而風速讀值低於 0.5 m/s 持續 60 秒，PLC 以風速計故障（230）跳機。機組本身與風向標正常。",
+   "root_cause_en": "The nacelle cup anemometer's bearing wears and then seizes (sensor fault): early on it reads low (power and rotor speed look above the power curve for the reading), finally the cups stop and it reads 0; with the rotor still above 6.5 rpm and the wind reading below 0.5 m/s for 60 s the PLC trips on wind meter fault (230). The turbine and the wind vanes are fine.",
+   "expected_alarm_codes": [
+    230
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 230,
+     "level": "T1",
+     "text": "Wind meter fault"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 230,
+     "event_id": "T_230",
+     "level": "T1",
+     "text": "Wind meter fault",
+     "page": 109,
+     "cause": "The wind meter signal is lost, or does not match with the current rotor speed",
+     "rectification": "Check wiring to wind meter. Visually inspect wind meter for icing / damage (are all cups still present ?)",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查風速計配線（手冊）",
+    "目視檢查風速計是否結冰 / 損壞、風杯是否都在（手冊）",
+    "看功率與轉子轉速對風速讀值的關係：讀值偏低而功率正常是風速計問題；更換風速計後再復機"
+   ],
+   "expected_actions_en": [
+    "Check the wiring to the wind meter (manual).",
+    "Visually inspect the wind meter for icing / damage — are all cups still present? (manual)",
+    "Look at power and rotor speed against the wind reading: a low reading with normal power points to the anemometer; replace it before restarting."
+   ],
+   "key_signals": [
+    "WMET_WSpeedNac",
+    "WMET_WSpeedRaw"
+   ],
+   "simulation_notes": [
+    "嚴重度 0.8 之前讀值隨嚴重度偏低（滿 0.8 時少 24 %），到 0.8 時卡死讀 0；兩個風速 tag 都來自這支風速計。模擬的控制器（切入 / 切出、變槳）仍依實際風速運作。"
+   ],
+   "simulation_notes_en": [
+    "Before severity 0.8 the reading falls short with severity (24 % at 0.8); at 0.8 it seizes and reads 0. Both wind speed tags come from this anemometer. The simulated controller (cut-in / cut-out, pitch) keeps working on the real wind speed."
+   ],
+   "onset_ts": "2026-04-06T06:20:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T07:27:40.000000Z",
+   "first_alarm_code": 230,
+   "trip_ts": "2026-04-06T07:27:40.000000Z",
+   "trip_code": 230,
+   "observed_alarm_codes": [
+    230
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 4800.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.812,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C007",
+   "turbine_id": "WT006",
+   "category": "sensor_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "wind_vane1_stuck",
+   "fault_name_en": "Wind Vane 1 Stuck (Seized / Iced)",
+   "fault_name_zh": "風向標 1 卡住（軸承卡死 / 結冰）",
+   "component": "wind_vane_1",
+   "root_cause": "風向標 1 卡住（軸承卡死或結冰，感測器故障）：讀值凍結不動，風向標 2 照常隨風變化；1 分鐘平均風速高於 4.0 m/s、讀值凍結超過 1 分鐘時 PLC 以風向標 1 故障（231）跳機。風向變化大時兩支風向標的差異也可能超過 15°（233）。",
+   "root_cause_en": "Wind vane 1 stuck (seized bearing or icing, sensor fault): its reading freezes while wind vane 2 keeps following the wind; with the 1-minute wind speed above 4.0 m/s and the reading frozen for more than a minute the PLC trips on wind vane 1 fault (231). With large wind direction changes the two vanes can also differ by more than 15° (233).",
+   "expected_alarm_codes": [
+    231
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 231,
+     "level": "T1",
+     "text": "Wind vane 1 fault"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 231,
+     "event_id": "T_231",
+     "level": "T1",
+     "text": "Wind vane 1 fault",
+     "page": 109,
+     "cause": "Wind vane 1 signal frozen for more than 1 minute while V > 4.0 wind,1 min. avg m/s",
+     "rectification": "Check wiring to wind vane 1. Check wind vane 1 for icing / damage / obstruction.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查風向標 1 的配線（手冊）",
+    "檢查風向標 1 是否結冰 / 損壞 / 被卡住（手冊）",
+    "確認風向標 1 能自由轉動、讀值與風向標 2 一致後再復機；結冰時確認氣象儀器加熱"
+   ],
+   "expected_actions_en": [
+    "Check the wiring to wind vane 1 (manual).",
+    "Check wind vane 1 for icing / damage / obstruction (manual).",
+    "Confirm wind vane 1 turns freely and reads like wind vane 2 before restarting; if iced, check the meteo heating."
+   ],
+   "key_signals": [
+    "WYAW_YwVn1AlgnAvg5s"
+   ],
+   "simulation_notes": [
+    "嚴重度到 0.5 時卡住，之前讀值正常；卡住後讀值固定在當下的值、沒有量測雜訊。模擬的偏航控制仍依實際風向對風，所以不會因為風向標 1 卡住而偏航失準。"
+   ],
+   "simulation_notes_en": [
+    "The vane seizes when severity reaches 0.5 and reads normally before that; afterwards the reading stays at its value at that moment, without measurement noise. The simulated yaw control keeps aligning to the real wind direction, so the stuck vane does not misalign the nacelle."
+   ],
+   "onset_ts": "2026-04-06T06:40:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-06T07:22:45.000000Z",
+   "first_alarm_code": 231,
+   "trip_ts": "2026-04-06T07:22:45.000000Z",
+   "trip_code": 231,
+   "observed_alarm_codes": [
+    231
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 6000.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.513,
+   "superseded": false,
+   "pre_existing": false
+  }
+ ],
+ "farm_events": [],
+ "unattributed_events": [],
+ "pack_id": "z72-starter-06"
+}

@@ -350,9 +350,7 @@ requests.post("http://localhost:8100/api/faults/inject", json={
     "severityRate": 0.005,
     "initialSeverity": 0.0,
 })
-# Available: bearing_wear, pitch_imbalance, gearbox_overheat, blade_icing,
-#            generator_overspeed, yaw_misalignment, stator_winding_degradation,
-#            hydraulic_leak, nacelle_cooling_failure, converter_cooling_fault, grid_voltage_sag
+# Available: see "Fault Scenarios" below (GET /api/faults/scenarios lists all 24 with their expected Z72 codes)
 ```
 
 #### POST `/api/faults/clear`
@@ -576,12 +574,24 @@ python examples/fetch_scada_data.py
 |----|-------------|
 | `bearing_wear` | Main bearing degradation |
 | `pitch_imbalance` | Pitch angle mismatch between blades |
-| `gearbox_overheat` | Gearbox temperature rise |
 | `blade_icing` | Ice accumulation on blades |
 | `generator_overspeed` | Generator overspeed condition |
-| `yaw_misalignment` | Yaw system alignment error |
 | `stator_winding_degradation` | Generator stator winding fault |
 | `hydraulic_leak` | Hydraulic system pressure loss |
 | `nacelle_cooling_failure` | Nacelle cooling system fault |
-| `converter_cooling_fault` | Converter cooling degradation |
+| `converter_cooling_fault` | Converter cooling degradation (leak) |
+| `transformer_overheat` | Transformer overheating |
 | `grid_voltage_sag` | Grid voltage dip event |
+| `yaw_sensor_drift` | Wind vane 1 drift (sensor fault) |
+| `main_bearing_temp_sensor_drift` / `stator_temp_sensor_drift` | Pt100 measuring circuit drift (sensor fault) |
+| `main_bearing_temp_sensor_wire_break` / `blade1_pitch_encoder_fault` / `yaw_brake_pressure_sensor_fault` | Broken sensor with its dedicated fault code (sensor fault) |
+| `main_bearing_temp_loose_contact` | Pt100 loose contact (nuisance) |
+| `pitch_motor_fault` | Blade 1 pitch drive overload: bearing / gear friction → motor current → 381 → 367 (WMOM-20261021-08-c) |
+| `converter_cooling_pump_wear` | Converter cooling water pump wear → 422 → 432 → 439 + 021 |
+| `cooling_water_deionizer_exhausted` | Cooling water conductivity rise → 423 → 440 + 021 |
+| `rotor_speed_sensor_fault` | Rotor speed encoder connection (sensor fault) → 029 |
+| `anemometer_fault` | Nacelle anemometer reads low, then seizes (sensor fault) → 230 |
+| `wind_vane1_stuck` | Wind vane 1 frozen (sensor fault) → 231 |
+| `yaw_misalignment` | Both wind vanes mounted off: power loss, **no alarm** |
+
+`gearbox_overheat` was removed (WMOM-20261021-08-c): the Z72 is direct drive and has no gearbox events.

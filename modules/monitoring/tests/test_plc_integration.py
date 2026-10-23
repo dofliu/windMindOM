@@ -75,8 +75,43 @@ def _run_until_tripped(scenario_id: str) -> Tuple[WindFarmSimulator, List[PlcEve
     return sim, events, states
 
 
-# nuisance 情境不鎖機組、不轉 tripped（Pt100 接觸不良另見 test_nuisance_events.py）
-FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance")
+# nuisance 情境不鎖機組、不轉 tripped（Pt100 接觸不良另見 test_nuisance_events.py）；沒有預期碼的故障
+#（偏航失準，WMOM-20261021-08-c）本來就不會跳機，另見下面的專屬測試
+FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance" and sc.alarm_codes)
+SILENT_FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance" and not sc.alarm_codes)
+
+
+@pytest.mark.parametrize("seed", [2, 5, 7])
+@pytest.mark.parametrize("stop", ["emergency", "normal"])
+def test_healthy_stops_never_overload_the_pitch_motors(seed: int, stop: str) -> None:
+    """健康機組在 12–18 m/s（含陣風）停機：大幅變槳的電流峰值不會碰到 367–369 / 381–383（WMOM-20261021-08-c）。
+
+    緊急順槳時 5 s 平均最大約 20.5 A（手冊 22 A），是新故障庫裡裕度最小的健康條件。
+    """
+    from simulator.physics import TurbinePhysicsModel
+
+    pitch_codes = {367, 368, 369, 381, 382, 383}
+    for wind in (12.0, 15.0, 18.0):
+        model = TurbinePhysicsModel(seed=seed)
+        raised: List[int] = []
+        for i in range(int(900 / DT)):
+            gust = 18.0 if wind == 12.0 and 120 <= i < 130 else wind  # 13 m/s 附近再加一陣強風
+            model.step(wind_speed=gust, wind_direction=180.0, ambient_temp=25.0, dt=DT)
+            if i == 125:
+                assert model.tur_state == PRODUCING, "前置條件：停機前在發電"
+                model.cmd_emergency_stop() if stop == "emergency" else model.cmd_stop()
+            raised += [e.code for e in model.plc.drain_events() if e.kind in ("trip", "alarm_raised")]
+        assert not set(raised) & pitch_codes, f"seed {seed} {wind} m/s {stop}: {raised}"
+
+
+@pytest.mark.parametrize("scenario_id", SILENT_FAULT_IDS)
+def test_silent_fault_never_raises_an_event_and_keeps_producing(scenario_id: str) -> None:
+    """沒有預期碼的故障滿嚴重度 3 h：PLC 沒有任何警報 / 跳機，機組一直在發電。"""
+    assert SILENT_FAULT_IDS == ["yaw_misalignment"]
+    sim, events, states = _run_until_tripped(scenario_id)
+    assert not sim.fault_engine.active_faults[0].tripped
+    assert [(e.kind, e.code) for e in events] == []
+    assert set(states) == {PRODUCING}
 
 
 @pytest.mark.parametrize("scenario_id", FAULT_IDS)

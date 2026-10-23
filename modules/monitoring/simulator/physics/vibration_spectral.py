@@ -14,7 +14,6 @@ Frequency bands:
 Fault signatures:
   - bearing_wear:           elevated band_hf, modulated at shaft speed
   - pitch_imbalance:        elevated band_1p, asymmetric X/Y
-  - gearbox_overheat:       elevated band_gear, temperature-correlated
   - blade_icing:            elevated band_1p + band_3p, asymmetric
   - generator_overspeed:    elevated band_hf, speed-correlated
   - yaw_misalignment:       elevated band_3p, direction-dependent
@@ -448,26 +447,13 @@ class SpectralVibrationModel:
                 bands.bpfo_amp += 0.25 * sev * speed_coupling
                 bands.bpfi_amp += 0.15 * sev * speed_coupling
 
-            elif sid in ("pitch_imbalance", "pitch_motor_fault"):
+            elif sid == "pitch_imbalance":
                 # Pitch imbalance: strong 1P (mass/aero imbalance)
                 bands.band_1p_x += 0.60 * sev * speed_ratio
                 bands.band_1p_y += 0.85 * sev * speed_ratio  # Y dominant (side-to-side)
                 # Some 3P modulation
                 bands.band_3p_x += 0.15 * sev * speed_ratio
                 bands.band_3p_y += 0.10 * sev * speed_ratio
-
-            elif sid == "gearbox_overheat":
-                # Gearbox issues: elevated gear mesh band
-                bands.band_gear_x += 0.50 * sev * load_factor
-                bands.band_gear_y += 0.40 * sev * load_factor
-                # Gear damage creates sidebands → higher broadband
-                bands.band_bb_x += 0.12 * sev * load_factor
-                bands.band_bb_y += 0.10 * sev * load_factor
-                bands.kurtosis += 1.5 * sev * load_factor
-                # Sideband amplification: tooth defect modulates GMF at shaft freq
-                if self._is_geared:
-                    bands.sideband_1_amp += 0.20 * sev * load_factor
-                    bands.sideband_2_amp += 0.10 * sev * load_factor
 
             elif sid == "blade_icing":
                 # Ice: mass imbalance → strong 1P, aerodynamic → 3P

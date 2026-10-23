@@ -15,7 +15,7 @@ import math
 import numpy as np
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Mapping, Optional, Tuple
 
 from simulator.physics.power_curve import PowerCurveModel, RotorSpeedModel
 from simulator.physics.thermal_model import ThermalSystem
@@ -87,6 +87,8 @@ class _RollingMean:
         return self._duration >= self.window_s - 1e-9
 
 
+# SCADA 擷取的卡值事件長度（秒，均勻分布）：必須遠短於風向標凍結判定的 60 s（231 / 232，WMOM-20261021-08-c）
+_SENSOR_STUCK_S = (6.0, 20.0)
 # 斷線 / 編碼器故障這類「一壞就壞」的感測器故障在嚴重度到這裡時發生（之前讀值正常；WMOM-20261021-08-a）
 SENSOR_BREAK_SEVERITY = 0.5
 # Pt100 接觸不良（nuisance，手冊 §11.3，WMOM-20261021-08-b）：注入後第一次瞬斷的時間、每次瞬斷的長度、
@@ -94,6 +96,23 @@ SENSOR_BREAK_SEVERITY = 0.5
 LOOSE_CONTACT_FIRST_S = (300.0, 1200.0)
 LOOSE_CONTACT_GLITCH_S = (10.0, 30.0)
 LOOSE_CONTACT_INTERVAL_S = (900.0, 2700.0)
+# 風速計卡死（WMOM-20261021-08-c）：嚴重度到這裡時杯子停轉、讀值 0；之前軸承摩擦讓讀值隨嚴重度偏低
+ANEMOMETER_SEIZE_SEVERITY = 0.8
+# 變槳直流馬達電流模型（WMOM-20261021-08-c，assumed）：通電時的基本電流、在額定推力下抵抗氣動扭矩的電流、
+# 每 °/s 變槳速度的電流。健康機組 10 分鐘平均遠低於手冊的 18 A（CDOvrCurr10m）
+_PITCH_MOTOR_IDLE_A = 2.0
+_PITCH_MOTOR_AERO_A = 7.0
+_PITCH_MOTOR_RATE_A = 1.2
+_PITCH_MOTOR_MAX_LOAD = 1.5  # 推力比上限（陣風）
+# pitch_motor_fault 滿嚴重度時葉片 1 變槳軸承 / 齒輪摩擦增加的電流（A）
+PITCH_FRICTION_MAX_A = 16.0
+# 冷卻水導電度（µS/cm，WMOM-20261021-08-c）：去離子水 25 °C 的基準值範圍、溫度係數（每 °C）、
+# cooling_water_deionizer_exhausted 滿嚴重度時的上升量（25 °C 值）
+_CONDUCTIVITY_BASE_US_CM = (0.15, 0.25)
+_CONDUCTIVITY_TEMP_COEF = 0.02
+DEIONIZER_RISE_MAX_US_CM = 0.9
+# yaw_misalignment 滿嚴重度時風向標的安裝偏差（度；兩支風向標一起偏，WMOM-20261021-08-c）
+YAW_MISALIGNMENT_MAX_DEG = 16.0
 
 
 @dataclass
@@ -214,6 +233,35 @@ class TurbineSpec:
     blade_angle_valid_range_deg: Tuple[float, float] = (-5.0, 95.0)
     blade_encoder_fault_deg: float = 135.0                               # assumed: faulty encoder reads out of range
 
+    # Z72 fault library expansion (WMOM-20261021-08-c).
+    # Pitch DC motor current limits, manual Appendix D CDOvrCurr5s / 60s / 10m (events 367-369). The servo
+    # drive's I2t current limiter (381-383) is "see [Control Techniques]": its continuous current and thermal
+    # time constant are assumed.
+    pitch_motor_overcurrent_5s_a: float = 22.0    # manual
+    pitch_motor_overcurrent_60s_a: float = 20.0   # manual
+    pitch_motor_overcurrent_10m_a: float = 18.0   # manual
+    pitch_drive_continuous_a: float = 14.0        # assumed, I2t limiter active above this RMS current
+    pitch_drive_i2t_tau_s: float = 60.0           # assumed
+    # Rotor speed sensor fault 029: manual Appendix C "> 10 %" vs the converter's generator speed; the speed
+    # floor and delay are not given (assumed; the floor reuses SDRotSpdMinRange of event 230)
+    rotor_speed_deviation: float = 0.10           # manual
+    rotor_speed_check_min_rpm: float = 6.5        # assumed
+    rotor_speed_deviation_delay_s: float = 5.0    # assumed
+    # Wind meter fault 230: manual Appendix D SDWspdMinRange 0.5 m/s, SDRotSpdMinRange 6.5 (rotor speed; the
+    # table prints m/s), SDWndMtrFltTm 60 s — the anemometer reads < 0.5 m/s while the rotor turns > 6.5 rpm
+    anemometer_min_wind: float = 0.5              # manual
+    anemometer_min_rotor_rpm: float = 6.5         # manual
+    anemometer_fault_delay_s: float = 60.0        # manual
+    # Wind vane fault 231 / 232: signal frozen > 1 min (Appendix D SDWndVnFltTm 60 s) while the 1 min average
+    # wind speed > 4.0 m/s (Appendix C)
+    vane_frozen_delay_s: float = 60.0             # manual
+    vane_frozen_min_wind: float = 4.0             # manual
+    # ABB converter cooling water flow (422 / 439) and conductivity (423 / 440): "See [ABB]" → assumed
+    cooling_flow_alarm_ratio: float = 0.90        # assumed, flow < 90 % of rated
+    cooling_flow_trip_ratio: float = 0.75         # assumed
+    cooling_conductivity_alarm_us_cm: float = 0.5  # assumed, deionized water loop
+    cooling_conductivity_trip_us_cm: float = 1.0   # assumed
+
     # Z72 grid (60Hz system)
     grid_frequency_nominal: float = 60.0
 
@@ -265,6 +313,13 @@ Z72_PLC_SETPOINT_FIELDS = frozenset({
     "tower_vibration_trip_mm_s",
     "pt100_valid_range_c", "pt100_broken_wire_c", "yaw_pressure_valid_range_bar", "yaw_pressure_broken_wire_bar",
     "blade_angle_valid_range_deg", "blade_encoder_fault_deg",
+    "pitch_motor_overcurrent_5s_a", "pitch_motor_overcurrent_60s_a", "pitch_motor_overcurrent_10m_a",
+    "pitch_drive_continuous_a", "pitch_drive_i2t_tau_s",
+    "rotor_speed_deviation", "rotor_speed_check_min_rpm", "rotor_speed_deviation_delay_s",
+    "anemometer_min_wind", "anemometer_min_rotor_rpm", "anemometer_fault_delay_s",
+    "vane_frozen_delay_s", "vane_frozen_min_wind",
+    "cooling_flow_alarm_ratio", "cooling_flow_trip_ratio",
+    "cooling_conductivity_alarm_us_cm", "cooling_conductivity_trip_us_cm",
 })
 
 Z72_RATED_POWER_KW = TurbineSpec().rated_power_kw  # 熱模型與 PLC 設定值校準的機型
@@ -345,6 +400,13 @@ class TurbinePhysicsModel:
         self._contact_next_glitch: Optional[float] = None
         # 排程屬於哪一次注入（FaultEngine 的 instance_id）：再注入就重新起算
         self._contact_instance: Optional[int] = None
+        # Sensors added in WMOM-20261021-08-c (pitch motor currents, cooling water conductivity) get their own
+        # stream: per-turbine constants drawn here, measurement noise in _apply_sensor_model
+        self._ext_rng = np.random.RandomState(None if seed is None else (seed + 15485863) % (2 ** 32))
+        self._pitch_current_scale = [1.0 + float(self._ext_rng.uniform(-0.06, 0.06)) for _ in range(3)]
+        self._conductivity_base = float(self._ext_rng.uniform(*_CONDUCTIVITY_BASE_US_CM))
+        # 卡住的感測器（sensor_faults 的 hold 模式）：tag → (注入編號, 卡住時的讀值)
+        self._held_sensor: Dict[str, Tuple[float, float]] = {}
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -500,6 +562,12 @@ class TurbinePhysicsModel:
         self._sensor_bias: Dict[str, float] = {}
         self._sensor_stuck_until: Dict[str, float] = {}
         self._sensor_last: Dict[str, float] = {}
+        # 注入感測器故障的 tag「沒有故障時」的讀值（同一個雜訊樣本另算，WMOM-20261021-08-c）：風場尾流模型的偏航
+        # 輸入取風向標 1 讀值，感測器故障不能透過它影響其他機組
+        self._unfaulted_readings: Dict[str, float] = {}
+        self._sensor_last_unfaulted: Dict[str, float] = {}
+        # 尾流模型的偏航輸入（度）：風向標 1 讀值，風向標 1 有感測器故障時用沒有故障的讀值
+        self.wake_yaw_reading_deg = 0.0
 
         self.operator_stop = False
         self.operator_start_pending = False
@@ -700,11 +768,6 @@ class TurbinePhysicsModel:
             is_normal_stop=is_normal_stop,
             is_emergency_stop=is_emergency_stop,
             ambient_temp=ambient_temp,
-            gearbox_overheat_severity=next(
-                (float(f.get("severity", 0.0)) for f in self.active_faults
-                 if f.get("scenario_id") == "gearbox_overheat"),
-                0.0,
-            ),
         )
         # Combined torsion vibration (backward compatible single value)
         torsion_vib = torsion_vib_lss + torsion_vib_hss * 0.5
@@ -752,8 +815,12 @@ class TurbinePhysicsModel:
         self._generated_power_kw += (target_power_kw - self._generated_power_kw) * alpha
         gen_power_kw = max(0.0, self._generated_power_kw)
 
+        pitch_before = self.pitch_angle
         self._calc_pitch(effective_wind_speed, is_producing, dt)
         self._pitch_bl[0] += fault_physics["blade1_pitch_bias"]
+        pitch_currents = self._pitch_motor_currents(
+            abs(self.pitch_angle - pitch_before) / dt if dt > 0 else 0.0,
+            aero_out.thrust_kn, fault_physics["pitch1_friction_a"])  # type: ignore[arg-type]  # 見 _get_fault_physics
 
         # For direct-drive PMSG, the converter outputs grid frequency regardless of rotor speed
         mechanical_freq = (gen_speed * s.generator_poles / 2) / 60.0 if (is_producing or is_starting) else 0.0
@@ -827,19 +894,26 @@ class TurbinePhysicsModel:
         # therefore turns the nacelle until vane 1 reads ~0: the rotor is physically
         # misaligned by −drift, vane 1 still shows only the controller residual, and
         # vane 2 shows the true misalignment. Yaw slippage (hydraulic_leak) is a real
-        # misalignment seen by both vanes. yaw_out["yaw_error"] keeps feeding fatigue,
-        # yaw skew and wake steering with the physical misalignment (+ the per-turbine
-        # vane 1 mounting bias, as before).
+        # misalignment seen by both vanes. yaw_out["yaw_error"] keeps feeding fatigue
+        # and yaw skew with the physical misalignment (+ the per-turbine vane 1 mounting
+        # bias, as before); the farm wake model takes the vane 1 reading instead
+        # (wake_yaw_reading_deg).
+        # Both vanes mounted off by the same angle (yaw_misalignment, WMOM-20261021-08-c): the controller nulls
+        # vane 1, so the rotor sits misaligned by −offset while both vanes agree (no 233).
         vane1_drift = fault_physics["vane1_drift_deg"]
-        physical_misalignment = yaw_out["yaw_error"] + fault_physics["yaw_error_bias"] - vane1_drift
-        vane2_error = physical_misalignment + self._vane2_bias
+        mount_offset = fault_physics["vane_mount_offset_deg"]
+        physical_misalignment = (yaw_out["yaw_error"] + fault_physics["yaw_error_bias"] - vane1_drift
+                                 - mount_offset)
+        vane2_error = physical_misalignment + self._vane2_bias + mount_offset
         yaw_out["yaw_error"] = physical_misalignment + self._individuality["yaw_sensor_bias"]
-        vane1_reading = yaw_out["yaw_error"] + vane1_drift
+        vane1_reading = yaw_out["yaw_error"] + vane1_drift + mount_offset
         yaw_out["brake_pressure"] += fault_physics["yaw_brake_bias"]
 
         # Coolant leak from converter_cooling_fault (#75)
         leak_rate = fault_physics.get("coolant_leak_lph", 0.0)
         self.cooling.water_loop.set_leak_rate(leak_rate)
+        # Worn pump impeller (converter_cooling_pump_wear, WMOM-20261021-08-c)
+        self.cooling.water_loop.pump_flow_scale = fault_physics["pump_flow_scale"]
 
         # Cooling system model (#29) — produces cooling_bias for thermal model.
         # Humidity (#89) derates air-cooled paths via density + condensation.
@@ -951,15 +1025,16 @@ class TurbinePhysicsModel:
         if is_producing:
             igct_pres1 = water_pres * 1.0 + self._rng.normal(0, 0.08)
             igct_pres2 = water_pres * 0.94 + self._rng.normal(0, 0.08)
-            igct_cond = min(1.0, self.cooling.water_loop.flow_lpm / max(self.cooling.spec.pump_flow_rated_lpm, 1.0))
         elif is_starting:
             igct_pres1 = water_pres * 0.7 + self._sync_progress * 0.8 + self._rng.normal(0, 0.05)
             igct_pres2 = water_pres * 0.65 + self._sync_progress * 0.7 + self._rng.normal(0, 0.05)
-            igct_cond = 0.65 + self._sync_progress * 0.35
         else:
             igct_pres1 = water_pres * 0.3 if is_normal_stop else 0.1 if is_emergency_stop else 0.0
             igct_pres2 = water_pres * 0.25 if is_normal_stop else 0.05 if is_emergency_stop else 0.0
-            igct_cond = 0.2 if is_normal_stop else 0.0
+        # Cooling water conductivity (µS/cm, WMOM-20261021-08-c; was miscomputed as a flow ratio): deionized water
+        # rises ~2 %/°C with temperature, and when the deionizer resin is exhausted
+        igct_cond = ((self._conductivity_base + fault_physics["conductivity_rise_us_cm"])
+                     * (1.0 + _CONDUCTIVITY_TEMP_COEF * (temps["cnv_water"] - 25.0)))
 
         rotor_locked = 1 if self.tur_state in (1, 2, 3) else 0
         brake_active = 1 if self.tur_state in (1, 7, 9) else 0
@@ -1042,6 +1117,9 @@ class TurbinePhysicsModel:
             "WROT_PtAngValBl1": round(self._pitch_bl[0], 2),
             "WROT_PtAngValBl2": round(self._pitch_bl[1], 2),
             "WROT_PtAngValBl3": round(self._pitch_bl[2], 2),
+            "WROT_PtMotCurBl1": round(pitch_currents[0], 2),
+            "WROT_PtMotCurBl2": round(pitch_currents[1], 2),
+            "WROT_PtMotCurBl3": round(pitch_currents[2], 2),
             "WROT_RotTmp": temps["rotor"],
             "WROT_RotCabTmp": temps["hub_cabinet"],
             "WROT_LckngPnPos": 1.0 if rotor_locked else 0.0,
@@ -1058,7 +1136,7 @@ class TurbinePhysicsModel:
             "WCNV_CnvGdPwrAt": round(cnv_gd_pwr, 2),
             "WCNV_CnvGnFrq": round(gen_freq, 3),
             "WCNV_CnvGnPwr": round(cnv_gn_pwr, 2),
-            "WCNV_IGCTWtrCond": round(igct_cond, 3),
+            "WCNV_IGCTWtrCond": round(max(0.0, igct_cond), 3),
             "WCNV_IGCTWtrPres1": round(igct_pres1, 2),
             "WCNV_IGCTWtrPres2": round(igct_pres2, 2),
             "WCNV_IGCTWtrTmp": temps["cnv_water"],
@@ -1171,20 +1249,34 @@ class TurbinePhysicsModel:
         # process (physics, control) is untouched. Both the PLC and SCADA see the faulty reading.
         sensor_faults: Dict[str, Tuple[str, float]] = fault_physics["sensor_faults"]  # type: ignore[assignment]  # 見 _get_fault_physics
         measured = self._apply_sensor_faults(output, sensor_faults)
-        sensorized = self._apply_sensor_model(measured)
-        for tag, (mode, value) in sensor_faults.items():
-            if mode == "pinned" and tag in sensorized:
-                sensorized[tag] = value  # a broken wire / failed encoder reads a constant, no noise
-                self._sensor_last[tag] = value  # a later stuck-sensor event must not replay a clipped reading
+        sensorized = self._apply_sensor_model(
+            measured, unfaulted={tag: output[tag] for tag in sensor_faults if tag in output})
+        self.wake_yaw_reading_deg = self._unfaulted_readings.get(
+            "WYAW_YwVn1AlgnAvg5s", sensorized["WYAW_YwVn1AlgnAvg5s"])
+        for tag, (mode, _value) in sensor_faults.items():
+            if mode in ("pinned", "hold") and tag in sensorized:
+                # a broken wire / failed encoder / seized sensor reads a constant, no noise
+                sensorized[tag] = measured[tag]
+                self._sensor_last[tag] = measured[tag]  # a later stuck-sensor event must not replay a clipped reading
 
         # The PLC judges the process values (pre sensor model): the sensor model's noise /
         # drift / stuck values are SCADA-acquisition artefacts tuned for trend realism and
         # too large for protection logic (see plc_protection docstring). Injected sensor faults
         # are the exception: the faulty sensor's reading is what the PLC gets. T1 = normal servo
         # stop, T2 = emergency pitch (_request_stop never downgrades a pending emergency).
+        # Inputs that are not SCADA tags (WMOM-20261021-08-c): the converter's speed (direct-drive PMSG: from the
+        # electrical frequency, i.e. the real rotor speed — the 029 reference), the ABB cooling unit's flow, and
+        # the wind vane I/O readings (with acquisition noise) for the PLC's frozen-signal check (231 / 232)
+        plc_inputs = {
+            "converter_rotor_rpm": output["WROT_RotSpd"],
+            "cooling_flow_ratio": self.cooling.water_loop.flow_lpm / max(self.cooling.spec.pump_flow_rated_lpm, 1.0),
+            "vane1_io": sensorized["WYAW_YwVn1AlgnAvg5s"],
+            "vane2_io": sensorized["WYAW_YwVn2AlgnAvg5s"],
+        }
         for code, level in self.plc.evaluate(measured, self._sim_time, dt, producing=self.tur_state == 6,
                                              yawing=bool(yaw_out.get("is_yawing", 0.0)),
-                                             unwinding=bool(yaw_out.get("is_unwinding", 0.0))):
+                                             unwinding=bool(yaw_out.get("is_unwinding", 0.0)),
+                                             internal=plc_inputs):
             self._request_stop("emergency" if level == "T2" else "normal", f"plc:{code}")
         return sensorized
 
@@ -1532,6 +1624,8 @@ class TurbinePhysicsModel:
         self._sensor_bias.clear()
         self._sensor_stuck_until.clear()
         self._sensor_last.clear()
+        self._unfaulted_readings.clear()
+        self._sensor_last_unfaulted.clear()
         self.drivetrain.reset()
         self.cooling.reset()
         self.electrical.reset()
@@ -1540,6 +1634,7 @@ class TurbinePhysicsModel:
         self._contact_glitch_until = -1.0
         self._contact_next_glitch = None
         self._contact_instance = None
+        self._held_sensor.clear()
 
     def _enter_state(self, state: int):
         self.tur_state = state
@@ -1660,30 +1755,90 @@ class TurbinePhysicsModel:
     # Second Pt100s (WMOM-20261021-08-a): noise from self._rtd_rng, so neither the main nor the aux
     # stream shifts
     _RTD_SENSOR_TAGS = frozenset({"WGEN_GnStaTmp2", "WGEN_GnBrgTmp2"})
+    # Pitch motor currents (WMOM-20261021-08-c): noise from self._ext_rng
+    _EXT_SENSOR_TAGS = frozenset({"WROT_PtMotCurBl1", "WROT_PtMotCurBl2", "WROT_PtMotCurBl3"})
 
-    @staticmethod
-    def _apply_sensor_faults(output: Dict[str, float],
+    def _apply_sensor_faults(self, output: Dict[str, float],
                              sensor_faults: Dict[str, Tuple[str, float]]) -> Dict[str, float]:
-        """注入的感測器故障 → 該感測器的量測值（WMOM-20261021-08-a）。
+        """注入的感測器故障 → 該感測器的量測值（WMOM-20261021-08-a / -08-c）。
 
         Args:
             output: 製程值。
-            sensor_faults: ``{tag: (模式, 值)}``；``offset`` 在製程值上加偏移（漂移），``pinned`` 固定讀值
-                （斷線 / 編碼器故障）。
+            sensor_faults: ``{tag: (模式, 值)}``；``offset`` 在製程值上加偏移（漂移）、``scale`` 乘上倍率
+                （少算脈波 / 軸承摩擦）、``pinned`` 固定讀值（斷線 / 編碼器故障）、``hold`` 停在卡住當下的讀值
+                （值＝注入編號，換一次注入就重新取讀值）。
 
         Returns:
             量測值；沒有感測器故障時就是 ``output`` 本身（健康機組不受影響）。
         """
+        # 故障清掉（感測器修好）後，下次卡住從新的讀值起算
+        for tag in [t for t in list(self._held_sensor) if sensor_faults.get(t, ("", 0.0))[0] != "hold"]:
+            self._held_sensor.pop(tag, None)
         if not sensor_faults:
             return output
         measured = dict(output)
         for tag, (mode, value) in sensor_faults.items():
             if tag not in measured:
                 continue
-            measured[tag] = value if mode == "pinned" else round(measured[tag] + value, 2)
+            if mode == "pinned":
+                measured[tag] = value
+            elif mode == "hold":
+                held = self._held_sensor.get(tag)
+                if held is None or held[0] != value:
+                    held = (value, measured[tag])
+                    self._held_sensor[tag] = held
+                measured[tag] = held[1]
+            elif mode == "scale":
+                measured[tag] = round(measured[tag] * value, 3)
+            elif mode == "offset":
+                measured[tag] = round(measured[tag] + value, 2)
+            else:
+                raise ValueError(f"未知的感測器故障模式：{mode}（{tag}）")
         return measured
 
-    def _apply_sensor_model(self, output: Dict[str, float]) -> Dict[str, float]:
+    def _pitch_motor_currents(self, pitch_rate_deg_s: float, thrust_kn: float,
+                              blade1_friction_a: float) -> List[float]:
+        """三支變槳直流馬達的電流（A，電流 ∝ 扭矩；WMOM-20261021-08-c）。
+
+        伺服通電（起動、發電、正常停機，或正在變槳）時：基本電流＋抵抗氣動扭矩（隨推力）＋變槳速度。
+        停機在順槳位置、馬達煞車扣住時為 0。
+
+        Args:
+            pitch_rate_deg_s: 共同變槳指令的速度（°/s）。
+            thrust_kn: 轉子推力（kN）。
+            blade1_friction_a: 葉片 1 變槳軸承 / 齒輪摩擦增加的電流（pitch_motor_fault）。
+
+        Returns:
+            葉片 1–3 的電流。
+        """
+        if self.tur_state not in (4, 5, 6, 9) and pitch_rate_deg_s <= 0.0:
+            return [0.0, 0.0, 0.0]
+        s = self.spec
+        # 額定風速下的推力（Ct ≈ 0.8）當基準
+        thrust_ref_kn = 0.5 * s.air_density * math.pi * (s.rotor_diameter / 2.0) ** 2 * s.rated_speed ** 2 * 0.8 / 1000.0
+        load = min(_PITCH_MOTOR_MAX_LOAD, max(0.0, thrust_kn) / max(thrust_ref_kn, 1.0))
+        base = _PITCH_MOTOR_IDLE_A + _PITCH_MOTOR_AERO_A * load + _PITCH_MOTOR_RATE_A * pitch_rate_deg_s
+        currents = [base * scale for scale in self._pitch_current_scale]
+        currents[0] += blade1_friction_a
+        return currents
+
+    def _apply_sensor_model(self, output: Dict[str, float],
+                            unfaulted: Optional[Mapping[str, float]] = None) -> Dict[str, float]:
+        """量測值 → SCADA 讀值（雜訊、漂移、卡值、解析度）。
+
+        Args:
+            output: 量測值（注入感測器故障的那支為故障讀值）。
+            unfaulted: 注入感測器故障的 tag 的製程值；以同一個雜訊樣本另算「沒有故障時的讀值」，存進
+                ``self._unfaulted_readings``（抽樣次數不變，WMOM-20261021-08-c）。
+
+        Returns:
+            SCADA 讀值。
+        """
+        unfaulted = unfaulted or {}
+        self._unfaulted_readings = {}
+        # 故障結束（修好）的 tag：卡值事件回放的是沒有故障時的最後讀值
+        for tag in [t for t in self._sensor_last_unfaulted if t not in unfaulted]:
+            self._sensor_last[tag] = self._sensor_last_unfaulted.pop(tag)
         # Tags that should not be filtered through the sensor model
         _integer_tags = {"WTUR_TurSt", "WCNV_CnvMode", "WCNV_RtBand",
                          "WROT_RotLckd", "WROT_SrvcBrkAct", "WROT_LckngPnPos",
@@ -1705,7 +1860,8 @@ class TurbinePhysicsModel:
         sensorized: Dict[str, float] = {}
         for tag, value in output.items():
             rng = (self._rtd_rng if tag in self._RTD_SENSOR_TAGS
-                   else self._aux_rng if tag in self._AUX_SENSOR_TAGS else self._rng)
+                   else self._aux_rng if tag in self._AUX_SENSOR_TAGS
+                   else self._ext_rng if tag in self._EXT_SENSOR_TAGS else self._rng)
             if tag in _integer_tags:
                 # round(inf/nan) → OverflowError；非有限值歸零（WMOM-20260718-10）。
                 sensorized[tag] = round(value) if math.isfinite(value) else 0
@@ -1718,32 +1874,47 @@ class TurbinePhysicsModel:
                 self._sensor_bias[tag] = self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["drift"])
                 self._sensor_bias[tag] = max(-cfg["bias_limit"], min(cfg["bias_limit"], self._sensor_bias[tag]))
             if self._sim_time >= self._sensor_stuck_until.get(tag, 0.0) and rng.uniform() < cfg["stuck_prob"]:
-                self._sensor_stuck_until[tag] = self._sim_time + rng.uniform(6.0, 20.0)
+                self._sensor_stuck_until[tag] = self._sim_time + rng.uniform(*_SENSOR_STUCK_S)
             if self._sim_time < self._sensor_stuck_until.get(tag, 0.0) and tag in self._sensor_last:
                 sensorized[tag] = self._sensor_last[tag]
+                if tag in unfaulted:
+                    self._unfaulted_readings[tag] = self._sensor_last_unfaulted.get(tag, self._sensor_last[tag])
                 continue
-            measured = value + self._sensor_bias.get(tag, 0.0) + rng.normal(0.0, cfg["noise"])
-            # 上游物理若發散成 inf/nan，下一行 round() 會拋 OverflowError 弄垮整個 step()
-            # （這正是「生成情境」500 + 前端誤報 CORS 的根因）。非有限值直接歸零並繼續
-            # （引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
-            if not math.isfinite(measured):
-                self._sensor_last[tag] = 0.0
-                sensorized[tag] = 0.0
-                continue
-            resolution = cfg["resolution"]
-            if resolution > 0:
-                measured = round(measured / resolution) * resolution
-            measured = max(cfg["min"], measured) if cfg["min"] is not None else measured
-            measured = min(cfg["max"], measured) if cfg["max"] is not None else measured
-            self._sensor_last[tag] = measured
-            sensorized[tag] = measured
+            bias = self._sensor_bias.get(tag, 0.0)
+            noise = rng.normal(0.0, cfg["noise"])
+            # 加法順序（值 + 偏差 + 雜訊）不可改：浮點數不滿足結合律，改了健康輸出就不再逐位元相同
+            sensorized[tag] = self._sensor_last[tag] = self._sensor_reading(value + bias + noise, cfg)
+            if tag in unfaulted:
+                reading = self._sensor_reading(unfaulted[tag] + bias + noise, cfg)
+                self._unfaulted_readings[tag] = self._sensor_last_unfaulted[tag] = reading
         return sensorized
+
+    @staticmethod
+    def _sensor_reading(measured: float, cfg: Mapping[str, float]) -> float:
+        """量測值（含偏差與雜訊）→ 讀值：解析度、上下限。
+
+        上游物理若發散成 inf/nan，round() 會拋 OverflowError 弄垮整個 step()（這正是「生成情境」500 + 前端誤報
+        CORS 的根因）。非有限值直接歸零（引擎層 _zero_non_finite 亦兜底）（WMOM-20260718-10）。
+        """
+        if not math.isfinite(measured):
+            return 0.0
+        resolution = cfg["resolution"]
+        if resolution > 0:
+            measured = round(measured / resolution) * resolution
+        measured = max(cfg["min"], measured) if cfg["min"] is not None else measured
+        return min(cfg["max"], measured) if cfg["max"] is not None else measured
 
     def _get_sensor_config(self, tag: str) -> Dict[str, float]:
         if tag.startswith("WGEN_Gn") and "Tmp" in tag:
             return {"noise": 0.18, "drift": 0.002, "bias_limit": 1.5, "resolution": 0.1, "stuck_prob": 0.0002, "min": -40.0, "max": 180.0}
         if tag.startswith("WCNV_IGCTWtrPres"):
             return {"noise": 0.02, "drift": 0.0005, "bias_limit": 0.15, "resolution": 0.01, "stuck_prob": 0.00015, "min": 0.0, "max": 10.0}
+        # Conductivity (µS/cm, WMOM-20261021-08-c): same draws as the default config (drift > 0, never stuck),
+        # so the main stream stays aligned
+        if tag == "WCNV_IGCTWtrCond":
+            return {"noise": 0.004, "drift": 0.00005, "bias_limit": 0.02, "resolution": 0.001, "stuck_prob": 0.0, "min": 0.0, "max": 20.0}
+        if tag.startswith("WROT_PtMotCur"):
+            return {"noise": 0.25, "drift": 0.002, "bias_limit": 0.4, "resolution": 0.1, "stuck_prob": 0.00005, "min": 0.0, "max": 60.0}
         # Electrical response tags — small noise, no stuck
         if tag == "WCNV_PwrFactor":
             return {"noise": 0.003, "drift": 0.0001, "bias_limit": 0.01, "resolution": 0.001, "stuck_prob": 0.0, "min": -1.0, "max": 1.0}
@@ -1839,9 +2010,15 @@ class TurbinePhysicsModel:
             "grid_voltage_scale": 1.0,
             # Yaw brake leakage-detector line pressure (bar); Z72 event 261 at > 3 bar
             "yaw_leak_detector_bar": 0.0,
-            # Injected sensor faults (WMOM-20261021-08-a): {tag: ("offset", Δ) | ("pinned", reading)}.
-            # Only the measurement changes; the process stays healthy.
+            # Injected sensor faults (WMOM-20261021-08-a / -08-c): {tag: ("offset", Δ) | ("scale", factor) |
+            # ("pinned", reading) | ("hold", injection id)}. Only the measurement changes; the process stays healthy.
             "sensor_faults": {},
+            # WMOM-20261021-08-c: blade 1 pitch friction current (A), converter cooling pump flow scale, cooling
+            # water conductivity rise (µS/cm at 25 °C), wind vane mounting offset (deg, both vanes)
+            "pitch1_friction_a": 0.0,
+            "pump_flow_scale": 1.0,
+            "conductivity_rise_us_cm": 0.0,
+            "vane_mount_offset_deg": 0.0,
         }
 
         # Operating condition factors for load-dependent fault coupling.
@@ -2024,22 +2201,47 @@ class TurbinePhysicsModel:
                 fault_physics["extra_heat"]["converter"] += 6.0 * severity * heat_scale
                 fault_physics["extra_heat"]["bearing"] += 4.0 * severity * heat_scale
 
-            # ── legacy aliases (from older physics path) ─────────────
-            elif scenario_id == "gearbox_overheat":
-                fault_physics["extra_heat"]["nacelle"] += 10.0 * severity * (0.3 + 0.7 * load_factor)
-                fault_physics["extra_heat"]["converter"] += 4.0 * severity * load_factor
-                fault_physics["cooling_bias"]["nacelle"] *= max(0.55, 1.0 - 0.30 * severity)
-                fault_physics["vibration_x"] += 0.8 * severity * speed_ratio
-                fault_physics["vibration_y"] += 0.7 * severity * speed_ratio
+            # ── 故障庫擴充（WMOM-20261021-08-c）──────────────────────
+            # pitch_motor_fault: blade 1 pitch bearing / gear friction (lubrication failure). The DC pitch
+            # motor needs more current for the same pitch action whenever the servo is energised; the drive's
+            # I2t limiter (381) comes first, then the manual's current limits (367: 10 min > 18 A, 60 s > 20 A,
+            # 5 s > 22 A). Load dependent: more aerodynamic torque → higher total current.
             elif scenario_id == "pitch_motor_fault":
-                fault_physics["blade1_pitch_bias"] += 8.0 * severity
-                fault_physics["power_scale"] *= max(0.78, 1.0 - 0.10 * severity * load_factor)
-                fault_physics["vibration_x"] += 0.9 * severity * speed_ratio
-                fault_physics["vibration_y"] += 0.5 * severity * speed_ratio
+                fault_physics["pitch1_friction_a"] += PITCH_FRICTION_MAX_A * severity
+            # converter_cooling_pump_wear: worn impeller → less flow (422 → 439); loop pressure follows flow²
+            # (432) and the water runs hotter (convective heat transfer ∝ flow^0.8).
+            elif scenario_id == "converter_cooling_pump_wear":
+                flow_scale = max(0.2, 1.0 - 0.5 * severity * severity)
+                fault_physics["pump_flow_scale"] *= flow_scale
+                fault_physics["cooling_bias"]["water"] *= flow_scale ** 0.8
+            # cooling_water_deionizer_exhausted: ion exchange resin used up → conductivity climbs (423 → 440).
+            elif scenario_id == "cooling_water_deionizer_exhausted":
+                fault_physics["conductivity_rise_us_cm"] += DEIONIZER_RISE_MAX_US_CM * severity * severity
+            # rotor_speed_sensor_fault: loose rotor speed encoder connection in the hub → missing pulses, the
+            # PLC's rotor speed reads low vs the converter's generator speed (029 at > 10 %, about severity 0.58).
+            elif scenario_id == "rotor_speed_sensor_fault":
+                fault_physics["sensor_faults"]["WROT_RotSpd"] = ("scale", 1.0 - 0.3 * severity * severity)
+            # anemometer_fault: cup anemometer bearing wears → reads low, then seizes (reads 0) → 230 once the
+            # rotor still turns > 6.5 rpm for 60 s. Both wind speed tags come from this anemometer.
+            elif scenario_id == "anemometer_fault":
+                if severity >= ANEMOMETER_SEIZE_SEVERITY:
+                    anemometer: Tuple[str, float] = ("pinned", 0.0)
+                else:
+                    anemometer = ("scale", 1.0 - 0.3 * severity)
+                fault_physics["sensor_faults"]["WMET_WSpeedNac"] = anemometer
+                fault_physics["sensor_faults"]["WMET_WSpeedRaw"] = anemometer
+            # wind_vane1_stuck: vane 1 bearing seized / iced → its reading freezes (231 after 60 s with wind).
+            elif scenario_id == "wind_vane1_stuck":
+                if severity >= SENSOR_BREAK_SEVERITY:
+                    fault_physics["sensor_faults"]["WYAW_YwVn1AlgnAvg5s"] = (
+                        "hold", float(fault.get("instance_id") or 0))
+            # yaw_misalignment: both wind vanes mounted off by the same angle (e.g. after a vane replacement):
+            # the controller aligns them, so the rotor runs misaligned with no alarm and loses power ∝ cos³.
+            # (Applied as a power loss, not as less wind: this model's region 3 pitch follows the wind speed,
+            # and less wind there would pitch less and produce more.)
             elif scenario_id == "yaw_misalignment":
-                yaw_deg = 20.0 * severity
-                fault_physics["yaw_error_bias"] += yaw_deg
-                fault_physics["wind_scale"] *= max(0.72, math.cos(math.radians(min(35.0, abs(yaw_deg)))))
-                fault_physics["yaw_brake_bias"] -= 25.0 * severity
+                offset = YAW_MISALIGNMENT_MAX_DEG * severity
+                fault_physics["vane_mount_offset_deg"] += offset
+                fault_physics["power_scale"] *= math.cos(math.radians(offset)) ** 3
 
         return fault_physics

@@ -34,6 +34,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 # 警報文字關鍵字 → 元件（vocabulary.json 的 id）；依序比對，先中先贏
 KEYWORDS: Sequence[Tuple[Tuple[str, ...], str]] = (
     (("bearing",), "main_bearing"),
+    (("rotor speed",), "rotor_speed_sensor"),
+    (("wind meter", "anemometer"), "nacelle_anemometer"),
     (("overspeed",), "pitch_control_system"),
     (("blade", "pitch"), "pitch_control_system"),
     (("yaw brake",), "yaw_brake_hydraulics"),

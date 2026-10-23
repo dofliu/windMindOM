@@ -472,8 +472,8 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         else:
             matched.setdefault((case.pack_id, case.case_id), []).append(prediction)
 
-    results = [_score_case(case, matched.get((pack_id, case.case_id), []), components)
-               for pack_id in packs for case in cases_by_pack[pack_id] if case.is_fault]
+    fault_cases = [case for pack_id in packs for case in cases_by_pack[pack_id] if case.is_fault]
+    results = [_score_case(case, matched.get((case.pack_id, case.case_id), []), components) for case in fault_cases]
     n = len(results)
     nuisance_results = []
     for pack_id in packs:
@@ -497,6 +497,9 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         return sum(values) / n if n else 0.0
 
     latencies = [r.latency_s for r in results if r.latency_s is not None]
+    # 手冊引用只評有預期事件碼的 case：沒有警報的故障（v1.6，例：偏航失準）沒有可引用的正解
+    manual_cases = [r for r, c in zip(results, fault_cases) if c.expected_codes]
+    n_manual = len(manual_cases)
     return Report(
         packs=packs,
         cases=n,
@@ -505,9 +508,9 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         component_accuracy=rate(r.component_correct for r in results),
         component_group_accuracy=rate(r.component_group_correct for r in results),
         category_accuracy=rate(r.category_correct for r in results),
-        manual_hit_at_1=rate(r.manual_hit_at_1 for r in results),
-        manual_hit_at_3=rate(r.manual_hit_at_3 for r in results),
-        manual_mrr=sum(r.manual_reciprocal_rank for r in results) / n if n else 0.0,
+        manual_hit_at_1=sum(r.manual_hit_at_1 for r in manual_cases) / n_manual if n_manual else 0.0,
+        manual_hit_at_3=sum(r.manual_hit_at_3 for r in manual_cases) / n_manual if n_manual else 0.0,
+        manual_mrr=sum(r.manual_reciprocal_rank for r in manual_cases) / n_manual if n_manual else 0.0,
         early_warnings=sum(r.early_warning for r in results),
         latency_n=len(latencies),
         latency_median_s=statistics.median(latencies) if latencies else None,

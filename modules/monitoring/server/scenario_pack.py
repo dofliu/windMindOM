@@ -83,7 +83,7 @@ MODEL_INTERNAL_TAGS: FrozenSet[str] = frozenset({
     # 疲勞累積損傷、剩餘壽命與其警報等級
     "WLOD_DmgTwrFa", "WLOD_DmgTwrSs", "WLOD_DmgBldFlap", "WLOD_DmgBldEdge", "WLOD_RulHours",
     "WLOD_AlmTwr", "WLOD_AlmBld",
-    # 由機組個體差異參數算出的不平衡力（現場只看得到 1P 振動）、齒面磨耗累積狀態（齒輪箱過熱會加速）
+    # 由機組個體差異參數算出的不平衡力（現場只看得到 1P 振動）、齒面磨耗累積狀態
     "WROT_ImbForce", "WDRV_GbxToothWear",
 })
 # 0–360° 方位角：10 分鐘 avg 用圓平均、std 用 Yamartino（min / max 仍為線性值）
@@ -93,7 +93,8 @@ TAG_NOTES: Dict[str, str] = {
     "WMET_WSpeedNac": (
         "Simulated free-stream wind speed at the rotor (wake deficit applied, no nacelle anemometer error). "
         "On a real Z72 this tag is the nacelle anemometer reading; the simulated anemometer reading "
-        "(nacelle transfer function applied) is Z72PLC__UI_Loc_WMET_Analogue_WSpeedRaw."
+        "(nacelle transfer function applied) is Z72PLC__UI_Loc_WMET_Analogue_WSpeedRaw. "
+        "An anemometer fault (wind meter fault 230) affects both tags."
     ),
     "WMET_WDirAbs": (
         "Simulated true wind direction (0-360 deg) from the wind field, not a vane reading combined with "
