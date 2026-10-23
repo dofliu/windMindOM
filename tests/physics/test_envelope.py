@@ -3,7 +3,7 @@
 驗證控制邏輯與保護動作 — 風機在不同工況下必須遵守設計邊界：
 
     1. TestCutInBehavior         ──  V < cut_in：power ≈ 0、rotor 漸停
-    2. TestCutOutBehavior        ──  10 分鐘平均 > 25 或 5 秒平均 > 35 m/s → 正常停機、power 歸零；
+    2. TestCutOutBehavior        ──  10 分鐘平均 > 25 或 3 秒平均 > 35 m/s → 正常停機、power 歸零；
                                     平均 < 20 m/s 才重啟；瞬間陣風不停機（手冊事件 201，WMOM-20261021-10）
     3. TestEmergencyStopDecay    ──  emergency 後 rotor 5 s 內降 ≥ 50%
     4. TestPitchActuatorLimit    ──  正常運轉 pitch rate ≤ 10 °/s
@@ -11,7 +11,7 @@
     6. TestRotorOverspeedMargin  ──  rotor never > rated × 1.2 + software 保護觸發
     7. TestGeneratorSlip         ──  direct-drive slip < 5%
 
-容差來自 Z72 OEM manual（cut_in=3, cut_out=25 / 10 min avg、35 / 5 s avg、cut-back-in 20, overspeed=26.5/28.5 RPM）。
+容差來自 Z72 OEM manual（cut_in=3, cut_out=25 / 10 min avg、35 / 3 s avg（手冊 Appendix D SDVwind_hi_3s；Appendix C 寫 5 s，DEC-20261023-01）、cut-back-in 20, overspeed=26.5/28.5 RPM）。
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def _run(m: TurbinePhysicsModel, V: float, seconds: int) -> List[Tuple[int, floa
 
 
 class TestCutOutBehavior:
-    """切出風速依手冊事件 201：V wind 10 min avg > 25 或 5 s avg > 35 m/s；回切 10 min avg < 20 m/s。"""
+    """切出風速依手冊事件 201 / Appendix D：V wind 10 min avg > 25 或 3 s avg > 35 m/s；回切 10 min avg < 20 m/s。"""
 
     def test_sustained_wind_above_cut_out_stops_on_10min_average(self):
         """從 10 m/s 升到 27 m/s：10 分鐘平均跨過 25 前持續發電，跨過後正常停機（不是緊急停機）。"""
@@ -131,8 +131,8 @@ class TestCutOutBehavior:
             f"V=30 m/s 停機後 30s 平均 P̄={avg_power:.2f} kW > 1% rated"
         )
 
-    def test_5s_average_above_gust_limit_stops_quickly(self):
-        """5 秒平均 > 35 m/s：不必等 10 分鐘平均，數秒內要求停機。"""
+    def test_3s_average_above_gust_limit_stops_quickly(self):
+        """3 秒平均 > 35 m/s：不必等 10 分鐘平均，數秒內要求停機。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
         run = _run(m, 37.0, 10)
         assert STATE_NORMAL_STOP in [st for st, _ in run]
@@ -161,20 +161,27 @@ class TestCutOutBehavior:
             states += [st for st, _ in _run(m, 28.0 if cycle % 2 == 0 else 20.0, 3)]
         assert STATE_PRODUCTION in states
 
-    def test_brief_gust_shorter_than_5s_does_not_trip_gust_rule(self):
-        """3 秒 40 m/s 的陣風：5 秒平均 (3·40 + 2·10) / 5 = 28 < 35，不停機。"""
+    def test_brief_gust_shorter_than_3s_does_not_trip_gust_rule(self):
+        """2 秒 40 m/s 的陣風：3 秒平均 (2·40 + 10) / 3 = 30 < 35，不停機。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
-        run = _run(m, 40.0, 3) + _run(m, 10.0, 10)
+        run = _run(m, 40.0, 2) + _run(m, 10.0, 10)
         assert {st for st, _ in run} == {STATE_PRODUCTION}
 
+    def test_3s_gust_trips_the_appendix_d_gust_rule(self):
+        """3 秒 40 m/s 的陣風：3 秒平均 40 > 35 → 停機（Appendix C 的 5 秒平均是 28，不會停）。"""
+        assert TurbineSpec().cut_out_gust_window_s == 3.0
+        m = _spin_up_to_production(seed=1, V=10.0, settle_steps=200)
+        run = _run(m, 40.0, 3) + _run(m, 10.0, 10)
+        assert STATE_NORMAL_STOP in {st for st, _ in run}
+
     def test_single_gust_sample_at_cold_start_does_not_stop(self):
-        """開機第一個樣本就是 40 m/s：5 秒窗未滿不判定，之後 10 m/s 正常啟動發電。"""
+        """開機第一個樣本就是 40 m/s：3 秒窗未滿不判定，之後 10 m/s 正常啟動發電。"""
         m = TurbinePhysicsModel(seed=1)
         states = [st for st, _ in _run(m, 40.0, 1) + _run(m, 10.0, 300)]
         assert STATE_PRODUCTION in states
 
     def test_gust_stop_before_10min_window_full_holds_until_valid_average(self):
-        """開機後 10 分鐘內被 5 秒平均停機：10 分鐘平均未滿窗前不解除，滿窗且 < 20 m/s 後才重啟。"""
+        """開機後 10 分鐘內被 3 秒平均停機：10 分鐘平均未滿窗前不解除，滿窗且 < 20 m/s 後才重啟。"""
         m = _spin_up_to_production(seed=1, V=10.0, settle_steps=100)
         _run(m, 40.0, 6)
         before_full = _run(m, 10.0, 480)               # 累計 586 s：10 分鐘窗尚未滿
