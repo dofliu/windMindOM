@@ -38,7 +38,7 @@ _PITCH_NOISE_TRANSIENT_DEG = 0.18
 
 
 class _RollingMean:
-    """固定時間窗的移動平均（PLC 的「10 分鐘平均」「5 秒平均」）。
+    """固定時間窗的移動平均（PLC 的「10 分鐘平均」「3 秒平均」）。
 
     每個樣本代表它之前 dt 秒的值，依 dt 加權；窗內累積時間超過窗長時，丟掉最舊的樣本、最後一個
     只丟超出的部分，使平均恰好涵蓋最近的 ``window_s`` 秒（任何 dt 皆然；dt ≥ 窗長時等於最新樣本）。
@@ -101,11 +101,13 @@ class TurbineSpec:
     cut_in_speed: float = 3.0
     rated_speed: float = 13.0
     cut_out_speed: float = 25.0
-    # 切出風速（手冊事件 201，WMOM-20261021-10）：10 分鐘平均 > cut_out_speed 或 5 秒平均 >
+    # 切出風速（手冊事件 201，WMOM-20261021-10）：10 分鐘平均 > cut_out_speed 或 3 秒平均（-02 前 5 秒）>
     # cut_out_gust_speed 時正常停機；10 分鐘平均 < cut_back_in_speed 才可重啟。瞬間陣風不直接停機。
-    cut_out_avg_window_s: float = 600.0       # manual (V wind, 10 min avg)
-    cut_out_gust_speed: float = 35.0          # manual (V wind, 5 s avg)
-    cut_out_gust_window_s: float = 5.0        # manual
+    cut_out_avg_window_s: float = 600.0       # manual (V wind, 10 min avg; Appendix D SDVwind_hi_10m)
+    cut_out_gust_speed: float = 35.0          # manual (Appendix D SDVwind_hi_3s)
+    # Appendix D: 3 s average (SDVwind_hi_3s); Appendix C event 201 text says 5 s. Appendix D (the
+    # configured values) wins where the two disagree (WMOM-20261022-02, DEC-20261023-01)
+    cut_out_gust_window_s: float = 3.0
     cut_back_in_speed: float = 20.0           # manual (wait until V wind, 10 min avg < 20 m/s)
 
     # Z72: direct-drive PMSG, no gearbox (gear_ratio=1)
@@ -124,7 +126,8 @@ class TurbineSpec:
     overspeed_hardware_rpm: float = 28.5
     power_limit_5s_pct: float = 1.10   # 110% of rated
     power_limit_10m_pct: float = 1.05  # 105% of rated
-    max_restarts_per_hour: int = 3
+    # Auto-restart limits are per trip code (catalog max_per_hour, manual §6.8.1 / §8.3), counted by
+    # PlcProtection; there is no global starts-per-hour limit (WMOM-20261022-02, DEC-20261023-01)
 
     # Z72 pitch angles (degrees)
     pitch_vane: float = 86.0      # feathered / emergency
@@ -144,16 +147,21 @@ class TurbineSpec:
     outside_temp_low: float = -25.0
     outside_temp_high: float = 45.0
 
-    # Z72 yaw thresholds (manual Appendix C: 260 < 180 bar = nominal −10 %, 228 < 150 bar = −25 %;
-    # the manual's nominal is 200 bar, this model's healthy pressure is 210 bar)
+    # Z72 yaw brake (hydraulic) pressure, manual Appendix D: SDHyPres_L 170 bar → 260, SDHyPres_LL 150 bar
+    # → 228, both reset above SDHyPres_H 190 bar, event delay SDYwHyBrkTm 30 s. Appendix C's text says
+    # 260 < 180 bar (nominal 200 −10 %); Appendix D (the configured values) wins (DEC-20261023-01).
+    # This model's healthy pressure is 210 bar.
     yaw_pressure_trip: float = 150.0     # bar, very low (event 228)
-    yaw_pressure_alarm: float = 180.0    # bar, low (event 260)
+    yaw_pressure_alarm: float = 170.0    # bar, low (event 260)
+    yaw_pressure_reset_bar: float = 190.0  # bar, both low events clear above this
+    yaw_pressure_delay_s: float = 30.0   # s, event delay for both low events
     yaw_pressure_normal: float = 210.0   # bar, high friction
     yaw_leak_detector_alarm_bar: float = 3.0  # event 261: leakage detector > 3 bar
     cable_twist_limit: float = 2.5       # turns
 
     # Z72 PLC protection setpoints for the remaining scenario events (WMOM-20261021-03a).
-    # "manual" = stated in the Z72 user manual Appendix C; "assumed" = the manual only
+    # "manual" = stated in the Z72 user manual (Appendix D configuration data, else Appendix C;
+    # Appendix D wins where they disagree, WMOM-20261022-02); "assumed" = the manual only
     # says "See [ABB]" (converter / transformer) or gives no number, so the value is a
     # simulator assumption chosen above this model's healthy maximum on the hottest day
     # the weather model produces (37 °C ambient, rated load). Manual setpoints are kept
@@ -164,9 +172,12 @@ class TurbineSpec:
     blade_discrepancy_5s_deg: float = 1.0         # manual, events 335-337 (> 1° for 5 s)
     blade_discrepancy_3s_deg: float = 3.0         # manual (> 3° for 3 s)
     blade_discrepancy_instant_deg: float = 8.0    # manual (> 8° instantly)
-    vane_discrepancy_deg: float = 15.0            # manual, event 233 (25 s filtered vanes)
-    vane_discrepancy_min_wind: float = 4.5        # manual (10 min avg wind > 4.5 m/s)
-    nacelle_air_alarm: float = 46.0               # assumed, event 273 (WNAC_NacTmp)
+    vane_discrepancy_deg: float = 15.0            # manual, event 233 (25 s filtered vanes; SDWndVnMaxDscrp)
+    vane_discrepancy_delay_s: float = 60.0        # manual (SDWndVnDiscrTm)
+    vane_discrepancy_min_wind: float = 4.5        # manual (SDVw60sWndVnDiscr; Appendix C says 10 min avg)
+    vane_discrepancy_wind_avg_s: float = 60.0     # manual (Appendix D parameter name: 60 s average)
+    nacelle_air_alarm: float = 45.0               # manual, event 273 (WNAC_NacTmp; SDNacTmp_H)
+    pt100_filter_tau_s: float = 10.0              # manual, PLC temperature filters (CDTauPT100)
     transformer_alarm: float = 80.0               # assumed, event 417 (WGDC_TrfCoreTmp)
     transformer_trip: float = 90.0                # assumed, event 444
     cooling_water_alarm: float = 51.0             # assumed, event 420 (WCNV_IGCTWtrTmp)
@@ -174,19 +185,22 @@ class TurbineSpec:
     converter_cabinet_alarm: float = 62.0         # assumed, event 421 (WCNV_CnvCabinTmp)
     converter_cabinet_trip: float = 67.0          # assumed, event 438
     cooling_static_pressure_low_bar: float = 2.5  # assumed, event 432 (WCNV_IGCTWtrPres1, producing)
-    tower_vibration_trip_mm_s: float = 7.0        # assumed, event 236 (WNAC_VibMsNac X/Y)
+    # assumed, event 236 (WNAC_VibMsNac X/Y). The manual's setpoint is SDNacVibR_HH 1.75 m/s² on the
+    # resultant tower acceleration (VibMsNacR); this model's nacelle vibration is a velocity (mm/s)
+    tower_vibration_trip_mm_s: float = 7.0
 
     # Z72 sensor-signal faults (WMOM-20261021-08-a). The manual's sensor fault events (242/243 bearing
     # temperature, 250/251 stator temperature, 229 yaw brake pressure sensor: "the I/O module has sensed
     # a broken wire"; 326-328 encoder: "blade angle ... outside range") fire when a measured signal
     # leaves its valid range; the PLC then ignores that signal in its over / under limit rules. The
-    # ranges and the broken-wire readings are assumed (the manual gives no numbers), wide enough that
-    # healthy and real-fault process values never leave them.
+    # blade encoder range is from the manual; the other ranges and the broken-wire readings are assumed
+    # (the manual gives no numbers), wide enough that healthy and real-fault process values never leave them.
     pt100_valid_range_c: Tuple[float, float] = (-40.0, 250.0)          # assumed, events 242/243/250/251
     pt100_broken_wire_c: float = 850.0                                   # assumed: an open Pt100 reads full scale
     yaw_pressure_valid_range_bar: Tuple[float, float] = (-5.0, 260.0)  # assumed, event 229 (4-20 mA, 0-250 bar)
     yaw_pressure_broken_wire_bar: float = -62.5                          # 0 mA on a 4-20 mA, 0-250 bar transmitter
-    blade_angle_valid_range_deg: Tuple[float, float] = (-10.0, 100.0)  # assumed, events 326-328
+    # manual, events 326-328: blade encoder range 0-90° ± SDVaneLimitTolerance 5°
+    blade_angle_valid_range_deg: Tuple[float, float] = (-5.0, 95.0)
     blade_encoder_fault_deg: float = 135.0                               # assumed: faulty encoder reads out of range
 
     # Z72 grid (60Hz system)
@@ -208,8 +222,43 @@ class TurbineSpec:
         """Construct a TurbineSpec from a dictionary, ignoring unknown keys."""
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
+    @classmethod
+    def from_farm_dict(cls, d: dict) -> "TurbineSpec":
+        """從風場存下的 turbine_spec 建立規格：Z72 PLC 設定值一律用目前程式的值。
+
+        風場建立時存的是當時完整的 ``to_dict()``（含 PLC 設定值）；若照單全收，手冊保真度的修正
+        （例：液壓壓力低 180 → 170 bar，WMOM-20261022-02）對既有風場永遠不生效。PLC 設定值是 Z72 手冊
+        常數，不是風場參數（非 Z72 機型也共用），所以忽略存檔裡的值；要在執行中改請走 spec 更新 API。
+
+        Args:
+            d: 風場存下的 turbine_spec。
+
+        Returns:
+            規格。
+        """
+        return cls.from_dict({k: v for k, v in d.items() if k not in Z72_PLC_SETPOINT_FIELDS})
+
+
+# Z72 PLC 保護設定值（手冊常數）：PlcProtection / 切出判定讀的欄位，風場存檔不覆寫（from_farm_dict）
+Z72_PLC_SETPOINT_FIELDS = frozenset({
+    "cut_out_avg_window_s", "cut_out_gust_speed", "cut_out_gust_window_s", "cut_back_in_speed",
+    "gen_stator_alarm", "gen_stator_trip", "gen_bearing_alarm", "gen_bearing_trip",
+    "nacelle_cab_alarm", "nacelle_cab_trip",
+    "yaw_pressure_trip", "yaw_pressure_alarm", "yaw_pressure_reset_bar", "yaw_pressure_delay_s",
+    "yaw_leak_detector_alarm_bar",
+    "generator_overspeed_rpm", "blade_discrepancy_5s_deg", "blade_discrepancy_3s_deg",
+    "blade_discrepancy_instant_deg", "vane_discrepancy_deg", "vane_discrepancy_delay_s",
+    "vane_discrepancy_min_wind", "vane_discrepancy_wind_avg_s", "nacelle_air_alarm", "pt100_filter_tau_s",
+    "transformer_alarm", "transformer_trip", "cooling_water_alarm", "cooling_water_trip",
+    "converter_cabinet_alarm", "converter_cabinet_trip", "cooling_static_pressure_low_bar",
+    "tower_vibration_trip_mm_s",
+    "pt100_valid_range_c", "pt100_broken_wire_c", "yaw_pressure_valid_range_bar", "yaw_pressure_broken_wire_bar",
+    "blade_angle_valid_range_deg", "blade_encoder_fault_deg",
+})
 
 Z72_RATED_POWER_KW = TurbineSpec().rated_power_kw  # 熱模型與 PLC 設定值校準的機型
+# yaw_sensor_drift 滿嚴重度時風向標 1 的漂移（度；隨嚴重度平方增加，見 _get_fault_physics）
+YAW_SENSOR_DRIFT_MAX_DEG = 24.0
 
 TURBINE_PRESETS: Dict[str, TurbineSpec] = {
     # Default: Z72-2000-MV (Harakosan, direct-drive PMSG, 60Hz)
@@ -425,8 +474,6 @@ class TurbinePhysicsModel:
         self._grid_frequency_ref = self.spec.grid_frequency_nominal
         self._grid_normal_trip_accum = 0.0
         self._grid_emergency_trip_accum = 0.0
-        # Z72: restart tracking (max restarts per hour)
-        self._restart_timestamps: List[float] = []
         # 葉片零點校正誤差（WMOM-20261021-12）：真實機組試車時把葉片間差異校到約 ±0.1–0.2°。原 σ 0.12°
         # 讓兩片相差可達 0.6°，加上追蹤誤差就碰到手冊的葉片差異設定值（5 s > 1° → T2 335–337），
         # 健康機組長時間會偶發誤跳。只改 σ、不改抽樣次數：主 _rng 序列不位移
@@ -1122,12 +1169,6 @@ class TurbinePhysicsModel:
         """PLC 跳機鎖存（含封鎖）或維修鎖期間不可啟動。"""
         return self.maintenance_lock or self.plc.restart_inhibited
 
-    def _max_restarts_exceeded(self) -> bool:
-        """Z72: Check if max restarts per hour has been exceeded."""
-        cutoff = self._sim_time - 3600.0
-        self._restart_timestamps = [t for t in self._restart_timestamps if t > cutoff]
-        return len(self._restart_timestamps) >= self.spec.max_restarts_per_hour
-
     def _reset_wind_averages(self) -> None:
         """建立空的切出判定用平均風速，暴風停機旗標歸零（只在建構時）。"""
         self._wind_avg_10min = _RollingMean(self.spec.cut_out_avg_window_s)
@@ -1135,12 +1176,12 @@ class TurbinePhysicsModel:
         self._storm_stop = False
 
     def _update_storm_stop(self, wind_speed: float, dt: float) -> None:
-        """更新暴風停機旗標（手冊事件 201）：10 分鐘平均 > 切出風速或 5 秒平均 > 陣風上限時成立，
+        """更新暴風停機旗標（手冊事件 201）：10 分鐘平均 > 切出風速或 3 秒平均 > 陣風上限時成立，
         10 分鐘平均 < 回切風速才解除。
 
         平均值要累積滿一個窗長才判定：開機 / reset 後前 10 分鐘沒有「10 分鐘平均」，否則第一個
         陣風樣本就等於平均值，可能讓機組一開機就進暴風停機、且平均風速介於 20-25 m/s 時永遠不解除。
-        這段期間由 5 秒平均（陣風上限）保護。
+        這段期間由 3 秒平均（陣風上限）保護。
 
         Args:
             wind_speed: 本步有效風速（m/s）。
@@ -1205,23 +1246,23 @@ class TurbinePhysicsModel:
             st = self.tur_state
 
         if self.operator_start_pending and st in (1, 2, 3) and wind_ok and self._restart_block_timer <= 0.0 and not inhibit:
-            if not self._max_restarts_exceeded():
-                self.operator_start_pending = False
-                self._restart_timestamps.append(self._sim_time)
-                self._enter_state(8 if st == 3 else 4)
-                st = self.tur_state
+            self.operator_start_pending = False
+            self._enter_state(8 if st == 3 else 4)
+            st = self.tur_state
 
+        # Auto-restart limits are per trip code (PlcProtection): over the limit the PLC raises A039 and
+        # the turbine goes to SHUTDOWN until an operator reset (manual §6.8.1 / §8.3). Normal starts and
+        # stops (low wind, cut-out) are not limited (WMOM-20261022-02).
         if st == 1:
             self._sync_progress = 0.0
-            if wind_ok and not self._max_restarts_exceeded() and not inhibit:
+            if wind_ok and not inhibit:
                 self._enter_state(2)
         elif st == 2:
             if not wind_ok:
                 self._enter_state(1)
-            elif self._max_restarts_exceeded() or inhibit:
-                pass  # Z72: stay in standby if max restarts exceeded / PLC trip latched
+            elif inhibit:
+                pass  # Z72: stay in standby while a PLC trip is latched
             elif not self.operator_stop and self._wind_ready_timer >= 10.0 + self._individuality["start_delay_offset"] and self._restart_block_timer <= 0.0:
-                self._restart_timestamps.append(self._sim_time)
                 self._enter_state(4)
         elif st == 3:
             self._restart_wait_timer += dt
@@ -1230,8 +1271,8 @@ class TurbinePhysicsModel:
                 + self._individuality["restart_delay_offset"]
                 + max(0.0, self._individuality["grid_reconnect_delay"])
             )
-            if self._max_restarts_exceeded():
-                # Z72: max restarts exceeded → go to Shutdown (state 1)
+            if self.plc.auto_restart_blocked:
+                # Z72: max restarts/hr of a trip exceeded (A039) → SHUTDOWN (state 1)
                 self._enter_state(1)
             elif (self._restart_wait_timer >= restart_delay and wind_ok and not self.operator_stop
                   and not self.service_mode and self._restart_block_timer <= 0.0 and not inhibit):
@@ -1260,8 +1301,7 @@ class TurbinePhysicsModel:
                 self._stop_requested = False
                 self._enter_state(3)
         elif st == 8:
-            if wind_ok and self._restart_block_timer <= 0.0 and not self._max_restarts_exceeded() and not inhibit:
-                self._restart_timestamps.append(self._sim_time)
+            if wind_ok and self._restart_block_timer <= 0.0 and not inhibit:
                 self._enter_state(4)
             else:
                 self._enter_state(3)
@@ -1474,8 +1514,6 @@ class TurbinePhysicsModel:
         self.electrical.reset()
         self.plc.reset()
         self.maintenance_lock = False
-        # _sim_time 歸零：舊的啟動時間戳留著會讓「每小時重啟上限」一直成立（修好後數小時不能重啟）
-        self._restart_timestamps.clear()
 
     def _enter_state(self, state: int):
         self.tur_state = state
@@ -1827,10 +1865,15 @@ class TurbinePhysicsModel:
             # ── yaw_sensor_drift ─────────────────────────────────────
             # Position sensor drifts. Power loss from misalignment is
             # proportional to cos(yaw_error) — more loss at higher wind.
-            # Wind vane 1 drifts up to 18°; vane 2 stays true, so the PLC's
-            # vane 1-2 discrepancy check (> 15°, event 233) trips late (WMOM-20261021-03a).
+            # Wind vane 1 drifts; vane 2 stays true, so the PLC's vane 1-2
+            # discrepancy check (> 15°, event 233) trips late. The PLC sees
+            # drift + (vane 1 − vane 2 mounting bias), and that bias difference
+            # spans ±4.5° (yaw_sensor_bias ±2.5°, _vane2_bias ±2°). A linear 18°
+            # never reached 15° when the difference was below −3° (WMOM-20261022-02),
+            # so the drift grows with severity² up to 24°: every turbine crosses 15°
+            # by full severity (≥ 19.5°) and none at half severity (≤ 10.5°).
             elif scenario_id == "yaw_sensor_drift":
-                yaw_deg = 18.0 * severity
+                yaw_deg = YAW_SENSOR_DRIFT_MAX_DEG * severity * severity
                 fault_physics["vane1_drift_deg"] += yaw_deg
                 cos_loss = math.cos(math.radians(min(30.0, abs(yaw_deg))))
                 fault_physics["wind_scale"] *= max(0.75, cos_loss)

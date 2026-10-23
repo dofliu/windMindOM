@@ -411,7 +411,7 @@ FAULT_SCENARIOS: Dict[str, FaultScenario] = {
             "WYAW_CabWup": {"max_offset": 0.8, "curve": "linear"},             # slight cable drift
         },
         alarm_codes=[
-            # 物理層壓力 = 210 − 80·severity bar；260 手冊門檻 < 180 bar → severity ≥ 0.375
+            # 物理層壓力 = 210 − 80·severity bar；260 手冊門檻 < 170 bar（Appendix D）→ severity ≥ 0.5
             {"type": "A", "code": 260, "desc": "Yaw brake pressure low"},
             {"type": "A", "code": 261, "desc": "Yaw brake oil leakage detected"},
             {"type": "T1", "code": 228, "desc": "Yaw brake pressure very low"},

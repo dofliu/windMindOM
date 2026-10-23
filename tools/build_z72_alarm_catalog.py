@@ -13,7 +13,9 @@
 
 合併規則：code / level / text / plc_tag 以 xlsx 為準（PLC 實際送出的內容）；手冊
 補上 cause / rectification / max_per_hour / manual_page；兩者等級不一致時另記
-`manual_level`，文字不一致時另記 `manual_text`，供人工檢視。
+`manual_level`，文字不一致時另記 `manual_text`，供人工檢視。手冊有、xlsx 沒有的碼（A039 Auto
+restart blocked，自動重啟被封鎖時 PLC 送出）也收進目錄：欄位取手冊、`plc_tag` 依等級推定，並標
+`manual_only`（WMOM-20261022-02）。
 
 Build-time 才需要 `openpyxl` 與 `pdfplumber`（不在 runtime requirements）；
 runtime 只讀產出的 JSON（見 `shared/alarm_codes.py`）。
@@ -42,6 +44,12 @@ MANUAL_FIRST_PAGE = 104
 MANUAL_LAST_PAGE = 130
 SCHEMA_VERSION = 1
 VALID_LEVELS = ("A", "T1", "T2", "I")
+# 等級 → 送出的 PLC tag（xlsx 的對應；手冊獨有的碼依此推定）
+_PLC_TAG_BY_LEVEL: Dict[str, str] = {
+    "A": "Z72PLC__ActiveAlarm",
+    "T1": "Z72PLC__ActiveTrip1",
+    "T2": "Z72PLC__ActiveTrip2",
+}
 # 版面 / 套件變動時的 sanity guard：解析結果明顯變少就中止，不要寫出一份手冊欄位全空的 JSON
 MIN_XLSX_EVENTS = 300
 MIN_MANUAL_EVENTS = 300
@@ -232,6 +240,25 @@ def build_catalog(xlsx_events: List[XlsxEvent], manual_events: List[ManualEvent]
 
     xlsx_codes = {x["code"] for x in xlsx_events}
     manual_only = sorted(c for c in manual_by_code if c not in xlsx_codes)
+    # 手冊獨有的碼也收進目錄（WMOM-20261022-02：自動重啟被封鎖時真實 PLC 送 A039，xlsx 沒列）。
+    # code / level / text 取手冊原文，plc_tag 依等級推定，並標 manual_only 供人工檢視
+    for code in manual_only:
+        m = manual_by_code[code]
+        level = m["level"]
+        if level not in VALID_LEVELS:
+            raise CatalogBuildError(f"手冊獨有的 code {code} 等級 {level!r} 不合法")
+        entries.append({
+            "code": code,
+            "level": level,
+            "text": m["text"],
+            "plc_tag": _PLC_TAG_BY_LEVEL.get(level),
+            "cause": m["cause"] or None,
+            "rectification": m["rectification"] or None,
+            "max_per_hour": m["max_per_hour"],
+            "manual_page": m["manual_page"],
+            "manual_only": True,
+        })
+    entries.sort(key=lambda e: int(str(e["code"])))
     return {
         "schema_version": SCHEMA_VERSION,
         "turbine_model": "Z72",

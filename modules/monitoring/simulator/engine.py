@@ -261,7 +261,7 @@ class WindFarmSimulator:
             if model.maintenance_lock and not lock:
                 # 故障被維護清除＝修好後技師復位：清 PLC 每小時跳機計數與封鎖。不論走哪條清除路徑
                 # （/api/faults/clear 不帶機組、情境批次、測試計畫都不會 model.reset()），否則
-                # 一小時內第二次跳機留下的 restart_blocked 會讓已修好的機組永遠停機
+                # 一小時內第二次跳機留下的封鎖（A039）會讓已修好的機組永遠停機
                 model.plc.maintenance_release(model._sim_time)
             model.maintenance_lock = lock
 
@@ -399,7 +399,8 @@ class WindFarmSimulator:
     def start_clean_scenario(self) -> List[str]:
         """命名情境 / 測試計畫開始前：清掉故障，並重設帶著 Live 殘留狀態的機組。
 
-        殘留狀態＝PLC 有成立中的警報或鎖存的跳機、維護鎖、停機進行中、每小時重啟上限已滿。否則情境開頭
+        殘留狀態＝PLC 有成立中的警報（含自動重啟封鎖 A039）或鎖存的跳機、維護鎖、停機進行中；其餘機組只清
+        PLC 的每小時跳機計數。否則情境開頭
         會出現沒有對應 ``trip`` 的 ``trip_cleared`` / ``operator_reset`` 或莫名停機，標準答案卻把那台機組列為
         健康（盲測資料與答案不一致）。乾淨的機組不重設（不動 RNG 序列：全新 simulator 生成的資料不變）。
 
@@ -409,10 +410,13 @@ class WindFarmSimulator:
         self.fault_engine.clear()
         reset: List[str] = []
         for tid, model in self.turbines.items():
-            if (model.maintenance_lock or model.plc.active_codes() or model.tur_state in (7, 9)
-                    or model._max_restarts_exceeded()):
+            if model.maintenance_lock or model.plc.active_codes() or model.tur_state in (7, 9):
                 model.reset()
                 reset.append(tid)
+            else:
+                # 乾淨的機組只清每小時跳機計數（不動 RNG、不送事件）：Live 一小時內自動恢復過的跳機
+                # 不能讓情境的第一次同碼跳機就送 A039（WMOM-20261022-02 code review S1）
+                model.plc.clear_trip_counts()
         return reset
 
     def generate_bulk(self, duration_hours: float, time_step: float = 10.0,

@@ -161,10 +161,10 @@ def test_out_of_range_low_readings_and_gates() -> None:
     t, _ = _drive(plc, 120, 0.0)
     _, events = _drive(plc, 30, t, WROT_PtAngValBl1=SPEC.blade_encoder_fault_deg)
     assert [(e.kind, e.code) for e in events] == [("trip", 326)], "編碼器故障不再判定葉片差異"
-    # 讀值在有效範圍內：一般的越限規則照常
+    # 讀值在有效範圍內：一般的越限規則照常（Pt100 經 10 s 濾波，96 °C 約 40 s 才越過 95 °C）
     plc = PlcProtection(SPEC)
     t, _ = _drive(plc, 120, 0.0)
-    _, events = _drive(plc, 30, t, WGEN_GnBrgTmp2=SPEC.gen_bearing_trip + 1.0)
+    _, events = _drive(plc, 60, t, WGEN_GnBrgTmp2=SPEC.gen_bearing_trip + 1.0)
     assert {(e.kind, e.code) for e in events} == {("alarm_raised", 263), ("trip", 241)}
 
 
@@ -172,7 +172,7 @@ def test_invalid_reading_releases_rules_that_were_already_on() -> None:
     """已成立的溫度警報：讀值斷線後立即解除（失效的讀值不能維持警報），改報感測器故障。"""
     plc = PlcProtection(SPEC)
     t, _ = _drive(plc, 120, 0.0)
-    t, events = _drive(plc, 15, t, WGEN_GnBrgTmp1=SPEC.gen_bearing_alarm + 2.0)
+    t, events = _drive(plc, 45, t, WGEN_GnBrgTmp1=SPEC.gen_bearing_alarm + 2.0)   # 10 s 濾波：約 31 s 越過
     assert [(e.kind, e.code) for e in events] == [("alarm_raised", 262)]
     t, events = _drive(plc, 5, t, WGEN_GnBrgTmp1=SPEC.pt100_broken_wire_c)
     assert [(e.kind, e.code) for e in events] == [("alarm_cleared", 262), ("trip", 242)]

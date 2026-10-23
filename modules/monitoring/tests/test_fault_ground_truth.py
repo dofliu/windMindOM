@@ -324,3 +324,20 @@ def test_live_residue_does_not_leak_into_a_clean_scenario() -> None:
     answer = recorder.build(scenario_id=1, scenario_name="x", site_timezone="Asia/Taipei", sim_start=None, sim_end=None)
     assert answer["cases"] == [] and answer["healthy_turbines"] == ["WT001", "WT002"]
     assert model.tur_state == 6, "重設後照常起動發電"
+
+
+def test_clean_scenario_starts_with_empty_hourly_trip_counts() -> None:
+    """Live 一小時內自動恢復過的跳機（例：320 硬體超速，每小時上限 1）不能讓情境的第一次同碼跳機就送 A039。"""
+    from simulator.engine import WindFarmSimulator
+
+    sim = WindFarmSimulator(turbine_count=1)
+    plc = sim.turbines["WT001"].plc
+    assert plc.note_protection_stop("overspeed_hardware", 100.0) == [320]
+    plc.on_restart(160.0)
+    plc.drain_events()
+    assert plc.active_codes() == {}, "前提：Live 的跳機已自動恢復，沒有殘留狀態"
+
+    assert sim.start_clean_scenario() == [], "乾淨的機組不重設（不動 RNG）"
+    assert plc.note_protection_stop("overspeed_hardware", 400.0) == [320]
+    assert [(e.kind, e.code) for e in plc.drain_events()] == [("trip", 320)]
+    assert not plc.auto_restart_blocked

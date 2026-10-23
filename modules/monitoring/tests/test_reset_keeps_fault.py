@@ -218,13 +218,15 @@ def test_clear_without_model_reset_resumes_power_even_after_restart_block():
 
 
 
-def test_full_reset_clears_the_hourly_restart_count() -> None:
-    """reset() 把模擬時間歸零：舊的啟動時間戳也要清，否則修好的機組要等好幾小時才准重啟。"""
+def test_full_reset_clears_the_hourly_trip_count_and_a039() -> None:
+    """reset() 把模擬時間歸零：PLC 的每碼跳機計數與自動重啟封鎖（A039）也要清，否則修好的機組不能重啟。"""
     from simulator.physics.turbine_physics import TurbinePhysicsModel
 
     model = TurbinePhysicsModel(seed=3)
-    model._sim_time = 2000.0
-    model._restart_timestamps = [15.0, 1305.0, 1905.0]
-    assert model._max_restarts_exceeded()
+    for t in (100.0, 700.0):
+        model.plc.note_protection_stop("overspeed_hardware", t)   # 320 每小時上限 1
+        model.plc.on_restart(t + 60.0)
+    assert model.plc.auto_restart_blocked and 39 in model.plc.active_codes()
     model.reset()
-    assert not model._max_restarts_exceeded()
+    assert not model.plc.auto_restart_blocked and not model.plc.restart_inhibited
+    assert model.plc.active_codes() == {}

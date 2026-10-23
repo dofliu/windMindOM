@@ -766,18 +766,22 @@ def test_station_collisions_are_rejected() -> None:
 
 
 def test_plc_lists_match_active_codes_at_every_step(monkeypatch: pytest.MonkeyPatch) -> None:
-    """事件碼陣列＝PLC 目前成立的警報與鎖存中的跳機（每一步都對），含操作員復位與維護清除故障。"""
+    """事件碼陣列＝PLC 目前成立的警報與鎖存中的跳機（每一步都對），含操作員復位、維護清除故障與 A039。"""
     monkeypatch.setattr(engine_mod, "utc_now", lambda: T0)
     sim = WindFarmSimulator(turbine_count=3)
     sim.wind_model.set_override(wind_speed=14.0)
     mismatches: List[tuple] = []
     seen: Dict[str, int] = {"A": 0, "T1": 0, "T2": 0}
     steps = [0]
+    seen_a039 = [0]
 
     def check(readings: List[dict]) -> None:
         steps[0] += 1
         if steps[0] == 150:
             sim.turbines["WT001"].cmd_reset()  # 操作員復位：鎖存的跳機解除，條件仍成立就再跳
+        if steps[0] in (20, 120):
+            # WT003 一小時內兩次硬體超速保護停機（320 每小時上限 1）→ 第二次送 A039、停在 SHUTDOWN
+            sim.turbines["WT003"]._request_stop("emergency", "overspeed_hardware")
         for tid, model in sim.turbines.items():
             codes = model.plc.active_codes()
             expected = {level: sorted(c for c, lv in codes.items() if lv == level) for level in seen}
@@ -786,6 +790,7 @@ def test_plc_lists_match_active_codes_at_every_step(monkeypatch: pytest.MonkeyPa
                 mismatches.append((steps[0], tid, got, expected))
             for level in seen:
                 seen[level] += bool(got[level])
+            seen_a039[0] += 39 in got["A"]
 
     sim.generate_bulk(1.0, time_step=10.0, callback=check, fault_schedule=[
         PlanStep(offset_seconds=0, scenario_id="bearing_wear", turbine_id="WT001", severity_rate=0.004,
@@ -796,6 +801,7 @@ def test_plc_lists_match_active_codes_at_every_step(monkeypatch: pytest.MonkeyPa
     sim.generate_bulk(0.5, time_step=10.0, callback=check)
     assert mismatches == []
     assert seen["A"] and seen["T1"], seen
+    assert seen_a039[0], "A039（自動重啟被封鎖）也要出現在 ActiveAlarm 陣列"
 
 
 def test_practice_stream_false_uses_the_opc_clock(generated: Dict[str, object],

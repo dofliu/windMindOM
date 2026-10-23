@@ -1,5 +1,5 @@
 {
- "contract_version": "1.3",
+ "contract_version": "1.4",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "干擾：風向標漂移（感測器故障）+ 葉片角不平衡，陣風、健康機組也有事件",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-16T07:00:10.000000Z",
  "sim_end": "2026-03-16T13:00:00.000000Z",
- "generated_at": "2026-10-22T10:34:43.167100Z",
+ "generated_at": "2026-10-23T09:18:26.909564Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -75,9 +75,9 @@
    "simulation_notes": [],
    "simulation_notes_en": [],
    "onset_ts": "2026-03-16T07:15:00.000000Z",
-   "first_alarm_ts": "2026-03-16T07:30:20.000000Z",
+   "first_alarm_ts": "2026-03-16T07:30:05.000000Z",
    "first_alarm_code": 233,
-   "trip_ts": "2026-03-16T07:30:20.000000Z",
+   "trip_ts": "2026-03-16T07:30:05.000000Z",
    "trip_code": 233,
    "observed_alarm_codes": [
     233
@@ -88,7 +88,7 @@
     "severity_rate": 0.001,
     "initial_severity": 0.0
    },
-   "final_severity": 0.92,
+   "final_severity": 0.905,
    "superseded": false,
    "pre_existing": false
   },
@@ -166,9 +166,9 @@
    "simulation_notes": [],
    "simulation_notes_en": [],
    "onset_ts": "2026-03-16T08:30:00.000000Z",
-   "first_alarm_ts": "2026-03-16T08:45:50.000000Z",
+   "first_alarm_ts": "2026-03-16T08:44:35.000000Z",
    "first_alarm_code": 336,
-   "trip_ts": "2026-03-16T08:45:50.000000Z",
+   "trip_ts": "2026-03-16T08:44:35.000000Z",
    "trip_code": 336,
    "observed_alarm_codes": [
     336
@@ -179,7 +179,7 @@
     "severity_rate": 0.001,
     "initial_severity": 0.0
    },
-   "final_severity": 0.95,
+   "final_severity": 0.875,
    "superseded": false,
    "pre_existing": false
   }

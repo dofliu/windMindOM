@@ -16,12 +16,18 @@
   關閉只禁止新的成立，不等於條件解除（否則鎖存的跳機會在停機減速時立刻被解除）。
 - **A（警報）**：條件成立 → ``alarm_raised``；回到遲滯範圍內 → ``alarm_cleared``。不停機。
 - **T1 / T2（跳機）**：條件成立超過延時 → ``trip``，T1 要求正常伺服停機、T2 要求緊急變槳停機。
-  跳機鎖存到條件解除；解除時若該碼一小時內的跳機次數未超過手冊每小時上限（``max_per_hour``）
-  → ``trip_cleared`` 自動解除、機組可自動重啟；超過則 ``restart_blocked``，需操作員復位
-  （``operator_reset``，事件 008）。復位後條件仍成立會立即再跳。
+  跳機鎖存到條件解除；解除時若該碼一小時內的跳機次數未超過手冊每小時上限（``max_per_hour``，手冊
+  §6.8.1 / §8.3：每個跳機碼各自計數）→ ``trip_cleared`` 自動解除、機組可自動重啟；超過則該碼封鎖、
+  送 A039「Auto restart blocked」（手冊獨有碼），機組進 SHUTDOWN，需操作員復位（``operator_reset``，
+  事件 008；同時解除 A039）。復位後條件仍成立會立即再跳。（WMOM-20261022-02 之前送自創的
+  ``restart_blocked``，合約 v1.4 起不再送出。）
 - **物理層既有保護**（超速、LVRT / 電網保護、切出風速）停機時，依停機原因補上對應事件碼
-  （``note_protection_stop``）。這類停機的重啟由物理層狀態機處理，不在此鎖存；同一停機週期只記一次，
-  機組再次起動（``on_restart``）後重新計。
+  （``note_protection_stop``）。這類停機的條件由物理層狀態機處理，不在此鎖存；同一停機週期只記一次，
+  機組再次起動（``on_restart``）後重新計。跳機次數與訊號判定的跳機同一套每碼計數：超過上限時在跳機
+  當下封鎖並送 A039，物理層不得自動重啟（``restart_inhibited``）。
+- **設定值**：手冊 Appendix D（控制系統實際設定值）與 Appendix C（事件說明）不一致時以 Appendix D 為準
+  （DEC-20261023-01）：液壓壓力低 170 / 150 bar、190 bar 解除、延時 30 s；風向標差異延時 60 s、
+  風速條件 60 s 平均；溫度（Pt100）以 10 s 時間常數濾波後比較（``CDTauPT100``）。
 
 所有事件以 ``PlcEvent`` 暫存於有上限的佇列，由即時路徑（broker）或批次路徑以 ``drain_events``
 取走；沒人取時舊事件自動丟棄，不會無限成長。
@@ -34,7 +40,7 @@ import sys
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Deque, Dict, FrozenSet, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Deque, Dict, FrozenSet, List, Mapping, Optional, Set, Tuple
 
 # 模擬器可單獨執行（tools/、examples/ 只把 modules/monitoring 放進 sys.path），補上 repo root
 # 讓共用的 Z72 警報目錄可匯入。append 而非 insert，不遮蔽既有模組。
@@ -51,8 +57,6 @@ if TYPE_CHECKING:  # pragma: no cover
 _TRIP_WINDOW_S = 3600.0
 # 風向標比對用的濾波時間常數（手冊事件 233：Filtered values (T=25s)）
 _VANE_FILTER_TAU_S = 25.0
-# 風向標比對的風速條件（手冊：10 min. avg. wind speed）
-_WIND_AVG_TAU_S = 600.0
 # 葉片差異只在穩定發電後判定：本模型各葉片對大幅變槳（啟動 30° → 工作角）的響應差異，
 # 併網後 60 s 內暫態差異可達 ~6.6°；穩定發電時健康機組連續 5 s 最大約 0.5°、瞬間峰值約 0.9°
 #（陣風 TI 30% 約 1.8°，變槳速率受限時；WMOM-20261021-12）
@@ -67,6 +71,17 @@ _OVERSPEED_CODES = {"overspeed_software": 351, "overspeed_hardware": 320}
 _CUT_OUT_CODE = 201          # I: Windspeed too high
 _CONVERTER_TRIP_REQUEST = 21  # T1: Turbine trip request from converter（伴隨 400-700 碼）
 _OPERATOR_RESET_CODE = 8     # I: Operator reset
+_AUTO_RESTART_BLOCKED_CODE = 39  # A: Auto restart blocked（手冊獨有碼，xlsx 沒列；目錄標 manual_only）
+# PLC 自己的溫度輸入（Pt100）：以手冊 CDTauPT100 濾波後判定越限；ABB 變頻器 / 變壓器溫度不在此列
+#（signals 鍵, SCADA tag）
+_PT100_SIGNALS: Tuple[Tuple[str, str], ...] = (
+    ("bearing_temp", "WGEN_GnBrgTmp1"),
+    ("bearing2_temp", "WGEN_GnBrgTmp2"),
+    ("stator_temp", "WGEN_GnStaTmp1"),
+    ("stator2_temp", "WGEN_GnStaTmp2"),
+    ("nacelle_temp", "WNAC_NacTmp"),
+    ("nacelle_cab_temp", "WNAC_NacCabTmp"),
+)
 # 物理層保護停機可能補上的跳機碼（超速、ARU 欠壓 / 過壓、電網頻率、變頻器跳機要求）
 PROTECTION_TRIP_CODES: Tuple[int, ...] = (351, 320, 475, 481, 482, 489, _CONVERTER_TRIP_REQUEST)
 # 延時比較的浮點容差（子步 dt 累加誤差）
@@ -129,7 +144,7 @@ class PlcEvent:
     Attributes:
         sim_time: 機組模擬時間（秒，``TurbinePhysicsModel._sim_time``）。
         kind: ``alarm_raised`` / ``alarm_cleared`` / ``trip`` / ``trip_cleared`` /
-            ``restart_blocked`` / ``operator_reset`` / ``info``。
+            ``operator_reset`` / ``info``（自動重啟封鎖以 A039 的 ``alarm_raised`` / ``alarm_cleared`` 表示）。
         code: Z72 事件碼。
         level: A / T1 / T2 / I。
         text: PLC 顯示文字（目錄原文）。
@@ -137,7 +152,8 @@ class PlcEvent:
         event_id: HMI 事件 ID（例 ``A_262``）。
         value: 觸發當下的訊號值（物理層保護停機時為 None）。
         setpoint: 對應設定值（物理層保護停機時為 None）。
-        source: ``signal``（本層判定）或 ``protection``（物理層既有保護）或 ``operator``。
+        source: ``signal``（本層判定）、``protection``（物理層既有保護）、``restart``（每小時重啟上限，A039）
+            或 ``operator``。
     """
 
     sim_time: float
@@ -186,21 +202,27 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
     Returns:
         規則 tuple。
     """
-    t_delay = 5.0   # 溫度跳機延時（過濾感測器尖峰）
-    a_delay = 10.0  # 溫度警報延時
-    s_delay = 2.0   # 感測器訊號故障（斷線 / 超出範圍）的確認延時
+    # 手冊沒給延時的規則（ABB 變頻器 / 變壓器溫度、冷卻、振動）沿用的假設值：過濾感測器尖峰
+    t_delay = 5.0   # 跳機延時（assumed）
+    a_delay = 10.0  # 警報延時（assumed）
+    s_delay = 2.0   # 感測器訊號故障（斷線 / 超出範圍）的確認延時（assumed）
+    # PLC 自己的溫度（Pt100）：手冊只給濾波時間常數（CDTauPT100 10 s，signals 內處理）、沒有事件延時
+    pt_delay = 0.0
+    # 偏航煞車液壓：手冊 Appendix D 兩個壓力低事件都在 > SDHyPres_H 才解除
+    yaw_alarm_hyst = spec.yaw_pressure_reset_bar - spec.yaw_pressure_alarm
+    yaw_trip_hyst = spec.yaw_pressure_reset_bar - spec.yaw_pressure_trip
     rules: List[ProtectionRule] = [
-        # 主軸承 1 / 2、定子 1 / 2（設定值：manual）；讀值無效（斷線）時不判定（gate）
-        ProtectionRule(262, "bearing_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, valid="bearing_temp_ok"),
-        ProtectionRule(240, "bearing_temp", True, spec.gen_bearing_trip, 5.0, t_delay, valid="bearing_temp_ok"),
-        ProtectionRule(263, "bearing2_temp", True, spec.gen_bearing_alarm, 3.0, a_delay, valid="bearing2_temp_ok"),
-        ProtectionRule(241, "bearing2_temp", True, spec.gen_bearing_trip, 5.0, t_delay, valid="bearing2_temp_ok"),
-        ProtectionRule(264, "stator_temp", True, spec.gen_stator_alarm, 3.0, a_delay, valid="stator_temp_ok"),
-        ProtectionRule(244, "stator_temp", True, spec.gen_stator_trip, 5.0, t_delay, valid="stator_temp_ok"),
-        ProtectionRule(265, "stator2_temp", True, spec.gen_stator_alarm, 3.0, a_delay, valid="stator2_temp_ok"),
-        ProtectionRule(245, "stator2_temp", True, spec.gen_stator_trip, 5.0, t_delay, valid="stator2_temp_ok"),
-        ProtectionRule(273, "nacelle_temp", True, spec.nacelle_air_alarm, 2.0, a_delay),
-        ProtectionRule(256, "nacelle_cab_temp", True, spec.nacelle_cab_trip, 3.0, t_delay),
+        # 主軸承 1 / 2、定子 1 / 2（設定值：manual）；讀值無效（斷線）時不判定
+        ProtectionRule(262, "bearing_temp", True, spec.gen_bearing_alarm, 3.0, pt_delay, valid="bearing_temp_ok"),
+        ProtectionRule(240, "bearing_temp", True, spec.gen_bearing_trip, 5.0, pt_delay, valid="bearing_temp_ok"),
+        ProtectionRule(263, "bearing2_temp", True, spec.gen_bearing_alarm, 3.0, pt_delay, valid="bearing2_temp_ok"),
+        ProtectionRule(241, "bearing2_temp", True, spec.gen_bearing_trip, 5.0, pt_delay, valid="bearing2_temp_ok"),
+        ProtectionRule(264, "stator_temp", True, spec.gen_stator_alarm, 3.0, pt_delay, valid="stator_temp_ok"),
+        ProtectionRule(244, "stator_temp", True, spec.gen_stator_trip, 5.0, pt_delay, valid="stator_temp_ok"),
+        ProtectionRule(265, "stator2_temp", True, spec.gen_stator_alarm, 3.0, pt_delay, valid="stator2_temp_ok"),
+        ProtectionRule(245, "stator2_temp", True, spec.gen_stator_trip, 5.0, pt_delay, valid="stator2_temp_ok"),
+        ProtectionRule(273, "nacelle_temp", True, spec.nacelle_air_alarm, 2.0, pt_delay),
+        ProtectionRule(256, "nacelle_cab_temp", True, spec.nacelle_cab_trip, 3.0, pt_delay),
         # 變壓器 / 變頻器冷卻（設定值：assumed；ABB 跳機同時送出變頻器跳機要求 021）
         ProtectionRule(417, "transformer_temp", True, spec.transformer_alarm, 3.0, a_delay),
         ProtectionRule(444, "transformer_temp", True, spec.transformer_trip, 5.0, t_delay),
@@ -212,14 +234,16 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
         ProtectionRule(_CONVERTER_TRIP_REQUEST, "converter_cab_temp", True, spec.converter_cabinet_trip, 3.0, t_delay),
         ProtectionRule(432, "static_water_pressure", False, spec.cooling_static_pressure_low_bar, 0.2, a_delay,
                        producing_only=True),
-        # 偏航煞車（manual）
-        ProtectionRule(260, "yaw_brake_pressure", False, spec.yaw_pressure_alarm, 5.0, a_delay,
-                       gate="yaw_brake_settled", valid="yaw_pressure_ok"),
-        ProtectionRule(228, "yaw_brake_pressure", False, spec.yaw_pressure_trip, 5.0, t_delay,
-                       gate="yaw_brake_settled", valid="yaw_pressure_ok"),
+        # 偏航煞車（manual Appendix D：170 / 150 bar、> 190 bar 解除、延時 30 s）
+        ProtectionRule(260, "yaw_brake_pressure", False, spec.yaw_pressure_alarm, yaw_alarm_hyst,
+                       spec.yaw_pressure_delay_s, gate="yaw_brake_settled", valid="yaw_pressure_ok"),
+        ProtectionRule(228, "yaw_brake_pressure", False, spec.yaw_pressure_trip, yaw_trip_hyst,
+                       spec.yaw_pressure_delay_s, gate="yaw_brake_settled", valid="yaw_pressure_ok"),
         ProtectionRule(261, "seals_leak", True, 0.5, 0.0, a_delay),
-        # 風向標 1-2 差異（manual；濾波與風速條件在 signals 內處理）
-        ProtectionRule(233, "vane_discrepancy", True, spec.vane_discrepancy_deg, 3.0, 0.0),
+        # 風向標 1-2 差異（manual：15°、延時 60 s；25 s 濾波在 signals 內處理）。風速條件（Appendix D「enable
+        # wind vane discrepancy」）是判定窗：只禁止新的成立，已鎖存的跳機不因風速掉下來就解除
+        ProtectionRule(233, "vane_discrepancy", True, spec.vane_discrepancy_deg, 3.0, spec.vane_discrepancy_delay_s,
+                       gate="vane_wind_ok"),
         # 塔架加速度（assumed）
         ProtectionRule(236, "vibration", True, spec.tower_vibration_trip_mm_s, 1.0, 10.0),
     ]
@@ -227,8 +251,9 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
     pt_lo, pt_hi = spec.pt100_valid_range_c
     yaw_lo, yaw_hi = spec.yaw_pressure_valid_range_bar
     ang_lo, ang_hi = spec.blade_angle_valid_range_deg
-    for code, signal, lo, hi in ((242, "bearing_temp", pt_lo, pt_hi), (243, "bearing2_temp", pt_lo, pt_hi),
-                                 (250, "stator_temp", pt_lo, pt_hi), (251, "stator2_temp", pt_lo, pt_hi),
+    # Pt100 斷線判的是未濾波的讀值（I/O 模組直接偵測），越限規則才用濾波值
+    for code, signal, lo, hi in ((242, "bearing_temp_raw", pt_lo, pt_hi), (243, "bearing2_temp_raw", pt_lo, pt_hi),
+                                 (250, "stator_temp_raw", pt_lo, pt_hi), (251, "stator2_temp_raw", pt_lo, pt_hi),
                                  (229, "yaw_brake_pressure", yaw_lo, yaw_hi),
                                  (326, "blade1_angle", ang_lo, ang_hi), (327, "blade2_angle", ang_lo, ang_hi),
                                  (328, "blade3_angle", ang_lo, ang_hi)):
@@ -245,7 +270,7 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
 
 
 def raisable_codes(spec: "TurbineSpec") -> FrozenSet[int]:
-    """本保護層可能送出的全部跳機 / 警報碼（訊號規則 + 物理層保護補碼）。
+    """本保護層可能送出的全部跳機 / 警報碼（訊號規則 + 物理層保護補碼 + 自動重啟封鎖 A039）。
 
     Args:
         spec: 機組規格。
@@ -253,7 +278,8 @@ def raisable_codes(spec: "TurbineSpec") -> FrozenSet[int]:
     Returns:
         事件碼集合。
     """
-    return frozenset(r.code for r in build_rules(spec)) | frozenset(PROTECTION_TRIP_CODES)
+    return (frozenset(r.code for r in build_rules(spec)) | frozenset(PROTECTION_TRIP_CODES)
+            | {_AUTO_RESTART_BLOCKED_CODE})
 
 
 # 真實 PLC 的 Z72PLC__ActiveAlarm / ActiveTrip1 / ActiveTrip2 陣列長度（tag 清單 xlsx：21 個 SINT16）
@@ -265,9 +291,12 @@ class ActiveEventLists:
 
     依成立順序排列、同一個碼只出現一次。規則：
     - ``alarm_raised`` 加入 A 清單、``alarm_cleared`` 移除。
-    - ``trip`` 依等級加入 T1 / T2 清單、``trip_cleared`` 移除；``restart_blocked`` 仍保留（鎖存＋封鎖）。
+    - ``trip`` 依等級加入 T1 / T2 清單、``trip_cleared`` 移除；超過每小時重啟上限時跳機碼仍保留（鎖存），
+      另由 A039（Auto restart blocked）的 ``alarm_raised`` / ``alarm_cleared`` 增減 A 清單。舊資料的
+      ``restart_blocked``（合約 v1.4 前）不動清單。
     - 操作員復位（``operator_reset``；資料包事件為 ``reset``）本身不動清單：``PlcProtection.operator_reset``
-      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，清單照舊。
+      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，跳機清單照舊
+      （有 A039 時送 ``alarm_cleared``，A 清單移除 039）。
       物理層保護停機的跳機（例：351）在機組再起動時以 ``trip_cleared`` 解除。
     - 資訊事件（I）不在任何清單。
 
@@ -342,10 +371,16 @@ class PlcProtection:
     def reset(self) -> None:
         """清除全部狀態（機組完整 reset 時呼叫）。"""
         self._rule_state: Dict[int, _RuleState] = {i: _RuleState() for i in range(len(self.rules))}
-        self._codes: Dict[int, _CodeState] = {}
+        # 每個可能跳機 / 警報的碼先建好：執行中不新增鍵（API 執行緒的 operator_reset 迭代時不會遇到字典變大）
+        self._codes: Dict[int, _CodeState] = {
+            code: _CodeState() for code in sorted({r.code for r in self.rules} | set(PROTECTION_TRIP_CODES))}
         # 每個事件碼最近一次成立的規則（同碼多規則時，事件的 value / setpoint 取實際成立者）
         self._trigger_rule: Dict[int, ProtectionRule] = {}
         self._protection_latched: Dict[int, float] = {}
+        # 超過每小時重啟上限的物理層保護跳機碼（跳機當下判定；操作員 / 維護復位才解除）
+        self._protection_blocked: Set[int] = set()
+        # A039（Auto restart blocked）是否成立中：任一碼封鎖時成立
+        self._restart_blocked_alarm = False
         # 本停機週期已記過切出風速事件（I201）；機組再次起動時清除（WMOM-20261021-10）
         self._cut_out_noted = False
         self._events: Deque[PlcEvent] = deque(maxlen=_EVENT_QUEUE_MAX)
@@ -356,18 +391,29 @@ class PlcProtection:
         self._vane1_f: Optional[float] = None
         self._vane2_f: Optional[float] = None
         self._wind_avg: Optional[float] = None
+        # Pt100 溫度的濾波值（CDTauPT100）；讀值無效（斷線）時清空，恢復後從讀值重新起算
+        self._pt100_f: Dict[str, Optional[float]] = {}
         self._producing_s = 0.0
         self._brake_applied_s = _YAW_BRAKE_SETTLE_S
         self.signals: Dict[str, float] = {}
 
     @property
     def restart_inhibited(self) -> bool:
-        """任一本層判定的跳機仍鎖存（含封鎖）時，機組不可重啟。
+        """任一本層判定的跳機仍鎖存（含封鎖），或物理層保護跳機超過每小時上限時，機組不可重啟。
 
         Returns:
             True＝擋住重啟；停用（``enabled=False``）時恆為 False。
         """
-        return self.enabled and any(st.latched for st in self._codes.values())
+        return self.enabled and (any(st.latched for st in self._codes.values()) or bool(self._protection_blocked))
+
+    @property
+    def auto_restart_blocked(self) -> bool:
+        """A039 成立中（某個跳機碼超過每小時重啟上限）：機組進 SHUTDOWN，只有操作員復位能解除。
+
+        Returns:
+            是否封鎖；停用時恆為 False。
+        """
+        return self.enabled and self._restart_blocked_alarm
 
     @property
     def last_trip_codes(self) -> Tuple[int, ...]:
@@ -383,6 +429,8 @@ class PlcProtection:
         result = {code: self._alarm[code].level for code, st in self._codes.items() if st.active or st.latched}
         for code in self._protection_latched:
             result[code] = self._alarm[code].level
+        if self._restart_blocked_alarm:
+            result[_AUTO_RESTART_BLOCKED_CODE] = self._alarm[_AUTO_RESTART_BLOCKED_CODE].level
         return result
 
     def drain_events(self) -> List[PlcEvent]:
@@ -404,34 +452,23 @@ class PlcProtection:
         v1 = output["WYAW_YwVn1AlgnAvg5s"]
         v2 = output["WYAW_YwVn2AlgnAvg5s"]
         wind = output["WMET_WSpeedNac"]
+        spec = self.spec
         a_vane = 1.0 - math.exp(-dt / _VANE_FILTER_TAU_S)
-        a_wind = 1.0 - math.exp(-dt / _WIND_AVG_TAU_S)
+        # 風速條件：手冊 Appendix D 參數名為 60 s 平均（SDVw60sWndVnDiscr）；以同時間常數的一階濾波近似
+        a_wind = 1.0 - math.exp(-dt / spec.vane_discrepancy_wind_avg_s)
         self._vane1_f = v1 if self._vane1_f is None else self._vane1_f + (v1 - self._vane1_f) * a_vane
         self._vane2_f = v2 if self._vane2_f is None else self._vane2_f + (v2 - self._vane2_f) * a_vane
         self._wind_avg = wind if self._wind_avg is None else self._wind_avg + (wind - self._wind_avg) * a_wind
         self._producing_s = self._producing_s + dt if producing else 0.0
         self._brake_applied_s = 0.0 if yawing else self._brake_applied_s + dt
         vane_disc = abs(self._vane1_f - self._vane2_f)
-        if self._wind_avg <= self.spec.vane_discrepancy_min_wind:
-            vane_disc = 0.0
-        spec = self.spec
         pt_ok = _in_range_flag(spec.pt100_valid_range_c)
         blade_ok = [_in_range(a, spec.blade_angle_valid_range_deg) for a in (b1, b2, b3)]
         yaw_pressure = output["WYAW_YwBrkHyPrs"]
         self.signals = {
-            "bearing_temp": output["WGEN_GnBrgTmp1"],
-            "bearing_temp_ok": pt_ok(output["WGEN_GnBrgTmp1"]),
-            "bearing2_temp": output["WGEN_GnBrgTmp2"],
-            "bearing2_temp_ok": pt_ok(output["WGEN_GnBrgTmp2"]),
-            "stator_temp": output["WGEN_GnStaTmp1"],
-            "stator_temp_ok": pt_ok(output["WGEN_GnStaTmp1"]),
-            "stator2_temp": output["WGEN_GnStaTmp2"],
-            "stator2_temp_ok": pt_ok(output["WGEN_GnStaTmp2"]),
             "blade1_angle": b1,
             "blade2_angle": b2,
             "blade3_angle": b3,
-            "nacelle_temp": output["WNAC_NacTmp"],
-            "nacelle_cab_temp": output["WNAC_NacCabTmp"],
             "transformer_temp": output["WGDC_TrfCoreTmp"],
             "cooling_water_temp": output["WCNV_IGCTWtrTmp"],
             "converter_cab_temp": output["WCNV_CnvCabinTmp"],
@@ -440,6 +477,7 @@ class PlcProtection:
             "yaw_pressure_ok": 1.0 if _in_range(yaw_pressure, spec.yaw_pressure_valid_range_bar) else 0.0,
             "seals_leak": output["WYAW_YwBrkSealsLeak"],
             "vane_discrepancy": vane_disc,
+            "vane_wind_ok": 1.0 if self._wind_avg > spec.vane_discrepancy_min_wind else 0.0,
             "blade_disc_12": abs(b1 - b2),
             "blade_disc_13": abs(b1 - b3),
             "blade_disc_23": abs(b2 - b3),
@@ -453,6 +491,20 @@ class PlcProtection:
             "pitch_settled": 1.0 if self._producing_s >= _PITCH_SETTLE_S else 0.0,
             "yaw_brake_settled": 1.0 if self._brake_applied_s >= _YAW_BRAKE_SETTLE_S else 0.0,
         }
+        # Pt100：越限判定用濾波值（<鍵>）、斷線判定用讀值（<鍵>_raw）、有效旗標（<鍵>_ok）
+        a_pt = 1.0 - math.exp(-dt / spec.pt100_filter_tau_s)
+        for key, tag in _PT100_SIGNALS:
+            raw = output[tag]
+            ok = pt_ok(raw)
+            prev = self._pt100_f.get(key)
+            if ok < 0.5:
+                filtered: Optional[float] = None  # 斷線讀值不進濾波器；修好後從讀值重新起算
+            else:
+                filtered = raw if prev is None else prev + (raw - prev) * a_pt
+            self._pt100_f[key] = filtered
+            self.signals[key] = raw if filtered is None else filtered
+            self.signals[f"{key}_raw"] = raw
+            self.signals[f"{key}_ok"] = ok
 
     def _rule_on(self, idx: int, rule: ProtectionRule, dt: float, producing: bool) -> bool:
         st = self._rule_state[idx]
@@ -524,21 +576,45 @@ class PlcProtection:
             elif alarm.is_trip:
                 if active and not st.latched:
                     st.latched = True
-                    st.trip_times = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S] + [sim_time]
+                    self._record_trip(st, sim_time)
                     self._emit(sim_time, "trip", code, value, setpoint)
                     trips.append((code, alarm.level))
                 elif not active and st.latched and not st.blocked:
-                    recent = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S]
-                    limit = alarm.max_per_hour or 1
-                    if len(recent) > limit:
-                        st.blocked = True
-                        self._emit(sim_time, "restart_blocked", code, value, setpoint)
+                    if self._over_restart_limit(st, code, sim_time):
+                        st.blocked = True  # 不自動重啟：保持鎖存、送 A039（迴圈後統一）
                     else:
                         st.latched = False
                         self._emit(sim_time, "trip_cleared", code, value, setpoint)
             st.active = active
+        self._sync_restart_blocked_alarm(sim_time)
         self._last_trip_codes = tuple(pending) + tuple(code for code, _ in trips)
         return trips
+
+    # ── 每小時重啟上限（手冊 §6.8.1 / §8.3：每個跳機碼各自計數）─────────────────
+
+    @staticmethod
+    def _record_trip(st: _CodeState, sim_time: float) -> None:
+        """記一次跳機（同時丟掉一小時前的紀錄）。"""
+        st.trip_times = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S] + [sim_time]
+
+    def _over_restart_limit(self, st: _CodeState, code: int, sim_time: float) -> bool:
+        """該碼一小時內的跳機次數是否超過目錄的每小時上限（``max_per_hour``；未列者視為 1）。
+
+        判定時點：訊號判定的跳機在條件解除（要重啟）時、以解除時刻往前一小時計；物理層保護停機的條件由物理層
+        處理，在跳機當下、以跳機時刻往前一小時計。手冊 §8.3 只寫「restarts within the last hour」。同一個碼不分
+        成因都算同一種跳機（例：021 伴隨所有變頻器跳機，冷卻與電網的 021 一起計數）。
+        """
+        recent = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S]
+        return len(recent) > (self._alarm[code].max_per_hour or 1)
+
+    def _sync_restart_blocked_alarm(self, sim_time: float) -> None:
+        """任一碼封鎖時 A039 成立，全部解除時清除；狀態改變才送事件（多個碼封鎖只送一次）。"""
+        blocked = any(st.blocked for st in self._codes.values()) or bool(self._protection_blocked)
+        if blocked == self._restart_blocked_alarm:
+            return
+        self._restart_blocked_alarm = blocked
+        kind = "alarm_raised" if blocked else "alarm_cleared"
+        self._emit(sim_time, kind, _AUTO_RESTART_BLOCKED_CODE, None, None, source="restart")
 
     def _trigger_value(self, code: int, rule: Optional[ProtectionRule]) -> Tuple[Optional[float], Optional[float]]:
         """事件的訊號值與設定值：本步成立的規則；解除事件取最近一次成立的規則。"""
@@ -572,6 +648,12 @@ class PlcProtection:
         for code in new_codes:
             self._protection_latched[code] = sim_time
             self._emit(sim_time, "trip", code, None, None, source="protection")
+            # 與訊號判定的跳機同一套每碼計數（同一個碼＝同一種跳機）；條件由物理層處理，超過上限在跳機當下封鎖
+            st = self._codes[code]
+            self._record_trip(st, sim_time)
+            if self._over_restart_limit(st, code, sim_time):
+                self._protection_blocked.add(code)
+        self._sync_restart_blocked_alarm(sim_time)
         self._pending_trip_codes.extend(new_codes)
         return new_codes
 
@@ -610,8 +692,14 @@ class PlcProtection:
             del self._protection_latched[code]
             self._emit(sim_time, "trip_cleared", code, None, None, source="protection")
 
+    def clear_trip_counts(self) -> None:
+        """清掉每小時跳機計數（命名情境開頭的乾淨機組用）：Live 一小時內自動恢復過的跳機不能讓情境的第一次跳機
+        就送 A039。不送事件、不動鎖存（呼叫端只對沒有成立中事件的機組呼叫）。"""
+        for st in self._codes.values():
+            st.trip_times.clear()
+
     def maintenance_release(self, sim_time: float) -> None:
-        """故障被維護清除（修好 + 技師復位）：清除每小時跳機計數與封鎖。
+        """故障被維護清除（修好 + 技師復位）：清除每小時跳機計數與封鎖（含 A039）。
 
         與 ``operator_reset`` 不同，不解除鎖存：修好後的殘餘條件（例：液壓回壓中）解除時，鎖存的跳機
         以計數 0 自動解除，不會因殘餘條件再跳一次；已封鎖者在下一步即解除。
@@ -621,19 +709,22 @@ class PlcProtection:
         """
         if not self.enabled:
             return
-        released = False
-        for st in self._codes.values():
+        released = bool(self._protection_blocked)
+        for st in list(self._codes.values()):
             released = released or st.latched
             st.trip_times.clear()
             st.blocked = False
+        self._protection_blocked.clear()
         if released:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
+        self._sync_restart_blocked_alarm(sim_time)
 
     def operator_reset(self, sim_time: float) -> None:
-        """操作員復位：解除全部鎖存 / 封鎖的跳機；條件仍成立者下一步會再跳。
+        """操作員復位（TURBINE RESET）：解除全部鎖存 / 封鎖的跳機與 A039；條件仍成立者下一步會再跳。
 
-        送出 ``operator_reset``（事件 008）後，每個被解除的跳機再送 ``trip_cleared``（OPC 的 ActiveTrip
-        陣列據此移除；物理層保護停機的跳機不在此解除）。
+        送出 ``operator_reset``（事件 008）後清除 A039（``alarm_cleared``），每個被解除的跳機再送
+        ``trip_cleared``（OPC 的 ActiveTrip 陣列據此移除）。物理層保護停機的跳機只解除封鎖，跳機本身在
+        機組再起動時解除（``on_restart``）。每小時跳機計數不清除：復位後一小時內再跳仍算數。
 
         Args:
             sim_time: 機組模擬時間（秒）。
@@ -641,15 +732,18 @@ class PlcProtection:
         if not self.enabled:
             return
         released: List[int] = []
-        for code, st in self._codes.items():
+        for code, st in list(self._codes.items()):
             if st.latched:
                 st.latched = False
                 st.blocked = False
                 released.append(code)
-        if released:
+        unblocked = bool(self._protection_blocked)
+        self._protection_blocked.clear()
+        if released or unblocked:
             self._emit(sim_time, "operator_reset", _OPERATOR_RESET_CODE, None, None, source="operator")
-            for code in released:
-                self._emit(sim_time, "trip_cleared", code, None, None, source="operator")
+        self._sync_restart_blocked_alarm(sim_time)
+        for code in released:
+            self._emit(sim_time, "trip_cleared", code, None, None, source="operator")
 
     def _emit(self, sim_time: float, kind: str, code: int, value: Optional[float],
               setpoint: Optional[float], source: str = "signal") -> None:

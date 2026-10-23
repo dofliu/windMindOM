@@ -226,7 +226,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 現行主線（2026-10-21 起）— EPIC-DS 擬真資料源
 
-> 依 [DEC-20261021-01](decision_log.md)；詳細設計見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)，介面合約 v1.3 見 [`rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)。不設日期，依序推進。狀態以 [`STATUS.yaml`](../../STATUS.yaml) 為準（2026-10-22：約 92%）。
+> 依 [DEC-20261021-01](decision_log.md)；詳細設計見 [`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)，介面合約 v1.4 見 [`rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)。不設日期，依序推進。狀態以 [`STATUS.yaml`](../../STATUS.yaml) 為準（2026-10-23：約 94%）。
 
 | Phase | Issue | 交付 | 狀態 |
 |---|---|---|---|
@@ -239,8 +239,8 @@ Month 1 結束時，要能對 friendly 客戶說：
 | 3b | WMOM-20261021-06 | ② 串流：凍結情境 WebSocket 回放（含事件通道、單次正式評測） | ✅ |
 | 3c | WMOM-20261021-07 | ③ OPC UA server：模仿 Bachmann Z72 tag（回放 + 即時模擬） | ✅ |
 | 檢查 | WMOM-20261022-01 | 全面程式碼檢查 + 三條管道端到端驗證（DEC-20261022-05：正式評測強制登入、批次背景執行、總速率上限） | ✅ |
-| 4 | WMOM-20261021-08 | 難度與多樣性：**-08-a 感測器故障 vs 真故障 ✅**；其餘（誤報 / 健康負樣本、多重故障 + 早期徵兆、故障庫擴充）待劉老師挑順序 | 🟡 |
-| 4 前 | WMOM-20261022-02 | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（排在 -08 其餘子項前） | ⏭️ 下一步 |
+| 4 | WMOM-20261021-08 | 難度與多樣性：**-08-a 感測器故障 vs 真故障 ✅**；其餘（誤報 / 健康負樣本、多重故障 + 早期徵兆、故障庫擴充）待劉老師挑順序 | 🟡 ⏭️ 下一步 |
+| 4 前 | WMOM-20261022-02 | 手冊保真度：Appendix D 延遲 / 範圍、A039、yaw drift 233（DEC-20261023-01） | ✅ |
 
 Done criteria：學生端只靠介面合約 + 範例資料包，就能用三條管道任一條取得資料並以 `ground_truth.json` 評分。
 

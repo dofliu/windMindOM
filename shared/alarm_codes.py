@@ -2,7 +2,8 @@
 
 資料來源是 `shared/data/z72_alarm_catalog.json`，由
 `tools/build_z72_alarm_catalog.py` 從 PLC/OPC tag 清單 xlsx（314 筆）與使用手冊
-Appendix C 合併產生。這是模擬器警報碼的唯一 source of truth（DEC-20261021-01）：
+Appendix C 合併產生；手冊獨有的碼（A039 Auto restart blocked）也收錄，JSON 標 ``manual_only``。
+這是模擬器警報碼的唯一 source of truth（DEC-20261021-01）：
 故障情境、資料包匯出、串流與 OPC UA server 用到的警報碼、等級、文字都應從這裡查。
 
 等級（level）：

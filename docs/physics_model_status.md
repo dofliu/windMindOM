@@ -214,7 +214,12 @@ Included:
 - T1 → normal servo stop (TurSt 9), T2 → emergency pitch (TurSt 7); a pending emergency stop is
   never downgraded
 - trips latch until the condition clears, then auto-clear while the code's trips in the last
-  hour ≤ catalog `max_per_hour`; otherwise `restart_blocked` until operator reset (event 008)
+  hour ≤ catalog `max_per_hour`; otherwise the PLC raises A039 "Auto restart blocked" and the turbine
+  stays in SHUTDOWN until operator reset (event 008) (WMOM-20261022-02; there is no global
+  starts-per-hour limit, physics-layer protection trips use the same per-code counts)
+- setpoints follow the manual's Appendix D where it disagrees with Appendix C (DEC-20261023-01):
+  yaw brake pressure 170 / 150 bar with 30 s delay and 190 bar reset, vane discrepancy 60 s delay
+  with a 60 s wind average, Pt100 temperatures filtered with τ 10 s, cut-out gust on a 3 s average
 - physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT band 1 → 481 and
   band ≥ 2 → 482 (+ 021), HVRT 475 + 021, grid protection by measured voltage (< 0.81 → 482,
   < 0.90 → 481, > 1.08 → 475, else frequency 489; + 021), cut-out I 201; once per stop cycle,

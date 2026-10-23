@@ -1,7 +1,7 @@
 """shared/alarm_codes.py 與 Z72 警報目錄單元測試（WMOM-20261021-02）。
 
 涵蓋：
-- 目錄完整性：314 筆、各等級筆數與 xlsx「警告訊息列表」一致
+- 目錄完整性：xlsx「警告訊息列表」314 筆（各等級筆數一致）＋手冊獨有的 A039（WMOM-20261022-02）
 - 等級與 PLC tag 對應：A → ActiveAlarm、T1 → ActiveTrip1、T2 → ActiveTrip2、I → 無 tag
 - 查詢 API：get / find / is_known_code / all_alarms / event_id
 - 手冊補充欄位：已知事件帶有原因、處置、每小時重啟上限與頁碼
@@ -36,10 +36,22 @@ EXPECTED_TAG_BY_LEVEL = {
 }
 
 
-def test_catalog_has_all_314_events_with_expected_level_counts() -> None:
+def test_catalog_has_all_314_xlsx_events_plus_manual_only_a039() -> None:
     alarms = all_alarms()
-    assert len(alarms) == 314
-    assert Counter(a.level for a in alarms) == {"T1": 207, "A": 62, "I": 24, "T2": 21}
+    assert len(alarms) == 315
+    assert Counter(a.level for a in alarms) == {"T1": 207, "A": 63, "I": 24, "T2": 21}
+
+
+def test_manual_only_auto_restart_blocked_a039() -> None:
+    """自動重啟被封鎖：xlsx 沒列、手冊 Appendix C 有（p.106），PLC 以 A 級警報送出。"""
+    a = get_alarm(39)
+    assert a.level == "A"
+    assert a.text == "Auto restart blocked"
+    assert a.plc_tag == "Z72PLC__ActiveAlarm"
+    assert a.cause is not None and "Max #/hr is exceeded" in a.cause
+    assert a.max_per_hour is None
+    assert a.manual_page == 106
+    assert a.event_id == "A_039"
 
 
 def test_all_alarms_sorted_and_unique() -> None:
@@ -107,7 +119,7 @@ def test_empty_manual_fields_are_none_not_blank() -> None:
 def test_most_events_have_manual_entry() -> None:
     alarms = all_alarms()
     with_manual = [a for a in alarms if a.manual_page is not None]
-    assert len(with_manual) == 306
+    assert len(with_manual) == 307  # xlsx 306 + 手冊獨有 039
     assert all(104 <= a.manual_page <= 130 for a in with_manual)  # type: ignore[operator]  # 已過濾 None
 
 
