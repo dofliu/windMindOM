@@ -106,7 +106,7 @@ Backend port 8100、Frontend 3100、Modbus TCP 5020。port 設定在 `.env`（�
 python -m pytest modules/workflow/tests/ modules/cost/tests/ modules/reporting/tests/ \
                   modules/knowledge/tests/ modules/monitoring/tests/ modules/auth/tests/ \
                   tests/ -q
-# 2026-10-23：1991 passed / 7 skipped / 1 xfailed（約 7–10 分鐘）
+# 2026-10-23：2046 passed / 7 skipped / 1 xfailed（約 7–10 分鐘）
 
 # Frontend（vitest + RTL）
 cd frontend && npx vitest run        # 1513 passed
