@@ -230,7 +230,8 @@ def test_stator_fault_stays_below_alarm_at_low_load() -> None:
 _KEY_SIGNAL_SEVERITY = {"grid_voltage_sag": 0.5, "generator_overspeed": 0.3}
 
 
-@pytest.mark.parametrize("fault_id", sorted(FAULT_SCENARIOS))
+# nuisance 的 key signal 只在瞬間偏離（Pt100 接觸不良的瞬斷），取樣窗不一定碰到：另見下面的專屬測試
+@pytest.mark.parametrize("fault_id", sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance"))
 def test_ground_truth_key_signals_deviate_from_healthy(fault_id: str) -> None:
     healthy, _ = _run(None, 0.0, 14.0, 25.0)
     faulty, cause = _run(fault_id, _KEY_SIGNAL_SEVERITY.get(fault_id, 1.0), 14.0, 25.0)
@@ -264,6 +265,30 @@ def test_sensor_faults_change_only_the_faulty_reading(fault_id: str) -> None:
     for h, f in zip(healthy, faulty, strict=True):
         assert {k: v for k, v in h.items() if k != tag} == {k: v for k, v in f.items() if k != tag}
         assert f[tag] != h[tag]
+
+
+def test_loose_contact_glitches_only_the_bearing_reading_now_and_then() -> None:
+    """Pt100 接觸不良（nuisance，WMOM-20261021-08-b）：關掉 PLC 時只有軸承溫度 1 偶爾讀成斷線值，其餘逐位元同健康。
+
+    瞬斷時讀值＝斷線值（key signal 看得到），其他時間與健康機組相同；瞬斷只佔一小段時間。
+    """
+    def series(fault: bool) -> List[Sample]:
+        model = TurbinePhysicsModel(seed=7)
+        model.plc.enabled = False
+        if fault:
+            model.active_faults = [{"scenario_id": "main_bearing_temp_loose_contact", "severity": 1.0}]
+        return [dict(model.step(wind_speed=14.0, wind_direction=180.0, ambient_temp=25.0, dt=DT))
+                for _ in range(int(1.5 * 3600 / DT))]
+
+    healthy, loose = series(False), series(True)
+    tag = "WGEN_GnBrgTmp1"
+    glitches = 0
+    for h, f in zip(healthy, loose, strict=True):
+        assert {k: v for k, v in h.items() if k != tag} == {k: v for k, v in f.items() if k != tag}
+        if f[tag] != h[tag]:
+            assert f[tag] == SPEC.pt100_broken_wire_c
+            glitches += 1
+    assert 0 < glitches < 0.05 * len(loose)
 
 
 def test_broken_sensors_read_a_constant_out_of_range_value() -> None:

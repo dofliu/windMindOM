@@ -89,6 +89,11 @@ class _RollingMean:
 
 # 斷線 / 編碼器故障這類「一壞就壞」的感測器故障在嚴重度到這裡時發生（之前讀值正常；WMOM-20261021-08-a）
 SENSOR_BREAK_SEVERITY = 0.5
+# Pt100 接觸不良（nuisance，手冊 §11.3，WMOM-20261021-08-b）：注入後第一次瞬斷的時間、每次瞬斷的長度、
+# 兩次瞬斷的間隔（秒，各取均勻分布）。瞬斷讀值同斷線（PLC 報 242），接回後讀值正常
+LOOSE_CONTACT_FIRST_S = (300.0, 1200.0)
+LOOSE_CONTACT_GLITCH_S = (10.0, 30.0)
+LOOSE_CONTACT_INTERVAL_S = (900.0, 2700.0)
 
 
 @dataclass
@@ -157,6 +162,12 @@ class TurbineSpec:
     yaw_pressure_delay_s: float = 30.0   # s, event delay for both low events
     yaw_pressure_normal: float = 210.0   # bar, high friction
     yaw_leak_detector_alarm_bar: float = 3.0  # event 261: leakage detector > 3 bar
+    # Z72 yaw time-out (manual Appendix D: SDYawTmOutFact 5, SDYawTmOutOffs 0 s → event 223, WMOM-20261021-08-b):
+    # yawing into the wind may take at most factor × expected time + offset, expected time = yaw error at the
+    # start ÷ nominal yaw speed. Healthy yaw runs take ≤ 1.4 × the expected time.
+    yaw_timeout_factor: float = 5.0
+    yaw_timeout_offset_s: float = 0.0
+    yaw_rate_deg_s: float = 0.5          # Z72 nominal yaw speed (YawModel.yaw_rate)
     cable_twist_limit: float = 2.5       # turns
 
     # Z72 PLC protection setpoints for the remaining scenario events (WMOM-20261021-03a).
@@ -245,7 +256,7 @@ Z72_PLC_SETPOINT_FIELDS = frozenset({
     "gen_stator_alarm", "gen_stator_trip", "gen_bearing_alarm", "gen_bearing_trip",
     "nacelle_cab_alarm", "nacelle_cab_trip",
     "yaw_pressure_trip", "yaw_pressure_alarm", "yaw_pressure_reset_bar", "yaw_pressure_delay_s",
-    "yaw_leak_detector_alarm_bar",
+    "yaw_leak_detector_alarm_bar", "yaw_timeout_factor", "yaw_timeout_offset_s",
     "generator_overspeed_rpm", "blade_discrepancy_5s_deg", "blade_discrepancy_3s_deg",
     "blade_discrepancy_instant_deg", "vane_discrepancy_deg", "vane_discrepancy_delay_s",
     "vane_discrepancy_min_wind", "vane_discrepancy_wind_avg_s", "nacelle_air_alarm", "pt100_filter_tau_s",
@@ -327,6 +338,13 @@ class TurbinePhysicsModel:
         self._rtd_rng = np.random.RandomState(None if seed is None else (seed + 7919) % (2 ** 32))
         # Stator Pt100 #2 sits in another slot of the same winding: fixed per-turbine offset
         self._stator_rtd2_offset = float(np.clip(self._rtd_rng.normal(0.0, 0.8), -2.0, 2.0))
+        # Pt100 loose-contact nuisance (WMOM-20261021-08-b): glitch timing from its own stream, drawn only while
+        # that nuisance is active, so no existing stream (or healthy output) changes
+        self._contact_rng = np.random.RandomState(None if seed is None else (seed + 104723) % (2 ** 32))
+        self._contact_glitch_until = -1.0
+        self._contact_next_glitch: Optional[float] = None
+        # 排程屬於哪一次注入（FaultEngine 的 instance_id）：再注入就重新起算
+        self._contact_instance: Optional[int] = None
 
         # Per-turbine blade mass offsets (fractional, ±0.5% manufacturing tolerance)
         _blade_mass_offsets = [
@@ -777,7 +795,11 @@ class TurbinePhysicsModel:
         )
 
         # Apply frequency-watt derate to grid-side power
+        # 下垂降載少送出的功率（變槳少擷取）不是變頻器的熱：熱只算效率損失。原本整段差額都算進變頻器發熱，
+        # 頻率偏高未跳機時冷卻水溫一分鐘升 18 °C、誤送 420（WMOM-20261021-08-b）。沒有降載時為 0，健康輸出不變
+        withheld_kw = 0.0
         if is_producing:
+            withheld_kw = cnv_gd_pwr * (1.0 - elec_out["freq_watt_derate"])
             cnv_gd_pwr = elec_out["active_power_kw"]
 
         # Check ride-through trip
@@ -848,7 +870,7 @@ class TurbinePhysicsModel:
             "rotor": brake_heat_kw * 0.30,
             "hub": brake_heat_kw * 0.24,
             "nacelle": brake_heat_kw * 0.10 + gbx_brg_heat * 0.4,
-            "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr),
+            "converter": max(0.0, cnv_gn_pwr - cnv_gd_pwr - withheld_kw),
         }.items():
             extra_heat[key] = extra_heat.get(key, 0.0) + value
 
@@ -1161,7 +1183,8 @@ class TurbinePhysicsModel:
         # are the exception: the faulty sensor's reading is what the PLC gets. T1 = normal servo
         # stop, T2 = emergency pitch (_request_stop never downgrades a pending emergency).
         for code, level in self.plc.evaluate(measured, self._sim_time, dt, producing=self.tur_state == 6,
-                                             yawing=bool(yaw_out.get("is_yawing", 0.0))):
+                                             yawing=bool(yaw_out.get("is_yawing", 0.0)),
+                                             unwinding=bool(yaw_out.get("is_unwinding", 0.0))):
             self._request_stop("emergency" if level == "T2" else "normal", f"plc:{code}")
         return sensorized
 
@@ -1514,6 +1537,9 @@ class TurbinePhysicsModel:
         self.electrical.reset()
         self.plc.reset()
         self.maintenance_lock = False
+        self._contact_glitch_until = -1.0
+        self._contact_next_glitch = None
+        self._contact_instance = None
 
     def _enter_state(self, state: int):
         self.tur_state = state
@@ -1747,6 +1773,30 @@ class TurbinePhysicsModel:
             return {"noise": 0.08, "drift": 0.001, "bias_limit": 0.8, "resolution": 0.01, "stuck_prob": 0.00012, "min": -360.0, "max": 360.0}
         return {"noise": 0.02, "drift": 0.0002, "bias_limit": 0.2, "resolution": 0.01, "stuck_prob": 0.0, "min": -1.0e9, "max": 1.0e9}
 
+    def _loose_contact_glitch(self, instance: Optional[int]) -> bool:
+        """Pt100 接觸不良：現在是否在瞬斷中（第一次在注入後 5–20 分鐘，之後每 15–45 分鐘一次、每次 10–30 秒）。
+
+        時間排程只用 ``_contact_rng``、只在這個 nuisance 進行中抽樣；同一個模擬時刻重複呼叫結果相同。換了一次注入
+        （``instance`` 不同，例：連續兩個命名情境都在開頭注入）就從現在重新排程，不沿用上一次的時刻。
+
+        Args:
+            instance: 這次注入的 ``ActiveFault.instance_id``。
+
+        Returns:
+            True＝讀值斷線。
+        """
+        t = self._sim_time
+        if instance != self._contact_instance:
+            self._contact_instance = instance
+            self._contact_next_glitch = None
+            self._contact_glitch_until = -1.0
+        if self._contact_next_glitch is None:
+            self._contact_next_glitch = t + self._contact_rng.uniform(*LOOSE_CONTACT_FIRST_S)
+        if t >= self._contact_next_glitch and t >= self._contact_glitch_until:
+            self._contact_glitch_until = t + self._contact_rng.uniform(*LOOSE_CONTACT_GLITCH_S)
+            self._contact_next_glitch = self._contact_glitch_until + self._contact_rng.uniform(*LOOSE_CONTACT_INTERVAL_S)
+        return t < self._contact_glitch_until
+
     def _get_fault_physics(self) -> Dict[str, object]:
         """Compute physical effects of all active faults.
 
@@ -1897,6 +1947,10 @@ class TurbinePhysicsModel:
                 if severity >= SENSOR_BREAK_SEVERITY:
                     fault_physics["sensor_faults"]["WYAW_YwBrkHyPrs"] = (
                         "pinned", self.spec.yaw_pressure_broken_wire_bar)
+            # nuisance（手冊 §11.3「a loose wire in a generator Pt100」）：偶爾瞬間斷線又自己接上
+            elif scenario_id == "main_bearing_temp_loose_contact":
+                if self._loose_contact_glitch(fault.get("instance_id")):
+                    fault_physics["sensor_faults"]["WGEN_GnBrgTmp1"] = ("pinned", self.spec.pt100_broken_wire_c)
 
             # ── stator_winding_degradation ───────────────────────────
             # Insulation resistance decreases. Extra I²R losses at load.

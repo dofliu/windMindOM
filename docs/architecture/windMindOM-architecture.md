@@ -1,6 +1,6 @@
 # windMindOM 系統架構全貌
 
-> 版本：v0.8.1 產品基線；狀態截至 **2026-10-23**（EPIC-DS 手冊保真度 WMOM-20261022-02 後）
+> 版本：v0.8.1 產品基線；狀態截至 **2026-10-23**（EPIC-DS 誤報 / 健康負樣本 WMOM-20261021-08-b 後）
 > 受眾：第一次接觸專案的同仁、對外 demo、partner / 學生專題對接
 > 先看 §1 一張圖看全貌、§2 現行主線 EPIC-DS 的資料流，再依興趣往下看細節圖。
 > 同內容的互動說明頁（含模組卡與進度條）連結記在 [`work-logs/2026-10/2026-10-22-architecture-docs.md`](../../work-logs/2026-10/2026-10-22-architecture-docs.md) §2.1。
@@ -40,7 +40,7 @@ flowchart TB
         Rep["reporting ✅<br/>月報 PDF・年度預算"]
         Know["knowledge 🟡 75%<br/>警報查 Z72 手冊"]
         Auth["auth ✅<br/>JWT + RBAC"]
-        Mon["monitoring ✅ / EPIC-DS 🟡<br/>14 台 Z72 物理模擬・118 tag<br/>PLC 保護層（315 碼）・16 故障情境<br/>情境・標準答案・回放・OPC UA"]
+        Mon["monitoring ✅ / EPIC-DS 🟡<br/>14 台 Z72 物理模擬・118 tag<br/>PLC 保護層（315 碼）・16 故障 + 1 nuisance 情境・風場事件<br/>情境・標準答案・回放・OPC UA"]
     end
 
     subgraph Data["💾 資料（SQLite WAL）與外部系統"]
@@ -128,7 +128,7 @@ graph LR
 | 正式評測的前提 | 伺服器 `WMOM_AUTH_ENFORCE=true`（否則不能建立）；單次直播不能暫停 / 倒帶；整台伺服器正式評測總速率 ≤ 1000 筆讀值 / 秒（DEC-20261022-05） |
 | 擬真 | 警報碼、文字、等級以 Z72 真實目錄為準（xlsx 314 碼＋手冊獨有的 A039）；PLC 設定值依手冊 Appendix D；資料包 102 欄 = 47 個真實 Bachmann tag + 55 個合成 tag |
 
-介面合約：[`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)（v1.4）；設計與各階段紀錄：[`docs/product/EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md)；學生 starter kit：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)。
+介面合約：[`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)（v1.5）；設計與各階段紀錄：[`docs/product/EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md)；學生 starter kit：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)。
 
 ---
 
@@ -354,9 +354,9 @@ gantt
 | M2 成本 / M3 工單 / M4 庫存與報表 | 100% |
 | M5 手冊查詢與現場頁 | 75%（剩客戶手冊、一年警報資料，隨 M6 暫緩） |
 | M6 PoC 與合約 | 暫緩（DEC-20261021-01）；auth 已完成部分保留 |
-| EPIC-DS | 94%：Phase 1a–3d、4-a、全面檢查、手冊保真度完成；下一步 -08 其餘子項（先請劉老師挑） |
+| EPIC-DS | 95%：Phase 1a–3d、4-a、4-b（誤報 / 健康負樣本）、全面檢查、手冊保真度完成；下一步 -08 其餘子項（多重故障 + 早期徵兆、故障庫擴充，先請劉老師挑） |
 
-測試：backend 1991 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-23）。
+測試：backend 2051 passed / 7 skipped / 1 xfailed；frontend vitest 1513 passed（2026-10-23）。
 
 ---
 
@@ -374,7 +374,7 @@ gantt
 | 模組詳細設計 + 整合 | [`docs/product/MVP_ARCHITECTURE.md`](../product/MVP_ARCHITECTURE.md) |
 | 路線圖與現行主線 | [`docs/product/ROADMAP.md`](../product/ROADMAP.md) |
 | EPIC-DS 設計與各階段紀錄 | [`docs/product/EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) |
-| 給受測端的介面合約（v1.4） | [`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md) |
+| 給受測端的介面合約（v1.5） | [`docs/integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md) |
 | 學生 starter kit | [`examples/rag_starter_kit/`](../../examples/rag_starter_kit/) |
 | 重大決策（最新 DEC-20261022-05） | [`docs/product/decision_log.md`](../product/decision_log.md) |
 | M3 工單 / 簽核 / 庫存設計 | [`docs/design-notes/m3/`](../design-notes/m3/) |

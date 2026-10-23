@@ -1,0 +1,82 @@
+{
+ "contract_version": "1.5",
+ "pack_id": "z72-starter-05",
+ "turbine_model": "Z72",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004"
+ ],
+ "sim_start": "2026-07-20T03:00:10.000000Z",
+ "sim_end": "2026-07-20T09:00:00.000000Z",
+ "sample_period_s": 10.0,
+ "stats_window_s": 600,
+ "stats_convention": {
+  "window_s": 600,
+  "alignment": "UTC, aligned to whole 10-minute boundaries",
+  "interval": "left-closed [window_start, window_end)",
+  "label": "window_start",
+  "std_ddof": 1,
+  "partial_window": "is_partial = n_samples < floor(window_s / sample_period_s); first/last windows and gaps are partial",
+  "analog_stats": [
+   "avg",
+   "min",
+   "max",
+   "std"
+  ],
+  "discrete_stats": [
+   "min",
+   "max"
+  ],
+  "circular_tags": [
+   "Z72PLC__UI_Loc_WMET_Analogue_WDirAbs"
+  ],
+  "circular_method": "avg = circular mean (0-360), std = Yamartino; min/max linear",
+  "missing_values": "ignored; a window with no valid value gives null"
+ },
+ "duration_hours": 6.0,
+ "site_timezone": "Asia/Taipei",
+ "wind_profile": "rated",
+ "rated_power_kw": 2000.0,
+ "ground_truth_included": false,
+ "generator": {
+  "name": "windMindOM",
+  "exporter_version": "1",
+  "simulator": "modules/monitoring (Z72 physics + PLC protection)"
+ },
+ "reproducibility": {
+  "seed": null,
+  "note": "Generated from the live simulator state at generation time; not reproducible from this manifest alone (WMOM-20261021-05 known limitation)."
+ },
+ "counts": {
+  "raw_rows": 8640,
+  "stats_rows": 148,
+  "partial_windows": 8,
+  "events": 187,
+  "events_dropped": 0
+ },
+ "files": {
+  "tag_dictionary.json": {
+   "sha256": "afdba6e80954f83aeee7f377663208c44b7300d6355f7b21c3bd238f28bd84c3",
+   "bytes": 34904
+  },
+  "alarm_catalog.json": {
+   "sha256": "e27aa37ff13d5630476e41ffd32a056c82daed24a9f47509ea7be89b8be4a19d",
+   "bytes": 101937
+  },
+  "timeseries_raw.parquet": {
+   "sha256": "d2a053243edb6d7eebfbbaaf8d2dbcc924b9c938035d03da7fa5f2c77a556ffe",
+   "bytes": 984028
+  },
+  "stats_10min.parquet": {
+   "sha256": "e1d9b5f28411df50e9c9d740dc0ab8082540168a1596d4d51f85a867de5d5d66",
+   "bytes": 314775
+  },
+  "events.jsonl": {
+   "sha256": "4143f8bef98b9873aab8cad6343b2fdafec735ff77c54233d679eb351d1249bc",
+   "bytes": 58826
+  }
+ },
+ "exported_at": "2026-10-23T11:37:35.050914Z"
+}

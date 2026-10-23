@@ -75,7 +75,11 @@ def _run_until_tripped(scenario_id: str) -> Tuple[WindFarmSimulator, List[PlcEve
     return sim, events, states
 
 
-@pytest.mark.parametrize("scenario_id", sorted(FAULT_SCENARIOS))
+# nuisance 情境不鎖機組、不轉 tripped（Pt100 接觸不良另見 test_nuisance_events.py）
+FAULT_IDS = sorted(sid for sid, sc in FAULT_SCENARIOS.items() if sc.category != "nuisance")
+
+
+@pytest.mark.parametrize("scenario_id", FAULT_IDS)
 def test_full_severity_fault_trips_turbine_with_expected_code(scenario_id: str) -> None:
     sim, events, states = _run_until_tripped(scenario_id)
     fault = sim.fault_engine.active_faults[0]

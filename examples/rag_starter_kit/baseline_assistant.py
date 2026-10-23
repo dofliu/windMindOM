@@ -5,6 +5,8 @@
 - 只看 ``events.jsonl``：每台機組出現新的警報 / 跳機碼時，用警報文字的關鍵字猜元件，輸出一筆診斷，
   手冊引用列出該機組至今出現過的碼（最新的在前）。
 - 資訊類事件（I 級，例：201 風速過高停機）一律判成干擾（``nuisance``）。
+- 同一個警報 / 跳機碼 60 秒內已在另一台機組出現（例：電網擾動全場一起跳）→ 判成干擾（v1.5）。第一台機組
+  那時還看不出來，照樣當故障——這筆會算誤報。
 - 警報文字點名感測器（sensor / encoder / temperature fault）時判成感測器故障，其餘判 ``real_fault``。
 
 所以它**做不到**的正是學生專題該做的：
@@ -12,6 +14,7 @@
 - 只看警報文字判類別 → 讀值像真故障的感測器故障（例：溫度量測回路劣化，送出的是和真故障一樣的
   262 / 240）分不出來；要比對同元件的第二支感測器、振動與負載才看得出。
 - 關鍵字對照取代檢索 → 換一組警報就猜不到，也不會讀手冊的原因 / 處置。
+- 不看事件的模式 → 認不出單一機組的干擾（例：Pt100 接點鬆動反覆跳 242、跳完讀值立刻正常），一律當故障。
 
 用法::
 
@@ -24,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -44,6 +48,8 @@ KEYWORDS: Sequence[Tuple[Tuple[str, ...], str]] = (
 
 # 警報文字點名感測器 → 感測器故障（只認得有專屬故障碼的；讀值像真故障的漂移認不出來）
 SENSOR_WORDS: Tuple[str, ...] = ("sensor", "encoder", "temperature fault", "signal fault")
+# 同一個碼在另一台機組這麼多秒內也出現 → 全場一起發生，判成干擾
+FARM_WIDE_WINDOW_S = 60.0
 
 
 def guess_category(alarm_text: str) -> str:
@@ -94,6 +100,8 @@ class BaselineAssistant:
 
     def __init__(self) -> None:
         self._seen_codes: Dict[str, List[int]] = {}
+        # 事件碼 → {機組: 最近一次出現的時間}
+        self._last_seen: Dict[int, Dict[str, datetime]] = {}
 
     def on_event(self, event: Dict[str, object]) -> Optional[Dict[str, object]]:
         """處理一則事件。
@@ -112,10 +120,19 @@ class BaselineAssistant:
         if event["event_type"] not in ("alarm_raised", "trip"):
             return None
         code = int(str(event["alarm_code"]))
+        ts = datetime.fromisoformat(str(event["ts"]).replace("Z", "+00:00"))
+        seen = self._last_seen.setdefault(code, {})
+        farm_wide = [t for t, last in seen.items()
+                     if t != turbine and abs((ts - last).total_seconds()) <= FARM_WIDE_WINDOW_S]
+        seen[turbine] = ts
         codes = self._seen_codes.setdefault(turbine, [])
         if code in codes:
             return None
         codes.insert(0, code)
+        if farm_wide:
+            return {"turbine_id": turbine, "category": "nuisance", "component": None, "manual_refs": [code],
+                    "root_cause": f"Event {code} on {len(farm_wide) + 1} turbines within {FARM_WIDE_WINDOW_S:.0f} s: "
+                                  "a farm-wide disturbance, not a turbine fault"}
         component = guess_component(str(event["alarm_text"]))
         if component is None:
             return None

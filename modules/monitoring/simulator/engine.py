@@ -4,7 +4,7 @@ import time
 import math
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, Set
 from collections import deque
 
 import numpy as np
@@ -19,6 +19,7 @@ from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPla
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 from simulator.bulk_events import STATE_CHANGE, BulkEvent
+from simulator.farm_events import FarmEvent
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, utc_now
 
 
@@ -72,6 +73,8 @@ class WindFarmSimulator:
 
         self.fault_engine = FaultEngine()
         self.modbus_server: Optional[ModbusSimServer] = None
+        # 風場事件（風向快速變化，WMOM-20261021-08-b）加在風場風向上的偏移；0 時不套用（健康資料不變）
+        self._direction_offset_deg = 0.0
 
         # Per-turbine wind variation and turbulence
         self._turbulence_gen = TurbulenceGenerator(seed=42)
@@ -183,6 +186,8 @@ class WindFarmSimulator:
         """Execute one physics timestep for all turbines. Returns readings list."""
         base_wind = self.wind_model.get_wind_speed(sim_time)
         wind_direction = self.wind_model.get_wind_direction(sim_time)
+        if self._direction_offset_deg:
+            wind_direction = (wind_direction + self._direction_offset_deg) % 360.0
         ambient_temp = self.wind_model.get_ambient_temp(sim_time)
         ambient_humidity = self.wind_model.get_ambient_humidity(sim_time)
         grid_frequency = self.grid_model.get_frequency(sim_time)
@@ -250,6 +255,7 @@ class WindFarmSimulator:
                     "scenario_id": fault.scenario_id,
                     "severity": fault.severity,
                     "tripped": fault.tripped,
+                    "instance_id": fault.instance_id,
                 }
                 for fault in turbine_faults
             ]
@@ -425,7 +431,9 @@ class WindFarmSimulator:
                       fault_schedule: Optional[List[TestPlanStep]] = None,
                       on_fault_injected: Optional[Callable[[TestPlanStep, datetime], None]] = None,
                       on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None,
-                      on_events: Optional[Callable[[List[BulkEvent]], None]] = None) -> int:
+                      on_events: Optional[Callable[[List[BulkEvent]], None]] = None,
+                      farm_events: Optional[List[FarmEvent]] = None,
+                      on_farm_event: Optional[Callable[[FarmEvent, datetime, datetime], None]] = None) -> int:
         """Generate bulk historical data without real-time waiting.
 
         Runs the full physics simulation at maximum speed, writing data
@@ -451,6 +459,11 @@ class WindFarmSimulator:
             on_events: 選填。每個輸出步結束時，以本步（所有物理子步）收集到的可觀測事件回呼：
                 PLC 事件（警報 / 跳機 / 復位 / 資訊）與運轉狀態轉換，時間戳為模擬時間
                 （WMOM-20261021-04）。不給時事件照舊丟棄。收集只讀狀態、不改物理結果。
+            farm_events: 選填。風場層級事件（電網擾動、風向快速變化，WMOM-20261021-08-b），各於自身
+                ``offset_seconds``（相對批次起點）開始、持續 ``duration_s``，套用到與它重疊的每個物理子步。
+                電網事件期間只覆寫事件指定的量（profile / 手動覆寫不動），結束後拿掉；風向偏移在批次結束時歸零。
+            on_farm_event: 選填。每個風場事件開始時，以 ``(event, 開始模擬時間, 結束模擬時間)`` 回呼
+                （標準答案據此標 nuisance case）。
 
         Returns:
             Total number of readings generated
@@ -468,6 +481,12 @@ class WindFarmSimulator:
         # 依注入時間排序；sched_idx 指向下一支待注入的故障。
         schedule = sorted(fault_schedule or [], key=lambda s: s.offset_seconds)
         sched_idx = 0
+        # 風場事件：開始過的事件（回呼一次）；電網的事件覆寫在事件結束 / 批次結束時拿掉
+        events_sorted = sorted(farm_events or [], key=lambda e: e.offset_seconds)
+        started_events: Set[int] = set()
+        grid_overridden = False
+        # 最後一個事件結束、狀態也復原後就不必每個子步掃一遍
+        farm_events_end_s = max((e.end_seconds for e in events_sorted), default=0.0)
 
         # 批次續跑旗標與 Live 的 _running **解耦**：即使 Live 未在跑（stop_live_loop 後 _running
         # 為 False）批次仍應執行；且「停 Live」與「跑批次」不再共用旗標互相干擾（見 stop_live_loop
@@ -507,7 +526,12 @@ class WindFarmSimulator:
                 # 事件則每個子步都收（狀態轉換可能只維持一個子步）。
                 readings: List[Dict] = []
                 step_events: List[BulkEvent] = []
-                for _ in range(n_sub):
+                for sub_i in range(n_sub):
+                    if events_sorted and (elapsed_seconds + sub_i * sub_dt <= farm_events_end_s
+                                          or grid_overridden or self._direction_offset_deg):
+                        grid_overridden = self._apply_farm_events(
+                            events_sorted, elapsed_seconds + sub_i * sub_dt, sub_dt, sim_time, started_events,
+                            grid_overridden, on_farm_event)
                     sim_time += timedelta(seconds=sub_dt)
                     readings = self._run_one_step(sim_time, sub_dt)
                     if on_events is not None:
@@ -525,12 +549,60 @@ class WindFarmSimulator:
         finally:
             self._bulk_running = False
             self._on_fault_tripped = prev_on_fault_tripped
+            if events_sorted:
+                self.grid_model.clear_event_override()
+                self._direction_offset_deg = 0.0
             # 不收事件（on_events 為 None）時丟掉佇列裡的批次事件，否則 Live 恢復後 broker 會把
             # 它們當成「剛剛發生」的事件寫入；收事件時這裡只會是空的
             for model in self.turbines.values():
                 model.plc.drain_events()
 
         return total_readings
+
+    def _apply_farm_events(self, events: List[FarmEvent], elapsed_s: float, dt: float, sim_time: datetime,
+                           started: Set[int], grid_overridden: bool,
+                           on_farm_event: Optional[Callable[[FarmEvent, datetime, datetime], None]]) -> bool:
+        """套用與這個物理子步 ``[elapsed_s, elapsed_s + dt)`` 重疊的風場事件（子步開始前）。
+
+        以重疊判定：比子步短、落在兩個取樣點之間的事件也會套用一個子步，不會被略過。電網：電壓驟降取最深的、
+        頻率越界加總，只覆寫事件指定的量（另一個量照原本的 profile / 覆寫）；沒有進行中的電網事件時拿掉覆寫。
+        風向：進行中擺動的偏移加總。事件第一次套用時以排定的開始時刻回呼 ``on_farm_event``。
+
+        Args:
+            events: 依開始時間排序的風場事件。
+            elapsed_s: 相對批次起點的秒數（本子步開始時）。
+            dt: 子步長度（秒）。
+            sim_time: 本子步開始時的模擬時刻。
+            started: 已回呼過的事件索引（就地更新）。
+            grid_overridden: 目前電網是否被事件覆寫。
+            on_farm_event: 事件開始回呼。
+
+        Returns:
+            套用後電網是否被事件覆寫。
+        """
+        active = [(i, e) for i, e in enumerate(events)
+                  if e.offset_seconds < elapsed_s + dt and e.end_seconds > elapsed_s]
+        for i, event in active:
+            if i not in started:
+                started.add(i)
+                if on_farm_event is not None:
+                    start = sim_time + timedelta(seconds=max(0.0, event.offset_seconds - elapsed_s))
+                    on_farm_event(event, start, start + timedelta(seconds=event.duration_s))
+        grid = self.grid_model
+        dips = [e.magnitude for _, e in active if e.kind == "grid_voltage_dip"]
+        freq_shift = [e.magnitude for _, e in active if e.kind == "grid_frequency_excursion"]
+        if dips or freq_shift:
+            grid.apply_event_override(
+                grid.base_frequency_hz + sum(freq_shift) if freq_shift else None,
+                grid.base_voltage_v * min(dips) if dips else None,
+            )
+            grid_overridden = True
+        elif grid_overridden:
+            grid.clear_event_override()
+            grid_overridden = False
+        self._direction_offset_deg = sum(e.wind_direction_offset(max(elapsed_s, e.offset_seconds))
+                                         for _, e in active)
+        return grid_overridden
 
     def _collect_bulk_events(self, sim_time: datetime, readings: List[Dict],
                              last_states: Dict[str, int]) -> List[BulkEvent]:

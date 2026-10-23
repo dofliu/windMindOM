@@ -1,6 +1,6 @@
-# windMindOM × RAG 維修助手：資料介面合約 v1.4
+# windMindOM × RAG 維修助手：資料介面合約 v1.5
 
-> **版本**：1.4（2026-10-23，WMOM-20261022-02：手冊保真度、自動重啟封鎖改送 A039）；1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
+> **版本**：1.5（2026-10-23，WMOM-20261021-08-b：誤報 / 健康負樣本——nuisance case 與干擾評分）；1.4（2026-10-23，WMOM-20261022-02：手冊保真度、自動重啟封鎖改送 A039）；1.3（2026-10-22，WMOM-20261021-08-a：感測器故障情境、新增軸承 / 定子溫度 2）；1.2（2026-10-22，WMOM-20261021-07：新增 §13 OPC UA）；1.1（2026-10-22，WMOM-20261021-06：新增 §12 WebSocket 回放）；1.0（2026-10-21，WMOM-20261021-09）。取代設計文件 [`EPIC-DS_realistic_data_source.md`](../product/EPIC-DS_realistic_data_source.md) §5 的 v0 草案。
 > **評分欄位**經劉老師確認（2026-10-21）：診斷以「元件 + 類別」自動評分、手冊引用以事件碼評、時效報延遲與早期預警、各項指標分列不合成總分。
 > **範例與工具**：[`examples/rag_starter_kit/`](../../examples/rag_starter_kit/)（範例資料包、讀取程式、基準助手、評分程式）。
 
@@ -32,6 +32,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 - `contract_version` 為 `"主版本.次版本"`。**加欄位、加列舉值** → 次版本 +1；**改名、刪欄位、改語意** → 主版本 +1。
 - 讀取端必須**忽略不認得的欄位**；遇到不認得的列舉值（新的元件、事件種類、停機原因）要能略過，不可整包拒讀。
 - 資料包、標準答案、詞彙檔（[`vocabulary.json`](../../examples/rag_starter_kit/vocabulary.json)）都帶 `contract_version`。讀取端只需檢查主版本（`pack_reader.verify_pack` 示範）。
+- **v1.5 是次版本**：標準答案的 `category: "nuisance"` 從 v1.0 起就是保留的答案類別（§7、§9），v1.5 才開始出現。自己寫評分程式的人要注意：v1.5 的 `cases` 不再全是故障——只把 `real_fault` / `sensor_fault` 當故障評，`nuisance` case 另外處理（kit 的 `score.py` 已更新）；`healthy_turbines`（沒有故障的機組）與 `unattributed_events`（沒有 case 解釋的事件）定義不變，只是 nuisance case 解釋了原本列在那裡的事件。
 
 ## 3. 資料包
 
@@ -53,7 +54,7 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `contract_version` | str | `"1.4"`（讀取端只檢查主版本） |
+| `contract_version` | str | `"1.5"`（讀取端只檢查主版本） |
 | `pack_id` | str | 資料包 ID |
 | `turbine_model` | str | `"Z72"` |
 | `turbines` | list[str] | 機組 ID（`WT001`…） |
@@ -158,8 +159,8 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 | `pack_id` | ✓ | str | 資料包 ID |
 | `turbine_id` | ✓ | str | 機組 |
 | `ts` | ✓ | str | 做出判斷的**模擬時間**（ISO 8601，UTC）。助手只能用 `ts` 以前（含）的資料 |
-| `category` | ✓ | str | `real_fault`（元件劣化 / 故障）、`sensor_fault`（感測器讀值錯、機器本身正常）、`nuisance`（沒有實際故障的事件：環境性停機、誤跳機） |
-| `component` | 故障時 ✓ | str | `vocabulary.json` 的元件 ID；`nuisance` 可為 null |
+| `category` | ✓ | str | `real_fault`（元件劣化 / 故障）、`sensor_fault`（感測器讀值錯、機器本身正常）、`nuisance`（沒有實際故障的事件：電網擾動、風向快速變化、感測器接點鬆動、環境性停機，§7.1） |
+| `component` | 故障時 ✓ | str | `vocabulary.json` 的元件 ID；`nuisance` 可為 null（不評元件） |
 | `manual_refs` | | list[int] | 依相關程度排序的 Z72 事件碼（Appendix C 條目），最相關的在前；預設 `[]` |
 | `root_cause` | | str | 根因說明（不自動評分；保留給人工 / LLM 評） |
 | `actions` | | list[str] | 建議處置（不自動評分） |
@@ -188,9 +189,10 @@ windMindOM（出題 / 評分端）                         學生專題（受測
 | `scenario_id` / `scenario_name` | 出題端的情境 session 與名稱 |
 | `sim_start` / `sim_end` | 情境時間窗（`sim_start` 可能比資料包的第一筆讀值早一步：含 offset 0 的故障注入時刻） |
 | `generated_at` | 生成時間（wall-clock） |
-| `healthy_turbines` | 沒有注入故障的機組（仍可能有環境性停機） |
-| `cases` | 每次故障注入一個 case（下表） |
-| `unattributed_events` | 沒有任何 case 以預期碼解釋的警報 / 跳機 / 資訊事件（`ts`、`turbine_id`、`kind`、`code`、`level`、`text`）：干擾或故障連帶事件 |
+| `healthy_turbines` | 沒有**故障** case 的機組（v1.5 起可能有 nuisance case，例：電網擾動、暴風切出） |
+| `cases` | 每次故障注入一個 case；v1.5 起另有 nuisance case（§7.1）（下表） |
+| `farm_events` | v1.5：風場層級事件（電網擾動、風向快速變化）：`event_id`（`E01`…）、`kind`、`name_zh` / `name_en`、`nuisance_cause`、`start_ts` / `end_ts`、`magnitude` / `magnitude_unit`、`case_ids`（各機組因它而有的 nuisance case）。出題資訊，不在資料包裡 |
+| `unattributed_events` | 沒有任何 case 解釋的警報 / 跳機 / 資訊事件（`ts`、`turbine_id`、`kind`、`code`、`level`、`text`）：v1.5 起只剩故障開始後同機組的連帶事件（其餘歸成 nuisance case） |
 
 case：
 
@@ -198,10 +200,13 @@ case：
 |---|---|---|
 | `case_id` | | `C001`… |
 | `turbine_id` | ✓ | 機組 |
-| `category` | ✓ | `real_fault` / `sensor_fault`（`nuisance` / `healthy` 保留給 -08 後續子項）；同一個元件可能有真故障也有感測器故障（§9） |
-| `component` | ✓ | 元件（詞彙見 §9） |
-| `expected_alarm_codes` | ✓ | 這個故障預期的事件碼（手冊引用的正解） |
-| `onset_ts` | ✓ | 故障開始（注入）時刻；`pre_existing` case 為 null（以 `sim_start` 起算，不評時效） |
+| `category` | ✓ | `real_fault` / `sensor_fault` / `nuisance`（v1.5，§7.1）；同一個元件可能有真故障也有感測器故障（§9） |
+| `nuisance_cause` | ✓ | v1.5：nuisance case 的成因（§9 `nuisance_causes`）；故障 case 為 null |
+| `component` | ✓ | 元件（詞彙見 §9）；風場事件 / 環境性 nuisance case 為 null |
+| `expected_alarm_codes` | ✓ | 這個故障預期的事件碼（手冊引用的正解）；風場事件 / 環境性 nuisance case 是該機組實際出現的碼 |
+| `onset_ts` | ✓ | 故障開始（注入）時刻；`pre_existing` case 為 null（以 `sim_start` 起算，不評時效）。風場事件 case 為事件開始、環境性 case 為第一個事件 |
+| `window_end_ts` | ✓ | v1.5：時間窗終點；null＝到 `sim_end`（故障與注入的 nuisance 都是）。風場事件 / 環境性 case 為最後一個相關事件（風場事件取事件結束與最後一個事件較晚者）＋ 30 分鐘，不超過 `sim_end`；環境性 case 也不跨進同機組故障開始之後 |
+| `farm_event_id` | | v1.5：風場事件 case 對應的 `farm_events[].event_id`，其他為 null |
 | `first_alarm_ts` / `first_alarm_code` | ✓ | 第一個預期碼成立或跳機的時刻 / 碼；整段都沒出現為 null |
 | `trip_ts` / `trip_code` | | 故障造成的跳機 |
 | `superseded` | ✓ | 同機組同故障再注入時，舊 case 為 true：併進取代它的 case 一起評（§8） |
@@ -217,17 +222,34 @@ case：
 | `pre_existing` | ✓ | 情境開始前就存在的故障（開始時間不明） |
 | `origin` / `difficulty` / `injection` / `final_severity` | | 出題資訊 |
 
+### 7.1 nuisance case（v1.5，WMOM-20261021-08-b，DEC-20261023-02）
+
+不是機組故障、卻會讓機組送警報 / 跳機的事件也有答案（`category: "nuisance"`），助手要能認出「這不是故障」：
+
+| 來源 | `nuisance_cause` | 一個 case | 典型事件碼 |
+|---|---|---|---|
+| 電網擾動（風場事件 `grid_voltage_dip` / `grid_frequency_excursion`） | `grid_disturbance` | 每台有反應的機組一個（事件期間到結束後 30 分鐘、沒被故障 case 認領的該事件碼） | 482 / 481 + 021、489 + 021 |
+| 風向快速變化（風場事件 `rapid_wind_direction_change`） | `wind_direction_change` | 同上 | 223 偏航逾時 |
+| 感測器接點鬆動（注入的 nuisance 情境 `main_bearing_temp_loose_contact`，手冊 §11.3） | `loose_contact` | 每次注入一個（同故障 case，時間窗到 `sim_end`，`component` 為 `main_bearing`） | 反覆的 242，之後可能 A039 |
+| 環境 / 運轉條件（沒有注入，模擬自己產生） | `environment` | 沒有故障 case 的機組上、或故障開始之前，其餘沒被認領的警報 / 跳機 / 資訊事件，同機組相隔 30 分鐘內算一個 | 201 暴風切出、256 / 273 極端氣溫 |
+
+- 風場事件進行中到結束後 10 分鐘，該機組任何沒被認領的警報 / 跳機都歸這個事件（例：降載期間的連帶警報）；事件自己的碼（上表）到結束後 30 分鐘都歸它，而且這段時間不讓故障 case 認領（例：故障預期碼 021 / 481）。同時被幾個風場事件涵蓋時歸給最晚開始的（一小時內兩次電壓驟降各自有 case）。
+- A039（自動重啟被封鎖）沒有寫是哪個碼造成的：跟著同機組前一次跳機歸屬（nuisance 跳機之後的歸那個 nuisance case）。
+- 故障機組上也可能有 nuisance case（例：電網擾動同時讓故障機組跳 482）；故障開始後同機組其他沒被認領的碼仍列在 `unattributed_events`（故障連帶）。
+- `other_observed_codes` 列的是 case 期間同機組出現的其他碼，可能也被其他 case 認領（例：Pt100 鬆線 case 也列出同機組的電網碼）。
+- nuisance case 的 `root_cause` / `expected_actions` / `manual_refs` 照樣有（人工 / LLM 評用）。
+
 ## 8. 評分（`examples/rag_starter_kit/score.py`）
 
 **對應規則**
-1. 每個 case 的時間窗＝`[故障開始, sim_end]`。故障開始＝`onset_ts`；同機組同故障再注入時（舊 case 標 `superseded`），舊 case 併進取代它的 case，從最早那次注入起算、第一個預期警報也取最早的。`pre_existing` case（`onset_ts` 為 null）從 `sim_start` 起算。
-2. **故障診斷**＝`category` 為 `real_fault` / `sensor_fault` 的預測。依 `pack_id`、`turbine_id` 與 `ts` 落在哪個 case 的時間窗對到 case；同時落在多個 case 時，優先元件相同者，否則取最近開始的。同一時刻的預測依檔案行號排先後。
-3. 對不到任何 case 的故障診斷是**誤報**（健康機組、故障開始之前、或情境結束之後）。
-4. `nuisance` 預測 v1 **不評分**（-08 才有干擾 / 健康 case），只統計筆數；它也不會撤回之前的故障診斷。
-5. 每個 case 以**最後一筆**對到的診斷評元件、類別與手冊引用（助手可以邊看邊修正）。
+1. 每個 case 的時間窗＝`[故障開始, window_end_ts]`（null 時到 `sim_end`；v1.4 以前的答案沒有這個欄位，一律到 `sim_end`）。故障開始＝`onset_ts`；同機組同故障再注入時（舊 case 標 `superseded`），舊 case 併進取代它的 case，從最早那次注入起算、第一個預期警報也取最早的。`pre_existing` case（`onset_ts` 為 null）從 `sim_start` 起算。
+2. **故障診斷**＝`category` 為 `real_fault` / `sensor_fault` 的預測。依 `pack_id`、`turbine_id` 與 `ts` 落在哪個**故障** case 的時間窗對到 case；同時落在多個 case 時，優先元件相同者，否則取最近開始的。同一時刻的預測依檔案行號排先後。
+3. 對不到任何故障 case 的故障診斷是**誤報**（健康機組、故障開始之前、或情境結束之後）。落在 nuisance case 時間窗內的誤報另計「把干擾當故障」。
+4. `nuisance` 預測（v1.5）依機組與時間落在 nuisance case 的時間窗＝**認出干擾**（同時有多個取最近開始的）；不評元件。它**不會撤回**之前的故障診斷，落在故障 case 時間窗內只統計筆數（`nuisance_during_fault`）。
+5. 每個故障 case 以**最後一筆**對到的診斷評元件、類別與手冊引用（助手可以邊看邊修正）。
 6. **時效**看「最後一段連續正確」：最後一筆診斷的元件正確時，往前找到連續都正確的第一筆，以它的 `ts` 為「診斷出來的時刻」。最後一筆錯就沒有時效分；中途改口過，從改回正確那筆算起。
 
-**指標**（每個 case 權重相同；比例類指標中沒偵測到的 case 算 0）
+**指標**（偵測率到誤診只算故障 case，每個 case 權重相同；比例類指標中沒偵測到的 case 算 0）
 
 | 指標 | 定義 |
 |---|---|
@@ -240,11 +262,15 @@ case：
 | 延遲 | 診斷出來的時刻 − 第一個預期警報（秒，負值＝提前）；報中位數、平均與**樣本數**（只有元件正確、有預期警報、開始時間已知的 case 才有延遲） |
 | 早期預警 | 診斷出來的時刻早於第一個預期警報，或該 case 整段都沒有預期警報；`pre_existing` case 不評 |
 | 誤診 | 對到 case 但元件錯的診斷筆數（狂猜各種元件會在這裡現形） |
-| 誤報 | 對不到 case 的故障診斷：次數（同機組、同元件相隔 30 分鐘內算同一次，與輸出頻率無關）、筆數、機組數 |
+| 誤報 | 對不到故障 case 的故障診斷：次數（同機組、同元件相隔 30 分鐘內算同一次，與輸出頻率無關）、筆數、機組數 |
+| 誤報率 | v1.5：誤報次數 ÷ 沒有故障的機組時數 × 100（次 / 100 機組小時）。沒有故障的機組時數＝每台機組的情境長度扣掉故障 case 時間窗（故障開始前也算）；誤報只會發生在這段時間 |
+| 干擾辨識率 | v1.5：有 `nuisance` 預測落在時間窗內的 nuisance case / 全部 nuisance case |
+| 把干擾當故障 | v1.5：時間窗內有誤報的 nuisance case 數與那些誤報的筆數（已算進誤報） |
+| 干擾判定落空 / 準確率 | v1.5：對不到任何 nuisance case 的 `nuisance` 預測筆數，與對到的比例。每台每分鐘都報干擾拿得到辨識率，但準確率會很低；`nuisance` 預測落在故障時間窗內另列（`nuisance_during_fault`） |
 
 各項分開列，不合成總分（如何加權由課程評分決定）；早期預警要與誤報、誤診一起看。`root_cause` 與 `actions` 不自動評分。
 
-**基準**：`baseline_assistant.py`（看到警報才用關鍵字猜元件；警報文字點名感測器才判 `sensor_fault`）在四個範例資料包上：偵測率 100 %、元件 87.5 %、群組 100 %、類別 75 %、手冊 hit@1 100 %、早期預警 0、誤診 1、誤報 0。類別錯的兩個 case 都是讀值像真故障的感測器故障。手冊引用很容易拿高分（引用已出現的警報碼就對了）；真正的考驗是**警報出現前**從訊號看出問題、分辨感測器故障，以及引用尚未出現的相關條目。
+**基準**：`baseline_assistant.py`（看到警報才用關鍵字猜元件；警報文字點名感測器才判 `sensor_fault`；同一個碼 60 秒內已在另一台機組出現判 `nuisance`）在五個範例資料包上：偵測率 100 %、元件 87.5 %、群組 100 %、類別 75 %、手冊 hit@1 100 %、早期預警 0、誤診 1；誤報 4 次（全在健康負樣本 05：全場一起跳的電網事件第一台當故障、Pt100 接點鬆動當感測器故障）、誤報率 5.46 次 / 100 機組小時（73.3 機組小時）；干擾辨識率 66.7 %（12 個 nuisance case 認出 8 個，3 個被當故障）。類別錯的兩個 case 都是讀值像真故障的感測器故障。手冊引用很容易拿高分（引用已出現的警報碼就對了）；真正的考驗是**警報出現前**從訊號看出問題、分辨感測器故障，以及引用尚未出現的相關條目。
 
 ## 9. 詞彙
 
@@ -266,6 +292,15 @@ case：
 
 類別：`real_fault`、`sensor_fault`、`nuisance`（預測可用）、`healthy`（只在標準答案）。詞彙會隨故障庫擴充而增加（次版本），既有 ID 不改。
 
+nuisance 成因 `nuisance_causes`（v1.5，只在標準答案；預測不用填）：
+
+| `nuisance_cause` | 說明 |
+|---|---|
+| `grid_disturbance` | 外部電網擾動（電壓驟降、頻率越界） |
+| `wind_direction_change` | 風向快速變化（偏航逾時） |
+| `loose_contact` | 感測器接點鬆動（間歇性斷線跳機） |
+| `environment` | 環境 / 運轉條件（暴風切出、極端氣溫） |
+
 **感測器故障的 `component`**（v1.3）：填**被量測的元件**，類別填 `sensor_fault`。所以同一個元件會有真故障與感測器故障兩種答案：
 
 | 元件 | 真故障（`real_fault`） | 感測器故障（`sensor_fault`） |
@@ -281,15 +316,16 @@ case：
 - 資料由 windMindOM 的 Z72 物理模型與 PLC 保護層產生：警報 / 跳機由訊號越過真實 Z72 保護設定值觸發，事件碼與手冊條目都是真的；物理是簡化模型（不是氣彈 FEM），10 分鐘 std 由 10 s 取樣算出，比真實 PLC 偏低。
 - `synthetic` tag 是真實 Z72 沒有的訊號（§3.3）。`WMET_WSpeedNac` 在模擬裡是自由流風速（真實是風速計讀值），見 tag 字典的 `note`。
 - 標準答案 case 的 `simulation_notes` 列出個別故障與真實不同之處（例：超速在 351 跳機後故障凍結、不會出現 320）。
-- 健康機組也有事件：低風速 / 陣風造成的啟停是 `state_change`（`stop_reason` 為 `low_wind` 等）；偶發的警報 / 跳機 / 資訊事件沒有 case 能解釋時列在標準答案的 `unattributed_events`。助手要能分辨。
+- 健康機組也有事件：低風速 / 陣風造成的啟停是 `state_change`（`stop_reason` 為 `low_wind` 等）；警報 / 跳機 / 資訊事件在 v1.5 起是標準答案的 nuisance case（§7.1）。助手要能分辨。
+- **干擾**（v1.5）：電網擾動作用在整個風場——全部發電中的機組幾乎同時跳同樣的電網碼（482 / 481 / 489 + 021），電壓 / 頻率恢復後自動重啟；風向快速變化時偏航追不上而逾時（223：對風超過「Appendix D `SDYawTmOutFact` × 偏航誤差 ÷ 偏航速度 + `SDYawTmOutOffs`」，解纜不算），風向穩定後自動重啟；主軸承 Pt100 接點鬆動時反覆短暫跳 242、讀值隨即恢復，一小時內次數超過上限就 A039。頻率偏高但沒到 489 的 1.4 Hz 時只下垂降載、不跳機。模擬假設：風場事件全場同時、同一個量（真實的電網事件與風向變化到各機組會有時差）；風向擺動是規則的正弦，振幅約 26° 以下偏航追得上、不會逾時；nuisance 跳機的自動重啟視為已開啟（上限照 Appendix C 每小時次數；手冊 §11.3 的出廠設定是 0）。
 - **手冊 Appendix C 與 D 不一致時以 Appendix D 為準**（v1.4，DEC-20261023-01）：Appendix D 是控制系統的實際設定值。事件時間點因此是：液壓壓力低 170 bar（260）/ 150 bar（228）、延時 30 s、回到 190 bar 以上才解除；風向標差異（233）延時 60 s、風速條件是 60 s 平均（只決定能不能新判定，已跳機的不因風速低而解除）；溫度（Pt100）以 10 s 時間常數濾波後判定；切出陣風是 3 s 平均；機艙溫度 273 為 45 °C；編碼器範圍 −5–95°。Appendix C 的事件說明文字寫的是 180 bar、5 秒、10 分鐘平均——RAG 查到 Appendix C 時，數字可能和資料差幾 bar / 幾秒。
-- **自動重啟被封鎖**（v1.4）：手冊 §8.3，同一個跳機碼一小時內的跳機次數超過目錄的每小時上限（`max_per_hour`）時，PLC 不再自動重啟、送 **A039「Auto restart blocked」**（手冊 p.106；xlsx 事件清單沒有這個碼，資料包的 `alarm_catalog.json` 照常列出、`manual_page` 為 106），機組停在 Shutdown，操作員復位（`reset`）才解除（A039 隨之 `alarm_cleared`）。物理層保護停機（超速、電網）也照同一套每碼計數。同一個碼不分成因算同一種跳機（例：021 伴隨所有變頻器跳機）。A039 是重複跳機的結果、不是根因：標準答案裡列在該機組 case 的 `other_observed_codes`，也列進 `unattributed_events`（沒有 case 以它為預期碼）。低風速的正常啟停不算跳機、不受次數限制。
+- **自動重啟被封鎖**（v1.4）：手冊 §8.3，同一個跳機碼一小時內的跳機次數超過目錄的每小時上限（`max_per_hour`）時，PLC 不再自動重啟、送 **A039「Auto restart blocked」**（手冊 p.106；xlsx 事件清單沒有這個碼，資料包的 `alarm_catalog.json` 照常列出、`manual_page` 為 106），機組停在 Shutdown，操作員復位（`reset`）才解除（A039 隨之 `alarm_cleared`）。物理層保護停機（超速、電網）也照同一套每碼計數。同一個碼不分成因算同一種跳機（例：021 伴隨所有變頻器跳機）。A039 是重複跳機的結果、不是根因：標準答案裡列在該機組 case 的 `other_observed_codes`；跟在 nuisance 跳機之後的 A039 歸給那個 nuisance case（v1.5），其餘照 §7.1 的規則歸類。低風速的正常啟停不算跳機、不受次數限制。
 - **感測器故障**（v1.3）只改那支感測器的讀值，機器本身與其他訊號都正常。分辨的線索：同元件的第二支感測器（`WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`）、振動、讀值與負載的關係。斷線 / 編碼器故障的讀值是固定的超出範圍值（模擬假設：Pt100 850 °C、壓力 −62.5 bar、編碼器 135°），PLC 送專屬故障碼、不再拿這支讀值判斷溫度過高 / 壓力過低 / 葉片差異。
 
 ### 10.1 開發集與正式評測
 
-- starter kit 的範例資料包是**開發集**（附答案），只涵蓋 16 種故障中的 7 種（含 3 種感測器故障），而且每個故障都會出警報。
-- 正式評測的資料包會有開發集沒有的故障、更長的情境，-08 之後還有干擾與健康負樣本；只靠「警報碼 → 元件」對照表拿不到好成績。
+- starter kit 的範例資料包是**開發集**（附答案），只涵蓋 16 種故障中的 7 種（含 3 種感測器故障），而且每個故障都會出警報；v1.5 加了健康負樣本 05（沒有故障：電網電壓驟降、頻率越界、風向快速變化、Pt100 接點鬆動）。
+- 正式評測的資料包會有開發集沒有的故障、更長的情境，也有干擾與健康負樣本；只靠「警報碼 → 元件」對照表拿不到好成績，看到警報就報故障會拉高誤報率。
 - 正式評測的盲測版資料包與開發集同格式，但沒有 `answers/`；答案只在評分端。
 
 ## 11. 版本歷史
@@ -302,6 +338,7 @@ case：
 | 1.2 | 2026-10-22 | 新增 OPC UA（§13，WMOM-20261021-07，DEC-20261022-03）：模仿 Bachmann Z72 tag 的目前值介面（回放或即時模擬）；WebSocket 回放加 `?stream=false`（只收預測、不送資料）與開播訊息的 `stream.data`。資料包與標準答案格式不變（只有 `contract_version` 標成 1.2） |
 | 1.3 | 2026-10-22 | 感測器故障情境（WMOM-20261021-08-a，DEC-20261022-04）：資料包新增兩個真實 tag `WGEN_GnBrgTmp2`、`WGEN_GnStaTmp2`（102 個欄位）；同元件可有真故障與感測器故障（§9 對照表）；新增可能出現的事件碼 241 / 242 / 243 / 245 / 250 / 251 / 263 / 265 / 229 / 326-328；第四個範例資料包。格式不變 |
 | 1.4 | 2026-10-23 | 手冊保真度（WMOM-20261022-02，DEC-20261023-01）：自動重啟被封鎖改送 A039 `alarm_raised` / `alarm_cleared`（手冊獨有碼，警報目錄快照 315 碼），不再送 `restart_blocked`（列舉值保留，舊資料包仍合法）；PLC 設定值以手冊 Appendix D 為準（§10），事件時間點與 1.3 不同；不再有全域「每小時 3 次啟動」上限，物理層保護停機改照每碼上限；`yaw_sensor_drift` 每台機組滿嚴重度都會跳 233。範例資料包重建。欄位不變 |
+| 1.5 | 2026-10-23 | 誤報 / 健康負樣本（WMOM-20261021-08-b，DEC-20261023-02）：標準答案新增 nuisance case（§7.1：電網擾動、風向快速變化、感測器接點鬆動、環境性停機）與欄位 `nuisance_cause`、`window_end_ts`、`farm_event_id`、頂層 `farm_events`；`healthy_turbines` 改為「沒有故障 case 的機組」；`unattributed_events` 只剩故障連帶事件。評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），既有指標只算故障 case、規則不變。新增可能出現的事件碼 223（偏航逾時）。詞彙加 `nuisance_causes`。第五個範例資料包（健康負樣本）。資料包格式不變 |
 | 1.3（修訂） | 2026-10-22 | EPIC-DS 全面檢查（WMOM-20261022-01，DEC-20261022-05），格式與版本號不變：正式評測要伺服器強制登入（§12.1、§13.1）；正式評測總速率上限是整台伺服器的（§12.1）；正式評測的 `?stream=false` 在 OPC UA 開播前也回 4412（不再搶先開始計時）；`manifest.wind_profile` 改寫生成時實際套用的風況；文字更正（§3.5 tag 數、§13.2 `Status` 的 `missing`、4410 的寬限期） |
 
 ## 12. WebSocket 回放（v1.1）

@@ -1,5 +1,5 @@
 {
- "contract_version": "1.4",
+ "contract_version": "1.5",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "干擾：風向標漂移（感測器故障）+ 葉片角不平衡，陣風、健康機組也有事件",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-16T07:00:10.000000Z",
  "sim_end": "2026-03-16T13:00:00.000000Z",
- "generated_at": "2026-10-23T09:18:26.909564Z",
+ "generated_at": "2026-10-23T11:36:32.402863Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -25,6 +25,7 @@
    "case_id": "C001",
    "turbine_id": "WT003",
    "category": "sensor_fault",
+   "nuisance_cause": null,
    "origin": "internal",
    "difficulty": "hard",
    "fault_id": "yaw_sensor_drift",
@@ -75,6 +76,7 @@
    "simulation_notes": [],
    "simulation_notes_en": [],
    "onset_ts": "2026-03-16T07:15:00.000000Z",
+   "window_end_ts": null,
    "first_alarm_ts": "2026-03-16T07:30:05.000000Z",
    "first_alarm_code": 233,
    "trip_ts": "2026-03-16T07:30:05.000000Z",
@@ -88,6 +90,7 @@
     "severity_rate": 0.001,
     "initial_severity": 0.0
    },
+   "farm_event_id": null,
    "final_severity": 0.905,
    "superseded": false,
    "pre_existing": false
@@ -96,6 +99,7 @@
    "case_id": "C002",
    "turbine_id": "WT005",
    "category": "real_fault",
+   "nuisance_cause": null,
    "origin": "internal",
    "difficulty": "hard",
    "fault_id": "pitch_imbalance",
@@ -166,6 +170,7 @@
    "simulation_notes": [],
    "simulation_notes_en": [],
    "onset_ts": "2026-03-16T08:30:00.000000Z",
+   "window_end_ts": null,
    "first_alarm_ts": "2026-03-16T08:44:35.000000Z",
    "first_alarm_code": 336,
    "trip_ts": "2026-03-16T08:44:35.000000Z",
@@ -179,11 +184,13 @@
     "severity_rate": 0.001,
     "initial_severity": 0.0
    },
+   "farm_event_id": null,
    "final_severity": 0.875,
    "superseded": false,
    "pre_existing": false
   }
  ],
+ "farm_events": [],
  "unattributed_events": [],
  "pack_id": "z72-starter-03"
 }

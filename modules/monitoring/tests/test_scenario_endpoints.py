@@ -1022,3 +1022,79 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
         ("DELETE", "/api/scenarios/{scenario_id}"), ("POST", "/api/source/select"),
     }
     assert guarded == expected
+
+
+# ── 風場事件排程（WMOM-20261021-08-b）────────────────────────────────────────
+
+
+@pytest.mark.parametrize("raw, status", [
+    ({"kind": "meteor"}, 404),
+    ({"kind": "grid_voltage_dip", "magnitude": 0.7}, 400),                                  # 缺 duration
+    ({"kind": "grid_voltage_dip", "duration_s": 20}, 400),                                  # 缺 magnitude
+    ({"kind": "grid_voltage_dip", "duration_s": 20, "magnitude": 1.2}, 400),                # 超出範圍
+    ({"kind": "grid_voltage_dip", "duration_s": 0, "magnitude": 0.7}, 400),
+    ({"kind": "grid_voltage_dip", "duration_s": 90000, "magnitude": 0.7}, 400),
+    ({"kind": "grid_voltage_dip", "duration_s": 20, "magnitude": float("nan")}, 400),
+    ({"kind": "grid_voltage_dip", "duration_s": 20, "magnitude": True}, 400),
+    ({"kind": "grid_voltage_dip", "duration_s": "x", "magnitude": 0.7}, 400),
+    ({"kind": "grid_voltage_dip", "offset_seconds": -1, "duration_s": 20, "magnitude": 0.7}, 400),
+    ("not an object", 400),
+])
+def test_parse_farm_events_rejects_bad_items(raw: object, status: int) -> None:
+    with pytest.raises(HTTPException) as exc:
+        config_ep._parse_farm_events([raw])  # type: ignore[list-item]
+    assert exc.value.status_code == status
+
+
+def test_parse_farm_events_accepts_hours_and_minutes_and_sorts() -> None:
+    events = config_ep._parse_farm_events([
+        {"kind": "rapid_wind_direction_change", "at_hour": 2, "duration_minutes": 25, "magnitude": 60},
+        {"kind": "grid_frequency_excursion", "offset_seconds": 600, "duration_s": 40, "magnitude": -1.8},
+    ])
+    assert [(e.kind, e.offset_seconds, e.duration_s, e.magnitude) for e in events] == [
+        ("grid_frequency_excursion", 600.0, 40.0, -1.8), ("rapid_wind_direction_change", 7200.0, 1500.0, 60.0),
+    ]
+    with pytest.raises(HTTPException):
+        config_ep._parse_farm_events({"kind": "grid_voltage_dip"})  # type: ignore[arg-type]
+    with pytest.raises(HTTPException):
+        config_ep._parse_farm_events([{"kind": "grid_voltage_dip", "duration_s": 1, "magnitude": 0.5}] * 51)
+
+
+def test_generate_bulk_with_farm_events_labels_nuisance_cases_and_keeps_them_out_of_the_pack(broker, tmp_path):
+    """電網電壓驟降：情境設定與標準答案記下事件、全場機組各一個 nuisance case；盲測版資料包看不到事件設定。"""
+    from server import scenario_pack as sp
+
+    broker.simulator.wind_model.set_override(wind_speed=13.0, wind_direction=250.0, ambient_temp=25.0)
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.6, "time_step": 10.0, "name": "負樣本", "wind_profile": "rated",
+        "farm_events": [{"kind": "grid_voltage_dip", "offset_seconds": 1500, "duration_s": 20, "magnitude": 0.7}],
+    }))
+    sid = res["scenario_id"]
+    assert res["farm_events_scheduled"] == 1
+    config = broker.storage.get_scenario(sid)["config"]
+    assert config["farm_events"] == [
+        {"kind": "grid_voltage_dip", "offset_seconds": 1500.0, "duration_s": 20.0, "magnitude": 0.7}]
+    gt = broker.storage.get_ground_truth(sid)
+    assert [e["kind"] for e in gt["farm_events"]] == ["grid_voltage_dip"]
+    nuisance = [c for c in gt["cases"] if c["farm_event_id"] == "E01"]
+    assert {c["turbine_id"] for c in nuisance} == {"WT001", "WT002", "WT003"}
+    assert all(c["category"] == "nuisance" and 482 in c["observed_alarm_codes"] for c in nuisance)
+    assert gt["healthy_turbines"] == ["WT001", "WT002", "WT003"]
+    manifest = sp.export_scenario_pack(broker.storage, sid, tmp_path / "blind")
+    for path in (tmp_path / "blind").iterdir():
+        if path.suffix in (".json", ".jsonl"):
+            text = path.read_text(encoding="utf-8")
+            assert "grid_voltage_dip" not in text and "farm_event" not in text, path.name
+    assert "farm_events" not in manifest
+    assert broker.simulator.grid_model.get_status()["mode"] == "auto"
+
+
+def test_farm_event_at_offset_zero_is_inside_the_scenario_window(broker):
+    """offset 0 的風場事件早於第一筆讀值：情境時間窗下界要含它（同 offset 0 的故障注入，Codex review）。"""
+    res = asyncio.run(config_ep.generate_bulk({
+        "duration_hours": 0.05, "time_step": 10.0, "name": "開頭就驟降",
+        "farm_events": [{"kind": "grid_voltage_dip", "offset_seconds": 0, "duration_s": 20, "magnitude": 0.7}],
+    }))
+    gt = broker.storage.get_ground_truth(res["scenario_id"])
+    config = broker.storage.get_scenario(res["scenario_id"])["config"]
+    assert gt["sim_start"] == gt["farm_events"][0]["start_ts"] == config["sim_start"]

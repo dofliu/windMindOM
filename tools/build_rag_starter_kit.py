@@ -65,6 +65,7 @@ class StarterPack:
         hours: 情境長度。
         wind_profile: 風況 profile（``wind_model.set_profile``）。
         faults: 故障排程（``generate-bulk`` 的 ``fault_schedule``）。
+        farm_events: 風場事件排程（``generate-bulk`` 的 ``farm_events``，WMOM-20261021-08-b）。
     """
 
     pack_id: str
@@ -74,6 +75,7 @@ class StarterPack:
     hours: float
     wind_profile: str
     faults: Sequence[Dict[str, object]] = field(default_factory=tuple)
+    farm_events: Sequence[Dict[str, object]] = field(default_factory=tuple)
 
 
 STARTER_PACKS: List[StarterPack] = [
@@ -118,6 +120,21 @@ STARTER_PACKS: List[StarterPack] = [
              "severity_rate": 0.0004},
             {"scenario_id": "yaw_brake_pressure_sensor_fault", "turbine_id": "WT004", "offset_seconds": 7200,
              "severity_rate": 0.001},
+        ),
+    ),
+    StarterPack(
+        pack_id="z72-starter-05",
+        title="健康負樣本：沒有故障——電網電壓驟降、電網頻率越界、風向快速變化（偏航逾時）、一台主軸承 Pt100 接點鬆動",
+        start=datetime(2026, 7, 20, 3, 0, tzinfo=timezone.utc),
+        turbines=4, hours=6.0, wind_profile="rated",
+        faults=(
+            {"scenario_id": "main_bearing_temp_loose_contact", "turbine_id": "WT003", "offset_seconds": 1800,
+             "severity_rate": 0.001},
+        ),
+        farm_events=(
+            {"kind": "grid_voltage_dip", "offset_seconds": 3600, "duration_s": 20, "magnitude": 0.70},
+            {"kind": "grid_frequency_excursion", "offset_seconds": 9000, "duration_s": 40, "magnitude": -1.8},
+            {"kind": "rapid_wind_direction_change", "offset_seconds": 14400, "duration_s": 1500, "magnitude": 60.0},
         ),
     ),
 ]
@@ -181,6 +198,7 @@ def generate(storage: Storage, spec: StarterPack) -> int:
             result = asyncio.run(config_ep.generate_bulk({
                 "duration_hours": spec.hours, "time_step": 10.0, "name": spec.title,
                 "wind_profile": spec.wind_profile, "fault_schedule": [dict(f) for f in spec.faults],
+                "farm_events": [dict(e) for e in spec.farm_events],
             }))
         finally:
             config_ep.get_broker = original
@@ -194,7 +212,8 @@ def _probe(storage: Storage, scenario_id: int, spec: StarterPack) -> None:
     print(f"== {spec.pack_id}: {spec.title}")
     print(f"   events: {len(events)} total, {len(plc)} PLC, healthy={gt.get('healthy_turbines')}")
     for case in gt.get("cases", []):
-        print(f"   {case['case_id']} {case['turbine_id']} {case['fault_id']}: first_alarm={case['first_alarm_ts']} "
+        print(f"   {case['case_id']} {case['turbine_id']} {case['category']} {case['fault_id']}: "
+              f"first_alarm={case['first_alarm_ts']} "
               f"({case['first_alarm_code']}) trip={case['trip_ts']} ({case['trip_code']}) "
               f"observed={case['observed_alarm_codes']} other={case['other_observed_codes']}")
     for item in gt.get("unattributed_events", []):

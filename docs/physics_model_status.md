@@ -1,7 +1,8 @@
 # Physics Model Status
 
-Last updated: 2026-10-21 (fault physics calibrated to real Z72 protection setpoints, WMOM-20261021-03a)
-Previous: 2026-05-01 (Glauert yaw-skew correction on NTF + WVTF, #125)
+Last updated: 2026-10-23 (yaw time-out 223, farm-level nuisance events, Pt100 loose contact, WMOM-20261021-08-b)
+Previous: 2026-10-21 (fault physics calibrated to real Z72 protection setpoints, WMOM-20261021-03a)
+Earlier: 2026-05-01 (Glauert yaw-skew correction on NTF + WVTF, #125)
 
 This document tracks the current completion status of the wind turbine physics models.
 It is intended to be the single reference for:
@@ -220,6 +221,11 @@ Included:
 - setpoints follow the manual's Appendix D where it disagrees with Appendix C (DEC-20261023-01):
   yaw brake pressure 170 / 150 bar with 30 s delay and 190 bar reset, vane discrepancy 60 s delay
   with a 60 s wind average, Pt100 temperatures filtered with τ 10 s, cut-out gust on a 3 s average
+- yaw time-out 223 (Appendix D `SDYawTmOutFact` 5 / `SDYawTmOutOffs` 0 s, WMOM-20261021-08-b): each
+  aligning yaw run (unwinding excluded) may last factor × max(|vane 1 error|, 2°) ÷ yaw rate
+  (0.5 °/s) + offset, fixed when the run starts; healthy yaw runs take at most ~1.4× error ÷ rate (0.29 of
+  the allowance), so it
+  fires only when the wind direction swings faster than the yaw can follow
 - physics-layer protection stops mapped to event codes: overspeed 351/320, LVRT band 1 → 481 and
   band ≥ 2 → 482 (+ 021), HVRT 475 + 021, grid protection by measured voltage (< 0.81 → 482,
   < 0.90 → 481, > 1.08 → 475, else frequency 489; + 021), cut-out I 201; once per stop cycle,
@@ -228,6 +234,17 @@ Included:
   tripped the engine sets `maintenance_lock` (restart inhibit), which replaced the per-step
   emergency stop that made TurSt oscillate 7↔3; when maintenance clears the fault the engine
   clears the PLC's hourly trip count and restart block (`maintenance_release`)
+
+Farm-level nuisance events (WMOM-20261021-08-b, `simulator/farm_events.py`): `generate_bulk(farm_events=...)`
+overrides the farm grid model during a voltage dip / frequency excursion (measurement-noise draws
+unchanged, so data before an event is bit-identical) and adds a sinusoidal wind-direction swing
+(180 s period, ramped in / out over 60 s); both are undone when the batch ends. The nuisance fault
+scenario `main_bearing_temp_loose_contact` pins `WGEN_GnBrgTmp1` to the broken-wire value for
+10–30 s every 15–45 min (first 5–20 min after injection; own `_contact_rng` stream, schedule reset
+when the fault is cleared); it never marks the fault tripped, so the turbine restarts on its own.
+The frequency-watt (droop) derate no longer counts the withheld power as converter heat (only the
+converter's efficiency loss heats it; with no derate the term is exactly 0, so healthy data is unchanged) —
+before, a +1 Hz excursion below the 489 trip heated the IGCT cooling water by 18 °C in a minute and raised 420.
 
 Verified:
 - healthy 3-turbine farm, 2 h automatic wind: no signal-judged events
