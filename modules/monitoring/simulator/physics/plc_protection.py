@@ -240,8 +240,10 @@ def build_rules(spec: "TurbineSpec") -> Tuple[ProtectionRule, ...]:
         ProtectionRule(228, "yaw_brake_pressure", False, spec.yaw_pressure_trip, yaw_trip_hyst,
                        spec.yaw_pressure_delay_s, gate="yaw_brake_settled", valid="yaw_pressure_ok"),
         ProtectionRule(261, "seals_leak", True, 0.5, 0.0, a_delay),
-        # 風向標 1-2 差異（manual：15°、延時 60 s；濾波與風速條件在 signals 內處理）
-        ProtectionRule(233, "vane_discrepancy", True, spec.vane_discrepancy_deg, 3.0, spec.vane_discrepancy_delay_s),
+        # 風向標 1-2 差異（manual：15°、延時 60 s；25 s 濾波在 signals 內處理）。風速條件（Appendix D「enable
+        # wind vane discrepancy」）是判定窗：只禁止新的成立，已鎖存的跳機不因風速掉下來就解除
+        ProtectionRule(233, "vane_discrepancy", True, spec.vane_discrepancy_deg, 3.0, spec.vane_discrepancy_delay_s,
+                       gate="vane_wind_ok"),
         # 塔架加速度（assumed）
         ProtectionRule(236, "vibration", True, spec.tower_vibration_trip_mm_s, 1.0, 10.0),
     ]
@@ -293,7 +295,8 @@ class ActiveEventLists:
       另由 A039（Auto restart blocked）的 ``alarm_raised`` / ``alarm_cleared`` 增減 A 清單。舊資料的
       ``restart_blocked``（合約 v1.4 前）不動清單。
     - 操作員復位（``operator_reset``；資料包事件為 ``reset``）本身不動清單：``PlcProtection.operator_reset``
-      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，清單照舊。
+      解除的每個鎖存都另外送 ``trip_cleared``；維護復位（``maintenance_release``）不解除鎖存，跳機清單照舊
+      （有 A039 時送 ``alarm_cleared``，A 清單移除 039）。
       物理層保護停機的跳機（例：351）在機組再起動時以 ``trip_cleared`` 解除。
     - 資訊事件（I）不在任何清單。
 
@@ -368,7 +371,9 @@ class PlcProtection:
     def reset(self) -> None:
         """清除全部狀態（機組完整 reset 時呼叫）。"""
         self._rule_state: Dict[int, _RuleState] = {i: _RuleState() for i in range(len(self.rules))}
-        self._codes: Dict[int, _CodeState] = {}
+        # 每個可能跳機 / 警報的碼先建好：執行中不新增鍵（API 執行緒的 operator_reset 迭代時不會遇到字典變大）
+        self._codes: Dict[int, _CodeState] = {
+            code: _CodeState() for code in sorted({r.code for r in self.rules} | set(PROTECTION_TRIP_CODES))}
         # 每個事件碼最近一次成立的規則（同碼多規則時，事件的 value / setpoint 取實際成立者）
         self._trigger_rule: Dict[int, ProtectionRule] = {}
         self._protection_latched: Dict[int, float] = {}
@@ -457,8 +462,6 @@ class PlcProtection:
         self._producing_s = self._producing_s + dt if producing else 0.0
         self._brake_applied_s = 0.0 if yawing else self._brake_applied_s + dt
         vane_disc = abs(self._vane1_f - self._vane2_f)
-        if self._wind_avg <= spec.vane_discrepancy_min_wind:
-            vane_disc = 0.0
         pt_ok = _in_range_flag(spec.pt100_valid_range_c)
         blade_ok = [_in_range(a, spec.blade_angle_valid_range_deg) for a in (b1, b2, b3)]
         yaw_pressure = output["WYAW_YwBrkHyPrs"]
@@ -474,6 +477,7 @@ class PlcProtection:
             "yaw_pressure_ok": 1.0 if _in_range(yaw_pressure, spec.yaw_pressure_valid_range_bar) else 0.0,
             "seals_leak": output["WYAW_YwBrkSealsLeak"],
             "vane_discrepancy": vane_disc,
+            "vane_wind_ok": 1.0 if self._wind_avg > spec.vane_discrepancy_min_wind else 0.0,
             "blade_disc_12": abs(b1 - b2),
             "blade_disc_13": abs(b1 - b3),
             "blade_disc_23": abs(b2 - b3),
@@ -594,7 +598,12 @@ class PlcProtection:
         st.trip_times = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S] + [sim_time]
 
     def _over_restart_limit(self, st: _CodeState, code: int, sim_time: float) -> bool:
-        """該碼一小時內的跳機次數是否超過目錄的每小時上限（``max_per_hour``；未列者視為 1）。"""
+        """該碼一小時內的跳機次數是否超過目錄的每小時上限（``max_per_hour``；未列者視為 1）。
+
+        判定時點：訊號判定的跳機在條件解除（要重啟）時、以解除時刻往前一小時計；物理層保護停機的條件由物理層
+        處理，在跳機當下、以跳機時刻往前一小時計。手冊 §8.3 只寫「restarts within the last hour」。同一個碼不分
+        成因都算同一種跳機（例：021 伴隨所有變頻器跳機，冷卻與電網的 021 一起計數）。
+        """
         recent = [t for t in st.trip_times if sim_time - t < _TRIP_WINDOW_S]
         return len(recent) > (self._alarm[code].max_per_hour or 1)
 
@@ -640,7 +649,7 @@ class PlcProtection:
             self._protection_latched[code] = sim_time
             self._emit(sim_time, "trip", code, None, None, source="protection")
             # 與訊號判定的跳機同一套每碼計數（同一個碼＝同一種跳機）；條件由物理層處理，超過上限在跳機當下封鎖
-            st = self._codes.setdefault(code, _CodeState())
+            st = self._codes[code]
             self._record_trip(st, sim_time)
             if self._over_restart_limit(st, code, sim_time):
                 self._protection_blocked.add(code)
@@ -683,6 +692,12 @@ class PlcProtection:
             del self._protection_latched[code]
             self._emit(sim_time, "trip_cleared", code, None, None, source="protection")
 
+    def clear_trip_counts(self) -> None:
+        """清掉每小時跳機計數（命名情境開頭的乾淨機組用）：Live 一小時內自動恢復過的跳機不能讓情境的第一次跳機
+        就送 A039。不送事件、不動鎖存（呼叫端只對沒有成立中事件的機組呼叫）。"""
+        for st in self._codes.values():
+            st.trip_times.clear()
+
     def maintenance_release(self, sim_time: float) -> None:
         """故障被維護清除（修好 + 技師復位）：清除每小時跳機計數與封鎖（含 A039）。
 
@@ -695,7 +710,7 @@ class PlcProtection:
         if not self.enabled:
             return
         released = bool(self._protection_blocked)
-        for st in self._codes.values():
+        for st in list(self._codes.values()):
             released = released or st.latched
             st.trip_times.clear()
             st.blocked = False
@@ -717,7 +732,7 @@ class PlcProtection:
         if not self.enabled:
             return
         released: List[int] = []
-        for code, st in self._codes.items():
+        for code, st in list(self._codes.items()):
             if st.latched:
                 st.latched = False
                 st.blocked = False

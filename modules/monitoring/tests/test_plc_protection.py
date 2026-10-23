@@ -318,6 +318,18 @@ def test_vane_discrepancy_uses_25s_filter_and_60s_delay() -> None:
     assert d.run(1, WYAW_YwVn1AlgnAvg5s=20.0) == [(233, "T1")]
 
 
+def test_latched_vane_discrepancy_trip_is_not_cleared_by_a_wind_lull() -> None:
+    """風速條件是判定窗（Appendix D「enable」）：風速掉下來不等於差異消失，鎖存的 233 不解除、不會風回來再跳一次。"""
+    d = Driver()
+    d.run(60)
+    assert d.run(95, WYAW_YwVn1AlgnAvg5s=20.0) == [(233, "T1")]
+    d.run(300, WYAW_YwVn1AlgnAvg5s=20.0, WMET_WSpeedNac=3.0)       # 風速低谷 5 分鐘
+    d.run(300, WYAW_YwVn1AlgnAvg5s=20.0)                           # 風回來
+    assert d.kinds(233) == ["trip"] and d.plc.restart_inhibited
+    d.run(120)                                                     # 風向標修好：差異消失才解除
+    assert d.kinds(233) == ["trip", "trip_cleared"]
+
+
 def test_vane_discrepancy_wind_condition_is_a_60s_average() -> None:
     """Appendix D 的 SDVw60sWndVnDiscr：60 s 平均風速 > 4.5 m/s 才判定（Appendix C 寫 10 分鐘平均）。"""
     d = Driver()
@@ -414,6 +426,24 @@ def test_farm_specs_saved_earlier_do_not_override_plc_setpoints() -> None:
     spec = TurbineSpec.from_farm_dict(old)
     assert spec.yaw_pressure_alarm == SPEC.yaw_pressure_alarm and spec.rated_power_kw == 3000.0
     assert TurbineSpec.from_dict(old).yaw_pressure_alarm == 180.0     # spec 更新 API 仍可明確改
+
+
+def test_plc_setpoint_fields_are_turbine_spec_fields() -> None:
+    """``from_farm_dict`` 忽略的欄位都要是 TurbineSpec 的欄位（新增 PLC 設定值欄位時要一起加進集合）。"""
+    from simulator.physics.turbine_physics import Z72_PLC_SETPOINT_FIELDS
+
+    assert Z72_PLC_SETPOINT_FIELDS <= set(TurbineSpec.__dataclass_fields__)
+    for name in ("yaw_pressure_alarm", "pt100_filter_tau_s", "vane_discrepancy_delay_s", "cut_out_gust_window_s"):
+        assert name in Z72_PLC_SETPOINT_FIELDS
+
+
+def test_code_states_are_fixed_after_reset() -> None:
+    """每個碼的狀態在 reset 時建好：保護停機不新增鍵（API 執行緒的 operator_reset 迭代時不會遇到字典變大）。"""
+    plc = PlcProtection(SPEC)
+    keys = set(plc._codes)
+    plc.note_protection_stop("ride_through:lvrt_band2", 1.0)
+    plc.note_protection_stop("overspeed_hardware", 2.0)
+    assert set(plc._codes) == keys
 
 
 def test_protection_stop_is_coded_again_after_each_restart_attempt() -> None:

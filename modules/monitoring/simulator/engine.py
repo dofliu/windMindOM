@@ -399,7 +399,8 @@ class WindFarmSimulator:
     def start_clean_scenario(self) -> List[str]:
         """命名情境 / 測試計畫開始前：清掉故障，並重設帶著 Live 殘留狀態的機組。
 
-        殘留狀態＝PLC 有成立中的警報（含自動重啟封鎖 A039）或鎖存的跳機、維護鎖、停機進行中。否則情境開頭
+        殘留狀態＝PLC 有成立中的警報（含自動重啟封鎖 A039）或鎖存的跳機、維護鎖、停機進行中；其餘機組只清
+        PLC 的每小時跳機計數。否則情境開頭
         會出現沒有對應 ``trip`` 的 ``trip_cleared`` / ``operator_reset`` 或莫名停機，標準答案卻把那台機組列為
         健康（盲測資料與答案不一致）。乾淨的機組不重設（不動 RNG 序列：全新 simulator 生成的資料不變）。
 
@@ -412,6 +413,10 @@ class WindFarmSimulator:
             if model.maintenance_lock or model.plc.active_codes() or model.tur_state in (7, 9):
                 model.reset()
                 reset.append(tid)
+            else:
+                # 乾淨的機組只清每小時跳機計數（不動 RNG、不送事件）：Live 一小時內自動恢復過的跳機
+                # 不能讓情境的第一次同碼跳機就送 A039（WMOM-20261022-02 code review S1）
+                model.plc.clear_trip_counts()
         return reset
 
     def generate_bulk(self, duration_hours: float, time_step: float = 10.0,

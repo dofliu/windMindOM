@@ -38,7 +38,7 @@ _PITCH_NOISE_TRANSIENT_DEG = 0.18
 
 
 class _RollingMean:
-    """固定時間窗的移動平均（PLC 的「10 分鐘平均」「5 秒平均」）。
+    """固定時間窗的移動平均（PLC 的「10 分鐘平均」「3 秒平均」）。
 
     每個樣本代表它之前 dt 秒的值，依 dt 加權；窗內累積時間超過窗長時，丟掉最舊的樣本、最後一個
     只丟超出的部分，使平均恰好涵蓋最近的 ``window_s`` 秒（任何 dt 皆然；dt ≥ 窗長時等於最新樣本）。
@@ -101,7 +101,7 @@ class TurbineSpec:
     cut_in_speed: float = 3.0
     rated_speed: float = 13.0
     cut_out_speed: float = 25.0
-    # 切出風速（手冊事件 201，WMOM-20261021-10）：10 分鐘平均 > cut_out_speed 或 5 秒平均 >
+    # 切出風速（手冊事件 201，WMOM-20261021-10）：10 分鐘平均 > cut_out_speed 或 3 秒平均（-02 前 5 秒）>
     # cut_out_gust_speed 時正常停機；10 分鐘平均 < cut_back_in_speed 才可重啟。瞬間陣風不直接停機。
     cut_out_avg_window_s: float = 600.0       # manual (V wind, 10 min avg; Appendix D SDVwind_hi_10m)
     cut_out_gust_speed: float = 35.0          # manual (Appendix D SDVwind_hi_3s)
@@ -474,7 +474,6 @@ class TurbinePhysicsModel:
         self._grid_frequency_ref = self.spec.grid_frequency_nominal
         self._grid_normal_trip_accum = 0.0
         self._grid_emergency_trip_accum = 0.0
-        # Z72: restart tracking (max restarts per hour)
         # 葉片零點校正誤差（WMOM-20261021-12）：真實機組試車時把葉片間差異校到約 ±0.1–0.2°。原 σ 0.12°
         # 讓兩片相差可達 0.6°，加上追蹤誤差就碰到手冊的葉片差異設定值（5 s > 1° → T2 335–337），
         # 健康機組長時間會偶發誤跳。只改 σ、不改抽樣次數：主 _rng 序列不位移
@@ -1177,12 +1176,12 @@ class TurbinePhysicsModel:
         self._storm_stop = False
 
     def _update_storm_stop(self, wind_speed: float, dt: float) -> None:
-        """更新暴風停機旗標（手冊事件 201）：10 分鐘平均 > 切出風速或 5 秒平均 > 陣風上限時成立，
+        """更新暴風停機旗標（手冊事件 201）：10 分鐘平均 > 切出風速或 3 秒平均 > 陣風上限時成立，
         10 分鐘平均 < 回切風速才解除。
 
         平均值要累積滿一個窗長才判定：開機 / reset 後前 10 分鐘沒有「10 分鐘平均」，否則第一個
         陣風樣本就等於平均值，可能讓機組一開機就進暴風停機、且平均風速介於 20-25 m/s 時永遠不解除。
-        這段期間由 5 秒平均（陣風上限）保護。
+        這段期間由 3 秒平均（陣風上限）保護。
 
         Args:
             wind_speed: 本步有效風速（m/s）。

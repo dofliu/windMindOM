@@ -148,14 +148,17 @@ def test_other_presets_run_healthy_without_plc_events(preset: str) -> None:
     assert events == [] and model.tur_state == 6
 
 
-@pytest.mark.parametrize(("fault", "code", "trips_before_block"), [
-    ("generator_overspeed", 351, 6),    # 351 每小時上限 5：第 6 次封鎖
-    ("grid_voltage_sag", 481, 2),       # 481 / 021 每小時上限 1：第 2 次封鎖
+@pytest.mark.parametrize(("fault", "code"), [
+    ("generator_overspeed", 351),       # 351 每小時上限 5：第 6 次封鎖
+    ("grid_voltage_sag", 481),          # 481 / 021 每小時上限 1：第 2 次封鎖
 ])
-def test_repeated_protection_trips_block_with_a039_until_operator_reset(
-        fault: str, code: int, trips_before_block: int) -> None:
+def test_repeated_protection_trips_block_with_a039_until_operator_reset(fault: str, code: int) -> None:
+    from shared.alarm_codes import get_alarm
     from simulator.physics.turbine_physics import TurbinePhysicsModel
 
+    limit = get_alarm(code).max_per_hour
+    assert limit is not None
+    trips_before_block = limit + 1        # 一小時內第 (上限 + 1) 次跳機時封鎖
     model = TurbinePhysicsModel(seed=7)
     model.active_faults = [{"scenario_id": fault, "severity": 1.0}]
     events: List[Tuple[str, int]] = []
