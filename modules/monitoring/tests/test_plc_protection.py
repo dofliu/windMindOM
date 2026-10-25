@@ -591,7 +591,7 @@ def test_rotor_speed_sensor_fault_compares_with_the_converter_speed() -> None:
     assert d.run(1, internal=conv, WROT_RotSpd=17.9) == [(29, "T1")]
     slow = Driver()
     assert slow.run(60, internal={"converter_rotor_rpm": 6.0}, WROT_RotSpd=3.0) == []
-    # 沒給變頻器轉速就不判定（不拿 WGEN_GnSpd 比：模擬的傳動鏈發電機轉速會偏離轉子轉速）
+    # 沒給變頻器轉速就不判定（不拿 WGEN_GnSpd 比：模擬的傳動鏈發電機轉速有扭轉暫態）
     assert Driver().run(60, WROT_RotSpd=15.0, WGEN_GnSpd=20.0) == []
 
 

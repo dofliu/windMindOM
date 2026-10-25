@@ -1633,8 +1633,9 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **完成紀錄**（DEC-20261025-01）：
   - **根因**：不是長期偏離，是**數值不穩定**。傳動鏈的 LSS 扭轉＋發電機轉速是二階振盪系統（阻尼振盪、週期約 36 s），顯式 Euler 在批次子步 dt 5 s（`_MAX_PHYSICS_DT`）對剛性 / 阻尼抽得高的個體（`drivetrain_stiffness_scale` ≳ 1.09）不穩定，被 `max(0, …)` 與轉子夾住後鎖進二週期振盪：gen 0 ↔ 60.3 rpm、rotor 22.9 ↔ 22.3。資料包每 10 s 取樣（每兩個子步）剛好看到同一相位，才像穩定的 2.7 倍。dt 1 s（Live）所有種子都穩定。14 個種子裡 seed 1 / 2 / 6 在 dt 5 s 出問題（與範例 05 / 06 的 WT001 / WT002 / WT006 吻合）。
   - **修正**：`DrivetrainModel.step` 的扭轉（LSS / HSS）＋發電機轉速以 ≤ 1 s 的子步積分（`_TORSION_MAX_DT`，步內輸入不變）；dt ≤ 1 s 子步數為 1、算式逐位元相同（seed 1 / 7 / 42 × dt 1 s 比對相同）。dt 5 s 的健康輸出改變（發電機轉速進電氣 / 熱模型），所以批次生成的資料全變。
-  - **守門測試**：`tests/physics/test_invariants.py` 14 個種子 × dt 1 / 2.5 / 5 s 每一步 |gen − rotor| / rotor < 1 %（舊程式 6 組失敗）、`DrivetrainModel` 在個體差異上限（剛性 +16 % / 阻尼 +18 %）dt 5 s 收斂。
+  - **守門測試**：`tests/physics/test_invariants.py` 14 個種子 × dt 2.5 / 5 s 每一步 |gen − rotor| / rotor < 1 %（舊程式 6 組失敗）、`DrivetrainModel` 在個體差異上限（剛性 +16 % / 阻尼 +18 %）dt 5 s 收斂。
   - 範例資料包 01–06 重建；029 仍比變頻器轉速（設計不變），程式註解與處置備註拿掉「長期偏離」。
+  - **code review**（Needs revision → 全修）：M1 齒輪箱機型 `vestas_v90_3mw` 不再併網——併網門檻要求 ±0.25 Hz 同步窗，V90 轉子上限 16.7 rpm 是 58.2 Hz 對 60 Hz，舊程式只因數值不穩定碰巧掃過（改為 DFIG 轉差帶 0.7–1.3 倍）；S1 齒輪箱 spec 在 dt 5 s 更糟（預設就振盪、上限發散到 1e72，寫進 DEC）；S2 加齒輪箱守門測試（三組 scale＋ V90 全模型）；S3 守門測試拿掉 dt 1 s 控制組；N 其餘註解。
   - work-log：`work-logs/2026-10/2026-10-25-gnspd-divergence.md`
 - **Depends on**: WMOM-20261021-08-c
 

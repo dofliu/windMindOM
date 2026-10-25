@@ -1326,9 +1326,12 @@ class TurbinePhysicsModel:
             # Direct-drive: converter ready when rotor reaches ~6 RPM (Z72 OEM spec)
             sync_ok = self.rotor_speed >= 6.0
         else:
+            # 齒輪箱機型視為 DFIG：轉子側變頻器吃 ±30 % 轉差，發電機機械頻率落在電網頻率的 0.7–1.3 倍
+            # 即可併網（WMOM-20261023-01：此前要求 ±0.25 Hz 同步窗，V90 轉子到上限 16.7 rpm 是 58.2 Hz
+            # 對 60 Hz 永遠併不上；舊程式只因傳動鏈數值不穩定讓轉速掃過那個窗才碰巧併網）
             gen_mech_freq = (self.rotor_speed * s.gear_ratio * s.generator_poles / 2) / 60.0 if self.rotor_speed > 0 else 0.0
             sync_ok = (
-                abs(self._grid_frequency_ref - gen_mech_freq) < 0.25
+                abs(self._grid_frequency_ref - gen_mech_freq) <= 0.3 * self._grid_frequency_ref
                 and abs(self._grid_voltage_ref - self._grid_voltage) < 25.0
             )
 

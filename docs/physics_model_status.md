@@ -349,7 +349,8 @@ Newly implemented:
 - new SCADA tag: `WDRV_GbxToothWear`
 
 Newly implemented:
-- torsion (LSS / HSS) and generator speed integrated with internal sub-steps of at most 1 s (WMOM-20261023-01): explicit Euler at the 5 s batch sub-step went unstable for the stiffer individuality draws and locked into a period-2 cycle (generator 0 / 60 rpm against a 22 rpm rotor); dt ≤ 1 s is bit-identical to before
+- torsion (LSS / HSS) and generator speed integrated with internal sub-steps of at most 1 s (WMOM-20261023-01): explicit Euler at the 5 s batch sub-step went unstable for the stiffer individuality draws and locked into a period-2 cycle (generator 0 / 60 rpm against a 22 rpm rotor); dt ≤ 1 s is bit-identical to before; the geared spec was worse (28–98 rpm oscillation at the default individuality, divergence to 1e72 at the stiff end), so batch data for the non-Z72 presets was unusable before this change
+- geared sync gate changed from a ±0.25 Hz synchronous window to a DFIG slip band (0.7–1.3 × grid frequency): the V90 preset at its 16.7 rpm rotor cap is 58.2 Hz against 60 Hz and could only sync while the old instability swung the speed through the window
 
 Still missing:
 - per-tooth pitting/spalling frequency model (individual tooth defect)
