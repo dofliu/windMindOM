@@ -273,6 +273,38 @@ class TestAngularMomentum:
             f"rotor={rotor_avg:.3f}, gen={gen_avg:.3f}, rel_err={rel_err:.4f}"
         )
 
+    # 批次路徑的物理子步是 5 s；扭轉 / 發電機轉速的二階系統在這個 dt 對剛性 / 阻尼抽得高的機組
+    # 曾鎖進二週期振盪（gen 0 ↔ 60 rpm，資料包看起來像長期偏離 2–3 倍，WMOM-20261023-01）。
+    # 這裡逐步比（不是平均）：14 個種子涵蓋 add_turbine 的種子範圍，dt 涵蓋 Live 與批次子步。
+    @pytest.mark.parametrize("dt", [1.0, 2.5, 5.0])
+    @pytest.mark.parametrize("seed", range(1, 15))
+    def test_direct_drive_generator_tracks_rotor_at_batch_substep(self, seed: int, dt: float):
+        """每一步 |gen − rotor| / rotor < 1 %（額定風速、30 分鐘後的 2 分鐘）。"""
+        m = TurbinePhysicsModel(seed=seed)
+        for _ in range(int(1800 / dt)):
+            m.step(wind_speed=13.0, wind_direction=180.0, ambient_temp=15.0, dt=dt)
+        assert m.tur_state == 6
+        for _ in range(int(120 / dt)):
+            m.step(wind_speed=13.0, wind_direction=180.0, ambient_temp=15.0, dt=dt)
+            rel = abs(m.drivetrain.generator_speed - m.rotor_speed) / m.rotor_speed
+            assert rel < 0.01, (
+                f"seed {seed} dt {dt}: gen={m.drivetrain.generator_speed:.2f} rotor={m.rotor_speed:.2f}"
+            )
+
+    def test_direct_drive_torsion_stable_at_stiff_end_of_individuality(self):
+        """DrivetrainModel 單獨跑：剛性 +16 % / 阻尼 +18 %（個體差異上限）在 dt 5 s 收斂到轉子轉速。"""
+        dt_model = DrivetrainModel(
+            spec=DrivetrainSpec.for_direct_drive(),
+            individuality={"drivetrain_stiffness_scale": 1.16, "shaft_damping_scale": 1.18},
+        )
+        for _ in range(240):
+            rotor, gen, *_ = dt_model.step(
+                aero_rotor_speed=22.5, current_rotor_speed=22.5, aero_torque_knm=800.0,
+                aero_load_factor=0.9, dt=5.0, is_producing=True, is_starting=False,
+                is_normal_stop=False, is_emergency_stop=False,
+            )
+        assert gen == pytest.approx(22.5, rel=0.01) and rotor == pytest.approx(22.5, rel=0.01)
+
     def test_geared_drivetrain_ratio_relation(self):
         """Geared (ratio≈104.5) → gen_speed ≈ rotor × 104.5（slip ±5%）。"""
         spec = DrivetrainSpec.for_geared(overall_ratio=104.5)

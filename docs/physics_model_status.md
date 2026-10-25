@@ -1,7 +1,8 @@
 # Physics Model Status
 
-Last updated: 2026-10-23 (yaw time-out 223, farm-level nuisance events, Pt100 loose contact, WMOM-20261021-08-b)
-Previous: 2026-10-21 (fault physics calibrated to real Z72 protection setpoints, WMOM-20261021-03a)
+Last updated: 2026-10-25 (drivetrain torsion sub-stepped so the generator speed stays with the rotor at the 5 s batch sub-step, WMOM-20261023-01)
+Previous: 2026-10-23 (yaw time-out 223, farm-level nuisance events, Pt100 loose contact, WMOM-20261021-08-b)
+Earlier: 2026-10-21 (fault physics calibrated to real Z72 protection setpoints, WMOM-20261021-03a)
 Earlier: 2026-05-01 (Glauert yaw-skew correction on NTF + WVTF, #125)
 
 This document tracks the current completion status of the wind turbine physics models.
@@ -346,6 +347,9 @@ Newly implemented:
 Newly implemented:
 - gear tooth contact model (#76): cyclic mesh-stiffness ripple from contact ratio (ε_α), deterministic GMF torque ripple fed into HSS torsion, Archard-like tooth wear accumulator (the `gearbox_overheat` coupling was removed in WMOM-20261021-08-c), wear-driven GMF band + sideband amplification
 - new SCADA tag: `WDRV_GbxToothWear`
+
+Newly implemented:
+- torsion (LSS / HSS) and generator speed integrated with internal sub-steps of at most 1 s (WMOM-20261023-01): explicit Euler at the 5 s batch sub-step went unstable for the stiffer individuality draws and locked into a period-2 cycle (generator 0 / 60 rpm against a 22 rpm rotor); dt ≤ 1 s is bit-identical to before
 
 Still missing:
 - per-tooth pitting/spalling frequency model (individual tooth defect)

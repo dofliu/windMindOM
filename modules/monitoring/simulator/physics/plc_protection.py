@@ -590,8 +590,8 @@ class PlcProtection:
             self._pitch_i2t[blade] += (load - self._pitch_i2t[blade]) * a_i2t
             signals[f"pitch{blade + 1}_i2t"] = self._pitch_i2t[blade]
         rotor_rpm = output["WROT_RotSpd"]
-        # 模擬的 WGEN_GnSpd 是傳動鏈模型的發電機轉速，與轉子轉速有差異（有的機組長期偏離，WMOM-20261023-01；
-        # 直驅機組實際上剛性連接）：PLC 比對用變頻器的轉速（WMOM-20261021-08-c），沒給就不判定
+        # 模擬的 WGEN_GnSpd 是傳動鏈模型的發電機轉速，有扭轉暫態（直驅機組實際上剛性連接）：PLC 比對用
+        # 變頻器的轉速（WMOM-20261021-08-c），沒給就不判定
         converter_rpm = internal.get("converter_rotor_rpm")
         check = converter_rpm is not None and converter_rpm > spec.rotor_speed_check_min_rpm
         signals["rotor_speed_check"] = 1.0 if check else 0.0
