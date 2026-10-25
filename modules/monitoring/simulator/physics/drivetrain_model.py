@@ -19,6 +19,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Tuple, Optional
 
+# 扭轉 / 發電機轉速積分的子步上限（秒）：dt 1 s 對所有個體差異抽樣都穩定（WMOM-20261023-01）
+_TORSION_MAX_DT = 1.0
+
 
 @dataclass
 class GearboxStageSpec:
@@ -233,11 +236,6 @@ class DrivetrainModel:
         lss_damping = s.lss_damping * self._damping_scale
 
         shaft_target = aero_rotor_speed * gear_ratio if (is_producing or is_starting) else 0.0
-        slip_error = shaft_target - self._generator_speed
-
-        self._lss_twist += (
-            slip_error * 0.12 * lss_stiffness - self._lss_twist * lss_damping
-        ) * dt
 
         # ── Gear tooth contact: mesh excitation + wear (#76) ──
         # The cyclic alternation between single- and double-tooth contact
@@ -255,18 +253,6 @@ class DrivetrainModel:
             mean_hss_torque = aero_torque_knm / max(1.0, gear_ratio)
             self.gmf_excitation_knm = ripple * abs(mean_hss_torque)
 
-        # ── High-speed shaft torsional dynamics (geared only) ──
-        if self.is_geared:
-            hss_stiffness = s.hss_stiffness * self._stiffness_scale
-            hss_damping = s.hss_damping * self._damping_scale
-            hss_speed_error = (current_rotor_speed * gear_ratio - self._generator_speed)
-            self._hss_twist += (
-                hss_speed_error * 0.08 * hss_stiffness - self._hss_twist * hss_damping
-                + self.gmf_excitation_knm * 0.015
-            ) * dt
-        else:
-            self._hss_twist = self._lss_twist * 0.3  # Coupled for direct-drive
-
         # ── Brake torque from pressure ──
         brake_torque = self._brake_pressure * s.brake_torque_per_bar
         if is_emergency_stop:
@@ -276,11 +262,47 @@ class DrivetrainModel:
 
         brake_heat_kw = brake_torque * current_rotor_speed * 2.0 * math.pi / (60.0 * 1000.0) if current_rotor_speed > 0.1 else 0.0
 
-        # ── Rotor speed update ──
         rotor_brake_rate = brake_torque * 0.22 / max(1.0, gear_ratio ** 0.3)
         gen_brake_rate = brake_torque * 18.0
+        coast_down = 12.0 if is_normal_stop else 26.0 if is_emergency_stop else 8.0
+
+        # ── Shaft torsion + generator speed (sub-stepped, WMOM-20261023-01) ──
+        # 扭轉（LSS / HSS）與發電機轉速是二階振盪系統，顯式 Euler 在 dt 5 s（批次子步）對剛性 /
+        # 阻尼抽得高的機組不穩定：鎖進 gen 0 ↔ 60 rpm 的二週期振盪，資料包每隔一步取樣看起來像
+        # 長期偏離轉子 2–3 倍。這裡以 ≤ _TORSION_MAX_DT 的子步積分；dt ≤ 1 s 時子步數 1、算式與
+        # 原來逐位元相同。步內的輸入（氣動轉速、煞車扭矩、齒輪嚙合激振）在子步間保持不變。
+        n_sub = max(1, math.ceil(dt / _TORSION_MAX_DT))
+        h = dt / n_sub
+        for _ in range(n_sub):
+            slip_error = shaft_target - self._generator_speed
+            self._lss_twist += (
+                slip_error * 0.12 * lss_stiffness - self._lss_twist * lss_damping
+            ) * h
+
+            # High-speed shaft torsional dynamics (geared only)
+            if self.is_geared:
+                hss_stiffness = s.hss_stiffness * self._stiffness_scale
+                hss_damping = s.hss_damping * self._damping_scale
+                hss_speed_error = (current_rotor_speed * gear_ratio - self._generator_speed)
+                self._hss_twist += (
+                    hss_speed_error * 0.08 * hss_stiffness - self._hss_twist * hss_damping
+                    + self.gmf_excitation_knm * 0.015
+                ) * h
+            else:
+                self._hss_twist = self._lss_twist * 0.3  # Coupled for direct-drive
+
+            coupling_to_gen = self._lss_twist * 0.62 + self._hss_twist * 0.35
+            self._generator_speed += (
+                slip_error * 0.48 * lss_stiffness + coupling_to_gen - gen_brake_rate
+            ) * h
+
+            if not (is_producing or is_starting):
+                self._generator_speed = max(0.0, self._generator_speed - coast_down * h)
+            else:
+                self._generator_speed = max(0.0, self._generator_speed)
+
+        # ── Rotor speed update ──
         coupling_to_rotor = self._lss_twist / (gear_ratio * 24.0)
-        coupling_to_gen = self._lss_twist * 0.62 + self._hss_twist * 0.35
 
         rotor_speed = aero_rotor_speed - rotor_brake_rate * dt - coupling_to_rotor
         # Add main bearing friction drag
@@ -290,17 +312,6 @@ class DrivetrainModel:
         if not (is_producing or is_starting) and not (is_normal_stop or is_emergency_stop):
             rotor_speed = max(0.0, rotor_speed - 0.30 * dt)
         rotor_speed = max(0.0, rotor_speed)
-
-        # ── Generator speed update ──
-        self._generator_speed += (
-            slip_error * 0.48 * lss_stiffness + coupling_to_gen - gen_brake_rate
-        ) * dt
-
-        if not (is_producing or is_starting):
-            coast_down = 12.0 if is_normal_stop else 26.0 if is_emergency_stop else 8.0
-            self._generator_speed = max(0.0, self._generator_speed - coast_down * dt)
-        else:
-            self._generator_speed = max(0.0, self._generator_speed)
 
         # ── Oil temperature and viscosity effects (geared only) ──
         visc_loss_kw = 0.0

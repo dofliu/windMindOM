@@ -20,7 +20,8 @@
 | done | 146 |
 | **total** | **157** |
 
-最後更新：2026-10-23（**WMOM-20261021-08-c done**（EPIC-DS Phase 4-c 故障庫擴充，DEC-20261023-03）：7 個新情境（17 → 24）——變槳驅動過載 381 → 367、冷卻水泵磨耗 422 → 439、去離子樹脂耗盡 423 → 440、轉速感測器 029 / 風速計 230 / 風向標 1 卡住 231、沒有警報的靜態偏航失準；刪 `gearbox_overheat`；新增真實 tag `WROT_PtMotCurBl1-3`；`WCNV_IGCTWtrCond` 改為導電度；範例資料包 06；合約 v1.6；code review 後新開 WMOM-20261023-01（`WGEN_GnSpd` 長期偏離，既有問題）。open 7 / in_progress 2 / deferred 2 / done 146 = 157。詳見 `work-logs/2026-10/2026-10-23-fault-library-expansion.md`）。
+最後更新：2026-10-25（**WMOM-20261023-01 done**（直驅 `WGEN_GnSpd` 偏離轉子轉速，DEC-20261025-01）：根因是傳動鏈扭轉的顯式 Euler 在批次子步 5 s 數值不穩定（二週期振盪、取樣看起來像 2.7 倍）；扭轉＋發電機轉速改以 ≤ 1 s 子步積分，dt 1 s 逐位元不變、批次資料改變，範例資料包重建；守門測試 14 種子 × 3 個 dt。open 6 / in_progress 2 / deferred 2 / done 147 = 157。詳見 `work-logs/2026-10/2026-10-25-gnspd-divergence.md`）。
+前次：2026-10-23（**WMOM-20261021-08-c done**（EPIC-DS Phase 4-c 故障庫擴充，DEC-20261023-03）：7 個新情境（17 → 24）——變槳驅動過載 381 → 367、冷卻水泵磨耗 422 → 439、去離子樹脂耗盡 423 → 440、轉速感測器 029 / 風速計 230 / 風向標 1 卡住 231、沒有警報的靜態偏航失準；刪 `gearbox_overheat`；新增真實 tag `WROT_PtMotCurBl1-3`；`WCNV_IGCTWtrCond` 改為導電度；範例資料包 06；合約 v1.6；code review 後新開 WMOM-20261023-01（`WGEN_GnSpd` 長期偏離，既有問題）。open 7 / in_progress 2 / deferred 2 / done 146 = 157。詳見 `work-logs/2026-10/2026-10-23-fault-library-expansion.md`）。
 前次：2026-10-23（**WMOM-20261021-08-b done**（EPIC-DS Phase 4-b 誤報 / 健康負樣本，DEC-20261023-02）：風場層級事件（電網電壓驟降、頻率越界、風向快速變化）＋新 PLC 規則偏航逾時 223（Appendix D）＋ nuisance 情境 Pt100 接點鬆動（手冊 §11.3）；標準答案 nuisance case（`nuisance_cause` / `window_end_ts` / `farm_events`，環境性停機自動歸類）；評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），舊規則不變；starter kit 第五個範例資料包（健康負樣本）；合約 v1.5。open 6 / in_progress 2 / deferred 2 / done 145 = 155。詳見 `work-logs/2026-10/2026-10-23-nuisance-negatives.md`）。
 前次最後更新：2026-10-23（**WMOM-20261022-02 done**（手冊保真度，DEC-20261023-01）：手冊 Appendix C / D 衝突以 D 為準（液壓 170 / 150 bar、30 s、190 bar 解除；233 延時 60 s＋60 s 平均風速；Pt100 10 s 濾波；切出陣風 3 s；273 為 45 °C；編碼器 −5–95°）；自動重啟被封鎖改送 A039（手冊獨有碼，目錄 315 碼）、拿掉全域每小時 3 次啟動上限；`yaw_sensor_drift` 每台機組都跳 233；合約 v1.4、範例資料包重建。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 144 = 154。詳見 `work-logs/2026-10/2026-10-23-manual-fidelity.md`）。
 更早：2026-10-22（**WMOM-20261022-03 done**（架構全貌圖與專案文件同步）：架構說明頁、`docs/architecture/windMindOM-architecture.md` 全面改寫（全貌、EPIC-DS 資料流、儲存結構、時程）、README / PRODUCT_VISION / ROADMAP 跟上 EPIC-DS 現況；順手修正 starter kit 與 `tools/opcua_server.py` 範例網址的 port（8000 → 8100）。逐條解析 header 核實：open 7 / in_progress 2 / deferred 2 / done 143 = 154。詳見 `work-logs/2026-10/2026-10-22-architecture-docs.md`）。
@@ -1616,11 +1617,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261023-01 — 直驅機組 `WGEN_GnSpd` 與轉子轉速持續偏離（傳動鏈模型）
 
-- **Status**: open
+- **Status**: done（2026-10-25）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 0.5-1 天
-- **Owner**: -
+- **Owner**: Claude session 2026-10-25
 - **Description**: -08-c 的 code review 查到（既有問題，不是 -08-c 造成）：傳動鏈模型的 `_generator_speed` 在部分健康機組長期偏離轉子轉速。Z72 是直驅，兩者實際上剛性連接、應相同。範例資料包發電中的平均值：
   - 05 的 WT001：57.9 對 22.0 rpm。
   - 06 的 WT001：59.4 對 22.0；WT006：53.5 對 21.4；WT002：0.4 對 22.1。
@@ -1629,6 +1630,13 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Deliverable**：
   - 找出傳動鏈發電機轉速偏離的根因（直驅分支的 slip / coupling 積分、子步長）。
   - 修正後確認健康輸出的影響範圍（會改既有健康資料，要重建範例資料包），並加守門測試（健康機組 `WGEN_GnSpd` 與 `WROT_RotSpd` 差 < 數 %）。
+- **完成紀錄**（DEC-20261025-01）：
+  - **根因**：不是長期偏離，是**數值不穩定**。傳動鏈的 LSS 扭轉＋發電機轉速是二階振盪系統（阻尼振盪、週期約 36 s），顯式 Euler 在批次子步 dt 5 s（`_MAX_PHYSICS_DT`）對剛性 / 阻尼抽得高的個體（`drivetrain_stiffness_scale` ≳ 1.09）不穩定，被 `max(0, …)` 與轉子夾住後鎖進二週期振盪：gen 0 ↔ 60.3 rpm、rotor 22.9 ↔ 22.3。資料包每 10 s 取樣（每兩個子步）剛好看到同一相位，才像穩定的 2.7 倍。dt 1 s（Live）所有種子都穩定。14 個種子裡 seed 1 / 2 / 6 在 dt 5 s 出問題（與範例 05 / 06 的 WT001 / WT002 / WT006 吻合）。
+  - **修正**：`DrivetrainModel.step` 的扭轉（LSS / HSS）＋發電機轉速以 ≤ 1 s 的子步積分（`_TORSION_MAX_DT`，步內輸入不變）；dt ≤ 1 s 子步數為 1、算式逐位元相同（seed 1 / 7 / 42 × dt 1 s 比對相同）。dt 5 s 的健康輸出改變（發電機轉速進電氣 / 熱模型），所以批次生成的資料全變。
+  - **守門測試**：`tests/physics/test_invariants.py` 14 個種子 × dt 2.5 / 5 s 每一步 |gen − rotor| / rotor < 1 %（舊程式 6 組失敗）、`DrivetrainModel` 在個體差異上限（剛性 +16 % / 阻尼 +18 %）dt 5 s 收斂。
+  - 範例資料包 01–06 重建；029 仍比變頻器轉速（設計不變），程式註解與處置備註拿掉「長期偏離」。
+  - **code review**（Needs revision → 全修）：M1 齒輪箱機型 `vestas_v90_3mw` 不再併網——併網門檻要求 ±0.25 Hz 同步窗，V90 轉子上限 16.7 rpm 是 58.2 Hz 對 60 Hz，舊程式只因數值不穩定碰巧掃過（改為 DFIG 轉差帶 0.7–1.3 倍）；S1 齒輪箱 spec 在 dt 5 s 更糟（預設就振盪、上限發散到 1e72，寫進 DEC）；S2 加齒輪箱守門測試（三組 scale＋ V90 全模型）；S3 守門測試拿掉 dt 1 s 控制組；N 其餘註解。
+  - work-log：`work-logs/2026-10/2026-10-25-gnspd-divergence.md`
 - **Depends on**: WMOM-20261021-08-c
 
 ### WMOM-20261021-09 — Phase 3d：學生專題 starter kit（介面合約 v1 + 範例資料包）
