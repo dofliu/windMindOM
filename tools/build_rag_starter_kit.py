@@ -155,7 +155,51 @@ STARTER_PACKS: List[StarterPack] = [
             {"scenario_id": "wind_vane1_stuck", "turbine_id": "WT006", "offset_seconds": 6000, "severity_rate": 0.0002},
         ),
     ),
+    # 多重故障＋早期徵兆（WMOM-20261021-08-d）：max_severity 壓在警報門檻之下（額定風速：主軸承 262 約 0.88、
+    # 定子 264 / 265 約 0.91、導電度 423 約 0.45、Pt100 漂移 262 約 0.69），情境結束前不會出警報；
+    # 同一台機組的兩個故障預期碼不重疊（tests 擋）
+    StarterPack(
+        pack_id="z72-starter-07",
+        title="多重故障與早期徵兆：三台各有兩個問題（一個會出警報、一個停在門檻下或沒有警報）、兩台只有早期徵兆、一台健康",
+        start=datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc),
+        turbines=6, hours=6.0, wind_profile="rated",
+        faults=(
+            {"scenario_id": "bearing_wear", "turbine_id": "WT001", "offset_seconds": 600, "severity_rate": 0.0002,
+             "max_severity": 0.5},
+            {"scenario_id": "converter_cooling_pump_wear", "turbine_id": "WT001", "offset_seconds": 5400,
+             "severity_rate": 0.0002},
+            {"scenario_id": "yaw_misalignment", "turbine_id": "WT002", "offset_seconds": 1200, "severity_rate": 0.0002},
+            {"scenario_id": "hydraulic_leak", "turbine_id": "WT002", "offset_seconds": 7200, "severity_rate": 0.0002},
+            {"scenario_id": "stator_winding_degradation", "turbine_id": "WT003", "offset_seconds": 1800,
+             "severity_rate": 0.0002, "max_severity": 0.6},
+            {"scenario_id": "pitch_motor_fault", "turbine_id": "WT004", "offset_seconds": 2400, "severity_rate": 0.0002},
+            {"scenario_id": "cooling_water_deionizer_exhausted", "turbine_id": "WT004", "offset_seconds": 3000,
+             "severity_rate": 0.0002, "max_severity": 0.3},
+            {"scenario_id": "main_bearing_temp_sensor_drift", "turbine_id": "WT005", "offset_seconds": 3600,
+             "severity_rate": 0.0002, "max_severity": 0.5},
+        ),
+    ),
 ]
+
+
+def check_pack(pack: StarterPack) -> None:
+    """同一台機組的故障預期碼不可重疊（WMOM-20261021-08-d）：標準答案把共用碼歸給每個 case，範例要避免歧義。
+
+    Raises:
+        ValueError: 同機組兩個故障有共用的預期事件碼。
+    """
+    from simulator.physics.fault_engine import FAULT_SCENARIOS
+
+    by_turbine: Dict[str, List[Dict[str, object]]] = {}
+    for fault in pack.faults:
+        by_turbine.setdefault(str(fault["turbine_id"]), []).append(fault)
+    for turbine_id, faults in by_turbine.items():
+        for i, a in enumerate(faults):
+            codes_a = {c["code"] for c in FAULT_SCENARIOS[str(a["scenario_id"])].alarm_codes}
+            for b in faults[i + 1:]:
+                shared = codes_a & {c["code"] for c in FAULT_SCENARIOS[str(b["scenario_id"])].alarm_codes}
+                if shared:
+                    raise ValueError(f"{pack.pack_id} {turbine_id}：{a['scenario_id']} 與 {b['scenario_id']} 共用預期碼 {sorted(shared)}")
 
 
 class _HeadlessBroker:
@@ -206,6 +250,7 @@ def generate(storage: Storage, spec: StarterPack) -> int:
     Returns:
         情境 session id。
     """
+    check_pack(spec)
     sim = WindFarmSimulator(turbine_count=spec.turbines)
     with _sim_clock(spec.start):
         sim.wind_model.set_profile(spec.wind_profile)

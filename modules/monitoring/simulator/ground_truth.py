@@ -41,7 +41,7 @@ from shared.alarm_codes import get_alarm  # noqa: E402
 
 # 介面合約版本：v1 定稿見 docs/integration/rag_assistant_data_contract_v1.md（WMOM-20261021-09）。
 # 加欄位升次版本（1.x），改名 / 刪欄位 / 改語意升主版本
-CONTRACT_VERSION = "1.6"
+CONTRACT_VERSION = "1.7"
 MANUAL_DOC = "Z72 User Manual"
 MANUAL_SECTION = "Appendix C"
 _ABB_MARKER = "See [ABB]"
@@ -297,6 +297,7 @@ class _Case:
     offset_seconds: float
     severity_rate: float
     initial_severity: float
+    max_severity: float
     first_alarm: Optional[Tuple[datetime, int]] = None
     trip: Optional[Tuple[datetime, int]] = None
     observed_codes: List[int] = field(default_factory=list)
@@ -353,6 +354,7 @@ class GroundTruthRecorder:
             offset_seconds=float(step.offset_seconds),
             severity_rate=float(step.severity_rate),
             initial_severity=float(step.initial_severity),
+            max_severity=float(step.max_severity),
         ))
 
     def on_fault_tripped(self, turbine_id: str, scenario_id: str, code: int, sim_time: datetime) -> None:
@@ -486,6 +488,7 @@ class GroundTruthRecorder:
                     "offset_seconds": case.offset_seconds,
                     "severity_rate": case.severity_rate,
                     "initial_severity": case.initial_severity,
+                    "max_severity": case.max_severity,
                 },
                 "farm_event_id": None,
                 "final_severity": (

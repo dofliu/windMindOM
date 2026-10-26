@@ -517,6 +517,7 @@ class WindFarmSimulator:
                         turbine_id=fstep.turbine_id,
                         severity_rate=fstep.severity_rate,
                         initial_severity=fstep.initial_severity,
+                        max_severity=fstep.max_severity,
                     )
                     # 僅在真的注入成功時回呼（inject 對未知 scenario 回 False 且不注入）。
                     if injected and on_fault_injected is not None:

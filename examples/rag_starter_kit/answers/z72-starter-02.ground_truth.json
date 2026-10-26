@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "中等：偏航煞車液壓洩漏 + 變頻器冷卻故障（手冊只寫 See [ABB]），強風",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-09T04:00:10.000000Z",
  "sim_end": "2026-03-09T10:00:00.000000Z",
- "generated_at": "2026-10-25T11:30:48.466780Z",
+ "generated_at": "2026-10-26T03:41:16.479021Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -125,7 +125,8 @@
    "injection": {
     "offset_seconds": 1800.0,
     "severity_rate": 0.001,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.79,
@@ -315,7 +316,8 @@
    "injection": {
     "offset_seconds": 3600.0,
     "severity_rate": 0.001,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.925,

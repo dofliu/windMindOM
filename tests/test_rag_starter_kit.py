@@ -31,7 +31,7 @@ from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 
 KIT = PROJECT_ROOT / "examples" / "rag_starter_kit"
 PACK_IDS = ["z72-starter-01", "z72-starter-02", "z72-starter-03", "z72-starter-04", "z72-starter-05",
-            "z72-starter-06"]
+            "z72-starter-06", "z72-starter-07"]
 
 
 def _load(name: str) -> ModuleType:
@@ -104,10 +104,28 @@ def test_answers_match_their_pack(pack_id: str) -> None:
     assert answers["turbines"] == manifest["turbines"]
     assert answers["cases"] and all(c["component"] in COMPONENTS for c in answers["cases"] if c["component"])
     assert all(c["component"] for c in answers["cases"] if c["category"] != "nuisance")
-    # 範例的每個故障 / 干擾都要在情境內出警報——沒有預期碼的故障（v1.6，偏航失準）本來就不會有
-    assert all(c["first_alarm_ts"] for c in answers["cases"] if c["expected_alarm_codes"]), "預期的警報沒有出現"
+    # 範例的每個故障 / 干擾都要在情境內出警報——沒有預期碼的故障（v1.6，偏航失準）本來就不會有；
+    # 壓在門檻下的早期徵兆 case（v1.7，injection.max_severity < 1）設計上整段都不出警報
+    capped = [c for c in answers["cases"] if (c.get("injection") or {}).get("max_severity", 1.0) < 1.0]
+    assert all(c["first_alarm_ts"] is None and c["expected_alarm_codes"] for c in capped), "早期徵兆 case 出了警報"
+    assert all(c["first_alarm_ts"] for c in answers["cases"]
+               if c["expected_alarm_codes"] and c not in capped), "預期的警報沒有出現"
     silent = [c for c in answers["cases"] if not c["expected_alarm_codes"]]
     assert all(c["first_alarm_ts"] is None and c["manual_coverage"] == "none" for c in silent)
+
+
+def test_packs_never_share_expected_codes_on_one_turbine() -> None:
+    """同機組兩個故障共用預期碼時，標準答案會把碼歸給每個 case（v1.7 規則），範例要避免這種歧義。"""
+    import build_rag_starter_kit as builder
+
+    for pack in builder.STARTER_PACKS:
+        builder.check_pack(pack)
+    bad = builder.StarterPack(pack_id="x", title="", start=builder.STARTER_PACKS[0].start, turbines=1, hours=1.0,
+                              wind_profile="rated",
+                              faults=({"scenario_id": "bearing_wear", "turbine_id": "WT001"},
+                                      {"scenario_id": "main_bearing_temp_sensor_drift", "turbine_id": "WT001"}))
+    with pytest.raises(ValueError, match="共用預期碼"):
+        builder.check_pack(bad)
 
 
 def test_build_tool_lists_exactly_the_committed_packs() -> None:
@@ -129,7 +147,8 @@ def _gt(cases: List[Dict[str, object]], healthy: Optional[List[str]] = None) -> 
 def _case(case_id: str, turbine: str, component: str, onset: Optional[str], first_alarm: Optional[str],
           category: str = "real_fault", codes: Optional[List[int]] = None, **extra: object) -> Dict[str, object]:
     return {"case_id": case_id, "turbine_id": turbine, "component": component, "category": category,
-            "expected_alarm_codes": codes or [262, 240], "onset_ts": onset, "first_alarm_ts": first_alarm,
+            "expected_alarm_codes": [262, 240] if codes is None else codes, "onset_ts": onset,
+            "first_alarm_ts": first_alarm,
             "fault_id": "x", "superseded": False, **extra}
 
 
@@ -238,6 +257,57 @@ def test_superseded_case_merges_into_its_replacement() -> None:
     case = report.case_results[0]
     assert case.component_correct and report.false_alarm_predictions == 0, "再注入前的正確診斷不是誤報"
     assert case.latency_s == 1800.0 and not case.early_warning, "第一個警報取被取代那次的"
+
+
+def test_multi_case_turbine_guessing_every_component_shows_in_precision() -> None:
+    """v1.7：同機組兩個 case，「每個元件猜一遍」每個 case 都拿到元件分，但診斷精確率只有 2/5。"""
+    gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z"),
+              _case("C002", "WT001", "generator_stator", "2026-01-01T03:00:00Z", "2026-01-01T04:00:00Z",
+                    codes=[264, 244])])
+    # 猜錯的歸最晚開始的 case（C002），最後兩筆各自對到同元件的 case → 兩個 case 的最後判斷都對
+    guesses = ["transformer", "blades", "yaw_brake_hydraulics", "main_bearing", "generator_stator"]
+    lines = [_pred("WT001", f"2026-01-01T04:{i:02d}:00Z", g) for i, g in enumerate(guesses)]
+    report = _score([gt], lines)
+    assert (report.cases, report.detected, report.component_accuracy) == (2, 2, 1.0)
+    assert report.misdiagnosis_predictions == 3 and report.diagnosis_precision == pytest.approx(2 / 5)
+    assert report.false_alarm_predictions == 0
+    assert {r.case_id: r.misdiagnosis_predictions for r in report.case_results} == {"C001": 0, "C002": 3}
+    # 單 case 時精確率＝1 − 誤診比例；最後一筆元件錯，這個 case 就錯
+    one = _score([_gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")])],
+                 lines)
+    assert one.diagnosis_precision == pytest.approx(1 / 5) and one.misdiagnosis_predictions == 4
+    assert one.component_accuracy == 0.0
+    assert _score([gt], []).diagnosis_precision is None
+
+
+def test_group_level_diagnosis_goes_to_the_same_group_case_before_the_latest() -> None:
+    """v1.7：只猜到群組的診斷歸同群組的 case，不是最晚開始的那個。"""
+    gt = _gt([_case("C001", "WT001", "pitch_system_blade_1", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z",
+                    codes=[381, 367]),
+              _case("C002", "WT001", "converter_cooling_system", "2026-01-01T01:10:00Z", None, codes=[423, 440])])
+    report = _score([gt], [_pred("WT001", "2026-01-01T02:30:00Z", "pitch_control_system")])
+    by_id = {r.case_id: r for r in report.case_results}
+    assert by_id["C001"].detected and by_id["C001"].component_group_correct and not by_id["C001"].component_correct
+    assert not by_id["C002"].detected
+    # 沒有同群組的 case 時還是歸最晚開始的
+    report = _score([gt], [_pred("WT001", "2026-01-01T02:30:00Z", "transformer")])
+    assert {r.case_id: r.detected for r in report.case_results} == {"C001": False, "C002": True}
+
+
+def test_early_sign_cases_are_listed_apart_and_detection_is_an_early_warning() -> None:
+    """v1.7：有預期碼、情境內沒到警報的 case 是早期徵兆 case；偵測到＝早期預警、不評延遲。"""
+    gt = _gt([_case("C001", "WT001", "main_bearing", "2026-01-01T01:00:00Z", None,
+                    injection={"offset_seconds": 3600, "severity_rate": 0.0002, "initial_severity": 0.0,
+                               "max_severity": 0.5}),
+              _case("C002", "WT002", "wind_vane_alignment", "2026-01-01T01:00:00Z", None, codes=[]),
+              _case("C003", "WT003", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")])
+    report = _score([gt], [_pred("WT001", "2026-01-01T03:00:00Z", "main_bearing"),
+                           _pred("WT003", "2026-01-01T02:30:00Z", "main_bearing")])
+    assert (report.early_sign_cases, report.early_sign_detected) == (1, 1)
+    assert report.early_warnings == 1 and report.latency_n == 1
+    by_id = {r.case_id: r for r in report.case_results}
+    assert by_id["C001"].early_sign and by_id["C001"].latency_s is None
+    assert not by_id["C002"].early_sign and not by_id["C003"].early_sign
 
 
 def test_pre_existing_case_has_no_timing_score() -> None:
@@ -439,16 +509,27 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     predictions, invalid = score.read_predictions(output.read_text(encoding="utf-8").splitlines(), COMPONENTS)
     assert invalid == [] and predictions
     report = score.score(score.load_answers([KIT / "answers"]), predictions, COMPONENTS)
-    # 06（v1.6）：沒有警報的偏航失準偵測不到；變槳馬達過載的警報文字只猜得到群組
-    assert (report.cases, report.detected) == (15, 14)
+    # 06（v1.6）：沒有警報的偏航失準偵測不到；變槳馬達過載的警報文字只猜得到群組。
+    # 07（v1.7）：四個早期徵兆 case 與沒有警報的偏航失準都偵測不到，只抓到三個會出警報的；WT004 只猜到「變槳系統」
+    # 的診斷歸同群組的變槳 case（不是較晚開始的導電度 case）
+    assert (report.cases, report.detected) == (23, 17)
     assert (report.component_accuracy, report.component_group_accuracy, report.category_accuracy) == pytest.approx(
-        (12 / 15, 14 / 15, 10 / 15))
+        (14 / 23, 17 / 23, 13 / 23))
+    assert (report.early_sign_cases, report.early_sign_detected) == (4, 0)
+    assert report.misdiagnosis_predictions == 3 and report.diagnosis_precision == pytest.approx(31 / 34)
     # 讀值像真故障的感測器故障（風向標漂移、軸承溫度量測回路）判錯類別；有專屬碼、文字點名 sensor 的（229、029）
-    # 判對，文字沒寫 sensor 的（230 風速計、231 風向標）判成真故障；偵測不到的偏航失準也算錯
+    # 判對，文字沒寫 sensor 的（230 風速計、231 風向標）判成真故障；偵測不到的（偏航失準、早期徵兆）也算錯
     wrong = {(r.pack_id, r.turbine_id) for r in report.case_results if not r.category_correct}
     assert wrong == {("z72-starter-03", "WT003"), ("z72-starter-04", "WT003"), ("z72-starter-06", "WT005"),
-                     ("z72-starter-06", "WT006"), ("z72-starter-06", "WT007")}
-    assert (report.manual_hit_at_1, report.early_warnings) == (1.0, 0)
+                     ("z72-starter-06", "WT006"), ("z72-starter-06", "WT007"), ("z72-starter-07", "WT001"),
+                     ("z72-starter-07", "WT002"), ("z72-starter-07", "WT003"), ("z72-starter-07", "WT004"),
+                     ("z72-starter-07", "WT005")}
+    seven = {r.case_id: (r.detected, r.component_group_correct) for r in report.case_results
+             if r.pack_id == "z72-starter-07"}
+    assert seven == {"C001": (False, False), "C002": (False, False), "C003": (False, False), "C004": (True, True),
+                     "C005": (False, False), "C006": (False, False), "C007": (True, True), "C008": (True, True)}
+    # 手冊引用的分母是有預期碼的 case（23 − 2 個偏航失準）
+    assert (report.manual_hit_at_1, report.early_warnings) == (pytest.approx(17 / 21), 0)
     assert report.latency_median_s == 0.0
     # 健康負樣本（z72-starter-05）：全場一起跳的電網事件，第一台當故障、之後的判干擾；Pt100 接點鬆動當故障；
     # 偏航逾時的警報文字猜不到元件，第一台不出判斷（v1.5）
@@ -456,8 +537,9 @@ def test_baseline_scores_on_the_starter_packs(tmp_path: Path) -> None:
     assert (report.false_alarm_predictions, report.false_alarm_episodes, report.false_alarms_during_nuisance) == (4, 4, 4)
     missed = {(r.turbine_id, r.nuisance_cause) for r in report.nuisance_case_results if not r.recognized}
     assert missed == {("WT001", "grid_disturbance"), ("WT003", "loose_contact"), ("WT002", "wind_direction_change")}
-    # 情境窗＝第一到最後一筆讀值：01–05 的 73.28 h＋06 的健康機組 WT008（5 h）與其他機組故障開始前的時段
-    assert report.healthy_turbine_hours == pytest.approx(84.01, abs=0.01)
+    # 情境窗＝第一到最後一筆讀值：01–05 的 73.28 h＋06 的健康機組 WT008（5 h）與其他機組故障開始前的時段（84.01 h）
+    # ＋07 的健康機組 WT006（6 h）與其他五台故障開始前的 10 / 20 / 30 / 40 / 60 分鐘（同機組兩個 case 只扣一次）
+    assert report.healthy_turbine_hours == pytest.approx(92.66, abs=0.01)
     assert report.false_alarm_rate_per_100h == pytest.approx(4 / report.healthy_turbine_hours * 100)
 
 

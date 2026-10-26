@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "pack_id": "z72-starter-05",
  "turbine_model": "Z72",
  "turbines": [
@@ -78,5 +78,5 @@
    "bytes": 58826
   }
  },
- "exported_at": "2026-10-25T11:32:41.963950Z"
+ "exported_at": "2026-10-26T03:42:17.817589Z"
 }
