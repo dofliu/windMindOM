@@ -67,6 +67,15 @@ Needs revision → 全修：
 | S6 | `scenarios.py` 舊路徑的公式註解被改成 `min(max_severity, …)`，程式其實還是 `min(1, …)`。 | 註解改回並註明舊路徑不帶 max_severity；`_generate_bulk` docstring 補 `max_severity?`。 |
 | N | parser 不擋 NaN；測試用 naive datetime、`_run_one_step` 私有、單筆讀值比較。 | parser 加 `math.isfinite`；測試照 `test_plc_integration.py` 既有寫法不改。 |
 
-## 6. 驗證
+## 6. 驗證與收尾
 
-（見下方補記）
+- **backend 全套**：2224 → 2240 passed / 7 skipped / 1 xfailed（新增 16 個）。frontend 沒動。
+- 範例資料包兩次重建逐位元相同；01–06 只有版本號改變；07：12 960 列、37 筆事件、8 個 case（4 個早期徵兆 case 的 `first_alarm_ts` 都是 null、`final_severity` 等於上限）。
+- 基準助手（七個資料包）：23 case 偵測 17、元件 60.9 %、群組 73.9 %、類別 56.5 %、hit@1 81.0 %、早期徵兆 4 個診斷對 0 個、誤診 3、診斷精確率 91.2 %、誤報率 4.32 / 100 機組小時（92.7 h）。
+- ruff：新增的只有既有檔案風格的 UP006 / UP045 / ISC004（score.py 既有寫法）。
+- PR #236。
+
+## 7. 下次怎麼接手
+
+- EPIC-DS 全部 phase 完成。接下來從 ISSUES 的 open issue 認領，或請劉老師排正式評測 / 新題型。
+- 留著沒做：同機組兩個故障共用碼時的歸屬仍是「都記」；跳機後第二個故障在停機狀態下未必能發展（範例以「會跳機的＋不會出警報的」搭配避開）；Live 的 `POST /api/faults/inject` 沒開 `maxSeverity`。
