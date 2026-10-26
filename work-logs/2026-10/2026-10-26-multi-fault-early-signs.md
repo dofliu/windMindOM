@@ -52,6 +52,21 @@
 - 測試：`test_fault_severity_cap.py`（4）、parser 驗證（1）、kit（精確率、早期徵兆、共用碼守門、`max_severity` < 1 不得出警報、PACK_IDS 07）。
 - 文件：合約 v1.7（§2 / §7 / §8 規則 7–8 與兩個指標 / §10.1 / §11）、kit README（07、早期徵兆說明、評分規則）、DEC-20261026-01、EPIC-DS §6.19、ISSUES（-08-d、-08 母 issue done）、STATUS、CLAUDE.md。
 
-## 5. 驗證
+## 5. Code review（code-reviewer subagent）
+
+Needs revision → 全修：
+
+| 等級 | 發現 | 處理 |
+|---|---|---|
+| M1 | `TestPlanStep.max_severity` 插在 `description` 前面：內建 18 個 TEST_PLANS 以第 6 個位置參數傳 description，字串落進 `max_severity`，`POST /api/faults/test-plans/{id}/run` 會在背景執行緒 TypeError。 | 欄位移到 `description` 之後；新增測試逐一檢查 TEST_PLANS 的步驟都能注入。 |
+| S1 | `initial_severity` > 1 以前接受、下一步夾到 1；新的上限檢查讓它變 ValueError（Live 路由 500）。 | `inject` 先把 `initial_severity` 夾到 1 再檢查；parser 同樣。測試。 |
+| S2 | Live 的 `POST /api/faults/inject` 沒開 `maxSeverity`。 | 範圍取捨，寫進 DEC（早期徵兆是出題用，走批次）。 |
+| S3 | `Case.early_sign` 把 `pre_existing` case（開始時間不明）也算進早期徵兆。 | 加 `timing_scored` 條件；測試。 |
+| S4 | `early_sign_detected` 用 `detected`（任何診斷都算），亂猜也能加分。 | 改用 `early_warning`（元件正確）；報告與文件改「診斷對」；測試。 |
+| S5 | 同群組歸屬在同群組有多個 case 時取最晚開始的——沒寫進文件。 | 合約 §8 規則 7 補一句。 |
+| S6 | `scenarios.py` 舊路徑的公式註解被改成 `min(max_severity, …)`，程式其實還是 `min(1, …)`。 | 註解改回並註明舊路徑不帶 max_severity；`_generate_bulk` docstring 補 `max_severity?`。 |
+| N | parser 不擋 NaN；測試用 naive datetime、`_run_one_step` 私有、單筆讀值比較。 | parser 加 `math.isfinite`；測試照 `test_plc_integration.py` 既有寫法不改。 |
+
+## 6. 驗證
 
 （見下方補記）

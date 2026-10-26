@@ -308,6 +308,15 @@ def test_early_sign_cases_are_listed_apart_and_detection_is_an_early_warning() -
     by_id = {r.case_id: r for r in report.case_results}
     assert by_id["C001"].early_sign and by_id["C001"].latency_s is None
     assert not by_id["C002"].early_sign and not by_id["C003"].early_sign
+    # 元件猜錯不算「診斷對」：早期徵兆 case 裡亂猜拿不到分
+    wrong = _score([gt], [_pred("WT001", "2026-01-01T03:00:00Z", "blades")])
+    assert (wrong.early_sign_cases, wrong.early_sign_detected, wrong.early_warnings) == (1, 0, 0)
+    # pre_existing（開始時間不明）與沒有預期碼的 case 都不是早期徵兆 case；不同群組的診斷照常歸最晚開始的
+    pre = _gt([_case("C001", "WT001", "transformer", None, None, pre_existing=True),
+               _case("C002", "WT001", "main_bearing", "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")])
+    report = _score([pre], [_pred("WT001", "2026-01-01T03:00:00Z", "blades")])
+    assert report.early_sign_cases == 0
+    assert {r.case_id: r.detected for r in report.case_results} == {"C001": False, "C002": True}
 
 
 def test_pre_existing_case_has_no_timing_score() -> None:

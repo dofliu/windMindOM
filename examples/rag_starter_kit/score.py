@@ -139,8 +139,9 @@ class Case:
 
     @property
     def early_sign(self) -> bool:
-        """早期徵兆 case（v1.7）：有預期事件碼、但情境結束前沒有任何預期警報出現。"""
-        return self.is_fault and bool(self.expected_codes) and self.first_alarm is None
+        """早期徵兆 case（v1.7）：開始時間已知的故障 case，有預期事件碼、但情境結束前沒有任何預期警報出現
+        （``pre_existing`` case 不算：不知道它何時開始、是不是早期）。"""
+        return self.is_fault and self.timing_scored and bool(self.expected_codes) and self.first_alarm is None
 
 
 def read_predictions(lines: Iterable[str], components: Dict[str, str]) -> Tuple[List[Prediction], List[JsonObject]]:
@@ -355,7 +356,7 @@ class Report:
     # v1.7（WMOM-20261021-08-d）：同機組多 case 與早期徵兆
     diagnosis_precision: Optional[float] = None  # 對到 case 的診斷裡元件正確的比例（沒有診斷時 None）
     early_sign_cases: int = 0
-    early_sign_detected: int = 0
+    early_sign_detected: int = 0  # 早期徵兆 case 裡元件診斷正確（＝早期預警）的數
 
 
 def _in_window(case: Case, ts: datetime) -> bool:
@@ -556,7 +557,7 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         nuisance_case_results=nuisance_results,
         diagnosis_precision=((n_claims - n_misdiagnosis) / n_claims) if n_claims else None,
         early_sign_cases=sum(r.early_sign for r in results),
-        early_sign_detected=sum(r.early_sign and r.detected for r in results),
+        early_sign_detected=sum(r.early_sign and r.early_warning for r in results),
     )
 
 
@@ -617,8 +618,8 @@ def format_report(report: Report) -> str:
         f"  延遲（中位 / 平均） {secs(report.latency_median_s)} / {secs(report.latency_mean_s)}"
         f"（{report.latency_n} 個 case；相對第一個預期警報，負值＝提前）",
         f"  早期預警            {report.early_warnings} 個 case",
-        f"  早期徵兆 case       {report.early_sign_cases} 個，偵測到 {report.early_sign_detected} 個"
-        f"（情境結束前沒到警報；偵測到＝早期預警）",
+        f"  早期徵兆 case       {report.early_sign_cases} 個，診斷對 {report.early_sign_detected} 個"
+        f"（情境結束前沒到警報；元件診斷正確才算，＝早期預警）",
         f"  誤診（對到 case 但元件錯）{report.misdiagnosis_predictions} 筆",
         f"  診斷精確率          "
         f"{'-' if report.diagnosis_precision is None else pct(report.diagnosis_precision)}"

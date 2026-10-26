@@ -1626,7 +1626,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Description**: -08 的最後一個子項（劉老師 2026-10-26：「同一台機組多個 case 的評分規則請你建議就好，然後開始多重故障＋早期徵兆」）。同一台機組同時有多個故障 case 時的評分規則，以及「訊號已偏離、但到不了警報」的早期徵兆題。
 - **Deliverable**: 評分規則（合約 §8 規則 7 / 8、診斷精確率、早期徵兆 case）、排程 `max_severity`、範例資料包 07、合約 v1.7、測試
 - **完成紀錄**（DEC-20261026-01）：
-  - **評分規則**：歸屬加一級（先對同元件的 case，其次同群組的，否則最晚開始的），每個 case 各自評；新指標**診斷精確率**抓「每個元件猜一遍」；早期徵兆 case（有預期碼、情境內沒到警報）分開列，偵測到＝早期預警；共用碼仍歸每個 case，範例不放共用碼組合（`check_pack`）。既有單 case 成績與 01–06 基準不變。
+  - **評分規則**：歸屬加一級（先對同元件的 case，其次同群組的，否則最晚開始的），每個 case 各自評；新指標**診斷精確率**抓「每個元件猜一遍」；早期徵兆 case（開始時間已知、有預期碼、情境內沒到警報）分開列，元件診斷正確＝早期預警；共用碼仍歸每個 case，範例不放共用碼組合（`check_pack`）。既有單 case 成績與 01–06 基準不變。
   - **出題**：`FaultEngine.inject(max_severity=)` / `TestPlanStep.max_severity` / `fault_schedule.max_severity`（(0, 1] 且 ≥ initial_severity，否則 400 / ValueError）；標準答案 `injection.max_severity`；合約 1.7。
   - **範例資料包 07**：6 台 6 h，8 個 case（3 個會出警報、4 個早期徵兆、1 個沒有警報）；基準助手抓到 3 個。
   - 測試：`test_fault_severity_cap.py`、kit 測試（精確率、早期徵兆、共用碼守門、`max_severity` < 1 不得出警報）、parser 驗證。

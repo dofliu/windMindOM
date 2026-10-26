@@ -1204,10 +1204,12 @@ class FaultEngine:
                           developing there (early-sign cases, WMOM-20261021-08-d)
 
         Raises:
-            ValueError: ``max_severity`` outside (0, 1] or below ``initial_severity``.
+            ValueError: ``max_severity`` outside (0, 1] or below ``initial_severity``
+                (``initial_severity`` above 1 is clamped to 1 first, as before).
         """
         if scenario_id not in FAULT_SCENARIOS:
             return False
+        initial_severity = min(1.0, initial_severity)
         if not 0.0 < max_severity <= 1.0 or max_severity < initial_severity:
             raise ValueError(
                 f"max_severity 須在 (0, 1] 且不小於 initial_severity：{max_severity} / {initial_severity}")
@@ -1357,8 +1359,9 @@ class TestPlanStep:
     turbine_id: str             # which turbine
     severity_rate: float        # how fast it develops
     initial_severity: float = 0.0
-    max_severity: float = 1.0   # severity ceiling (< 1.0 = early-sign case, WMOM-20261021-08-d)
     description: str = ""
+    # 放在 description 之後：內建 TEST_PLANS 以第 6 個位置參數傳 description
+    max_severity: float = 1.0   # severity ceiling (< 1.0 = early-sign case, WMOM-20261021-08-d)
 
 
 TEST_PLANS: Dict[str, Dict] = {

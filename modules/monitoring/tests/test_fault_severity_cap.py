@@ -50,9 +50,27 @@ def test_invalid_cap_is_rejected(initial: float, cap: float) -> None:
     assert engine.active_faults == []
 
 
+def test_builtin_test_plans_keep_their_descriptions_and_inject() -> None:
+    """內建 TEST_PLANS 以位置參數傳 description：max_severity 必須排在它後面（code review M1）。"""
+    from simulator.physics.fault_engine import TEST_PLANS
+
+    for plan in TEST_PLANS.values():
+        for step in plan["steps"]:
+            assert isinstance(step.max_severity, float) and step.max_severity == 1.0 and isinstance(step.description, str)
+            engine = FaultEngine()
+            assert engine.inject(step.scenario_id, step.turbine_id, severity_rate=step.severity_rate,
+                                 initial_severity=step.initial_severity, max_severity=step.max_severity)
+
+
+def test_initial_severity_above_one_is_still_clamped() -> None:
+    engine = FaultEngine()
+    assert engine.inject("bearing_wear", "WT001", initial_severity=1.5)
+    assert engine.active_faults[0].severity == 1.0
+
+
 def test_ground_truth_records_the_cap() -> None:
     rec = GroundTruthRecorder(["WT001"])
-    rec.on_fault_injected(PlanStep(0.0, "bearing_wear", "WT001", 0.0002, 0.0, 0.5), T0)
+    rec.on_fault_injected(PlanStep(0.0, "bearing_wear", "WT001", 0.0002, 0.0, max_severity=0.5), T0)
     gt = rec.build(scenario_id=1, scenario_name="x", site_timezone="UTC",
                    sim_start="2026-01-01T00:00:00.000000+00:00", sim_end="2026-01-01T01:00:00.000000+00:00")
     assert gt["cases"][0]["injection"]["max_severity"] == 0.5

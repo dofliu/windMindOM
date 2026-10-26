@@ -956,7 +956,7 @@ Pt100 濾波：越限判定用濾波值；斷線判定（242 / 243 / 250 / 251�
 
 **評分規則（合約 §8 規則 7 / 8）**
 - 同一台機組多個故障 case：歸屬加一級（先對同元件的 case，其次同群組的，否則最晚開始的），每個 case 各自評；新指標**診斷精確率**（對到 case 的診斷裡元件正確的比例）抓「每個元件猜一遍」——元件正確率可以 100 %，精確率只有 k / 14。既有單 case 的成績不變。
-- **早期徵兆 case**：有預期碼、情境內沒到警報的故障 case 分開列（`early_sign_cases` / `early_sign_detected`）；偵測到＝早期預警，不評延遲。
+- **早期徵兆 case**：開始時間已知、有預期碼、情境內沒到警報的故障 case 分開列（`early_sign_cases` / `early_sign_detected`）；元件診斷正確＝早期預警，不評延遲。
 - 共用碼仍歸給每個 case；範例資料包不放共用碼組合（`check_pack` 擋）。
 
 **出題**：排程 `max_severity`（嚴重度上限）——`FaultEngine.inject(max_severity=)`、`TestPlanStep.max_severity`、`fault_schedule` 驗證 (0, 1] 且不小於 `initial_severity`；標準答案 `injection.max_severity`；合約 1.7。額定風速下各故障出第一個警報的嚴重度（實測，取上限用）：主軸承 262 0.88、定子 264 / 265 0.91、Pt100 漂移 262 0.69、導電度 423 0.45、泵磨耗 422 0.45、液壓 261 0.50、變槳 381 0.53、變壓器 417 1.0。

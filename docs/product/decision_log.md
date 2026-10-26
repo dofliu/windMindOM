@@ -1200,9 +1200,9 @@ WMOM-20261022-02 對照手冊修模擬器時，遇到三個需要決策的問題
 
 ### Decision
 
-- 歸屬規則加一級：元件相同 → 同群組 → 最晚開始的（基準助手只猜到「變槳系統」時，診斷要歸到變槳的 case，不是同機組較晚開始的導電度 case）；新指標 `diagnosis_precision`；早期徵兆 case（有預期碼、情境內沒到警報）在報告分開列 `early_sign_cases` / `early_sign_detected`，偵測到＝早期預警（既有規則）、不評延遲、手冊引用照常。它與 v1.6 的「沒有警報的故障」（預期碼為空）不同。
+- 歸屬規則加一級：元件相同 → 同群組 → 最晚開始的（基準助手只猜到「變槳系統」時，診斷要歸到變槳的 case，不是同機組較晚開始的導電度 case）；新指標 `diagnosis_precision`；早期徵兆 case（開始時間已知、有預期碼、情境內沒到警報；`pre_existing` 不算）在報告分開列 `early_sign_cases` / `early_sign_detected`，元件診斷正確＝早期預警（既有規則）、不評延遲、手冊引用照常。它與 v1.6 的「沒有警報的故障」（預期碼為空）不同。
 - 同機組多個 case 預期同一個碼時，標準答案把碼歸給每一個（維持 -08-a 的規則）；範例資料包不放共用碼的組合（`tools/build_rag_starter_kit.py::check_pack` 擋）。沒有故障的機組時數重疊窗只扣一次（維持）。
-- `max_severity` 走排程（`fault_schedule`）與 `FaultEngine.inject`，(0, 1] 且不小於 `initial_severity`；跳機後嚴重度凍結的規則不變。
+- `max_severity` 走排程（`fault_schedule`）與 `FaultEngine.inject`，(0, 1] 且不小於 `initial_severity`（> 1 的 `initial_severity` 照舊夾到 1）；跳機後嚴重度凍結的規則不變。Live 的 `POST /api/faults/inject` 不開 `maxSeverity`（早期徵兆是出題用，走批次）。
 - 合約升 1.7（加欄位、加指標）；範例資料包 07（6 台、6 h、額定風況）：WT001 主軸承磨耗壓在 0.5（262 約 0.88 才出）＋ 90 分鐘後冷卻水泵磨耗（會跳機）、WT002 偏航失準（沒有警報）＋ 2 h 後液壓洩漏、WT003 只有定子劣化早期徵兆（上限 0.6）、WT004 變槳驅動過載（會跳機）＋ 導電度上升壓在 0.3（423 約 0.45 才出）、WT005 只有 Pt100 漂移早期徵兆（上限 0.5）、WT006 健康。額定風速下各故障出警報的嚴重度實測後再定上限。
 
 ### Consequences
