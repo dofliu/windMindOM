@@ -34,6 +34,8 @@ def _parse_fault_schedule(raw: List[dict], valid_turbine_ids: Set[str]) -> List[
       - ``at_hour`` 或 ``offset_seconds``（擇一；注入的 sim-time 位移，預設 0）
       - ``severity_rate``（選填，預設 0.0002 ≈ 18 小時到滿）
       - ``initial_severity``（選填，預設 0.0）
+      - ``max_severity``（選填，預設 1.0；(0, 1] 且不小於 initial_severity——< 1 時故障停在那裡不再惡化，
+        出「早期徵兆」題，WMOM-20261021-08-d）
       - ``description``（選填）
 
     Args:
@@ -74,11 +76,16 @@ def _parse_fault_schedule(raw: List[dict], valid_turbine_ids: Set[str]) -> List[
                 offset = float(item.get("at_hour", 0.0)) * 3600.0
             severity_rate = float(item.get("severity_rate", 0.0002))
             initial_severity = float(item.get("initial_severity", 0.0))
+            max_severity = float(item.get("max_severity", 1.0))
+            if not all(math.isfinite(v) for v in (offset, severity_rate, initial_severity, max_severity)):
+                raise ValueError("non-finite")
         except (TypeError, ValueError):
-            raise HTTPException(400, f"fault_schedule[{i}]: 數值欄位格式錯誤（offset/at_hour/severity_rate/initial_severity 須為數字）")
+            raise HTTPException(400, f"fault_schedule[{i}]: 數值欄位格式錯誤（offset/at_hour/severity_rate/initial_severity/max_severity 須為數字）")
 
         if offset < 0:
             raise HTTPException(400, f"fault_schedule[{i}]: offset 不可為負")
+        if not 0.0 < max_severity <= 1.0 or max_severity < min(1.0, initial_severity):
+            raise HTTPException(400, f"fault_schedule[{i}]: max_severity 須在 (0, 1] 且不小於 initial_severity")
 
         steps.append(TestPlanStep(
             offset_seconds=offset,
@@ -86,6 +93,7 @@ def _parse_fault_schedule(raw: List[dict], valid_turbine_ids: Set[str]) -> List[
             turbine_id=turbine_id,
             severity_rate=severity_rate,
             initial_severity=initial_severity,
+            max_severity=max_severity,
             description=str(item.get("description", "")),
         ))
 
@@ -360,7 +368,7 @@ def _generate_bulk(body: dict) -> dict:
       duration_hours: hours of simulated data (e.g. 720 for 30 days)
       time_step: physics step in seconds (default 10, use 60 for faster)
       fault_schedule: 選填。Scenario 模式的故障排程（DEC-20260718-01）。每筆
-        ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?}``
+        ``{scenario_id, turbine_id, at_hour|offset_seconds, severity_rate?, initial_severity?, max_severity?}``
         於指定 sim-time 注入，讓批次資料集包含該故障的發展（見 ``_parse_fault_schedule``）。
       farm_events: 選填。風場層級事件排程（電網擾動、風向快速變化，WMOM-20261021-08-b），見
         ``_parse_farm_events``；標準答案把它們造成的警報 / 跳機標成 nuisance case，排程只存在情境設定與答案，

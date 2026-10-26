@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "故障庫擴充：變槳驅動過載、冷卻水泵磨耗、冷卻水導電度、轉速 / 風速計 / 風向標感測器故障、沒有警報的偏航失準",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-04-06T05:00:10.000000Z",
  "sim_end": "2026-04-06T10:00:00.000000Z",
- "generated_at": "2026-10-25T11:33:44.620999Z",
+ "generated_at": "2026-10-26T03:42:50.191851Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -75,7 +75,8 @@
    "injection": {
     "offset_seconds": 900.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 1.0,
@@ -175,7 +176,8 @@
    "injection": {
     "offset_seconds": 1200.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.885,
@@ -313,7 +315,8 @@
    "injection": {
     "offset_seconds": 1800.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.709,
@@ -428,7 +431,8 @@
    "injection": {
     "offset_seconds": 2400.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.819,
@@ -507,7 +511,8 @@
    "injection": {
     "offset_seconds": 3600.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.579,
@@ -585,7 +590,8 @@
    "injection": {
     "offset_seconds": 4800.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.812,
@@ -662,7 +668,8 @@
    "injection": {
     "offset_seconds": 6000.0,
     "severity_rate": 0.0002,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.513,

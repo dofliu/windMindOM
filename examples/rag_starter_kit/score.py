@@ -21,6 +21,10 @@
   感測器接點鬆動、環境性停機）＝認出干擾；在 nuisance case 時間窗內下故障診斷照樣是誤報（另計「把干擾當故障」）。
   對不到 nuisance case 的 ``nuisance`` 預測另列（落空），報干擾判定的準確率——每台每分鐘都報干擾拿得到辨識率，
   但準確率會很低。``nuisance`` 預測不會撤回之前的故障診斷。誤報率＝誤報次數 ÷ 沒有故障的機組時數（每 100 機組小時）。
+- 同一台機組多個故障 case（v1.7，WMOM-20261021-08-d）：預測先對同元件的 case，對不到歸最晚開始的 case；每個 case 各自評。
+  另報「診斷精確率」（對到 case 的診斷裡元件正確的比例）——「每個元件都猜一遍」每個 case 都拿得到分，精確率會很低。
+- 早期徵兆 case（v1.7）：有預期事件碼、情境結束前沒到警報的故障 case（出題端把嚴重度壓在門檻下）另列；
+  偵測到就是早期預警，不評延遲。
 - 各項指標分開列，不合成總分。
 """
 
@@ -132,6 +136,12 @@ class Case:
     def is_fault(self) -> bool:
         """是故障 case（不是 nuisance）。"""
         return self.category in FAULT_CATEGORIES
+
+    @property
+    def early_sign(self) -> bool:
+        """早期徵兆 case（v1.7）：開始時間已知的故障 case，有預期事件碼、但情境結束前沒有任何預期警報出現
+        （``pre_existing`` case 不算：不知道它何時開始、是不是早期）。"""
+        return self.is_fault and self.timing_scored and bool(self.expected_codes) and self.first_alarm is None
 
 
 def read_predictions(lines: Iterable[str], components: Dict[str, str]) -> Tuple[List[Prediction], List[JsonObject]]:
@@ -281,6 +291,7 @@ class CaseResult:
     n_predictions: int = 0
     misdiagnosis_predictions: int = 0
     components_claimed: List[str] = field(default_factory=list)
+    early_sign: bool = False  # v1.7：情境結束前沒到警報的故障 case
 
 
 @dataclass
@@ -342,19 +353,27 @@ class Report:
     healthy_turbine_hours: Optional[float] = None
     false_alarm_rate_per_100h: Optional[float] = None
     nuisance_case_results: List[NuisanceCaseResult] = field(default_factory=list)
+    # v1.7（WMOM-20261021-08-d）：同機組多 case 與早期徵兆
+    diagnosis_precision: Optional[float] = None  # 對到 case 的診斷裡元件正確的比例（沒有診斷時 None）
+    early_sign_cases: int = 0
+    early_sign_detected: int = 0  # 早期徵兆 case 裡元件診斷正確（＝早期預警）的數
 
 
 def _in_window(case: Case, ts: datetime) -> bool:
     return case.window_start <= ts and (case.window_end is None or ts <= case.window_end)
 
 
-def _match(prediction: Prediction, cases: Sequence[Case]) -> Optional[Case]:
-    """一筆故障診斷對到哪個故障 case：同機組、時間在窗內；同時有多個時優先元件相同者，否則取最近發生的。"""
+def _match(prediction: Prediction, cases: Sequence[Case], components: Dict[str, str]) -> Optional[Case]:
+    """一筆故障診斷對到哪個故障 case：同機組、時間在窗內；同時有多個時優先元件相同者，其次同群組者
+    （v1.7：只猜到群組的診斷也要歸到對的問題），否則取最近發生的。"""
     candidates = [c for c in cases
                   if c.is_fault and c.turbine_id == prediction.turbine_id and _in_window(c, prediction.ts)]
     if not candidates:
         return None
     same = [c for c in candidates if c.component == prediction.component]
+    if not same and prediction.component is not None:
+        group = components.get(prediction.component)
+        same = [c for c in candidates if group is not None and components.get(c.component or "") == group]
     return max(same or candidates, key=lambda c: c.window_start)
 
 
@@ -389,7 +408,7 @@ def _score_case(case: Case, claims: Sequence[Prediction], components: Dict[str, 
     """一個 case 的評分（``claims`` 已依時間、行號排序）。"""
     result = CaseResult(pack_id=case.pack_id, case_id=case.case_id, turbine_id=case.turbine_id,
                         expected_component=case.component or "", expected_category=case.category,
-                        timing_scored=case.timing_scored, n_predictions=len(claims))
+                        timing_scored=case.timing_scored, n_predictions=len(claims), early_sign=case.early_sign)
     if not claims:
         return result
     final = claims[-1]  # 最後一筆＝助手最後的判斷
@@ -463,7 +482,7 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
             else:
                 nuisance_unmatched += 1  # 落空：那時那台機組沒有干擾
             continue
-        case = _match(prediction, cases)
+        case = _match(prediction, cases, components)
         if case is None:
             false_alarms.append(prediction)
             hit = _match_nuisance(prediction, cases)
@@ -500,6 +519,8 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
     # 手冊引用只評有預期事件碼的 case：沒有警報的故障（v1.6，例：偏航失準）沒有可引用的正解
     manual_cases = [r for r, c in zip(results, fault_cases) if c.expected_codes]
     n_manual = len(manual_cases)
+    n_claims = sum(r.n_predictions for r in results)
+    n_misdiagnosis = sum(r.misdiagnosis_predictions for r in results)
     return Report(
         packs=packs,
         cases=n,
@@ -515,7 +536,7 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         latency_n=len(latencies),
         latency_median_s=statistics.median(latencies) if latencies else None,
         latency_mean_s=statistics.mean(latencies) if latencies else None,
-        misdiagnosis_predictions=sum(r.misdiagnosis_predictions for r in results),
+        misdiagnosis_predictions=n_misdiagnosis,
         false_alarm_predictions=len(false_alarms),
         false_alarm_episodes=episodes,
         false_alarm_turbines=len({(p.pack_id, p.turbine_id) for p in false_alarms}),
@@ -534,6 +555,9 @@ def score(ground_truths: Sequence[JsonObject], predictions: Sequence[Prediction]
         healthy_turbine_hours=healthy_hours,
         false_alarm_rate_per_100h=(episodes / healthy_hours * 100.0) if healthy_hours else None,
         nuisance_case_results=nuisance_results,
+        diagnosis_precision=((n_claims - n_misdiagnosis) / n_claims) if n_claims else None,
+        early_sign_cases=sum(r.early_sign for r in results),
+        early_sign_detected=sum(r.early_sign and r.early_warning for r in results),
     )
 
 
@@ -594,7 +618,12 @@ def format_report(report: Report) -> str:
         f"  延遲（中位 / 平均） {secs(report.latency_median_s)} / {secs(report.latency_mean_s)}"
         f"（{report.latency_n} 個 case；相對第一個預期警報，負值＝提前）",
         f"  早期預警            {report.early_warnings} 個 case",
+        f"  早期徵兆 case       {report.early_sign_cases} 個，診斷對 {report.early_sign_detected} 個"
+        f"（情境結束前沒到警報；元件診斷正確才算，＝早期預警）",
         f"  誤診（對到 case 但元件錯）{report.misdiagnosis_predictions} 筆",
+        f"  診斷精確率          "
+        f"{'-' if report.diagnosis_precision is None else pct(report.diagnosis_precision)}"
+        f"（對到 case 的診斷裡元件正確的比例；同機組多 case 時「每個元件猜一遍」會在這裡現形）",
         f"  誤報                {report.false_alarm_episodes} 次（{report.false_alarm_predictions} 筆、"
         f"{report.false_alarm_turbines} 台機組）",
         f"  誤報率              {rate100(report.false_alarm_rate_per_100h)}"
@@ -622,6 +651,7 @@ def format_report(report: Report) -> str:
             f"  {mark:<2} {r.pack_id} {r.case_id} {r.turbine_id}  答案 {r.expected_component}/{r.expected_category}"
             f"  預測 {r.predicted_component}/{r.predicted_category}  延遲 {secs(r.latency_s)}"
             f"{'  早期預警' if r.early_warning else ''}"
+            f"{'  （早期徵兆）' if r.early_sign else ''}"
             f"{f'  誤診 {r.misdiagnosis_predictions} 筆' if r.misdiagnosis_predictions else ''}"
         )
     if report.nuisance_case_results:

@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "干擾：風向標漂移（感測器故障）+ 葉片角不平衡，陣風、健康機組也有事件",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-16T07:00:10.000000Z",
  "sim_end": "2026-03-16T13:00:00.000000Z",
- "generated_at": "2026-10-25T11:31:32.502891Z",
+ "generated_at": "2026-10-26T03:41:40.908327Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -88,7 +88,8 @@
    "injection": {
     "offset_seconds": 900.0,
     "severity_rate": 0.001,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.905,
@@ -182,7 +183,8 @@
    "injection": {
     "offset_seconds": 5400.0,
     "severity_rate": 0.001,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 0.875,

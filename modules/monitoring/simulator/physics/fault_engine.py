@@ -1148,6 +1148,9 @@ class ActiveFault:
     turbine_id: str
     severity: float = 0.0                # 0.0 → 1.0
     severity_rate: float = 0.0002        # per second (~0.72/hour = ~18 hours to full)
+    # 嚴重度上限（WMOM-20261021-08-d）：< 1.0 時故障停在這個程度不再惡化——用來出「早期徵兆」題
+    # （訊號已偏離健康機組、但到不了警報門檻）
+    max_severity: float = 1.0
     started_at: Optional[datetime] = None
     tripped: bool = False
     trip_code: Optional[int] = None          # PLC trip code that tripped this fault
@@ -1184,7 +1187,8 @@ class FaultEngine:
 
     def inject(self, scenario_id: str, turbine_id: str,
                severity_rate: float = 0.0002,
-               initial_severity: float = 0.0) -> bool:
+               initial_severity: float = 0.0,
+               max_severity: float = 1.0) -> bool:
         """
         Inject a fault into a specific turbine.
 
@@ -1196,9 +1200,19 @@ class FaultEngine:
                           0.001  = ~3.6 hours to full (fast demo)
                           0.01   = ~20 min to full (very fast demo)
             initial_severity: Start severity (0.0 = beginning, 0.5 = mid-fault)
+            max_severity: Severity ceiling in (0, 1]; below 1.0 the fault stops
+                          developing there (early-sign cases, WMOM-20261021-08-d)
+
+        Raises:
+            ValueError: ``max_severity`` outside (0, 1] or below ``initial_severity``
+                (``initial_severity`` above 1 is clamped to 1 first, as before).
         """
         if scenario_id not in FAULT_SCENARIOS:
             return False
+        initial_severity = min(1.0, initial_severity)
+        if not 0.0 < max_severity <= 1.0 or max_severity < initial_severity:
+            raise ValueError(
+                f"max_severity 須在 (0, 1] 且不小於 initial_severity：{max_severity} / {initial_severity}")
 
         # Remove existing fault of same type on same turbine
         self._active_faults = [
@@ -1211,6 +1225,7 @@ class FaultEngine:
             turbine_id=turbine_id,
             severity=initial_severity,
             severity_rate=severity_rate,
+            max_severity=max_severity,
             started_at=utc_now(),
         ))
         return True
@@ -1244,7 +1259,7 @@ class FaultEngine:
             # Progress severity. Alarms / trips are no longer derived from severity:
             # the PLC protection layer raises them from the measured signals and the
             # engine reports back via mark_tripped() / active_alarms (WMOM-20261021-03-b).
-            fault.severity = min(1.0, fault.severity + fault.severity_rate * dt)
+            fault.severity = min(fault.max_severity, fault.severity + fault.severity_rate * dt)
 
             scenario = FAULT_SCENARIOS.get(fault.scenario_id)
             if not scenario:
@@ -1345,6 +1360,8 @@ class TestPlanStep:
     severity_rate: float        # how fast it develops
     initial_severity: float = 0.0
     description: str = ""
+    # 放在 description 之後：內建 TEST_PLANS 以第 6 個位置參數傳 description
+    max_severity: float = 1.0   # severity ceiling (< 1.0 = early-sign case, WMOM-20261021-08-d)
 
 
 TEST_PLANS: Dict[str, Dict] = {

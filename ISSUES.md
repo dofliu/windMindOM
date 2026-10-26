@@ -20,7 +20,8 @@
 | done | 146 |
 | **total** | **157** |
 
-最後更新：2026-10-25（**WMOM-20261023-01 done**（直驅 `WGEN_GnSpd` 偏離轉子轉速，DEC-20261025-01）：根因是傳動鏈扭轉的顯式 Euler 在批次子步 5 s 數值不穩定（二週期振盪、取樣看起來像 2.7 倍）；扭轉＋發電機轉速改以 ≤ 1 s 子步積分，dt 1 s 逐位元不變、批次資料改變，範例資料包重建；守門測試 14 種子 × 3 個 dt。open 6 / in_progress 2 / deferred 2 / done 147 = 157。詳見 `work-logs/2026-10/2026-10-25-gnspd-divergence.md`）。
+最後更新：2026-10-26（**WMOM-20261021-08-d done**（EPIC-DS Phase 4-d 多重故障＋早期徵兆，DEC-20261026-01；母 issue -08 全部子項 done → done）：同機組多 case 歸屬不變＋新指標診斷精確率、早期徵兆 case 分開列；排程 `max_severity` 把故障壓在門檻下；範例資料包 07；合約 v1.7。open 6 / in_progress 1 / deferred 2 / done 149 = 158。詳見 `work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`）。
+前次：2026-10-25（**WMOM-20261023-01 done**（直驅 `WGEN_GnSpd` 偏離轉子轉速，DEC-20261025-01）：根因是傳動鏈扭轉的顯式 Euler 在批次子步 5 s 數值不穩定（二週期振盪、取樣看起來像 2.7 倍）；扭轉＋發電機轉速改以 ≤ 1 s 子步積分，dt 1 s 逐位元不變、批次資料改變，範例資料包重建；守門測試 14 種子 × 3 個 dt。open 6 / in_progress 2 / deferred 2 / done 147 = 157。詳見 `work-logs/2026-10/2026-10-25-gnspd-divergence.md`）。
 前次：2026-10-23（**WMOM-20261021-08-c done**（EPIC-DS Phase 4-c 故障庫擴充，DEC-20261023-03）：7 個新情境（17 → 24）——變槳驅動過載 381 → 367、冷卻水泵磨耗 422 → 439、去離子樹脂耗盡 423 → 440、轉速感測器 029 / 風速計 230 / 風向標 1 卡住 231、沒有警報的靜態偏航失準；刪 `gearbox_overheat`；新增真實 tag `WROT_PtMotCurBl1-3`；`WCNV_IGCTWtrCond` 改為導電度；範例資料包 06；合約 v1.6；code review 後新開 WMOM-20261023-01（`WGEN_GnSpd` 長期偏離，既有問題）。open 7 / in_progress 2 / deferred 2 / done 146 = 157。詳見 `work-logs/2026-10/2026-10-23-fault-library-expansion.md`）。
 前次：2026-10-23（**WMOM-20261021-08-b done**（EPIC-DS Phase 4-b 誤報 / 健康負樣本，DEC-20261023-02）：風場層級事件（電網電壓驟降、頻率越界、風向快速變化）＋新 PLC 規則偏航逾時 223（Appendix D）＋ nuisance 情境 Pt100 接點鬆動（手冊 §11.3）；標準答案 nuisance case（`nuisance_cause` / `window_end_ts` / `farm_events`，環境性停機自動歸類）；評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），舊規則不變；starter kit 第五個範例資料包（健康負樣本）；合約 v1.5。open 6 / in_progress 2 / deferred 2 / done 145 = 155。詳見 `work-logs/2026-10/2026-10-23-nuisance-negatives.md`）。
 前次最後更新：2026-10-23（**WMOM-20261022-02 done**（手冊保真度，DEC-20261023-01）：手冊 Appendix C / D 衝突以 D 為準（液壓 170 / 150 bar、30 s、190 bar 解除；233 延時 60 s＋60 s 平均風速；Pt100 10 s 濾波；切出陣風 3 s；273 為 45 °C；編碼器 −5–95°）；自動重啟被封鎖改送 A039（手冊獨有碼，目錄 315 碼）、拿掉全域每小時 3 次啟動上限；`yaw_sensor_drift` 每台機組都跳 233；合約 v1.4、範例資料包重建。逐條解析 header 核實：open 6 / in_progress 2 / deferred 2 / done 144 = 154。詳見 `work-logs/2026-10/2026-10-23-manual-fidelity.md`）。
@@ -1543,7 +1544,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261021-08 — Phase 4：情境難度與多樣性
 
-- **Status**: in_progress（拆子項分 PR：-08-a done、-08-b done、-08-c done；剩多重故障 + 早期徵兆）
+- **Status**: done（2026-10-26；拆子項分 PR：-08-a / -08-b / -08-c / -08-d 全部 done）
 - **Milestone**: EPIC-DS
 - **Priority**: medium
 - **Estimate**: 3-5 天（可拆）
@@ -1614,6 +1615,23 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - **code review**（Needs revision → 全修）：M1 卡住的風向標經尾流模型影響其他機組（尾流改用沒有故障的讀值）、M2 嚴重度超出範圍時泵磨耗算出複數；S1 既有洩漏情境加 422 / 439、S2 029 停機時保持轉速差、S3 `WGEN_GnSpd` 長期偏離（另開 WMOM-20261023-01）、S4–S6 測試與 docstring。
   - work-log：`work-logs/2026-10/2026-10-23-fault-library-expansion.md`
 - **Depends on**: WMOM-20261021-08-b
+
+### WMOM-20261021-08-d — Phase 4-d：多重故障＋早期徵兆
+
+- **Status**: done（2026-10-26）
+- **Milestone**: EPIC-DS
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: Claude session 2026-10-26
+- **Description**: -08 的最後一個子項（劉老師 2026-10-26：「同一台機組多個 case 的評分規則請你建議就好，然後開始多重故障＋早期徵兆」）。同一台機組同時有多個故障 case 時的評分規則，以及「訊號已偏離、但到不了警報」的早期徵兆題。
+- **Deliverable**: 評分規則（合約 §8 規則 7 / 8、診斷精確率、早期徵兆 case）、排程 `max_severity`、範例資料包 07、合約 v1.7、測試
+- **完成紀錄**（DEC-20261026-01）：
+  - **評分規則**：歸屬加一級（先對同元件的 case，其次同群組的，否則最晚開始的），每個 case 各自評；新指標**診斷精確率**抓「每個元件猜一遍」；早期徵兆 case（開始時間已知、有預期碼、情境內沒到警報）分開列，元件診斷正確＝早期預警；共用碼仍歸每個 case，範例不放共用碼組合（`check_pack`）。既有單 case 成績與 01–06 基準不變。
+  - **出題**：`FaultEngine.inject(max_severity=)` / `TestPlanStep.max_severity` / `fault_schedule.max_severity`（(0, 1] 且 ≥ initial_severity，否則 400 / ValueError）；標準答案 `injection.max_severity`；合約 1.7。
+  - **範例資料包 07**：6 台 6 h，8 個 case（3 個會出警報、4 個早期徵兆、1 個沒有警報）；基準助手抓到 3 個。
+  - 測試：`test_fault_severity_cap.py`、kit 測試（精確率、早期徵兆、共用碼守門、`max_severity` < 1 不得出警報）、parser 驗證。
+  - work-log：`work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`
+- **Depends on**: WMOM-20261021-08-c
 
 ### WMOM-20261023-01 — 直驅機組 `WGEN_GnSpd` 與轉子轉速持續偏離（傳動鏈模型）
 

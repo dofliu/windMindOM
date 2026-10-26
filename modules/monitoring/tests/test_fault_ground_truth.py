@@ -180,7 +180,8 @@ def test_recorder_builds_case_with_onset_first_alarm_and_trip() -> None:
     assert case["observed_alarm_codes"] == [262, 240]
     assert case["other_observed_codes"] == [264]
     assert case["expected_alarm_codes"] == [262, 240]
-    assert case["injection"] == {"offset_seconds": 600.0, "severity_rate": 0.001, "initial_severity": 0.0}
+    assert case["injection"] == {"offset_seconds": 600.0, "severity_rate": 0.001, "initial_severity": 0.0,
+                                 "max_severity": 1.0}
     assert case["final_severity"] == 0.9877 and case["superseded"] is False and case["pre_existing"] is False
     assert case["nuisance_cause"] is None and case["window_end_ts"] is None and case["farm_event_id"] is None
     # 沒有故障時的事件歸成環境性 nuisance case（v1.5）：注入前的 262、別台的 262；故障連帶的 264 不歸

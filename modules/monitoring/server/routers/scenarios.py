@@ -465,7 +465,7 @@ def _tripped_fault_turbine_ids(fault_events: List[dict], as_of: datetime) -> Set
     旗標——即時路徑的 FAULT 覆寫（``data_broker._sim_output_to_reading``）靠的是記憶體內
     ``FaultEngine`` 當下狀態，情境是歷史批次，該記憶體狀態生成完就消失了。改用與
     ``FaultEngine.step()``（``simulator/physics/fault_engine.py``）完全相同的公式
-    （``severity = min(1, initial_severity + severity_rate * elapsed_seconds)``、
+    （``severity = min(1, initial_severity + severity_rate * elapsed_seconds)``——舊路徑不帶 max_severity、
     ``tripped = severity >= FAULT_SCENARIOS[id].auto_trip_severity``）對已持久化的故障注入
     事件（``history_events``，``event_type == "fault"``，見 ``routers/config.py::on_inject``）
     離線重算，不需要新 schema/欄位。

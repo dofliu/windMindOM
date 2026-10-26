@@ -1,0 +1,890 @@
+{
+ "contract_version": "1.7",
+ "kind": "scenario_ground_truth",
+ "scenario_id": 2,
+ "scenario_name": "多重故障與早期徵兆：三台各有兩個問題（一個會出警報、一個停在門檻下或沒有警報）、兩台只有早期徵兆、一台健康",
+ "turbine_model": "Z72",
+ "site_timezone": "Asia/Taipei",
+ "sim_start": "2026-04-20T02:00:10.000000Z",
+ "sim_end": "2026-04-20T08:00:00.000000Z",
+ "generated_at": "2026-10-26T03:43:20.828065Z",
+ "turbines": [
+  "WT001",
+  "WT002",
+  "WT003",
+  "WT004",
+  "WT005",
+  "WT006"
+ ],
+ "healthy_turbines": [
+  "WT006"
+ ],
+ "cases": [
+  {
+   "case_id": "C001",
+   "turbine_id": "WT001",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "bearing_wear",
+   "fault_name_en": "Generator Bearing Wear",
+   "fault_name_zh": "發電機軸承磨損",
+   "component": "main_bearing",
+   "root_cause": "主軸承 1（PLC 事件 262 / 240 監測的軸承）潤滑劣化、磨耗：摩擦生熱隨轉速增加且散熱變差，軸承溫度與機艙振動、峰度逐步上升，越過 85 °C 警報、95 °C 跳機；共用潤滑與傳熱，軸承溫度 2 也跟著升溫（幅度約三成）。",
+   "root_cause_en": "Main bearing 1 (monitored by PLC events 262 / 240) lubrication degradation and wear: friction heat rises with speed while heat removal worsens, so bearing temperature, nacelle vibration and kurtosis climb past the 85 °C alarm and 95 °C trip setpoints; through shared lubrication and heat conduction bearing temperature 2 rises too (by about a third as much).",
+   "expected_alarm_codes": [
+    262,
+    240
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 262,
+     "level": "A",
+     "text": "Main bearing 1 temperature high"
+    },
+    {
+     "code": 240,
+     "level": "T1",
+     "text": "Bearing 1 temperature very high"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 262,
+     "event_id": "A_262",
+     "level": "A",
+     "text": "Main bearing 1 temperature high",
+     "page": 111,
+     "cause": "Main bearing temperature 1 is high and might culminate into a trip",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 240,
+     "event_id": "T_240",
+     "level": "T1",
+     "text": "Bearing 1 temperature very high",
+     "page": 110,
+     "cause": "Bearing temperature 1 is very high",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查主軸承潤滑（油脂量 / 油質）（手冊）",
+    "檢查軸承冷卻風扇（手冊）",
+    "比對振動頻譜（峰度、高頻帶）評估軸承損傷，必要時安排更換"
+   ],
+   "expected_actions_en": [
+    "Check main bearing lubrication (manual).",
+    "Check the cooling fan (manual).",
+    "Review vibration spectra (kurtosis, high-frequency band) for bearing damage; plan replacement if needed."
+   ],
+   "key_signals": [
+    "WGEN_GnBrgTmp1",
+    "WGEN_GnBrgTmp2",
+    "WNAC_VibMsNacXDir",
+    "WNAC_VibMsNacYDir",
+    "WVIB_Kurtosis"
+   ],
+   "simulation_notes": [
+    "模擬的量測 tag 是 WGEN_GnBrgTmp1（發電機軸承溫度），PLC 以它判定事件 262 / 240（Main bearing 1）；情境名稱沿用 Generator Bearing Wear。"
+   ],
+   "simulation_notes_en": [
+    "The simulated measurement tag is WGEN_GnBrgTmp1 (generator bearing temperature); the PLC uses it for events 262 / 240 (Main bearing 1). The scenario keeps its legacy name Generator Bearing Wear."
+   ],
+   "onset_ts": "2026-04-20T02:10:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [
+    422,
+    432,
+    21,
+    439
+   ],
+   "injection": {
+    "offset_seconds": 600.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 0.5
+   },
+   "farm_event_id": null,
+   "final_severity": 0.5,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C002",
+   "turbine_id": "WT002",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "yaw_misalignment",
+   "fault_name_en": "Static Yaw Misalignment (Wind Vane Mounting Offset)",
+   "fault_name_zh": "靜態偏航失準（風向標安裝偏差）",
+   "component": "wind_vane_alignment",
+   "root_cause": "兩支風向標的安裝方向一起偏了一個角度（例：更換或維修風向標後沒有對準）：偏航控制讓風向標讀值歸零，轉子因此長期偏離真實風向，發電隨偏航角約以 cos³ 減少，塔架側向彎矩與 3P 振動增加。兩支風向標讀值一致，PLC 沒有任何警報或跳機，只能從功率曲線（同風速下發電偏低）與負載趨勢發現。",
+   "root_cause_en": "Both wind vanes are mounted off by the same angle (e.g. not aligned after a vane replacement or repair): the yaw control nulls the vane readings, so the rotor runs permanently misaligned with the real wind, power falls roughly with cos³ of the yaw angle, and tower side-side moment and 3P vibration rise. The two vanes agree, the PLC raises no alarm or trip; it only shows in the power curve (low output for the wind speed) and the load trends.",
+   "expected_alarm_codes": [],
+   "expected_alarm_sequence": [],
+   "manual_refs": [],
+   "manual_coverage": "none",
+   "expected_actions": [
+    "依手冊 §6.8.2.2，風向標是讓機艙對風的依據：檢查兩支風向標的安裝方向（對準標記）與校正（手冊）",
+    "用功率曲線比對同風場其他機組：同風速下發電持續偏低、沒有警報時，懷疑對風偏差",
+    "以 LiDAR / 鄰機風向比對確認偏航角後重新對準風向標"
+   ],
+   "expected_actions_en": [
+    "Per manual §6.8.2.2 the wind vanes are what the nacelle aligns to: check both vanes' mounting direction (alignment mark) and calibration (manual).",
+    "Compare the power curve with the farm's other turbines: persistently low output for the wind speed with no alarm suggests a yaw misalignment.",
+    "Confirm the misalignment with a LiDAR or the neighbours' wind direction and realign the vanes."
+   ],
+   "key_signals": [
+    "WTUR_TotPwrAt",
+    "WLOD_TwrSsMom",
+    "WVIB_Band3pX"
+   ],
+   "simulation_notes": [
+    "滿嚴重度偏 16°；發電損失以 cos³ 套在功率上（本模型的全載變槳依風速決定，若改成減少轉子面對的風，全載時反而會少變槳、多發電）。",
+    "這個情境沒有任何預期警報碼：標準答案的 first_alarm / trip 為 null，評分不評延遲、偵測到就算早期預警。",
+    "「沒有警報」指 PLC 事件：自創的振動頻帶警報 tag（WVIB_Alarm3p）可能亮。風場尾流模型的偏航輸入取風向標讀值，看不到這個偏差，下游機組的尾流不受影響。發電損失在全載也照 cos³ 套用（真機全載時可能還發得到額定）。"
+   ],
+   "simulation_notes_en": [
+    "16° at full severity; the power loss is applied as cos³ on the power (this model's full-load pitch follows the wind speed, so reducing the wind the rotor faces would pitch less and produce more at full load).",
+    "This scenario has no expected alarm codes: the answer's first_alarm / trip are null, and scoring does not time it — any detection counts as early warning.",
+    "\"No alarm\" means no PLC event: the synthetic vibration band alarm tag (WVIB_Alarm3p) may light up. The farm wake model takes its yaw input from the vane reading, so it does not see this offset and downstream wakes are unaffected. The power loss is applied as cos³ at full load too (a real turbine may still reach rated power there)."
+   ],
+   "onset_ts": "2026-04-20T02:20:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [
+    261,
+    260,
+    228
+   ],
+   "injection": {
+    "offset_seconds": 1200.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 1.0
+   },
+   "farm_event_id": null,
+   "final_severity": 1.0,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C003",
+   "turbine_id": "WT003",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "stator_winding_degradation",
+   "fault_name_en": "Stator Winding Insulation Degradation (Subtle)",
+   "fault_name_zh": "定子繞組絕緣劣化（細微）",
+   "component": "generator_stator",
+   "root_cause": "發電機定子繞組絕緣劣化：負載下額外 I²R 損耗且散熱變差，整個繞組的溫度（定子溫度 1、2）隨負載升高得比健康機組快（溫度—功率斜率改變），高負載時越過警報（264 / 265）與跳機（244 / 245）設定，低負載時看不出來。",
+   "root_cause_en": "Generator stator winding insulation degradation: extra I²R losses under load and poorer heat conduction make the whole winding (stator temperatures 1 and 2) rise faster with load than on a healthy turbine (changed temperature-vs-power slope), crossing the alarm (264 / 265) and trip (244 / 245) setpoints at high load but not at low load.",
+   "expected_alarm_codes": [
+    264,
+    265,
+    244,
+    245
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 264,
+     "level": "A",
+     "text": "Generator stator temperature 1 high"
+    },
+    {
+     "code": 265,
+     "level": "A",
+     "text": "Generator stator temperature 2 high"
+    },
+    {
+     "code": 244,
+     "level": "T1",
+     "text": "Generator stator temperature 1 very high"
+    },
+    {
+     "code": 245,
+     "level": "T1",
+     "text": "Generator stator temperature 2 very high"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 264,
+     "event_id": "A_264",
+     "level": "A",
+     "text": "Generator stator temperature 1 high",
+     "page": 111,
+     "cause": "Stator temperature 1 is high and might culminate into a trip",
+     "rectification": "Is outside temperature very high in combination with a very high production ?",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 265,
+     "event_id": "A_265",
+     "level": "A",
+     "text": "Generator stator temperature 2 high",
+     "page": 112,
+     "cause": "Stator temperature 2 is high and might culminate into a trip",
+     "rectification": "Is outside temperature very high in combination with a very high production ?",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 244,
+     "event_id": "T_244",
+     "level": "T1",
+     "text": "Generator stator temperature 1 very high",
+     "page": 110,
+     "cause": "Stator temperature 1 is very high",
+     "rectification": "Is outside temperature very high in combination with a very high production ? Contact Harakosan for investigation.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 245,
+     "event_id": "T_245",
+     "level": "T1",
+     "text": "Generator stator temperature 2 very high",
+     "page": 110,
+     "cause": "Stator temperature 2 is very high",
+     "rectification": "Is outside temperature very high in combination with a very high production ? Contact Harakosan for investigation.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "確認是否外氣溫很高且產能很高（手冊）",
+    "檢查定子溫度量測與發電機冷卻",
+    "比對溫度—功率斜率與鄰機，確認是否為繞組劣化；安排絕緣電阻量測（megger），必要時降載",
+    "跳機（244）或持續發生時聯絡 Harakosan（手冊）"
+   ],
+   "expected_actions_en": [
+    "Check whether the outside temperature is very high in combination with very high production (manual).",
+    "Check stator temperature measurement and generator cooling.",
+    "Compare the temperature-vs-power slope with neighbouring turbines to confirm winding degradation; schedule an insulation resistance test (megger) and derate if needed.",
+    "After a trip (244) or if it persists, contact Harakosan (manual)."
+   ],
+   "key_signals": [
+    "WGEN_GnStaTmp1",
+    "WGEN_GnStaTmp2",
+    "WGEN_GnAirTmp1"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-04-20T02:30:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 1800.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 0.6
+   },
+   "farm_event_id": null,
+   "final_severity": 0.6,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C004",
+   "turbine_id": "WT004",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "pitch_motor_fault",
+   "fault_name_en": "Blade 1 Pitch Drive Overload (Bearing / Gear Friction)",
+   "fault_name_zh": "葉片 1 變槳驅動過載（軸承 / 齒輪摩擦）",
+   "component": "pitch_system_blade_1",
+   "root_cause": "葉片 1 變槳軸承 / 變槳齒輪摩擦增加（潤滑劣化）：直流變槳馬達要用更大的電流才能維持同樣的變槳動作，葉片 1 的馬達電流明顯高於葉片 2、3（多出的電流固定，總電流隨負載增加，所以高負載時先到限值）；RMS 電流超過驅動器連續額定時 I2t 限流警報（381），電流平均值超過手冊限值（10 分鐘 > 18 A、60 秒 > 20 A、5 秒 > 22 A）時 PLC 以葉片 1 變槳馬達過載（367）跳機。葉片角度與同步正常——不是校正漂移。",
+   "root_cause_en": "Increased friction in the blade 1 pitch bearing / pitch gear (deteriorating lubrication): the DC pitch motor needs more current for the same pitch action, so blade 1's motor current is clearly above blades 2 and 3 (a constant excess on top of a total that rises with load, so high load reaches the limits first). When the RMS current exceeds the drive's continuous rating the I2t current limiter warns (381); when the averaged current exceeds the manual's limits (10 min > 18 A, 60 s > 20 A, 5 s > 22 A) the PLC trips on pitch motor blade 1 overload (367). Blade angles and synchronisation are normal — this is not a calibration drift.",
+   "expected_alarm_codes": [
+    381,
+    367
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 381,
+     "level": "A",
+     "text": "I2t protection servo drive 1 active"
+    },
+    {
+     "code": 367,
+     "level": "T1",
+     "text": "Pitch motor blade 1 overload"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 381,
+     "event_id": "A_381",
+     "level": "A",
+     "text": "I2t protection servo drive 1 active",
+     "page": 122,
+     "cause": "The current limiter of the drive of blade 1 is active, possibly causing loss of synchronisation between blade 1 and the other blades",
+     "rectification": "The message should disappear automatically when the limiter becomes inactive. Too frequent occurrence of this alarm is an indication of a mechanical problem of blade 1. See also [Control Techniques].",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 367,
+     "event_id": "T_367",
+     "level": "T1",
+     "text": "Pitch motor blade 1 overload",
+     "page": 121,
+     "cause": "The pitch motor current has exceeded the limits",
+     "rectification": "Check pitch motor and pitch gear. Notify Harakosan",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查葉片 1 的變槳馬達與變槳齒輪（手冊）",
+    "I2t 警報太頻繁表示葉片 1 有機械問題（手冊）",
+    "比較三支葉片的馬達電流；檢查變槳軸承與齒輪的潤滑（含變槳軸承潤滑系統），修復後確認葉片 1 電流回到與另外兩支相同"
+   ],
+   "expected_actions_en": [
+    "Check the blade 1 pitch motor and pitch gear (manual).",
+    "Too frequent I2t alarms indicate a mechanical problem of blade 1 (manual).",
+    "Compare the three blades' motor currents; check pitch bearing and gear lubrication (including the pitch bearing grease system), and after the repair confirm blade 1's current matches the other two."
+   ],
+   "key_signals": [
+    "WROT_PtMotCurBl1"
+   ],
+   "simulation_notes": [
+    "變槳馬達電流是模擬假設的模型（通電時基本電流＋隨推力的氣動扭矩＋隨變槳速度）；I2t 限流的連續電流 14 A 與時間常數 60 s 為模擬假設（手冊只寫 See [Control Techniques]），過載限值照手冊 Appendix D。",
+    "I2t 限流在模擬中不會讓葉片 1 變慢，所以不會連帶出現葉片同步差異（335 / 336）。",
+    "跳機後葉片停在順槳、馬達電流歸零，電流平均值下降，367 約一分鐘後解除（trip_cleared）；故障還在，機組由維修鎖擋住、不會自己重啟。"
+   ],
+   "simulation_notes_en": [
+    "The pitch motor current is a simulator model (base current when energised + aerodynamic torque with thrust + pitch speed); the I2t limiter's 14 A continuous current and 60 s time constant are simulator assumptions (the manual only says see [Control Techniques]); the overload limits follow the manual's Appendix D.",
+    "In the simulator the I2t limiter does not slow blade 1, so no blade discrepancy (335 / 336) follows.",
+    "After the trip the blades park in vane and the motor current drops to zero, so the averages fall and 367 clears after about a minute (trip_cleared); the fault is still there and the maintenance lock keeps the turbine from restarting."
+   ],
+   "onset_ts": "2026-04-20T02:40:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-20T03:23:25.000000Z",
+   "first_alarm_code": 381,
+   "trip_ts": "2026-04-20T03:53:50.000000Z",
+   "trip_code": 367,
+   "observed_alarm_codes": [
+    381,
+    367
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 2400.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 1.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.886,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C005",
+   "turbine_id": "WT004",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "easy",
+   "fault_id": "cooling_water_deionizer_exhausted",
+   "fault_name_en": "Converter Cooling Water Deionizer Exhausted",
+   "fault_name_zh": "變頻器冷卻水去離子樹脂耗盡",
+   "component": "converter_cooling_system",
+   "root_cause": "變頻器冷卻水的去離子樹脂（離子交換器）耗盡：冷卻水導電度逐漸上升（水溫高時讀值也較高），IGCT 的漏電風險增加；超過警報值出冷卻水導電度高（423），再高時變頻器要求跳機（440 + 021）。冷卻水溫度、壓力與流量正常。",
+   "root_cause_en": "The deionizer (ion exchange resin) of the converter cooling water is exhausted: the water's conductivity climbs gradually (reading higher when the water is warmer), raising the IGCT leakage-current risk; above the alarm value the cooling water conductivity high alarm (423) comes, and higher still the converter requests a trip (440 + 021). Cooling water temperature, pressure and flow are normal.",
+   "expected_alarm_codes": [
+    423,
+    440,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 423,
+     "level": "A",
+     "text": "Cooling water conductivity high"
+    },
+    {
+     "code": 440,
+     "level": "T1",
+     "text": "Cooling water conductivity very high"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 423,
+     "event_id": "A_423",
+     "level": "A",
+     "text": "Cooling water conductivity high",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 440,
+     "event_id": "T_440",
+     "level": "T1",
+     "text": "Cooling water conductivity very high",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "依 ABB 變頻器手冊處理冷卻水導電度（手冊：Z72 手冊此類事件只寫 See [ABB]）",
+    "更換去離子樹脂（離子交換器濾芯），必要時換冷卻水",
+    "確認導電度降回正常值後再復位"
+   ],
+   "expected_actions_en": [
+    "Handle the cooling water conductivity per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
+    "Replace the deionizer resin (ion exchange cartridge) and, if needed, the cooling water.",
+    "Reset only after the conductivity is back to normal."
+   ],
+   "key_signals": [
+    "WCNV_IGCTWtrCond"
+   ],
+   "simulation_notes": [
+    "導電度的健康值（25 °C 時 0.15–0.25 µS/cm、每 °C 約 +2 %）與警報 / 跳機設定值（0.5 / 1.0 µS/cm）為模擬假設（手冊只寫 See [ABB]）。"
+   ],
+   "simulation_notes_en": [
+    "The healthy conductivity (0.15–0.25 µS/cm at 25 °C, about +2 % per °C) and the alarm / trip setpoints (0.5 / 1.0 µS/cm) are simulator assumptions (the manual only says See [ABB])."
+   ],
+   "onset_ts": "2026-04-20T02:50:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [
+    381,
+    367
+   ],
+   "injection": {
+    "offset_seconds": 3000.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 0.3
+   },
+   "farm_event_id": null,
+   "final_severity": 0.3,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C006",
+   "turbine_id": "WT005",
+   "category": "sensor_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "hard",
+   "fault_id": "main_bearing_temp_sensor_drift",
+   "fault_name_en": "Main Bearing 1 Temperature Sensor Drift",
+   "fault_name_zh": "主軸承溫度 1 感測器漂移",
+   "component": "main_bearing",
+   "root_cause": "主軸承溫度 1 的 Pt100 量測回路接觸電阻逐漸增加（端子鬆動 / 接點氧化，感測器故障）：讀值比實際溫度高，且偏差逐漸變大，PLC 依讀值送出軸承溫度高警報（262）與跳機（240）；軸承本身正常——軸承溫度 2、機艙振動與峰度都沒有變化，讀值與實際溫度的差也不隨轉速 / 負載改變（真的主軸承磨耗會隨轉速增加摩擦熱，軸承溫度 2 跟著升溫、振動與峰度上升）。",
+   "root_cause_en": "Rising contact resistance in the main bearing temperature 1 Pt100 measuring circuit (loose terminal / oxidised contact, sensor fault): the reading is higher than the real temperature by a growing offset, so the PLC raises the bearing temperature alarm (262) and trip (240) from the reading; the bearing itself is fine — bearing temperature 2, nacelle vibration and kurtosis do not change, and the excess does not scale with speed or load (real main bearing wear adds friction heat with speed, lifts bearing temperature 2 too and raises vibration and kurtosis).",
+   "expected_alarm_codes": [
+    262,
+    240
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 262,
+     "level": "A",
+     "text": "Main bearing 1 temperature high"
+    },
+    {
+     "code": 240,
+     "level": "T1",
+     "text": "Bearing 1 temperature very high"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 262,
+     "event_id": "A_262",
+     "level": "A",
+     "text": "Main bearing 1 temperature high",
+     "page": 111,
+     "cause": "Main bearing temperature 1 is high and might culminate into a trip",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 240,
+     "event_id": "T_240",
+     "level": "T1",
+     "text": "Bearing 1 temperature very high",
+     "page": 110,
+     "cause": "Bearing temperature 1 is very high",
+     "rectification": "Check lubrication main bearing. Check cooling fan.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "比對軸承溫度 1 與軸承溫度 2、振動與峰度：只有溫度 1 偏高、其他正常時，先懷疑感測器而不是軸承",
+    "依手冊檢查主軸承潤滑與冷卻風扇（手冊），排除真的過熱",
+    "檢查軸承溫度 1 的 Pt100 端子與配線（量測回路電阻），以參考溫度計比對，必要時更換感測器",
+    "讀值恢復正常後再復機，不必更換軸承"
+   ],
+   "expected_actions_en": [
+    "Compare bearing temperature 1 with bearing temperature 2, vibration and kurtosis: if only temperature 1 is high and the rest is normal, suspect the sensor before the bearing.",
+    "Check main bearing lubrication and the cooling fan per the manual (manual) to rule out real overheating.",
+    "Check the bearing temperature 1 Pt100 terminals and wiring (loop resistance), compare against a reference thermometer and replace the sensor if needed.",
+    "Restart once the reading is plausible again; the bearing does not need replacing."
+   ],
+   "key_signals": [
+    "WGEN_GnBrgTmp1"
+   ],
+   "simulation_notes": [
+    "讀值＝實際溫度＋偏移，偏移隨嚴重度線性增加到 60 °C；機組停機冷卻時讀值一樣下降（偏移不變）。真實的接觸電阻劣化通常歷時數週到數月。"
+   ],
+   "simulation_notes_en": [
+    "Reading = real temperature + an offset that grows linearly with severity up to 60 °C; when the turbine stops and cools the reading falls too (the offset stays). Real contact degradation usually takes weeks to months."
+   ],
+   "onset_ts": "2026-04-20T03:00:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": null,
+   "first_alarm_code": null,
+   "trip_ts": null,
+   "trip_code": null,
+   "observed_alarm_codes": [],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 3600.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 0.5
+   },
+   "farm_event_id": null,
+   "final_severity": 0.5,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C007",
+   "turbine_id": "WT001",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "converter_cooling_pump_wear",
+   "fault_name_en": "Converter Cooling Water Pump Wear",
+   "fault_name_zh": "變頻器冷卻水泵磨耗",
+   "component": "converter_cooling_system",
+   "root_cause": "變頻器冷卻水泵葉輪磨耗：泵送流量與迴路壓力逐漸下降（壓力約隨流量平方），冷卻液位正常、沒有洩漏；流量低於額定約九成時冷卻水流量低警報（422），壓力再低出靜水壓低（432），流量很低時變頻器要求跳機（439 + 021）。流量不足使 IGCT 冷卻水溫比平常高幾度，但通常在溫度警報之前就先跳機。",
+   "root_cause_en": "Worn converter cooling water pump impeller: pump flow and loop pressure fall gradually (pressure roughly with flow squared) while the coolant level is normal and nothing leaks; below about 90 % of rated flow the cooling water flow low alarm (422) comes, with lower pressure the static water pressure low alarm (432), and at very low flow the converter requests a trip (439 + 021). The reduced flow runs the IGCT cooling water a few degrees warmer, but the trip usually comes before any temperature alarm.",
+   "expected_alarm_codes": [
+    422,
+    432,
+    439,
+    21
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 422,
+     "level": "A",
+     "text": "Cooling water flow low"
+    },
+    {
+     "code": 432,
+     "level": "A",
+     "text": "Static water pressure L"
+    },
+    {
+     "code": 439,
+     "level": "T1",
+     "text": "Cooling water flow very low"
+    },
+    {
+     "code": 21,
+     "level": "T1",
+     "text": "Turbine trip request from converter"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 422,
+     "event_id": "A_422",
+     "level": "A",
+     "text": "Cooling water flow low",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 432,
+     "event_id": "A_432",
+     "level": "A",
+     "text": "Static water pressure L",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 439,
+     "event_id": "T_439",
+     "level": "T1",
+     "text": "Cooling water flow very low",
+     "page": 124,
+     "cause": "See [ABB]",
+     "rectification": "See [ABB]",
+     "see_abb": true
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 21,
+     "event_id": "T_021",
+     "level": "T1",
+     "text": "Turbine trip request from converter",
+     "page": 105,
+     "cause": "A turbine trip request is issued by the converter control system",
+     "rectification": "This trip comes in combination with a trip in the range 400-700. See [ABB] for troubleshooting",
+     "see_abb": true
+    }
+   ],
+   "manual_coverage": "abb_manual",
+   "expected_actions": [
+    "依 ABB 變頻器手冊檢查冷卻水流量與泵（手冊：Z72 手冊此類事件只寫 See [ABB]）",
+    "確認冷卻液位正常、沒有洩漏（與漏水造成的壓力低區分）",
+    "檢查冷卻水泵（葉輪磨耗、馬達、過濾器堵塞），修復或更換後確認流量與壓力恢復再復位"
+   ],
+   "expected_actions_en": [
+    "Check the cooling water flow and pump per the ABB converter manual (manual: the Z72 manual only says See [ABB]).",
+    "Confirm the coolant level is normal and nothing leaks (to tell it apart from a leak-driven pressure drop).",
+    "Inspect the cooling water pump (impeller wear, motor, clogged filter); after repair or replacement confirm flow and pressure are back before resetting."
+   ],
+   "key_signals": [
+    "WCNV_IGCTWtrPres1",
+    "WCNV_IGCTWtrPres2",
+    "WCNV_IGCTWtrTmp"
+   ],
+   "simulation_notes": [
+    "流量低 / 很低的設定值（額定的 90 % / 75 %）為模擬假設（手冊只寫 See [ABB]）；冷卻水流量沒有 SCADA tag，只看得到隨流量下降的 IGCT 水壓與水溫。",
+    "模擬的靜水壓低（432）判的是迴路壓力 WCNV_IGCTWtrPres1，所以泵磨耗也會觸發。"
+   ],
+   "simulation_notes_en": [
+    "The flow low / very low setpoints (90 % / 75 % of rated) are simulator assumptions (the manual only says See [ABB]); the cooling water flow has no SCADA tag — only the IGCT water pressures and temperature that follow it are visible.",
+    "The simulator's static water pressure low (432) is judged on the loop pressure WCNV_IGCTWtrPres1, so pump wear triggers it too."
+   ],
+   "onset_ts": "2026-04-20T03:30:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-20T04:07:30.000000Z",
+   "first_alarm_code": 422,
+   "trip_ts": "2026-04-20T04:29:05.000000Z",
+   "trip_code": 439,
+   "observed_alarm_codes": [
+    422,
+    432,
+    21,
+    439
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 5400.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 1.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.709,
+   "superseded": false,
+   "pre_existing": false
+  },
+  {
+   "case_id": "C008",
+   "turbine_id": "WT002",
+   "category": "real_fault",
+   "nuisance_cause": null,
+   "origin": "internal",
+   "difficulty": "medium",
+   "fault_id": "hydraulic_leak",
+   "fault_name_en": "Yaw Brake Hydraulic Leak (Subtle)",
+   "fault_name_zh": "偏航煞車液壓洩漏（細微）",
+   "component": "yaw_brake_hydraulics",
+   "root_cause": "偏航煞車液壓系統密封洩漏：液壓壓力逐日下降，先觸發壓力低警報（260），洩漏偵測線路壓力隨後上升（261）；高風載下偏航滑移、塔架側向負載波動增加，壓力過低時跳機（228）。",
+   "root_cause_en": "Yaw brake hydraulic seal leakage: system pressure drops day by day, first raising the low-pressure alarm (260), then the leakage-detector line pressurises (261); under high wind load the nacelle slips in yaw, raising tower side-side load fluctuation, and at very low pressure the turbine trips (228).",
+   "expected_alarm_codes": [
+    260,
+    261,
+    228
+   ],
+   "expected_alarm_sequence": [
+    {
+     "code": 260,
+     "level": "A",
+     "text": "Yaw brake pressure low"
+    },
+    {
+     "code": 261,
+     "level": "A",
+     "text": "Yaw brake oil leakage detected"
+    },
+    {
+     "code": 228,
+     "level": "T1",
+     "text": "Yaw brake pressure very low"
+    }
+   ],
+   "manual_refs": [
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 260,
+     "event_id": "A_260",
+     "level": "A",
+     "text": "Yaw brake pressure low",
+     "page": 111,
+     "cause": "The pressure of the hydraulic power unit has dropped 10% below nominal value (< 180 bar)",
+     "rectification": "Check hydraulic power unit. Check yaw brakes for leakage. Fix leakage.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 261,
+     "event_id": "A_261",
+     "level": "A",
+     "text": "Yaw brake oil leakage detected",
+     "page": 111,
+     "cause": "The leakage detector has detected a pressure > 3 bar",
+     "rectification": "Check yaw brakes for leakage. Fix leakage.",
+     "see_abb": false
+    },
+    {
+     "doc": "Z72 User Manual",
+     "section": "Appendix C",
+     "event_code": 228,
+     "event_id": "T_228",
+     "level": "T1",
+     "text": "Yaw brake pressure very low",
+     "page": 109,
+     "cause": "The pressure of the hydraulic power unit has dropped 25% below nominal value (< 150 bar)",
+     "rectification": "Check hydraulic power unit. Check yaw brakes for leakage. Fix leakage.",
+     "see_abb": false
+    }
+   ],
+   "manual_coverage": "z72_manual",
+   "expected_actions": [
+    "檢查液壓動力單元（手冊）",
+    "檢查偏航煞車是否漏油並修漏（手冊）",
+    "修復後確認系統壓力回到額定"
+   ],
+   "expected_actions_en": [
+    "Check the hydraulic power unit (manual).",
+    "Check the yaw brakes for leakage and fix it (manual).",
+    "After repair, verify system pressure is back to nominal."
+   ],
+   "key_signals": [
+    "WYAW_YwBrkHyPrs",
+    "WYAW_YwBrkSealsLeak",
+    "WLOD_DelTwrSs"
+   ],
+   "simulation_notes": [],
+   "simulation_notes_en": [],
+   "onset_ts": "2026-04-20T04:00:00.000000Z",
+   "window_end_ts": null,
+   "first_alarm_ts": "2026-04-20T04:41:50.000000Z",
+   "first_alarm_code": 261,
+   "trip_ts": "2026-04-20T05:03:25.000000Z",
+   "trip_code": 228,
+   "observed_alarm_codes": [
+    261,
+    260,
+    228
+   ],
+   "other_observed_codes": [],
+   "injection": {
+    "offset_seconds": 7200.0,
+    "severity_rate": 0.0002,
+    "initial_severity": 0.0,
+    "max_severity": 1.0
+   },
+   "farm_event_id": null,
+   "final_severity": 0.761,
+   "superseded": false,
+   "pre_existing": false
+  }
+ ],
+ "farm_events": [],
+ "unattributed_events": [],
+ "pack_id": "z72-starter-07"
+}

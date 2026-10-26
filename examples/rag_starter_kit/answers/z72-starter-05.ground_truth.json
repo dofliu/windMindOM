@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "健康負樣本：沒有故障——電網電壓驟降、電網頻率越界、風向快速變化（偏航逾時）、一台主軸承 Pt100 接點鬆動",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-07-20T03:00:10.000000Z",
  "sim_end": "2026-07-20T09:00:00.000000Z",
- "generated_at": "2026-10-25T11:32:41.099278Z",
+ "generated_at": "2026-10-26T03:42:17.334326Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -98,7 +98,8 @@
    "injection": {
     "offset_seconds": 1800.0,
     "severity_rate": 0.001,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 1.0,

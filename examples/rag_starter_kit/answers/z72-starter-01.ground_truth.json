@@ -1,5 +1,5 @@
 {
- "contract_version": "1.6",
+ "contract_version": "1.7",
  "kind": "scenario_ground_truth",
  "scenario_id": 2,
  "scenario_name": "入門：一台機組主軸承磨耗，額定風速",
@@ -7,7 +7,7 @@
  "site_timezone": "Asia/Taipei",
  "sim_start": "2026-03-02T01:00:10.000000Z",
  "sim_end": "2026-03-02T05:00:00.000000Z",
- "generated_at": "2026-10-25T11:30:14.079283Z",
+ "generated_at": "2026-10-26T03:40:55.546051Z",
  "turbines": [
   "WT001",
   "WT002",
@@ -111,7 +111,8 @@
    "injection": {
     "offset_seconds": 1200.0,
     "severity_rate": 0.0004,
-    "initial_severity": 0.0
+    "initial_severity": 0.0,
+    "max_severity": 1.0
    },
    "farm_event_id": null,
    "final_severity": 1.0,

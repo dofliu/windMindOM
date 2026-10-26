@@ -195,6 +195,18 @@ def test_parse_defaults_severity_rate_and_initial():
     assert steps[0].offset_seconds == 0.0
 
 
+def test_parse_max_severity_defaults_and_validates():
+    steps = _parse_fault_schedule(
+        [{"scenario_id": "bearing_wear", "turbine_id": "WT001", "max_severity": 0.5}], _ids())
+    assert steps[0].max_severity == 0.5
+    assert _parse_fault_schedule([{"scenario_id": "bearing_wear", "turbine_id": "WT001"}], _ids())[0].max_severity == 1.0
+    for bad in ({"max_severity": 0.0}, {"max_severity": 1.5}, {"max_severity": "x"},
+                {"max_severity": 0.3, "initial_severity": 0.4}):
+        with pytest.raises(HTTPException) as ei:
+            _parse_fault_schedule([{"scenario_id": "bearing_wear", "turbine_id": "WT001", **bad}], _ids())
+        assert ei.value.status_code == 400
+
+
 def test_parse_unknown_scenario_raises_404():
     with pytest.raises(HTTPException) as ei:
         _parse_fault_schedule([{"scenario_id": "nope", "turbine_id": "WT001"}], _ids())
