@@ -13,14 +13,16 @@
 
 | Status | Count |
 |--------|------|
-| open | 10 |
-| in_progress | 2 |
+| open | 13 |
+| in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 154 |
-| **total** | **168** |
+| done | 157 |
+| **total** | **173** |
 
-最後更新：2026-11-26（**WMOM-20261125-03-c done、母 issue -03 done**（EPIC-SF 第 2 項，DEC-20261126-03）：原始讀值預設留半年——最近 3 天在 SQLite、較舊的在每日 Parquet 檔，保留期可設定（`WMOM_RAW_RETENTION_DAYS` / `WMOM_RAW_HOT_DAYS`），對外 API 用同一個游標查兩層（API 1.1）；新開 WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）。open 12 / in_progress 1 / deferred 2 / done 156 = 171。詳見 `work-logs/2026-11/2026-11-26-tiered-storage.md`）。
+最後更新：2026-11-26（**WMOM-20261126-03 done**：風況覆寫 / profile 的漸變起點改用模擬時間——風況模型不再讀實際時間，帶風況覆寫的批次在任何實際時間產生都逐位元相同（守門測試 `test_wind_setting_sim_time.py`）；既有的測試資料與七個範例資料包沒有變，沒有重建、沒有 DEC。這張 issue 的條目原本不在本檔，依任務說明補上。新開 **WMOM-20261126-04**（電網 recovery profile 的起點也讀實際時間，open）。統計表先前停在 168，一併更正。open 13 / in_progress 1 / deferred 2 / done 157 = 173。詳見 `work-logs/2026-11/2026-11-26-wind-override-sim-time.md`）。
+
+前次：2026-11-26（**WMOM-20261125-03-c done、母 issue -03 done**（EPIC-SF 第 2 項，DEC-20261126-03）：原始讀值預設留半年——最近 3 天在 SQLite、較舊的在每日 Parquet 檔，保留期可設定（`WMOM_RAW_RETENTION_DAYS` / `WMOM_RAW_HOT_DAYS`），對外 API 用同一個游標查兩層（API 1.1）；新開 WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）。open 12 / in_progress 1 / deferred 2 / done 156 = 171。詳見 `work-logs/2026-11/2026-11-26-tiered-storage.md`）。
 
 前次：2026-11-26（**WMOM-20261125-03-a / -03-b done**（EPIC-SF 第 2 項前兩段，DEC-20261126-02）：Live 的模擬時鐘只往前走、寫入對齊 10 秒；狀態存檔與重啟續跑（`WMOM_LIVE_RESUME`）、開機自動啟動（`WMOM_AUTOSTART_SOURCE`）、產生情境不動到即時風場；母 issue -03 改 in_progress，剩 -03-c。open 10 / in_progress 2 / deferred 2 / done 154 = 168。詳見 `work-logs/2026-11/2026-11-26-live-clock-and-resume.md`）。
 前次：2026-11-26（**WMOM-20261125-02 done**（EPIC-SF 第 1 項，DEC-20261126-01）：對外唯讀 API `/api/ext/v1`（九個 `GET`）與外部系統的 API 金鑰——金鑰不是角色、一律強制，只給 Live 的可觀測資料與警報，格式與盲測版資料包相同；管理走 admin 端點或 `tools/external_api_keys.py`；文件 `docs/integration/external_api_v1.md`；code review 的必須修（統計的窗結束判定）已修。實測發現寫進 -03。open 11 / in_progress 1 / deferred 2 / done 152 = 166。詳見 `work-logs/2026-11/2026-11-26-external-readonly-api.md`）。
@@ -2008,6 +2010,49 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Description**: 新風場啟動時只有當下的資料，準備卡與外部助理要看的 7 到 30 天歷史要等風場跑那麼久才有。用批次生成先補出一段歷史（14 台 1 小時約 11 秒，一個月約 2.3 小時），再接著 Live 運轉。要處理：回填的列直接寫成每日歸檔（現在的分層儲存不會把時間早於 `hot_from` 的補寫列歸檔）；回填結束時的風場狀態要接到 Live（狀態存檔）；回填期間的事件、工單、故障紀錄怎麼產生；`live_epoch` 與游標的順序。另一個做法是用時間倍率讓 Live 自己跑出歷史（14 台實測約 75 倍），代價是風場的時間會一直在未來。
 - **Depends on**: WMOM-20261125-03、WMOM-20261125-06（機率式故障，回填的歷史才有故障可看）
 - **Reference**: DEC-20261126-03
+
+### WMOM-20261126-03 — 風況覆寫 / profile 的漸變起點讀實際時間，批次不保證可重現
+
+- **Status**: done（2026-11-26）
+- **Milestone**: EPIC-SF
+- **Priority**: medium
+- **Estimate**: 0.5 天
+- **Owner**: Claude session 2026-11-26
+- **Description**: `modules/monitoring/wind_model.py` 的 `set_override` 在設定風速覆寫時用 `utc_now()`（實際時間）取「現在的自動風況」當漸變起點；`set_profile` 的 ramp profile 有兩處同類寫法（取起點、`_profile_start_time = utc_now()`）。`_get_auto_wind` 把時間取到分鐘。批次生成（`WindFarmSimulator.generate_bulk`）的模擬時間是固定的，起點卻跟著實際時間變：同樣的設定在不同的實際分鐘產生，前幾分鐘的讀值就不同。全套 backend 測試偶發失敗（`test_nuisance_events.py::test_data_before_a_farm_event_is_identical_to_a_run_without_it`）時發現。
+- **Deliverable**：
+  - 漸變起點用模擬時間：批次用 `generate_bulk` 的模擬時間，即時模擬用模擬時鐘。
+  - 守門測試：同樣的設定、不同的實際時間，批次資料逐位元相同。
+  - 確認健康輸出的守門測試與範例資料包有沒有改變；有變就重建並記 DEC。
+- **完成紀錄**：
+  - **重現**：固定批次起點、只改實際時間。風速覆寫與固定 profile：同一分鐘內相同、跨過整分鐘不同、另一個季節第一筆風速 6.14 與 9.93 m/s。ramp profile 連同一分鐘內都不同（profile 起點精確到秒）。
+  - **另一個後果**：ramp profile 的經過時間是「模擬時間 − 實際時間」。模擬時間比實際時間早 1 小時的時候（批次起點釘在過去、Live 補跑中設定 profile），120 步的漸變完成後 `ramp_up` 掉到 0 m/s、`ramp_down` 變成 452.88 m/s。
+  - **修正**：風況模型不再匯入 `utc_now`，它知道的時間只有引擎傳給 getter 的模擬時間。`set_override` / `set_profile` 把漸變起點的自動風況與 ramp profile 的起點標記為待定（`_transition_from_pending`、`_profile_start_pending`），下一次 `get_wind_speed` 用那一步的模擬時間定下來。批次與即時模擬走同一條路。亂數抽樣次數不變（原本在設定時走的那一步自動風況，改在下一步走）。已有覆寫時起點仍是覆寫值。待定的旗標跟著狀態存檔；存檔格式沒有變。
+  - **影響範圍**：以前「兩個時鐘都釘在批次起點」產生的資料逐位元不變（48 組比對 40 組相同；不同的 8 組是起點在某分鐘第 57 秒、步長 10 s——起點取在第一個物理子步的時刻，跨過了整分鐘。現有測試與範例資料包的起點都在整分或整點）。七個範例資料包重建後資料檔逐位元相同，沒有重建、沒有 DEC。自動風況（沒有覆寫）的路徑沒有動。
+  - **即時模擬**：模擬時鐘等於實際時間時起點從「呼叫當下」變成「下一步」，差不到一步。模擬時鐘與實際時間不同時（加速運轉過、補跑中）覆寫從模擬當下的風況接著漸變：真的 Live 迴圈、模擬時鐘領先半年，設定那一步的基準風速變化從約 +2.2 降到約 +0.02 m/s。
+  - **守門測試**：`modules/monitoring/tests/test_wind_setting_sim_time.py`（26 項；修正前 24 項失敗）。「實際時間」用替換 `simulator.time_utils` 裡的 `datetime` 來設定，所有經 `utc_now()` 讀時鐘的地方都涵蓋。`tests/test_rag_starter_kit.py` 的重產檢查改在另一個實際時間做。`tools/build_rag_starter_kit.py` 的 `_sim_clock` 只釘批次起點。
+  - **code review**（Approve，沒有必須修）：兩項建議修都修了——建置工具檔頭的 docstring；API 的設定落在 Live 那一步的中間時，第一次設定會拿新的漸變去配還沒定的起點（算成 0 m/s，只錯一步），改成設定的一方先寫待定旗標、`get_wind_speed` 先讀開始與終點再定起點。變異檢查 8 項都被抓到。backend 2435 passed / 1 skipped / 1 xfailed。
+  - `test_nuisance_events.py` 的 `_farm` 只釘 `simulator.engine.utc_now`，沒有固定 `wind_model.utc_now` 的那一行，不必改。
+  - 電網模型的 recovery profile 有同類問題，另開 WMOM-20261126-04。
+  - work-log：`work-logs/2026-11/2026-11-26-wind-override-sim-time.md`
+
+### WMOM-20261126-04 — 電網 recovery profile 的起點讀實際時間
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: medium
+- **Estimate**: 0.5 天
+- **Owner**: -
+- **Description**: WMOM-20261126-03 的同類問題，在 `modules/monitoring/simulator/grid_model.py`。`set_profile("recovery")`（以及 `set_override`、其他 profile）把 `_profile_start_time` 設成 `utc_now()`，`get_frequency` / `get_voltage` 拿模擬時間減它算 recovery 斜坡的經過時間。
+  - 帶 recovery profile 的批次不可重現：固定批次起點，實際時間差 30 秒資料就不同。
+  - 模擬時間與實際時間不同時值會錯：模擬時間比實際時間早 1 小時（批次起點釘在過去、Live 補跑中設定 profile），第一步算出 29.09 Hz / −7338 V（額定 60 Hz / 3500 V），遠超出頻率 / 電壓保護的設定值；模擬時間比實際時間晚（加速運轉過的 Live）則斜坡直接被跳過。
+  - 只有 recovery profile 用到這個起點；手動覆寫與其他 profile 的讀值不受影響。
+- **Deliverable**：
+  - 比照 -03：電網模型不讀實際時間，profile 起點標記待定、下一次 `get_frequency` 用那一步的模擬時間定下來（`_run_one_step` 先呼叫 `get_frequency` 再呼叫 `get_voltage`）。
+  - `test_wind_setting_sim_time.py` 的守門測試加上電網設定（recovery profile、手動覆寫）。
+  - `test_nuisance_events.py::test_frequency_event_keeps_the_voltage_recovery_ramp` 裡固定 `simulator.grid_model.utc_now` 的那一行拿掉。
+  - 順帶評估 `FaultEngine.inject` 的 `started_at=utc_now()`：只出現在管理端的故障狀態清單（`get_fault_status`），不進讀值、事件、資料包；批次注入的故障顯示的是實際時間而不是模擬時間。
+- **Depends on**: WMOM-20261126-03
+- **Reference**: `work-logs/2026-11/2026-11-26-wind-override-sim-time.md` §2.7
 
 ### WMOM-20261125-04 — 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算
 

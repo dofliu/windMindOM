@@ -495,7 +495,7 @@ RAG 助手實際看得到的是：**警報（碼 / 文字 / 等級）+ 機組狀
 - **基準成績**：偵測 100 %、元件 80 %、群組 100 %、類別 80 %、手冊 hit@1 100 %、早期預警 0、誤診 1、誤報 0。基準刻意示範「容易的部分」，把早期預警、感測器故障、元件定位、警報前的檢索留給學生。
 
 **重產**：`tools/build_rag_starter_kit.py` 以固定起點、風況、排程從全新模擬器生成。
-- **時鐘要釘兩處**：`generate_bulk` 用 `simulator.engine.utc_now` 當起點；`wind_model.set_profile` / `set_override` 會從「現在」的自動風況平滑過渡，用的是 `wind_model.utc_now`。實作時只釘前者，兩次產生的資料就不同（第一筆讀值就分歧）。兩處都釘住後，兩個獨立行程產生的資料檔 sha256 相同。
+- **時鐘要釘兩處**：`generate_bulk` 用 `simulator.engine.utc_now` 當起點；`wind_model.set_profile` / `set_override` 會從「現在」的自動風況平滑過渡，用的是 `wind_model.utc_now`。實作時只釘前者，兩次產生的資料就不同（第一筆讀值就分歧）。兩處都釘住後，兩個獨立行程產生的資料檔 sha256 相同。（2026-11-26 更新：WMOM-20261126-03 之後風況模型不讀實際時間，漸變起點用批次的模擬時間，只需要釘 `simulator.engine.utc_now` 一處；`wind_model.utc_now` 已不存在。）
 - **匯出器**：`export_scenario_pack` 加 `pack_id` 參數；`export_ground_truth` 把答案寫在資料包之外。
 
 **code review**（Needs revision → 全修）：

@@ -142,8 +142,8 @@ def test_healthy_farm_long_run_has_no_signal_judged_events(start: str, hours: fl
                                                            monkeypatch: pytest.MonkeyPatch) -> None:
     """健康風場批次產生（time_step 60 → 5 s 物理子步）不得有任何訊號判定的 PLC 事件。
 
-    釘住引擎的起始時刻（``generate_bulk`` 以 ``utc_now()`` 為起點）；自動風況依模擬時刻計算，
-    不讀 ``wind_model.utc_now``（只有 ``set_override`` / ``set_profile`` 會讀），本測試不需另外釘。
+    釘住引擎的起始時刻（``generate_bulk`` 以 ``utc_now()`` 為起點）；風況模型只用模擬時刻、
+    不讀實際時間（WMOM-20261126-03），不需另外釘。
     """
     t0 = datetime.fromisoformat(start).astimezone(timezone.utc)
     monkeypatch.setattr(engine_mod, "utc_now", lambda: t0)

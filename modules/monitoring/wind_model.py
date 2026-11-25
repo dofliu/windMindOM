@@ -19,6 +19,12 @@ Time of day / month (diurnal and seasonal layers) are read in the wind farm's lo
 (``site_timezone``, default Asia/Taipei — WMOM-20261021-11): the simulator passes tz-aware UTC
 timestamps (WMOM-20261021-03-c), which every getter converts with ``to_site_naive``. The same UTC
 instant gives the same cycle phase on any server, so generated data is reproducible.
+
+This model has no clock of its own (WMOM-20261126-03): the only time it knows is the simulation
+time the engine passes to the getters. ``set_override`` / ``set_profile`` do not look up "the
+current auto wind" themselves — they mark it as pending, and the next ``get_wind_speed`` call
+resolves it with that step's simulation time. Do not import ``utc_now`` here: a batch generated
+with the same settings must be bit-identical whatever the wall-clock time is.
 """
 
 import math
@@ -26,7 +32,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
 
-from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive, to_utc, utc_now
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive, to_utc
 
 
 # ─── Seasonal wind parameters (typical coastal/onshore site) ─────────
@@ -117,14 +123,19 @@ class WindEnvironmentModel:
         self._override_wind_direction: Optional[float] = None
         self._override_ambient_temp: Optional[float] = None
         self._active_profile: Optional[str] = None
+        # ramp profile 的起點（模擬時間，UTC）；設定 profile 時先標記待定，下一步的模擬時間才是起點
         self._profile_start_time: Optional[datetime] = None
+        self._profile_start_pending = False
 
         # Transition ramp for smooth profile switching
         self._transition_from: Optional[float] = None
+        # 漸變起點是「漸變開始那一步的自動風況」、還沒取：下一次 get_wind_speed 用那一步的模擬時間取
+        self._transition_from_pending = False
         self._transition_to: Optional[float] = None
         self._transition_start: Optional[float] = None
         self._transition_duration: float = 30.0  # 30 seconds default ramp
-        self._elapsed_real = 0.0  # real elapsed seconds
+        # get_wind_speed 被呼叫的次數（每個物理步一次，名稱是舊的）；漸變的進度依它計算，不讀實際時間
+        self._elapsed_real = 0.0
 
         # Weather system state (for deterministic long-term)
         self._last_weather_update = 0.0
@@ -150,9 +161,7 @@ class WindEnvironmentModel:
         """Set manual wind conditions with smooth transition."""
         if wind_speed is not None and self._override_wind_speed != wind_speed:
             # Start transition ramp from current conditions
-            self._transition_from = self._override_wind_speed or self._get_auto_wind(utc_now())
-            self._transition_to = wind_speed
-            self._transition_start = self._elapsed_real
+            self._begin_transition(wind_speed)
 
         self._override_wind_speed = wind_speed
         self._override_wind_direction = wind_direction
@@ -167,6 +176,7 @@ class WindEnvironmentModel:
         """Return to automatic mode with smooth transition."""
         if self._override_wind_speed is not None:
             self._transition_from = self._override_wind_speed
+            self._transition_from_pending = False
             self._transition_to = None  # will use auto
             self._transition_start = self._elapsed_real
         self._override_wind_speed = None
@@ -203,16 +213,14 @@ class WindEnvironmentModel:
 
         if profile in ('ramp_up', 'ramp_down'):
             self._active_profile = profile
-            self._profile_start_time = utc_now()
+            # profile 的起點＝下一步的模擬時間（不讀實際時間，WMOM-20261126-03）
+            self._profile_start_pending = True
             self._override_wind_direction = 270.0
             self._override_ambient_temp = 25.0
             self.turbulence_intensity = 0.12
             # Start transition
-            current = self._override_wind_speed or self._get_auto_wind(utc_now())
-            self._transition_from = current
-            self._transition_to = 18.0 if profile == 'ramp_up' else 3.0
-            self._transition_start = self._elapsed_real
             self._transition_duration = 120.0  # 2 minute ramp
+            self._begin_transition(18.0 if profile == 'ramp_up' else 3.0)
             return
 
         if profile in profiles:
@@ -233,6 +241,43 @@ class WindEnvironmentModel:
             "weather_in_front": self._weather._in_front,
         }
 
+    def _begin_transition(self, target: float) -> None:
+        """從目前的風況開始漸變到 ``target``（m/s）。
+
+        目前有風速覆寫時起點就是覆寫值；沒有時起點是自動風況——自動風況隨模擬時間變，這裡不取（這個模型
+        沒有自己的時鐘），標記待定，由下一次 ``get_wind_speed`` 用那一步的模擬時間取（WMOM-20261126-03）。
+
+        即時模擬時這裡在 API 的執行緒、``get_wind_speed`` 在 Live 的執行緒（這個物件會進狀態存檔，不能放鎖）。
+        這裡先寫待定旗標、才寫終點與開始；``get_wind_speed`` 先讀開始與終點、再定一次起點、最後才讀起點——
+        它讀到新的漸變時起點一定已經定下來，不會拿新的漸變去配還沒定的起點（寫入順序不要改）。
+
+        Args:
+            target: 漸變的終點風速（m/s）。
+        """
+        if self._override_wind_speed:  # 0.0 的覆寫視同沒有（沿用原本 ``or`` 的語意）
+            self._transition_from = self._override_wind_speed
+            self._transition_from_pending = False
+        else:
+            self._transition_from_pending = True
+        self._transition_to = target
+        self._transition_start = self._elapsed_real
+
+    def _resolve_pending(self, site_time: datetime, ts_utc: datetime) -> None:
+        """把設定風況時待定的量用這一步的模擬時間定下來：漸變起點的自動風況、ramp profile 的起點。
+
+        取自動風況會讓天氣系統與中尺度狀態各前進一步（與原本在 ``set_override`` 裡取時相同的亂數抽樣）。
+
+        Args:
+            site_time: 這一步的模擬時間（風場當地時間，naive）。
+            ts_utc: 同一個時刻（tz-aware UTC）。
+        """
+        if self._transition_from_pending:
+            self._transition_from_pending = False
+            self._transition_from = self._get_auto_wind(site_time)
+        if self._profile_start_pending:
+            self._profile_start_pending = False
+            self._profile_start_time = ts_utc
+
     # ─── Core getters ──────────────────────────────────────────────────
 
     def get_wind_speed(self, timestamp: datetime) -> float:
@@ -240,10 +285,12 @@ class WindEnvironmentModel:
         ts_utc = to_utc(timestamp)  # ramp profile 經過時間用 UTC 相減（_profile_start_time 是 UTC）
         timestamp = to_site_naive(timestamp, self.site_tz)
         self._elapsed_real += 1.0  # approximate
+        self._resolve_pending(timestamp, ts_utc)  # 不在漸變分支裡做：沒有進行中的漸變時待定的量也要定下來
 
         # Check for active transition ramp
-        if self._transition_start is not None:
-            elapsed = self._elapsed_real - self._transition_start
+        transition_start = self._transition_start
+        if transition_start is not None:
+            elapsed = self._elapsed_real - transition_start
             progress = min(1.0, elapsed / self._transition_duration)
             # Smooth S-curve transition
             smooth = 0.5 - 0.5 * math.cos(progress * math.pi)
@@ -251,8 +298,12 @@ class WindEnvironmentModel:
             if progress >= 1.0:
                 self._transition_start = None  # transition complete
 
+            transition_to = self._transition_to
+            # 另一條執行緒的設定若落在這一步的中間：先讀開始與終點、再定一次起點、最後才讀起點。設定的一方先寫
+            # 待定旗標才寫終點與開始，所以上面讀到新的漸變時旗標一定已經立起來。平常這一行不做事
+            self._resolve_pending(timestamp, ts_utc)
             from_val = self._transition_from or 0.0
-            to_val = self._transition_to if self._transition_to is not None else self._get_auto_wind(timestamp)
+            to_val = transition_to if transition_to is not None else self._get_auto_wind(timestamp)
             base = from_val + (to_val - from_val) * smooth
         elif self._active_profile in ('ramp_up', 'ramp_down') and self._profile_start_time:
             elapsed = (ts_utc - self._profile_start_time).total_seconds()
