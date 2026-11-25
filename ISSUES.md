@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 7 |
-| in_progress | 2 |
+| open | 12 |
+| in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 146 |
-| **total** | **157** |
+| done | 150 |
+| **total** | **165** |
 
-最後更新：2026-10-26（**WMOM-20261021-08-d done**（EPIC-DS Phase 4-d 多重故障＋早期徵兆，DEC-20261026-01；母 issue -08 全部子項 done → done）：同機組多 case 歸屬不變＋新指標診斷精確率、早期徵兆 case 分開列；排程 `max_severity` 把故障壓在門檻下；範例資料包 07；合約 v1.7。open 6 / in_progress 1 / deferred 2 / done 149 = 158。詳見 `work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`）。
+最後更新：2026-11-25（**WMOM-20261125-01 done**（重新定位：仿真運維風場，DEC-20261125-01）：新主線 EPIC-SF，新增 WMOM-20261125-02 ~ -07（對外唯讀 API、長時間運轉的基礎、運維閉環、出發前準備卡、機率式故障產生器、實測風況匯入），成本一項沿用 WMOM-20260504-11；沒有程式變更。逐條解析 header 核實前值 open 6 / in_progress 1 / deferred 2 / done 149 = 158（統計表先前停在 157，一併更正）；本次 +6 open、+1 done：open 12 / in_progress 1 / deferred 2 / done 150 = 165。詳見 `work-logs/2026-11/2026-11-25-repositioning-decision.md`）。
+前次：2026-10-26（**WMOM-20261021-08-d done**（EPIC-DS Phase 4-d 多重故障＋早期徵兆，DEC-20261026-01；母 issue -08 全部子項 done → done）：同機組多 case 歸屬不變＋新指標診斷精確率、早期徵兆 case 分開列；排程 `max_severity` 把故障壓在門檻下；範例資料包 07；合約 v1.7。open 6 / in_progress 1 / deferred 2 / done 149 = 158。詳見 `work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`）。
 前次：2026-10-25（**WMOM-20261023-01 done**（直驅 `WGEN_GnSpd` 偏離轉子轉速，DEC-20261025-01）：根因是傳動鏈扭轉的顯式 Euler 在批次子步 5 s 數值不穩定（二週期振盪、取樣看起來像 2.7 倍）；扭轉＋發電機轉速改以 ≤ 1 s 子步積分，dt 1 s 逐位元不變、批次資料改變，範例資料包重建；守門測試 14 種子 × 3 個 dt。open 6 / in_progress 2 / deferred 2 / done 147 = 157。詳見 `work-logs/2026-10/2026-10-25-gnspd-divergence.md`）。
 前次：2026-10-23（**WMOM-20261021-08-c done**（EPIC-DS Phase 4-c 故障庫擴充，DEC-20261023-03）：7 個新情境（17 → 24）——變槳驅動過載 381 → 367、冷卻水泵磨耗 422 → 439、去離子樹脂耗盡 423 → 440、轉速感測器 029 / 風速計 230 / 風向標 1 卡住 231、沒有警報的靜態偏航失準；刪 `gearbox_overheat`；新增真實 tag `WROT_PtMotCurBl1-3`；`WCNV_IGCTWtrCond` 改為導電度；範例資料包 06；合約 v1.6；code review 後新開 WMOM-20261023-01（`WGEN_GnSpd` 長期偏離，既有問題）。open 7 / in_progress 2 / deferred 2 / done 146 = 157。詳見 `work-logs/2026-10/2026-10-23-fault-library-expansion.md`）。
 前次：2026-10-23（**WMOM-20261021-08-b done**（EPIC-DS Phase 4-b 誤報 / 健康負樣本，DEC-20261023-02）：風場層級事件（電網電壓驟降、頻率越界、風向快速變化）＋新 PLC 規則偏航逾時 223（Appendix D）＋ nuisance 情境 Pt100 接點鬆動（手冊 §11.3）；標準答案 nuisance case（`nuisance_cause` / `window_end_ts` / `farm_events`，環境性停機自動歸類）；評分加干擾辨識率、把干擾當故障、誤報率（每 100 機組小時），舊規則不變；starter kit 第五個範例資料包（健康負樣本）；合約 v1.5。open 6 / in_progress 2 / deferred 2 / done 145 = 155。詳見 `work-logs/2026-10/2026-10-23-nuisance-negatives.md`）。
@@ -1848,14 +1849,158 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ---
 
-## 🎯 未來大目標（EPIC-DS / M5 / M6 epics）
+## 📌 2026-11-25 session 新增 issue（重新定位：EPIC-SF 仿真運維風場）
 
-> **2026-10-21 起現行主線為 EPIC-DS**（DEC-20261021-01）；EPIC-M6 deferred。
+> 依 [DEC-20261125-01](docs/product/decision_log.md)。缺口分析：`work-logs/2026-11/2026-11-25-repositioning-gap-analysis.md`。
+> 順序是 Claude 建議、劉老師尚未逐項確認：-02 → -03 → -04 → -05 → -06 → WMOM-20260504-11（成本）→ -07。
+
+### WMOM-20261125-01 — 重新定位：仿真運維風場（DEC、EPIC-SF 拆解、文件同步）
+
+- **Status**: done（2026-11-25）
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 0.5 天
+- **Owner**: Claude session 2026-11-25（劉老師定調）
+- **Description**: 劉老師 2026-11-25 提出重新定位六項（擬真物理、持續運轉與循環保存、可設定的故障與耗損、工單 / 定檢 / 可用率、成本、對外資料 API 給 RAG 運維助理），並確認出發前助理保留、作為仿真風場裡工單上的功能。本 issue 把定位寫成決策、對照程式碼拆成 issue、同步文件。沒有程式變更。
+- **Deliverable**:
+  - `docs/product/decision_log.md` DEC-20261125-01
+  - 本檔：EPIC-SF、WMOM-20261125-02 ~ -07
+  - `docs/product/ROADMAP.md`、`docs/product/PRODUCT_VISION.md`、`CLAUDE.md` §1 / §10、`STATUS.yaml`、`TODO.md` 同步
+- **Reference**: `work-logs/2026-11/2026-11-24-predeparture-assistant-review.md`、`work-logs/2026-11/2026-11-25-repositioning-gap-analysis.md`、`work-logs/2026-11/2026-11-25-repositioning-decision.md`
+
+### WMOM-20261125-02 — 對外唯讀 API 與外部系統身分（只給可觀測資料與警報）
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 2–3 天
+- **Owner**: -
+- **Description**: 讓外部系統（劉老師的 RAG 運維助理）像外部監控一樣，向持續運轉的仿真風場取 SCADA 資料與警報。
+  - **現況**：角色只有人員的五種（`modules/auth/roles.py`），沒有外部系統身分。`GET /api/export/events` 回傳全部事件，包含 `Fault injected: {scenarioId}`（`server/routers/faults.py` 的 `record_event`）；`GET /api/faults/active` 任何登入者可讀。外部系統照現況接，等於看到答案。
+  - **要做**：
+    1. 外部系統身分：唯讀，碰不到 `/api/faults/*`、答案卷、情境設定、控制與設定類端點。
+    2. 一組對外端點：風場與機組清單、即時讀值、歷史（原始 / 10 分鐘統計）、進行中的警報、警報歷史、tag 字典、警報目錄。
+    3. 事件過濾重用 `storage.is_observable_event`；讀值欄位重用 `scenario_pack.pack_columns()`（排除 `MODEL_INTERNAL_TAGS`）。Live 與凍結情境給外部看的東西要是同一套。
+    4. 寫進介面合約（`docs/integration/`），測試鎖住「對外端點不含故障注入資訊、不含模型內部量」。
+  - -04 完成後補工單的唯讀端點，供外部助理對同一張工單產生摘要（-05 的對照）。
+- **Decision needed**: 外部身分的形式——建議長效 API 金鑰對應一個唯讀角色，不走人員登入。
+- **Blocks**: 劉老師的 RAG 運維助理接 Live 資料
+- **Reference**: DEC-20261125-01；盲測守則、資料包守則（`CLAUDE.md` §10）
+
+### WMOM-20261125-03 — 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、穩定性
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 4–6 天（動工時拆子項）
+- **Owner**: -
+- **Description**: 讓仿真風場能像真實風場一樣連續運轉數月，資料循環保存。
+  - **現況**：`server/data_broker.py` 寫死 `RAW_RETENTION_DAYS = 3`、`AGG_1M_RETENTION_DAYS = 90`、`SNAPSHOTS_RETENTION_DAYS = 7`，10 分鐘彙整永久保留。模擬器狀態（故障、嚴重度、疲勞損傷、冷卻結垢、PLC 鎖存、模擬時鐘）不存檔，重啟就歸零。長時間運轉沒有驗證過。
+  - **容量實測**（14 台、10 秒取樣、1 小時）：SQLite 每列約 4.2 KB（`scada_json` 平均 3.1 KB），約 0.5 GB / 天、15 GB / 月、91 GB / 半年。範例資料包的 `timeseries_raw.parquet` 每列約 113 bytes，約 0.4 GB / 月、2.5 GB / 半年（由 6 小時的檔外推，動工時要重量）。
+  - **要做**（建議拆成 -03-a ~ -03-d）：
+    - a. 保留期可設定；分層儲存——近期留在 SQLite，較舊的轉成每日一個 Parquet 檔，循環保存就是刪最舊的日檔；查詢要能跨兩層。
+    - b. 重啟續跑：模擬器狀態存檔與還原。
+    - c. 72 小時連續運轉測試；重現企劃 v0.1 記的兩個現象——雲端長跑約 57 分停止寫入、十分鐘彙整重疊計數（原始紀錄不在 repo，先重現再判斷）。
+    - d. 歷史回填：先用批次生成補出一段歷史，再接著 Live 運轉（14 台 1 小時約 11 秒，一個月約 2.3 小時）。
+  - 預設目標：10 秒原始資料保留半年（DEC-20261125-01 暫採）。-05 的準備卡回看 7 到 30 天，所以至少要 30 天。
+- **Decision needed**: 保留期目標是否就是半年；部署機器的可用磁碟空間。
+- **Blocks**: WMOM-20261125-05、WMOM-20261125-06
+- **Reference**: DEC-20261125-01；時間戳守則、批次守則（`CLAUDE.md` §10）
+
+### WMOM-20261125-04 — 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 4–6 天（動工時拆子項）
+- **Owner**: -
+- **Description**: 把工單模組和模擬器接起來，讓派工、修復、停機、發電、可用率是同一件事的不同面。
+  - **現況**：`modules/workflow` 沒有 import monitoring。警報不會開單；工單完工不影響機組，修復只能 `POST /api/faults/clear`。`modules/reporting/services/kpi_calculator.py` 的可用率由工單工時推估（程式註明工時不等於停機時間），留了 `availability_provider` 沒接。monitoring 另有一套舊的 `work_orders` 表（`server/routers/maintenance.py`）。
+  - **要做**：
+    1. 警報 / 跳機自動開工單，帶既有的 `source_alarm_code` 與機組；同機組同碼不重複開（既有規則）。
+    2. 工單完工是唯一的修復路徑：清故障、解 `maintenance_lock`、復位。「復位不等於修好」的規則不變。
+    3. 定檢工單執行期間，機組進入計畫停機。
+    4. 可用率、停機時數、損失發電量由運轉狀態紀錄計算，分計畫 / 非計畫，接上 `availability_provider`。
+    5. 舊的 `work_orders` 表整併到 workflow，或明確標示為舊介面。
+- **Decision needed**: 第一版是「完工即修好」，還是「處置對了才修好」——建議先做前者。
+- **Blocks**: WMOM-20261125-05、WMOM-20261125-06
+- **Reference**: DEC-20261125-01；PLC 保護層守則（`CLAUDE.md` §10）
+
+### WMOM-20261125-05 — 出發前準備卡：故障出勤卡先做，掛在工單上
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 4–6 天（故障出勤卡），例行巡檢卡另估
+- **Owner**: -
+- **Source**: 「風場運維出發前助理可行性企劃」審查版 v0.1（2026-11-23）；劉老師 2026-11-25 確認保留——仿真風場裡工單派出來時，要有這份資訊協助檢視判斷。
+- **Description**: 工單建立時產生一張準備卡，讓人在出發前看到整理好的證據。
+  - **故障出勤卡**（先做，對應警報 / 跳機開出的工單）：本次事件；該機組近 7 天同碼與相關警報；相關訊號，以及和同場其他機組的對照；過往工單；手冊對該警報碼列的原因與處置（警報目錄的 Appendix C、knowledge 模組的檢索）；所需料件的庫存。
+  - **例行巡檢卡**（後做，對應定檢工單）：原訂清單的排序建議；證據不足就維持原順序。
+  - **原則**（企劃 v0.1）：只用可觀測資料，與對外 API 同一條邊界；以資料截止點為界；每條可回查到機組、時間、來源；缺資料或資料過期要標明並降級；不判定根因——引用手冊列的原因不算判定。
+  - **評分**：用仿真風場不對外的故障紀錄自動核對——有沒有指到該故障的重點訊號、有沒有把健康機組升級、缺資料時有沒有降級。準備時間能省多少，要等真人或真實風場才量。
+  - **顯示**：`/field/` 的工單頁與管理端工單頁。
+  - **對照**：對外 API 提供同一張工單與同一批資料，外部 RAG 運維助理可以產生自己的摘要，與規則版比較。
+- **Depends on**: WMOM-20261125-03（原始資料至少留 30 天）、WMOM-20261125-04（警報開單）
+- **Reference**: DEC-20261125-01；`work-logs/2026-11/2026-11-24-predeparture-assistant-review.md`
+
+### WMOM-20261125-06 — 機率式故障產生器、不對外的故障紀錄、模擬維修班
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: medium
+- **Estimate**: 4–6 天（動工時拆子項）
+- **Owner**: -
+- **Description**: 讓持續運轉的風場自己發生故障，不用人手動注入。
+  - **現況**：24 個故障情境只能手動注入（`POST /api/faults/inject`）或走批次排程。冷卻結垢、疲勞損傷會隨時間累積，但不會自己演變成故障。
+  - **要做**：
+    1. 各情境的發生率、種類、機組權重可設定；亂數可重現，用自己的 stream，不動既有的 RNG 序列（物理改動守則）。
+    2. 耗損量（疲勞損傷、冷卻結垢）提高對應故障的發生率。
+    3. 風場事件（電網擾動、風向快速變化）也可機率觸發。
+    4. 不對外的故障紀錄：Live 版的標準答案，格式重用 `simulator/ground_truth.py`，只給評分端。
+    5. 模擬維修班：沒有人處理工單時，依設定的反應時間與修復時間自動完工。少了它，跳機的機組會一直鎖著，風場會一台一台停下來。
+- **Depends on**: WMOM-20261125-04
+- **Reference**: DEC-20261125-01；干擾守則、盲測守則（`CLAUDE.md` §10）
+
+### WMOM-20261125-07 — 實測風況匯入
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: low
+- **Estimate**: 1–2 天
+- **Owner**: -
+- **Description**: 風況目前由模型產生（季節、日夜、紊流、9 種設定檔、手動覆寫，`server/models.py` 的 `WindOverrideRequest`），沒有匯入實測風速 / 風向 / 氣溫序列的入口。加一個入口讓風場依實測序列運轉。物理加深另見既有的 WMOM-20260505-26 / -27 / -28。
+- **Reference**: DEC-20261125-01
+
+---
+
+## 🎯 未來大目標（EPIC-SF / EPIC-DS / M5 / M6 epics）
+
+> **2026-11-25 起現行主線為 EPIC-SF 仿真運維風場**（DEC-20261125-01）；EPIC-DS 已完成、保留為題庫；EPIC-M6 deferred。
+> 2026-10-21 至 10-26 的主線為 EPIC-DS（DEC-20261021-01）。
 > M1-M4 已 100%。以下是接下來的「大局目標」拆解，給 session 規劃用。
 > 詳細月度交付見 [`docs/product/ROADMAP.md`](docs/product/ROADMAP.md) Month 5 / Month 6。
 > 標 🔵 = autonomous-friendly（無設計歧義可自動接）；🟡 = 需劉老師決策 / 素材 / 現場。
 
-### EPIC-DS — 擬真資料源，供外部 RAG 即時維修助手驗證（2026-10-21 起現行主線）
+### EPIC-SF — 仿真運維風場（2026-11-25 起現行主線）
+
+> 依 DEC-20261125-01。一座像真實風場一樣持續運轉的仿真風場：擬真物理、資料循環保存、可設定的故障與耗損、工單 / 定檢 / 可用率連動、成本、對外資料 API。
+> 出發前助理保留，作為工單上的準備卡。外部的 RAG 運維助理經對外 API 取資料，本身不在 windMindOM 內。
+> Done criteria：風場無人值守連續運轉一個月以上，自己發生故障、開單、修復；外部助理只靠對外 API 取得資料與警報；每張故障工單有準備卡，內容可用不對外的故障紀錄核對。
+> 順序是 Claude 建議、劉老師尚未逐項確認。
+
+| 順序 | Issue | 內容 | 類型 |
+|---|---|---|---|
+| 0 | ~~WMOM-20261125-01~~ ✅ | 重新定位：DEC、EPIC 拆解、文件同步 | 🔵 |
+| 1 | WMOM-20261125-02 | 對外唯讀 API 與外部系統身分（只給可觀測資料與警報） | 🟡 外部身分的形式待定 |
+| 2 | WMOM-20261125-03 | 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、72 小時穩定性 | 🟡 保留期目標與磁碟空間待定 |
+| 3 | WMOM-20261125-04 | 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算 | 🟡 修復規則待定 |
+| 4 | WMOM-20261125-05 | 出發前準備卡：故障出勤卡先做，例行巡檢卡後做 | 🔵 |
+| 5 | WMOM-20261125-06 | 機率式故障產生器、不對外的故障紀錄、模擬維修班 | 🔵 |
+| 6 | WMOM-20260504-11 | 成本模組吃模擬結果（發電收入、故障與停機的支出） | 🔵 |
+| 7 | WMOM-20261125-07 | 實測風況匯入；物理加深見 WMOM-20260505-26 / -27 / -28 | 🔵 |
+
+### EPIC-DS — 擬真資料源，供外部 RAG 即時維修助手驗證（2026-10-21 至 10-26 的主線，已完成）
 
 > 依 DEC-20261021-01；設計與介面合約 v0 見 [`docs/product/EPIC-DS_realistic_data_source.md`](docs/product/EPIC-DS_realistic_data_source.md)。
 > 目標：模擬器產生附標準答案的擬真 Z72 運轉資料，經 ① 檔案 ② 串流 ③ 模仿 tag 的 OPC UA server 餵給外部 RAG 維修助手（學生專題）。
