@@ -52,3 +52,4 @@ promo/work/
 # 即時模擬的狀態存檔（WMOM_LIVE_RESUME，與風場 DB 同目錄）
 live_checkpoint.pkl
 live_checkpoint.pkl.tmp
+live_archive/

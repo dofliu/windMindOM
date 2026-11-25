@@ -37,6 +37,7 @@ from server.farm_registry import FarmRegistry  # noqa: E402
 from server.routers import external as ext  # noqa: E402
 from server.routers import faults as faults_ep  # noqa: E402
 from server.storage import Storage  # noqa: E402
+from server.live_history import plc_typed
 from simulator.engine import WindFarmSimulator  # noqa: E402
 from simulator.physics.fault_engine import FAULT_SCENARIOS  # noqa: E402
 
@@ -496,7 +497,8 @@ def test_stats_use_the_pack_algorithm_and_only_complete_windows(client: TestClie
     builder = sp.StatsBuilder(columns=columns)
     for row in broker.storage.live_readings("WT001", end=(T0 + timedelta(minutes=20)).isoformat(), limit=1000):
         epoch = datetime.fromisoformat(row["timestamp"]).timestamp()
-        builder.add(epoch, "WT001", sp.scada_values(row["scada_json"], ids))
+        # 統計由 /readings 給的同一批值計算：PLC 型別的值（REAL＝float32），不是 SQLite 裡的 float64
+        builder.add(epoch, "WT001", plc_typed(sp.scada_values(row["scada_json"], ids), ids))
     expected = [sp.stats_message(r, columns, 10.0) for r in builder.close_all()]
     assert stats == json.loads(json.dumps(expected))
 
@@ -519,6 +521,56 @@ def test_stats_use_the_pack_algorithm_and_only_complete_windows(client: TestClie
     inside = client.get(BASE + "/stats-10min", headers=_h(key), params={
         "turbine_id": "WT001", "start": _z(T0 + timedelta(minutes=5)), "end": _z(T0 + timedelta(minutes=25))}).json()
     assert [s["window_start"][11:16] for s in inside["stats"]] == ["00:10"], "只回完整落在範圍內的窗"
+
+
+def test_readings_and_stats_reach_back_into_the_archive(client: TestClient, broker: DataBroker, key: str) -> None:
+    """較舊的讀值搬進每日歸檔、SQLite 清掉之後，外部看到的內容不變（WMOM-20261125-03-c）。"""
+    day1 = datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc)
+    _feed(broker, 400, start=day1)   # 1/1 23:30:10 … 1/2 00:36:40：跨過 UTC 午夜
+    params = {"turbine_id": "WT001", "limit": 1000}
+    stats_params = {"turbine_id": "WT001", "start": _z(day1), "end": _z(day1 + timedelta(hours=1))}
+    before = client.get(BASE + "/readings", params=params, headers=_h(key)).json()
+    stats_before = client.get(BASE + "/stats-10min", params=stats_params, headers=_h(key)).json()
+    assert len(before["readings"]) == 400 and len(stats_before["stats"]) == 6
+
+    broker.raw_hot_days, broker.archive_days = 0, 183
+    result = broker.run_retention()
+    assert result["archived"] == ["2026-01-01"]
+    assert result["cleanup"]["deleted_raw"] == 179 * 2, "1/1 的讀值（到 23:59:50）只剩在歸檔裡"
+
+    after = client.get(BASE + "/readings", params=params, headers=_h(key)).json()
+    assert after == before, "同一個游標、同樣的值與格式"
+    pages: List[dict] = []
+    cursor = 0
+    for _ in range(20):
+        page = client.get(BASE + "/readings", headers=_h(key), params={**params, "limit": 64, "after": cursor}).json()
+        pages += page["readings"]
+        cursor = page["next_cursor"]
+        if not page["has_more"]:
+            break
+    assert pages == before["readings"] and cursor == before["next_cursor"], "翻頁跨過歸檔與 SQLite 的分界"
+    assert client.get(BASE + "/stats-10min", params=stats_params, headers=_h(key)).json() == stats_before
+    blind = set(before["readings"][0]["values"])
+    assert not blind & set(sp.MODEL_INTERNAL_TAGS), "歸檔裡留著模型內部量，給出去的仍只有盲測欄位"
+    assert set(after["readings"][0]["values"]) == blind
+
+
+def test_unreadable_archive_index_is_a_503_not_a_partial_answer(client: TestClient, broker: DataBroker,
+                                                                key: str) -> None:
+    """歸檔的索引讀不出來時，不回一份缺了舊資料的結果（外部系統的游標會直接跳過那一段）。"""
+    _feed(broker, 400, start=datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc))
+    broker.raw_hot_days, broker.archive_days = 0, 183
+    broker.run_retention()
+    (broker.live_archive.root / "index.json").write_text("{broken", encoding="utf-8")
+    for path, params in (("/readings", {"turbine_id": "WT001"}),
+                         ("/stats-10min", {"turbine_id": "WT001", "start": "2026-01-01T23:30:00Z",
+                                           "end": "2026-01-02T00:30:00Z"})):
+        response = client.get(BASE + path, params=params, headers=_h(key))
+        assert response.status_code == 503 and "稍後再試" in response.json()["detail"], path
+    assert client.get(BASE + "/readings/latest", headers=_h(key)).status_code == 200, "最新讀值不經過歸檔"
+    broker.run_retention()   # 例行工作從日檔重建索引
+    assert len(client.get(BASE + "/readings", params={"turbine_id": "WT001", "limit": 1000},
+                          headers=_h(key)).json()["readings"]) == 400
 
 
 def test_stats_wait_until_the_window_is_complete(client: TestClient, broker: DataBroker, key: str) -> None:
@@ -583,7 +635,9 @@ def test_farm_tags_and_catalog_match_the_pack(client: TestClient, broker: DataBr
                          "sample_period_s", "stats_window_s", "stats_convention"}
     status = client.get(BASE + "/status", headers=_h(key)).json()
     assert set(status) == {"api_version", "contract_version", "server_time", "live", "live_epoch", "time_scale",
-                           "sample_period_s", "latest_reading_ts", "other_endpoints_require_login"}
+                           "sample_period_s", "raw_retention_days", "latest_reading_ts",
+                           "other_endpoints_require_login"}
+    assert status["raw_retention_days"] == 183, "預設留半年（DEC-20261125-01）"
     assert status["api_version"] == ext.EXTERNAL_API_VERSION
     assert farm["turbines"] == ["WT001", "WT002"] and farm["turbine_model"] == sp.TURBINE_MODEL
     assert farm["site_timezone"] == "Asia/Taipei" and farm["rated_power_kw"] == 2000

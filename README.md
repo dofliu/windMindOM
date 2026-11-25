@@ -88,6 +88,8 @@ npm run dev
 | `WMOM_DEV_MODE=true` | 僅測試 / demo：跳過職責分離檢查（一人可走完建單到簽核）、沒設金鑰時用隨機 dev 金鑰；正式部署不要開 |
 | `WMOM_AUTOSTART_SOURCE=simulation` | 開機就啟動即時模擬，不等人登入選來源（持續運轉的仿真風場用） |
 | `WMOM_LIVE_RESUME=true` | 即時模擬的狀態定期存檔（`live_checkpoint.pkl`，與風場 DB 同目錄）、啟動時還原：重啟前鎖存的跳機、疲勞、結垢都還在。模擬器程式更新後舊存檔不相容，風場會從頭開始。要手動從頭開始：`POST /api/source/select` 帶 `{"mode": "simulation", "fresh": true}` |
+| `WMOM_RAW_RETENTION_DAYS=183` | 10 秒原始讀值總共留幾天（預設 183＝半年），循環保存。較舊的讀值依 UTC 日期轉成 Parquet 日檔（風場 DB 旁邊的 `live_archive/`，14 台機組約 16 MB / 天、半年約 3 GB）。`0`＝不歸檔，只留下面的熱資料天數 |
+| `WMOM_RAW_HOT_DAYS=3` | 其中留在 SQLite 的最近幾天（預設 3；14 台機組約 0.5 GB / 天）。天數看資料自己的時間，不看實際時間 |
 | `WMOM_OPCUA_ENABLE=true` | 即時模擬的 OPC UA server（預設只聽 `127.0.0.1:4840`；`WMOM_OPCUA_HOST` / `WMOM_OPCUA_PORT` 可改） |
 
 ### Docker Compose

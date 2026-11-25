@@ -440,6 +440,50 @@ def test_autostart_failure_leaves_the_server_idle(app_broker, monkeypatch, capsy
     assert b.source_active is False
 
 
+@pytest.mark.parametrize("hot,total,expected", [
+    (None, None, (3, 183, 183)),      # 預設：SQLite 留 3 天、總共半年（DEC-20261125-01）
+    ("7", "30", (7, 30, 30)),
+    ("2", "0", (2, 0, 2)),            # 0＝不歸檔，只留熱資料天數
+    ("10", "5", (10, 5, 10)),         # 總天數不會比熱資料天數短
+    ("0", "-1", (3, 183, 183)),       # 超出範圍：用預設值
+    ("abc", "1.5", (3, 183, 183)),
+])
+def test_retention_days_come_from_the_environment(app_broker, monkeypatch, capsys, hot, total, expected):
+    """保留期可設定（WMOM-20261125-03-c）：熱資料天數與總天數；無效的值印警告、用預設值。"""
+    app_module, b = app_broker
+    monkeypatch.delenv("WMOM_AUTOSTART_SOURCE", raising=False)
+    for name, value in (("WMOM_RAW_HOT_DAYS", hot), ("WMOM_RAW_RETENTION_DAYS", total)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    app_module._apply_continuous_run_settings("farm")
+    assert (b.raw_hot_days, b.archive_days, b.raw_retention_days) == expected
+    warned = "改用預設" in capsys.readouterr().out
+    assert warned is (hot in ("0", "abc"))
+
+
+def test_storage_endpoints_report_and_run_retention(app_broker, monkeypatch):
+    """管理端看得到保留期與歸檔的摘要；手動維護走 broker 的例行工作（歸檔、清理、循環保存）。"""
+    import asyncio
+
+    from server.routers import config as config_ep
+
+    _, b = app_broker
+    monkeypatch.setattr(config_ep, "get_broker", lambda: b)
+    b.raw_hot_days, b.archive_days = 2, 90
+    stats = asyncio.run(config_ep.get_storage_stats())
+    assert (stats["raw_retention_days"], stats["raw_hot_days"]) == (90, 2)
+    assert stats["archive"] == {"days": 0, "rows": 0, "bytes": 0, "first_day": None, "last_day": None,
+                                "archived_through": None, "hot_from": None}
+    calls = []
+    monkeypatch.setattr(b, "run_retention", lambda: calls.append(1) or {
+        "archived": ["2026-01-01"], "pruned": [], "raw_delete_before": None, "cleanup": {"deleted_raw": 0}})
+    result = asyncio.run(config_ep.run_maintenance())
+    assert calls == [1] and result["cleanup"] == {"deleted_raw": 0}, "cleanup 欄位照舊，前端不用改"
+    assert result["retention"]["archived"] == ["2026-01-01"] and "archive" in result and "stats" in result
+
+
 def test_unknown_autostart_value_is_ignored(app_broker, monkeypatch, capsys):
     app_module, b = app_broker
     monkeypatch.setenv("WMOM_AUTOSTART_SOURCE", "live")  # 實接不自動啟動（會對外握手）

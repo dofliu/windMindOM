@@ -699,8 +699,11 @@ async def get_storage_stats():
     b = get_broker()
     stats = b.storage.get_db_stats()
     stats["write_interval_s"] = b.WRITE_INTERVAL_S
-    stats["raw_retention_days"] = b.RAW_RETENTION_DAYS
+    # 原始讀值總共留幾天（含每日歸檔）、其中留在 SQLite 的天數（WMOM-20261125-03-c）
+    stats["raw_retention_days"] = b.raw_retention_days
+    stats["raw_hot_days"] = b.raw_hot_days
     stats["agg_1m_retention_days"] = b.AGG_1M_RETENTION_DAYS
+    stats["archive"] = b.live_archive.summary()
     return stats
 
 
@@ -726,12 +729,12 @@ async def run_maintenance():
     """Manually trigger downsampling and cleanup."""
     b = get_broker()
     b.storage.run_downsampling()
-    cleanup = b.storage.run_cleanup(
-        raw_retention_days=b.RAW_RETENTION_DAYS,
-        agg_1m_retention_days=b.AGG_1M_RETENTION_DAYS,
-    )
+    # 歸檔過完的日子、清掉已歸檔又超過熱資料天數的讀值、刪最舊的日檔（WMOM-20261125-03-c）；
+    # 歸檔一天要讀寫幾百 MB，放到背景執行緒，不佔住事件迴圈
+    retention = await asyncio.to_thread(b.run_retention)
     stats = b.storage.get_db_stats()
-    return {"cleanup": cleanup, "stats": stats}
+    return {"cleanup": retention["cleanup"], "retention": retention, "archive": b.live_archive.summary(),
+            "stats": stats}
 
 
 # ─── Turbine Specification ─────────────────────────────────────────────
