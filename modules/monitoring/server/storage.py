@@ -4,7 +4,7 @@ from array import array
 import threading
 import time as _time
 from datetime import datetime, timedelta
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 from pathlib import Path
 
 try:
@@ -1105,11 +1105,13 @@ class Storage:
         raw_retention_days: int = 3,
         agg_1m_retention_days: int = 90,
         snapshots_retention_days: int = 7,
+        raw_tiered: bool = False,
     ) -> dict:
         """Delete old raw data, old 1-minute aggregates, and old event snapshots.
 
         - Raw (turbine_data): keep last `raw_retention_days` days (default 3)；情境 session 的 raw 不清
-          （刪情境時才刪，WMOM-20261021-04）
+          （刪情境時才刪，WMOM-20261021-04）。``raw_tiered`` 為真時（分層儲存，WMOM-20261125-03-c）這裡
+          不動 raw：Live 的 raw 由 ``DataBroker.run_retention`` 依每日歸檔來刪（只刪確定在日檔裡的）
         - 1-minute aggregates: keep last `agg_1m_retention_days` days (default 90)
         - 10-minute aggregates: keep forever
         - Snapshots: keep last `snapshots_retention_days` days (default 7)
@@ -1121,14 +1123,17 @@ class Storage:
         conn = self._get_conn()
         now = utc_now()
 
-        raw_cutoff = iso_utc(now - timedelta(days=raw_retention_days))
         # 情境＝凍結資料集（DEC-20260720-01）：raw 讀值保留到情境被刪除——標準答案的時刻與資料包匯出
         # 都指向它（WMOM-20261021-04 code review）
-        deleted_raw = conn.execute(
-            "DELETE FROM turbine_data WHERE timestamp < ? AND (session_id IS NULL OR session_id NOT IN "
-            "(SELECT id FROM sessions WHERE json_extract(config_json, '$.kind') = ?))",
-            (raw_cutoff, self.SCENARIO_KIND),
-        ).rowcount
+        if raw_tiered:
+            deleted_raw = 0
+        else:
+            raw_cutoff = iso_utc(now - timedelta(days=raw_retention_days))
+            deleted_raw = conn.execute(
+                "DELETE FROM turbine_data WHERE timestamp < ? AND (session_id IS NULL OR session_id NOT IN "
+                "(SELECT id FROM sessions WHERE json_extract(config_json, '$.kind') = ?))",
+                (raw_cutoff, self.SCENARIO_KIND),
+            ).rowcount
 
         agg_cutoff = iso_utc(now - timedelta(days=agg_1m_retention_days))
         deleted_1m = conn.execute(
@@ -1744,6 +1749,101 @@ class Storage:
         query += " ORDER BY id LIMIT ?"
         params.append(limit)
         return self._get_conn().execute(query, params).fetchall()
+
+    def reading_turbine_ids(self) -> List[str]:
+        """``turbine_data`` 裡出現過的機組 ID（含情境 session 的；只掃索引）。"""
+        rows = self._get_conn().execute(
+            "SELECT DISTINCT turbine_id FROM turbine_data INDEXED BY idx_turbine_time ORDER BY turbine_id").fetchall()
+        return [str(row[0]) for row in rows]
+
+    def earliest_live_reading_timestamp(self, turbine_id: str) -> Optional[str]:
+        """一台機組時間最早的 Live 讀值時間（不含情境 session）；沒有時為 None。
+
+        沿 ``(turbine_id, timestamp)`` 索引由舊到新走到第一筆 Live 列為止。
+        """
+        row = self._get_conn().execute(
+            "SELECT timestamp FROM turbine_data INDEXED BY idx_turbine_time "
+            f"WHERE turbine_id = ? AND {self._NOT_SCENARIO_SQL} ORDER BY timestamp LIMIT 1",
+            (turbine_id, self.SCENARIO_KIND)).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def reading_id_sequence(self) -> int:
+        """``turbine_data`` 發過的最大 id（AUTOINCREMENT 的序號；列被刪掉也不會變小）；還沒寫過為 0。
+
+        分層儲存用它確認歸檔屬於這個 DB：歸檔裡的 id 比它大，表示 DB 被重建過。
+        """
+        row = self._get_conn().execute("SELECT seq FROM sqlite_sequence WHERE name = 'turbine_data'").fetchone()
+        return int(row[0]) if row is not None and row[0] is not None else 0
+
+    def live_span(self, turbine_id: str, start: str, end: str) -> Tuple[int, Optional[int]]:
+        """一台機組在 ``[start, end)`` 的 Live 讀值列數與最大 id（沒有列時最大 id 為 None）。
+
+        分層儲存用來判斷一個日檔是否和 SQLite 裡的一致（WMOM-20261125-03-c）。走 ``(turbine_id, timestamp)``
+        索引：``turbine_data`` 沒有純時間的索引，不帶機組的時間範圍查詢會掃整張表。
+
+        Args:
+            turbine_id: 機組 ID。
+            start: 時間下限（含，``iso_utc``）。
+            end: 時間上限（不含，``iso_utc``）。
+
+        Returns:
+            （列數, 最大 id）。
+        """
+        row = self._get_conn().execute(
+            "SELECT COUNT(*), MAX(id) FROM turbine_data INDEXED BY idx_turbine_time "
+            f"WHERE turbine_id = ? AND timestamp >= ? AND timestamp < ? AND {self._NOT_SCENARIO_SQL}",
+            (turbine_id, start, end, self.SCENARIO_KIND)).fetchone()
+        return int(row[0]), (int(row[1]) if row[1] is not None else None)
+
+    def delete_archived_live_readings(self, ranges: List[Tuple[str, str, int]]) -> int:
+        """刪掉已經在每日歸檔裡的 Live 讀值（情境 session 的不動）。
+
+        分層儲存的清理用（WMOM-20261125-03-c）。每一段只刪 id 不大於 ``max_id`` 的列——那一天後來才寫進來、
+        還沒進日檔的列留著。逐台機組一個交易：走 ``(turbine_id, timestamp)`` 索引，而且每個交易都短，
+        不會讓 Live 的寫入等到逾時。
+
+        Args:
+            ranges: ``[(時間下限（含）, 時間上限（不含）, 最大 id), ...]``（``LiveArchive.delete_ranges`` 的結果）。
+
+        Returns:
+            刪掉的列數。
+        """
+        if not ranges:
+            return 0
+        conn = self._get_conn()
+        deleted = 0
+        for turbine_id in self.reading_turbine_ids():
+            for lower, upper, max_id in ranges:
+                deleted += conn.execute(
+                    "DELETE FROM turbine_data WHERE id IN (SELECT id FROM turbine_data INDEXED BY idx_turbine_time "
+                    f"WHERE turbine_id = ? AND timestamp >= ? AND timestamp < ? AND id <= ? "
+                    f"AND {self._NOT_SCENARIO_SQL})",
+                    (turbine_id, normalize_iso(lower), normalize_iso(upper), int(max_id),
+                     self.SCENARIO_KIND)).rowcount
+            conn.commit()
+        return deleted
+
+    def delete_live_readings_before(self, cutoff: str) -> int:
+        """刪掉時間早於 ``cutoff`` 的 Live 讀值（情境 session 的不動），不管有沒有歸檔；逐台機組一個交易。
+
+        分層儲存用它清掉超過總保留期的列（那時對應的日檔也刪了）。
+
+        Args:
+            cutoff: 只刪時間早於這一刻的列（任何 ISO 格式）。
+
+        Returns:
+            刪掉的列數。
+        """
+        conn = self._get_conn()
+        moment = normalize_iso(cutoff)
+        deleted = 0
+        for turbine_id in self.reading_turbine_ids():
+            deleted += conn.execute(
+                "DELETE FROM turbine_data WHERE id IN (SELECT id FROM turbine_data INDEXED BY idx_turbine_time "
+                f"WHERE turbine_id = ? AND timestamp < ? AND {self._NOT_SCENARIO_SQL})",
+                (turbine_id, moment, self.SCENARIO_KIND)).rowcount
+            conn.commit()
+        return deleted
 
     def last_live_reading_timestamp(self, turbine_id: str, max_sessions: int = 20) -> Optional[str]:
         """一台機組**最近一次寫入**的 Live 讀值的時間戳（依寫入順序，不是最大的時間）。

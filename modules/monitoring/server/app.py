@@ -85,11 +85,16 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     - ``WMOM_LIVE_RESUME=true``：即時模擬的狀態定期存檔、啟動時還原（重啟前鎖存的跳機、疲勞、結垢都還在）。
     - ``WMOM_AUTOSTART_SOURCE=simulation``：開機就啟動即時模擬，不等人登入選來源。啟動失敗不讓伺服器起不來，
       留在未選來源的狀態。
+    - ``WMOM_RAW_RETENTION_DAYS``（預設 183）：10 秒原始讀值總共留幾天，循環保存；超過熱資料天數的部分在
+      每日 Parquet 歸檔裡。0＝不歸檔，只留熱資料天數（WMOM-20261125-03-c）。
+    - ``WMOM_RAW_HOT_DAYS``（預設 3）：其中留在 SQLite 的最近幾天。
 
     Args:
         farm_id: 啟用中的風場（只用在啟動訊息）。
     """
     broker.checkpoint_enabled = _env_flag("WMOM_LIVE_RESUME")
+    broker.raw_hot_days = _env_days("WMOM_RAW_HOT_DAYS", broker.RAW_RETENTION_DAYS, minimum=1)
+    broker.archive_days = _env_days("WMOM_RAW_RETENTION_DAYS", broker.ARCHIVE_RETENTION_DAYS, minimum=0)
     autostart = os.environ.get("WMOM_AUTOSTART_SOURCE", "").strip().lower()
     if autostart == "simulation":
         try:
@@ -102,6 +107,30 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     elif autostart:
         print(f"[Server] Warning: WMOM_AUTOSTART_SOURCE={autostart!r} 不支援（只認 simulation），不自動啟動")
     print(f"[Server] Active farm: {farm_id} (idle — awaiting source selection)")
+
+
+def _env_days(name: str, default: int, minimum: int) -> int:
+    """讀一個天數的環境變數；沒設用預設值，不是整數或小於下限就印警告、用預設值。
+
+    Args:
+        name: 環境變數名稱。
+        default: 沒設或無效時的值。
+        minimum: 允許的最小值。
+
+    Returns:
+        天數。
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = minimum - 1
+    if value < minimum or value > 36500:
+        print(f"[Server] Warning: {name}={raw!r} 不是 {minimum} 到 36500 的整數，改用預設 {default}")
+        return default
+    return value
 
 
 def _env_flag(name: str) -> bool:

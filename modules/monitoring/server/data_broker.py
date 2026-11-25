@@ -17,6 +17,8 @@ from server.models import (
 )
 from server.storage import Storage, reading_timestamp
 from server.farm_registry import FarmRegistry
+from server.live_archive import ArchiveIndexError, LiveArchive, day_start
+from server.live_history import LiveHistory
 from simulator import checkpoint as live_checkpoint
 from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
@@ -236,8 +238,13 @@ class DataBroker:
     # 還原存檔時，storage 裡最後一筆 Live 讀值離存檔點多遠以內才算「存檔後、關閉前寫的」（秒）。存檔每
     # 30 秒一次，超過這個範圍的列是別的來源寫的，不拿來決定重跑段
     _MAX_REPLAY_S = 120.0
-    # Raw data retention (days)
+    # Raw data retention (days)：SQLite 裡留最近幾天的原始讀值（每列約 4 KB）
     RAW_RETENTION_DAYS = 3
+    # 原始讀值總共留幾天（WMOM-20261125-03-c）：超過 RAW_RETENTION_DAYS 的部分在每日 Parquet 歸檔裡
+    # （每列約 0.13 KB），循環保存。0＝不歸檔，照舊只留 RAW_RETENTION_DAYS 天。半年＝DEC-20261125-01
+    ARCHIVE_RETENTION_DAYS = 183
+    # 找「最近寫入的 Live 讀值」時最多往回看幾個 Live session（連續重啟而沒寫資料的 session 會佔掉名額）
+    _CLOCK_LOOKBACK_SESSIONS = 200
     # 1-min aggregate retention (days)
     AGG_1M_RETENTION_DAYS = 90
     # Snapshot window: seconds of 1s data to capture before/after event
@@ -254,6 +261,12 @@ class DataBroker:
         self.farm_registry = farm_registry or FarmRegistry()
         self._active_farm_id: Optional[str] = None
         self.storage = Storage()
+        # 保留期（伺服器依環境變數設定，見 server/app.py）：SQLite 的熱資料天數、含歸檔的總天數
+        self.raw_hot_days: int = self.RAW_RETENTION_DAYS
+        self.archive_days: int = self.ARCHIVE_RETENTION_DAYS
+        # 保留期的例行工作同一時間只能有一方在跑（maintenance 執行緒每小時一次、管理端可以手動觸發）：
+        # 兩邊同時寫日檔與索引會互相蓋掉
+        self._retention_lock = threading.Lock()
         self.simulator: Optional[WindFarmSimulator] = None
         self._opc_adapter: Optional['OPCDAAdapter'] = None
         self._sim_config = SimulationConfig()
@@ -545,6 +558,9 @@ class DataBroker:
                     print(f"[DataBroker] 還原即時模擬的狀態時出錯，從頭開始：{exc}")
                     self._reset_resume_state()
             self.simulator.on_checkpoint(self._write_live_checkpoint)
+        if run_loop and not self.live_restored:
+            # 風場從頭開始（沒開續跑、沒有可用的存檔、選擇從頭開始）：時鐘接在已存的 Live 讀值之後
+            self._continue_after_stored_data()
 
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)
@@ -554,6 +570,28 @@ class DataBroker:
     def _checkpoint_path(self) -> Path:
         """即時模擬的存檔位置：與目前風場的 DB 同一個目錄。"""
         return Path(self.storage.db_path).with_name(live_checkpoint.CHECKPOINT_FILENAME)
+
+    def _continue_after_stored_data(self) -> None:
+        """即時模擬從頭開始時，模擬時鐘接在已經存下的 Live 讀值之後——Live 的歷史在時間上不往回。
+
+        會往回的情況：之前用過時間倍率（模擬時鐘跑在實際時間前面），之後風場狀態重來（沒開續跑、程式更新、
+        選擇從頭開始）。不接著走的話，同一段時間會有兩份讀值，依時間的查詢、10 分鐘統計、每日歸檔都會混在
+        一起（WMOM-20261125-03-c）。還原存檔時不需要：存檔自己帶著時鐘。
+        """
+        simulator = self.simulator
+        if simulator is None:
+            return
+        try:
+            stamps = [self.storage.last_live_reading_timestamp(tid, max_sessions=self._CLOCK_LOOKBACK_SESSIONS)
+                      for tid in simulator.turbines]
+            latest = max((parse_iso(ts) for ts in stamps if ts), default=None)
+        except Exception as exc:  # noqa: BLE001  查不到就照實際時間起跑，不擋啟動
+            print(f"[DataBroker] 讀不到已存的 Live 讀值時間，時鐘從現在開始：{exc}")
+            return
+        if latest is not None and latest >= utc_now():
+            simulator.start_clock_after(latest)
+            self._last_write_slot = int(latest.timestamp() // self.WRITE_INTERVAL_S)  # 那個時段已經有一筆
+            print(f"[DataBroker] 已存的 Live 讀值到 {iso_utc(latest)}（在現在之後），模擬時鐘接著走")
 
     def _reset_resume_state(self) -> None:
         """清掉還原存檔留下的 broker 狀態（還原失敗、重新啟動時用）。"""
@@ -918,14 +956,102 @@ class DataBroker:
                 self.storage.run_downsampling()
                 now = _time.time()
                 if now - last_cleanup > 3600:  # hourly
-                    self.storage.run_cleanup(
-                        raw_retention_days=self.RAW_RETENTION_DAYS,
-                        agg_1m_retention_days=self.AGG_1M_RETENTION_DAYS,
-                        snapshots_retention_days=self.SNAPSHOTS_RETENTION_DAYS,
-                    )
+                    self.run_retention()
                     last_cleanup = now
             except Exception as e:
                 print(f"[DataBroker] Maintenance error: {e}")
+
+    @property
+    def live_archive(self) -> LiveArchive:
+        """目前這座風場的 Live 讀值歸檔（風場 DB 旁邊的 ``live_archive/``）。"""
+        return LiveArchive.for_storage(self.storage)
+
+    @property
+    def live_history(self) -> LiveHistory:
+        """目前這座風場的 Live 讀值（歸檔＋SQLite），依寫入順序查詢。"""
+        return LiveHistory(self.storage, self.live_archive)
+
+    @property
+    def raw_retention_days(self) -> int:
+        """原始讀值總共留幾天（含歸檔）。"""
+        return max(self.archive_days, self.raw_hot_days) if self.archive_days > 0 else self.raw_hot_days
+
+    def _storage_data_clock(self, storage: Storage) -> Optional[datetime]:
+        """一座風場的資料時鐘：各機組最近寫入的 Live 讀值時間裡最晚的那個；沒有 Live 讀值時為 None。"""
+        stamps = [storage.last_live_reading_timestamp(tid, max_sessions=self._CLOCK_LOOKBACK_SESSIONS)
+                  for tid in storage.reading_turbine_ids()]
+        return max((parse_iso(ts) for ts in stamps if ts), default=None)
+
+    def _retention_clock(self, storage: Storage) -> Optional[datetime]:
+        """保留期用的「現在」：即時模擬在跑時是它的模擬時鐘，否則是 storage 裡的資料時鐘。
+
+        即時模擬在跑時不看 storage 裡最後寫入的那一列：別的來源可能寫進時間在未來的列（例：沒有命名的批次），
+        拿它當現在的話，還沒過完的日子會被當成過完、半年的日檔會被當成過期刪掉。
+        """
+        live = self.live_clock() if storage is self.storage else None
+        return live if live is not None else self._storage_data_clock(storage)
+
+    def run_retention(self) -> Dict[str, object]:
+        """保留期的例行工作：把過完的日子歸檔、清掉 SQLite 裡已歸檔又超過熱資料天數的讀值、刪最舊的日檔。
+
+        maintenance 執行緒每小時呼叫一次；管理端也可以手動觸發（``POST /api/config/storage/maintenance``）。
+        同一時間只會有一方在跑。``archive_days`` ≤ 0 時不歸檔，照舊只留 ``raw_hot_days`` 天。保留期一律看
+        資料自己的時間，不看實際時間：時間倍率大於 1 之後模擬時鐘跑在實際時間前面。
+
+        歸檔那一段出任何錯（索引讀不出來、磁碟滿）都只記下來：沒有確定進日檔的讀值一筆都不刪，其他表的清理照做。
+
+        Returns:
+            ``{"archived": [...日期], "pruned": [...日期], "raw_delete_before": str | None,
+            "cleanup": {...}, "error": str（歸檔出錯時才有）}``。
+        """
+        with self._retention_lock:
+            return self._run_retention()
+
+    def _run_retention(self) -> Dict[str, object]:
+        storage = self.storage
+        result: Dict[str, object] = {"archived": [], "pruned": [], "raw_delete_before": None}
+        if self.archive_days <= 0:
+            result["cleanup"] = storage.run_cleanup(
+                raw_retention_days=self.raw_hot_days,
+                agg_1m_retention_days=self.AGG_1M_RETENTION_DAYS,
+                snapshots_retention_days=self.SNAPSHOTS_RETENTION_DAYS,
+            )
+            return result
+        deleted = 0
+        try:
+            clock = self._retention_clock(storage)
+            if clock is not None:
+                archive = LiveArchive.for_storage(storage)
+                try:
+                    result["archived"] = [d.day for d in archive.sync(storage, clock)]
+                except ArchiveIndexError:
+                    raise
+                except Exception as exc:  # noqa: BLE001  這次沒歸檔完：已經確定在日檔裡的照常清，其餘下次再試
+                    result["error"] = repr(exc)
+                    print(f"[DataBroker] Live 讀值歸檔失敗：{exc!r}")
+                state = archive.state()
+                if state.archived_through:
+                    # 只刪「已經在日檔裡」而且「超過熱資料天數」的；先把界線記進索引（查詢改從歸檔拿這一段）再刪
+                    delete_before = min(iso_utc(clock - timedelta(days=self.raw_hot_days)), state.archived_through)
+                    ranges = archive.delete_ranges(state, delete_before)
+                    archive.mark_hot_from(delete_before)
+                    result["raw_delete_before"] = delete_before
+                    deleted += storage.delete_archived_live_readings(ranges)
+                result["pruned"] = archive.prune(self.raw_retention_days, clock.date())
+                # 超過總保留期的 Live 讀值一律刪（對應的日檔也刪了）：含界線之前才補寫進來、沒進歸檔的列
+                expired = day_start(clock.date() - timedelta(days=self.raw_retention_days))
+                deleted += storage.delete_live_readings_before(iso_utc(expired))
+        except Exception as exc:  # noqa: BLE001  歸檔那一段出錯不擋其他表的清理
+            result["error"] = repr(exc)
+            print(f"[DataBroker] 保留期的例行工作沒有做完：{exc!r}")
+        cleanup = storage.run_cleanup(
+            agg_1m_retention_days=self.AGG_1M_RETENTION_DAYS,
+            snapshots_retention_days=self.SNAPSHOTS_RETENTION_DAYS,
+            raw_tiered=True,
+        )
+        cleanup["deleted_raw"] = deleted
+        result["cleanup"] = cleanup
+        return result
 
     def get_all_turbines(self) -> List[TurbineReading]:
         """Return current readings for all turbines, sorted by turbine ID."""

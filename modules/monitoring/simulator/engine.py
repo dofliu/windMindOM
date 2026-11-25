@@ -21,7 +21,7 @@ from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 from simulator.bulk_events import STATE_CHANGE, BulkEvent
 from simulator.farm_events import FarmEvent
-from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, utc_now
+from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, to_utc, utc_now
 
 
 def _zero_non_finite(scada: Dict[str, float]) -> List[str]:
@@ -404,6 +404,26 @@ class WindFarmSimulator:
     def sim_clock(self) -> Optional[datetime]:
         """Live 模擬時鐘：最近一步的時間（tz-aware UTC）；Live 還沒跑過為 None。"""
         return self._sim_clock
+
+    def start_clock_after(self, moment: datetime) -> None:
+        """讓 Live 的模擬時鐘從 ``moment`` 之後開始（只往前調；Live 迴圈必須是停的）。
+
+        即時模擬從頭開始、但 storage 裡已經有時間更晚的 Live 讀值時用：新讀值接在後面，Live 的歷史在
+        時間上不往回（WMOM-20261125-03-c）。
+
+        Args:
+            moment: 已存的最後一筆 Live 讀值的時間（tz-aware）。
+
+        Raises:
+            RuntimeError: Live 迴圈還在跑。
+        """
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("Live 迴圈還在跑，不能調整模擬時鐘")
+        moment = to_utc(moment)
+        if moment.microsecond:  # 往上取到整秒：下一步的時間一定在 moment 之後，時鐘也維持在整秒上
+            moment = moment.replace(microsecond=0) + timedelta(seconds=1)
+        if self._sim_clock is None or moment > self._sim_clock:
+            self._sim_clock = moment
 
     def _emit(self, readings: List[Dict]) -> None:
         """把一步的讀值交給各 callback（個別 callback 出錯不影響模擬）。

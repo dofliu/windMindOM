@@ -38,6 +38,8 @@ from modules.auth.api_keys import require_api_key
 from modules.auth.dependencies import is_auth_enforced
 from server import scenario_pack as sp
 from server.data_broker import DataBroker
+from server.live_archive import ArchiveIndexError, LiveReading
+from server.live_history import LiveHistory
 from server.storage import is_observable_event
 from simulator.ground_truth import CONTRACT_VERSION
 from simulator.time_utils import iso_utc, parse_iso
@@ -46,7 +48,7 @@ JsonValue = sp.JsonValue
 
 # 對外 API 自己的版本（端點、參數、翻頁方式）。資料格式（讀值欄位、事件、10 分鐘統計）跟著資料介面合約
 # （``CONTRACT_VERSION``）：加端點 / 加欄位升次版本，改名 / 刪除升主版本並換路徑前綴。
-EXTERNAL_API_VERSION = "1.0"
+EXTERNAL_API_VERSION = "1.1"
 
 READINGS_DEFAULT_LIMIT = 500
 READINGS_MAX_LIMIT = 2000
@@ -120,6 +122,16 @@ def _reading_message(timestamp: str, turbine_id: str, values: np.ndarray) -> Dic
     }
 
 
+def _history_page(history: LiveHistory, turbine_id: str, after_id: int, start: Optional[str], end: Optional[str],
+                  limit: int) -> List[LiveReading]:
+    """讀一頁 Live 讀值（歸檔＋SQLite）；歸檔的索引讀不出來時回 503，不回一份缺了舊資料的結果。"""
+    try:
+        return history.readings(turbine_id, _tag_ids(), after_id=after_id, start=start, end=end, limit=limit)
+    except ArchiveIndexError as exc:
+        logger.error("對外 API：%s", exc)
+        raise HTTPException(503, "歷史讀值暫時讀不到，請稍後再試") from exc
+
+
 def _data_clock(broker: DataBroker, turbine_id: str) -> Optional[datetime]:
     """一台機組的資料時鐘：最近一次寫進歷史的 Live 讀值的時間；沒有資料為 None。
 
@@ -160,6 +172,8 @@ def status() -> Dict[str, JsonValue]:
         "live_epoch": int(broker.live_epoch),
         "time_scale": float(simulator.time_scale) if simulator is not None else 1.0,
         "sample_period_s": broker.live_sample_period_s,
+        # 原始讀值留幾天（依資料自己的時間，循環保存）：比這更早的 /readings、/stats-10min 查不到
+        "raw_retention_days": int(broker.raw_retention_days),
         "latest_reading_ts": sp.iso_z(iso_utc(max(latest))) if latest else None,
         "other_endpoints_require_login": is_auth_enforced(),
     }
@@ -237,21 +251,18 @@ def readings(
         ``{"readings": [...], "next_cursor": int, "has_more": bool}``。
     """
     start_dt, end_dt = _time_range(start, end)
-    rows = get_broker().storage.live_readings(
-        turbine_id, after_id=after,
+    # 兩層：較舊的在每日歸檔、最近幾天的在 SQLite，同一個游標往後走（WMOM-20261125-03-c）
+    rows = _history_page(
+        get_broker().live_history, turbine_id, after_id=after,
         start=iso_utc(start_dt) if start_dt else None,
         end=iso_utc(end_dt) if end_dt else None,
         limit=limit + 1,
     )
     has_more = len(rows) > limit
     rows = rows[:limit]
-    ids = _tag_ids()
     return {
-        "readings": [
-            _reading_message(str(row["timestamp"]), str(row["turbine_id"]), sp.scada_values(row["scada_json"], ids))
-            for row in rows
-        ],
-        "next_cursor": int(rows[-1]["id"]) if rows else after,
+        "readings": [_reading_message(row.timestamp, row.turbine_id, row.values) for row in rows],
+        "next_cursor": rows[-1].id if rows else after,
         "has_more": has_more,
     }
 
@@ -289,20 +300,18 @@ def stats_10min(
     first = int(-(-start_dt.timestamp() // window) * window)
     last = int(min(end_dt, clock).timestamp() // window * window) if clock is not None else first
     if last > first:
-        storage = broker.storage
-        ids = _tag_ids()
+        history = broker.live_history  # 歸檔＋SQLite：超過熱資料天數的窗由每日歸檔算
         lower = iso_utc(datetime.fromtimestamp(first, tz=timezone.utc))
         upper = iso_utc(datetime.fromtimestamp(last, tz=timezone.utc))
         cursor = 0
         while True:
-            rows = storage.live_readings(turbine_id, after_id=cursor, start=lower, end=upper, limit=_SCAN_BATCH)
+            rows = _history_page(history, turbine_id, after_id=cursor, start=lower, end=upper, limit=_SCAN_BATCH)
             if not rows:
                 break
             # 統計依時間分窗：同一批裡先照時間排（Live 列的寫入順序通常就是時間順序）
-            for row in sorted(rows, key=lambda r: str(r["timestamp"])):
-                builder.add(parse_iso(str(row["timestamp"])).timestamp(), str(row["turbine_id"]),
-                            sp.scada_values(row["scada_json"], ids))
-            cursor = int(rows[-1]["id"])
+            for row in sorted(rows, key=lambda r: r.timestamp):
+                builder.add(parse_iso(row.timestamp).timestamp(), row.turbine_id, row.values)
+            cursor = rows[-1].id
             if len(rows) < _SCAN_BATCH:
                 break
     # 即時資料的間隔帶抖動（約 10.1–10.2 秒）：以這段資料相鄰讀值間隔的中位數當取樣週期來判定殘缺窗
