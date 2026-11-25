@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from modules.workflow.domain.work_order import WorkOrder, WorkOrderStatus
     from simulator.engine import WindFarmSimulator
 
 from server.models import DataSourceConfig, DataSourceMode, SimulationConfig
@@ -52,6 +55,12 @@ async def lifespan(app: FastAPI):
 
     _apply_continuous_run_settings(farm_id)
 
+    # 運維閉環的接線（WMOM-20261125-04）：工單的狀態改變通知到閉環；報表的可用率由運轉狀態紀錄提供
+    from modules.reporting.routers.reporting_router import set_availability_provider
+    from modules.workflow.hooks import add_work_order_listener, remove_work_order_listener
+    add_work_order_listener(_on_work_order)
+    set_availability_provider(_availability_for_report)
+
     # Start WebSocket broadcast task（未選來源前 broker.get_all_turbines() 回空、不廣播）
     task = asyncio.create_task(_ws_broadcast_loop())
 
@@ -67,7 +76,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown：只收掉自己登記的東西（別人換過 provider 就不動），閉環關回去——同一個 process 之後再用到
+    # 這個 broker 時不會還開著
+    remove_work_order_listener(_on_work_order)
+    from modules.reporting.routers import reporting_router as _reporting
+    if _reporting._availability_provider is _availability_for_report:
+        set_availability_provider(None)
+    if broker._om_loop is not None:
+        broker._om_loop.enabled = False
     task.cancel()
     try:
         if opcua is not None:
@@ -88,11 +104,17 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     - ``WMOM_RAW_RETENTION_DAYS``（預設 183）：10 秒原始讀值總共留幾天，循環保存；超過熱資料天數的部分在
       每日 Parquet 歸檔裡。0＝不歸檔，只留熱資料天數（WMOM-20261125-03-c）。
     - ``WMOM_RAW_HOT_DAYS``（預設 3）：其中留在 SQLite 的最近幾天。
+    - ``WMOM_OM_LOOP``（預設開）：運維閉環——即時模擬的跳機自動開工單、工單開工讓機組進維修模式、完工修復
+      機組、記運轉狀態供可用率計算（WMOM-20261125-04）。
 
     Args:
         farm_id: 啟用中的風場（只用在啟動訊息）。
     """
     broker.checkpoint_enabled = _env_flag("WMOM_LIVE_RESUME")
+    # 運維閉環預設開：跳機開單、工單完工修復、運轉狀態紀錄（WMOM-20261125-04）；WMOM_OM_LOOP=false 關掉
+    om_loop_on = os.environ.get("WMOM_OM_LOOP", "true").strip().lower() not in ("false", "0", "no", "off")
+    if om_loop_on or broker._om_loop is not None:
+        broker.om_loop.enabled = om_loop_on
     broker.raw_hot_days = _env_days("WMOM_RAW_HOT_DAYS", broker.RAW_RETENTION_DAYS, minimum=1)
     broker.archive_days = _env_days("WMOM_RAW_RETENTION_DAYS", broker.ARCHIVE_RETENTION_DAYS, minimum=0)
     autostart = os.environ.get("WMOM_AUTOSTART_SOURCE", "").strip().lower()
@@ -107,6 +129,36 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     elif autostart:
         print(f"[Server] Warning: WMOM_AUTOSTART_SOURCE={autostart!r} 不支援（只認 simulation），不自動啟動")
     print(f"[Server] Active farm: {farm_id} (idle — awaiting source selection)")
+
+
+def _on_work_order(work_order: 'WorkOrder', action: str, from_status: 'Optional[WorkOrderStatus]') -> None:
+    """工單掛鉤 → 目前 broker 的運維閉環（每次都重新取 ``broker``：測試會換掉它）。"""
+    loop = broker._om_loop_if_enabled()
+    if loop is not None:
+        loop.on_work_order(work_order, action, from_status)
+
+
+def _availability_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Optional[tuple[float, float]]':
+    """報表的可用率：由運轉狀態紀錄計算（WMOM-20261125-04）。
+
+    只算目前啟用中的風場；閉環沒開、別的風場、這段時間沒有紀錄時回 None（報表退回由工單工時推估）。
+
+    Args:
+        farm_id: 風場 ID。
+        start: 期間起點。
+        end: 期間終點。
+
+    Returns:
+        （時間可用率, 發電量可用率），或 None。
+    """
+    loop = broker._om_loop_if_enabled()
+    if loop is None or farm_id != broker._active_farm_id:
+        return None
+    farm = loop.availability(start, end)["farm"]
+    time_availability, energy_availability = farm["time_availability"], farm["energy_availability"]
+    if time_availability is None or energy_availability is None:
+        return None
+    return float(time_availability), float(energy_availability)
 
 
 def _env_days(name: str, default: int, minimum: int) -> int:
@@ -272,6 +324,7 @@ from server.routers.replay import router as replay_router  # noqa: E402
 from server.routers.source import router as source_router  # noqa: E402
 # WMOM-20261125-02：對外唯讀 API（外部系統以 API 金鑰取可觀測資料與警報）
 from server.routers.external import router as external_router  # noqa: E402
+from server.routers.operations import router as operations_router  # noqa: E402
 
 # WMOM-20260504-07 + -20260509-05: cost module routers (M2 cost API + ledger query)
 from modules.cost.routers import (  # noqa: E402
@@ -312,6 +365,7 @@ app.include_router(scenarios_router)
 app.include_router(replay_router)
 app.include_router(source_router)
 app.include_router(external_router)
+app.include_router(operations_router)
 app.include_router(cost_router)
 app.include_router(cost_ledger_router)
 app.include_router(workflow_router)

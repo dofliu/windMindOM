@@ -26,6 +26,7 @@ if str(MONITORING_ROOT) not in sys.path:
 import pytest
 
 import simulator.engine as engine_mod
+import wind_model as wind_model_mod
 from shared.alarm_codes import get_alarm
 from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
@@ -65,6 +66,9 @@ def test_every_farm_event_kind_has_answer_texts_and_real_codes() -> None:
 
 def _farm(monkeypatch: pytest.MonkeyPatch, turbines: int = 2) -> WindFarmSimulator:
     monkeypatch.setattr(engine_mod, "utc_now", lambda: T0)
+    # 風況覆寫的漸變起點取「現在」的自動風況（wind_model.set_override 讀實際時間，解析度一分鐘）：不固定的話，
+    # 同一個測試裡先後建的兩座風場若剛好跨過實際時間的整分鐘，起點就不同、逐位元比對會失敗（WMOM-20261126-03）
+    monkeypatch.setattr(wind_model_mod, "utc_now", lambda: T0)
     sim = WindFarmSimulator(turbine_count=turbines)
     sim.wind_model.set_override(wind_speed=13.0, wind_direction=250.0, ambient_temp=25.0)
     return sim
