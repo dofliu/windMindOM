@@ -14,13 +14,14 @@
 | Status | Count |
 |--------|------|
 | open | 12 |
-| in_progress | 2 |
+| in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 150 |
+| done | 151 |
 | **total** | **166** |
 
-最後更新：2026-11-25 深夜（劉老師 2026-11-25 回覆「同意你的規劃」：開發順序、保留半年、REST 為主、外部身分用長效 API 金鑰對應唯讀角色，都確認；新增 **WMOM-20261125-08 研究架構圖**（in_progress，草稿 v0.1 已發布、待劉老師看過定稿）。open 12 / in_progress 2 / deferred 2 / done 150 = 166。詳見 `work-logs/2026-11/2026-11-25-research-framework-diagram.md`）。
+最後更新：2026-11-26（**WMOM-20261125-08 done**：研究架構圖定稿（劉老師回覆「架構圖可以定稿」），收進 `docs/architecture/research-framework.md`。open 12 / in_progress 1 / deferred 2 / done 151 = 166）。
+前次：2026-11-25 深夜（劉老師 2026-11-25 回覆「同意你的規劃」：開發順序、保留半年、REST 為主、外部身分用長效 API 金鑰對應唯讀角色，都確認；新增 **WMOM-20261125-08 研究架構圖**（in_progress，草稿 v0.1 已發布、待劉老師看過定稿）。open 12 / in_progress 2 / deferred 2 / done 150 = 166。詳見 `work-logs/2026-11/2026-11-25-research-framework-diagram.md`）。
 前次：2026-11-25（**WMOM-20261125-01 done**（重新定位：仿真運維風場，DEC-20261125-01）：新主線 EPIC-SF，新增 WMOM-20261125-02 ~ -07（對外唯讀 API、長時間運轉的基礎、運維閉環、出發前準備卡、機率式故障產生器、實測風況匯入），成本一項沿用 WMOM-20260504-11；沒有程式變更。逐條解析 header 核實前值 open 6 / in_progress 1 / deferred 2 / done 149 = 158（統計表先前停在 157，一併更正）；本次 +6 open、+1 done：open 12 / in_progress 1 / deferred 2 / done 150 = 165。詳見 `work-logs/2026-11/2026-11-25-repositioning-decision.md`）。
 前次：2026-10-26（**WMOM-20261021-08-d done**（EPIC-DS Phase 4-d 多重故障＋早期徵兆，DEC-20261026-01；母 issue -08 全部子項 done → done）：同機組多 case 歸屬不變＋新指標診斷精確率、早期徵兆 case 分開列；排程 `max_severity` 把故障壓在門檻下；範例資料包 07；合約 v1.7。open 6 / in_progress 1 / deferred 2 / done 149 = 158。詳見 `work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`）。
 前次：2026-10-25（**WMOM-20261023-01 done**（直驅 `WGEN_GnSpd` 偏離轉子轉速，DEC-20261025-01）：根因是傳動鏈扭轉的顯式 Euler 在批次子步 5 s 數值不穩定（二週期振盪、取樣看起來像 2.7 倍）；扭轉＋發電機轉速改以 ≤ 1 s 子步積分，dt 1 s 逐位元不變、批次資料改變，範例資料包重建；守門測試 14 種子 × 3 個 dt。open 6 / in_progress 2 / deferred 2 / done 147 = 157。詳見 `work-logs/2026-10/2026-10-25-gnspd-divergence.md`）。
@@ -1975,15 +1976,15 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261125-08 — 研究架構圖
 
-- **Status**: in_progress
+- **Status**: done（2026-11-26）
 - **Milestone**: EPIC-SF
 - **Priority**: medium
 - **Estimate**: 0.5 天
 - **Owner**: Claude session 2026-11-25
-- **Description**: 劉老師同意規劃後，要求動工前先看一張研究架構圖。草稿 v0.1 已發布：仿真風場一次產生兩份東西——看得到的資料往右給對外 API、工單與準備卡、可用率與成本；故障的真正原因另存、只給評分端——並標出已有 / 待建與建置順序。等劉老師看過、修改定稿後，收進 `docs/architecture/`，並在更新 `windMindOM-architecture.md` 時引用。
+- **Description**: 劉老師同意規劃後，要求動工前先看一張研究架構圖。草稿 v0.1 已發布：仿真風場一次產生兩份東西——看得到的資料往右給對外 API、工單與準備卡、可用率與成本；故障的真正原因另存、只給評分端——並標出已有 / 待建與建置順序。劉老師 2026-11-26 回覆「架構圖可以定稿」：收進 `docs/architecture/research-framework.md`（獨立 SVG＋說明），`windMindOM-architecture.md` 與 `CLAUDE.md` §3 加上連結。
 - **Deliverable**:
   - 草稿（Artifact）：https://claude.ai/artifact/4uZ6VgrG7wcBPRLYvVWFt4
-  - 定稿後：`docs/architecture/` 內的研究架構圖
+  - `docs/architecture/research-framework.md`、`docs/architecture/research-framework.svg`
 - **Reference**: `work-logs/2026-11/2026-11-25-research-framework-diagram.md`
 
 ---
@@ -2001,7 +2002,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 > 依 DEC-20261125-01。一座像真實風場一樣持續運轉的仿真風場：擬真物理、資料循環保存、可設定的故障與耗損、工單 / 定檢 / 可用率連動、成本、對外資料 API。
 > 出發前助理保留，作為工單上的準備卡。外部的 RAG 運維助理經對外 API 取資料，本身不在 windMindOM 內。
 > Done criteria：風場無人值守連續運轉一個月以上，自己發生故障、開單、修復；外部助理只靠對外 API 取得資料與警報；每張故障工單有準備卡，內容可用不對外的故障紀錄核對。
-> 順序由 Claude 建議、劉老師 2026-11-25 回覆「同意你的規劃」確認。研究架構圖草稿見 WMOM-20261125-08。
+> 順序由 Claude 建議、劉老師 2026-11-25 回覆「同意你的規劃」確認。研究架構圖見 [`docs/architecture/research-framework.md`](docs/architecture/research-framework.md)。
 
 | 順序 | Issue | 內容 | 類型 |
 |---|---|---|---|

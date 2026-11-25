@@ -3,6 +3,7 @@
 > 版本：v0.8.1 產品基線；狀態截至 **2026-10-23**（EPIC-DS 故障庫擴充 WMOM-20261021-08-c 後）
 > 受眾：第一次接觸專案的同仁、對外 demo、partner / 學生專題對接
 > 先看 §1 一張圖看全貌、§2 現行主線 EPIC-DS 的資料流，再依興趣往下看細節圖。
+> **2026-11-25 起的定位是仿真運維風場（DEC-20261125-01）**：研究架構圖見 [`research-framework.md`](research-framework.md)；本檔是系統內部的細節圖，尚未依新主線 EPIC-SF 改寫。
 > 同內容的互動說明頁（含模組卡與進度條）連結記在 [`work-logs/2026-10/2026-10-22-architecture-docs.md`](../../work-logs/2026-10/2026-10-22-architecture-docs.md) §2.1。
 
 ---

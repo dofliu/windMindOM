@@ -60,3 +60,13 @@
 - 等劉老師看過研究架構圖。有修改就更新同一個 Artifact；定稿後收進 `docs/architecture/`，WMOM-20261125-08 改 done。
 - 之後認領 `WMOM-20261125-02`（對外唯讀 API）。外部身分的形式已定：長效 API 金鑰對應唯讀角色。
 - 沒有程式變更，測試沒有跑。
+
+## 5. 2026-11-26 定稿
+
+劉老師回覆「架構圖可以定稿，開始第 1 項」。
+
+- Artifact 更新為 v1.0（拿掉草稿字樣）。
+- 收進 repo：`docs/architecture/research-framework.md`（說明、圖例、建置順序、可回答的問題）與 `docs/architecture/research-framework.svg`（由 Artifact 的圖抽出的獨立 SVG，亮色、樣式內嵌）。
+- `docs/architecture/windMindOM-architecture.md` 頂部與 `CLAUDE.md` §3 加上連結。
+- WMOM-20261125-08：in_progress → done。
+- `windMindOM-architecture.md` 的內容還沒依 EPIC-SF 改寫，留到 EPIC-SF 有功能完成時一起更新。
