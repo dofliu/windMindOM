@@ -141,6 +141,7 @@ reviewer 實際跑過 `list_forward` 的翻頁（建 5 張、一頁 2 筆逐頁�
 - backend 全部（本機）：**2475 passed / 7 skipped / 1 xfailed**。前一次（第 3 項）是 2446 passed：多的 29 項是這次新增的（`test_briefing.py` 27 項，其餘是 `test_external_api.py` 加了新端點之後多出來的）。跑了三次：第一輪審查的修正之後 2471、第二輪審查的修正之後 2475，都沒有失敗。
 - frontend：vitest 72 個檔 **1522 passed**（前一次 1513，多的 9 項是 `BriefingCard.test.tsx`）；`tsc --noEmit` 通過；`npm run build` 通過。
 - 本機沒裝 chromadb / sentence-transformers，knowledge 的部分測試整檔略過；完整數字以 CI 為準。
+- push 之前 main 多了一個 commit（WMOM-20261126-03，風況覆寫改用模擬時間，另一個 session 做的）。合進來之後再跑一次 backend 全部：**2501 passed / 7 skipped / 1 xfailed**（2475 加上那個 commit 帶進來的 26 項）。合併時 `CLAUDE.md`、`ISSUES.md`、`STATUS.yaml`、`TODO.md` 有衝突，都是兩邊各自更新狀態的文字；另外兩邊都把新 issue 編成 WMOM-20261126-04，這邊的例行巡檢卡改成 **WMOM-20261126-05**。
 
 ### 2.8 卡住或延後的事
 
