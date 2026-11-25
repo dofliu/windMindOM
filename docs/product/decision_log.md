@@ -1284,6 +1284,42 @@ WMOM-20261022-02 對照手冊修模擬器時，遇到三個需要決策的問題
 
 ---
 
+## DEC-20261126-01 — 對外唯讀 API：金鑰不是角色、一律強制；只給 Live 的可觀測資料；API 自己編版本
+
+**日期**：2026-11-26　**狀態**：accepted　**Decision maker**：Claude（依 DEC-20261125-01 與 WMOM-20261125-02 的規格；劉老師 2026-11-26 指示「開始第 1 項」）。下面是實作時的設計選擇，劉老師尚未逐項看過
+**延續**：DEC-20261125-01 第 4 點第 1 項與第 5 點（外部系統用長效 API 金鑰、唯讀、以 REST 為主）
+
+### Context
+
+EPIC-SF 第 1 項：讓外部系統（劉老師的 RAG 運維助理）像外部監控一樣，向持續運轉的仿真風場取資料與警報。動工前的現況有兩個洞：`GET /api/export/events` 會回傳 `Fault injected: {scenarioId}`；`GET /api/faults/active` 任何登入者可讀。外部系統照現有的方式接，等於看到答案。
+
+### Considered Options 與 Decision
+
+1. **外部身分怎麼做**
+   - A. 在 RBAC 加一個角色（例 `Role.EXTERNAL`）、發 JWT。問題：現有幾十個端點掛的是 `require_authenticated`（任何登入者），新角色一拿到 token 就全部讀得到，包含故障狀態。要逐一改每個端點，漏一個就破功。
+   - **B.（採用）金鑰是另一種憑證，不是角色。** 放在 `X-API-Key`，只有 `/api/ext/v1` 的 dependency 認它；`get_current_actor` / `require_role` / `require_authenticated` 都不看它。DEC-20261125-01 寫的「對應唯讀角色」，實作成金鑰上的權限範圍 `external:read`。新增端點預設就碰不到，不必記得去擋。
+2. **金鑰一律強制**，不受 `WMOM_AUTH_ENFORCE` 與 dev mode 影響，沒有 fallback 身分。開發時與正式時的接法相同。
+3. **盲測要伺服器開 `WMOM_AUTH_ENFORCE=true`，但沒開時不拒絕服務。** 沒開的時候其他端點本來就不用登入，金鑰擋不住。做法是在 `GET /status` 回報 `other_endpoints_require_login`、CLI 發金鑰時提醒。拒絕服務會讓開發期的介接變麻煩，而且擋不住真正的問題（其他端點是開的）。
+4. **金鑰存 SQL（與使用者同一個 auth DB），dev mode 也是。** 使用者帳號在 dev mode 用記憶體裡的 demo 資料，金鑰不能這樣：伺服器重啟後外部系統手上的金鑰要還能用。只存 sha256，金鑰只在建立時顯示一次。管理走 admin 端點或 CLI（`tools/external_api_keys.py`）。
+5. **給出去的東西與盲測版資料包同一套**：讀值欄位＝`pack_columns()`、事件只取 `is_observable_event`、格式用 `pack_event` / `json_values` / `stats_message`。不另外定義格式，也不給風場名稱等自訂文字。
+6. **只給 Live**：排除情境 session。最新讀值取自最近一次寫進 storage 的那一批，不讀 simulator 記憶體——產生情境時那裡是情境的值。目前成立的警報取自 PLC 的清單（與 OPC UA 同一份），即時模擬沒在跑時不給。
+7. **游標依寫入順序（id），不依時間。** 外部系統的用法是「上次看到哪、之後有什麼新的」。時間倍率改變時 Live 的時間戳會前後跳，依時間翻頁會漏。
+8. **API 自己編版本（1.0），資料介面合約維持 1.7。** WebSocket 回放（v1.1）與 OPC UA（v1.2）加入時升了合約版本，這次不照做：資料格式沒有任何改變；合約版本寫在 7 個範例資料包與標準答案裡，升版要全部重建而內容不變；這個 API 的對象與生命週期（端點、金鑰、翻頁）也和學生專題的合約不同。文件另立 `docs/integration/external_api_v1.md`。
+9. **10 分鐘統計即時計算**，一次最多 24 小時；殘缺窗以相鄰讀值間隔的中位數判定（Live 的寫入間隔實測約 10.1–10.2 秒，不是精確的 10 秒）。窗「收齊了沒」看這台機組最近一次寫進歷史的讀值的時間，不看實際時間：讀值每個取樣週期才寫一次，用實際時間會把最後一筆還沒進來的窗放出去，之後值又變；時間倍率大於 1 時讀值的時間也跑在實際時間前面（code review 指出）。
+10. **`/status` 只說即時資料在不在、連不連續**（`live`、`live_epoch`），不說原因。原本有 `batch_running`，審查指出它等於告訴外部系統「管理端正在出題」，而 `live: false` 已經夠用，所以拿掉。
+11. **`session_id` 為 NULL 的舊事件視為 Live。** WMOM-20261021-04 之前 Live 的事件都沒有 session；那時候產生情境只寫 `source="scenario"` 的注入 / 跳機標記（不是可觀測事件，不會被放出去），可觀測的情境事件與 session 隔離是同一版加入的。若改用情境時間窗排除這些舊列，會把同一段實際時間的 Live 事件一起藏掉。
+
+### Consequences
+
+- 新增：`modules/auth/api_keys.py`、`auth_api_keys` 表、`/api/auth/api-keys`（admin）、`modules/monitoring/server/routers/external.py`（9 個 `GET`）、`tools/external_api_keys.py`、`docs/integration/external_api_v1.md`。
+- dev mode 下 `/api/auth/api-keys` 與使用者管理端點一樣不用登入（dev fallback 身分是管理員）；金鑰的驗證本身不受 dev mode 影響。dev mode 不能用來做盲測。
+- 有時間下限的讀值查詢仍要把範圍內的列依寫入順序排序，成本隨範圍內的列數成長；輪詢（沒有時間下限）已改成從游標沿主鍵往後掃。保留期拉長後要在 WMOM-20261125-03 一起看。
+- 舊的兩個洞沒有補在原端點上：`/api/export/events` 與 `/api/faults/active` 照舊給登入的人員看（操作端需要）。外部系統碰不到它們，前提是伺服器強制登入。
+- 實測發現、留給 WMOM-20261125-03 的限制：伺服器重啟後模擬器狀態歸零，重啟前鎖存的跳機不會有解除事件；重啟後要有人重新選定資料來源；原始讀值只留 3 天；Live 的寫入間隔帶抖動；時間倍率大於 1 時資料變稀疏、時間戳會前後跳。
+- `CLAUDE.md` §10 加「對外 API 守則」。
+
+---
+
 ## 範本（複製此塊新增 decision）
 
 ```markdown

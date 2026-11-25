@@ -5,14 +5,25 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..api_keys import ApiKey, get_api_key_store, issue_api_key
 from ..dependencies import Actor, get_current_actor, require_roles
 from ..passwords import hash_password
 from ..roles import Role
-from ..schemas import ActorInfo, CreateUserRequest, LoginRequest, TokenResponse, UserInfo
+from ..schemas import (
+    ActorInfo,
+    ApiKeyCreated,
+    ApiKeyInfo,
+    CreateApiKeyRequest,
+    CreateUserRequest,
+    LoginRequest,
+    TokenResponse,
+    UserInfo,
+)
 from ..tokens import create_access_token
 from ..users import AuthUser, UserStore, build_default_store
 
@@ -87,3 +98,51 @@ def create_user(
 def list_users(_actor: Actor = Depends(require_roles(Role.ADMIN))) -> list[UserInfo]:
     """admin 列出所有使用者（不含密碼雜湊）。"""
     return [_to_user_info(u) for u in _get_store().list_users()]
+
+
+# ── 外部系統的 API 金鑰（WMOM-20261125-02）────────────────────────────────
+
+
+def _to_api_key_info(key: ApiKey) -> ApiKeyInfo:
+    return ApiKeyInfo(
+        id=key.id,
+        name=key.name,
+        prefix=key.prefix,
+        scope=key.scope,
+        created_at=key.created_at,
+        created_by=key.created_by,
+        last_used_at=key.last_used_at,
+        revoked_at=key.revoked_at,
+    )
+
+
+@router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
+def create_api_key(
+    payload: CreateApiKeyRequest,
+    actor: Actor = Depends(require_roles(Role.ADMIN)),
+) -> ApiKeyCreated:
+    """admin 發一把外部系統的唯讀金鑰。金鑰只在這個回應出現一次，之後查不到。"""
+    try:
+        record, key = issue_api_key(get_api_key_store(), payload.name, created_by=actor.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ApiKeyCreated(**_to_api_key_info(record).model_dump(), key=key)
+
+
+@router.get("/api-keys", response_model=list[ApiKeyInfo])
+def list_api_keys(_actor: Actor = Depends(require_roles(Role.ADMIN))) -> list[ApiKeyInfo]:
+    """admin 列出全部金鑰（含已撤銷的；不含金鑰與雜湊）。"""
+    return [_to_api_key_info(k) for k in get_api_key_store().list_keys()]
+
+
+@router.delete("/api-keys/{key_id}", response_model=ApiKeyInfo)
+def revoke_api_key(key_id: str, _actor: Actor = Depends(require_roles(Role.ADMIN))) -> ApiKeyInfo:
+    """admin 撤銷一把金鑰（立刻失效；紀錄保留）。不存在回 404。"""
+    store = get_api_key_store()
+    revoked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if not store.revoke(key_id, revoked_at):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API 金鑰不存在")
+    for key in store.list_keys():
+        if key.id == key_id:
+            return _to_api_key_info(key)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API 金鑰不存在")

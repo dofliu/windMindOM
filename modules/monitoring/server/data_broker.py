@@ -5,7 +5,7 @@ import threading
 import time as _time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Iterator, List, Optional, Dict, TYPE_CHECKING
+from typing import Iterator, List, Optional, Dict, Tuple, TYPE_CHECKING
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -13,7 +13,7 @@ from server.models import (
     TurbineReading, TurbineStatus, DataSourceMode,
     DataSourceConfig, SimulationConfig, FarmStatus,
 )
-from server.storage import Storage
+from server.storage import Storage, reading_timestamp
 from server.farm_registry import FarmRegistry
 from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
@@ -269,6 +269,9 @@ class DataBroker:
         self._source_kind: Optional[str] = None
         # Write throttle state
         self._last_write_time: float = 0
+        # 最近一次寫進 storage 的 Live 讀值：機組 ID →（時間戳, SCADA 值）。對外唯讀 API 的「最新讀值」
+        # 用它（WMOM-20261125-02）——與歷史查得到的列相同，不讀 simulator 記憶體（批次期間那裡是情境的值）
+        self._last_stored_live: Dict[str, Tuple[str, Dict[str, object]]] = {}
         # Snapshot state: when an event occurs, capture 1s data for a window
         self._snapshot_active: Dict[str, float] = {}  # turbine_id -> end_time
         self._snapshot_event_ref: Dict[str, str] = {}
@@ -459,6 +462,7 @@ class DataBroker:
         self._last_fault_phases.clear()
         self._active_fault_keys.clear()
         self._last_fatigue_alarm.clear()
+        self._last_stored_live = {}
 
         self.simulator = WindFarmSimulator(
             turbine_count=self._sim_config.turbineCount,
@@ -527,6 +531,32 @@ class DataBroker:
         if now - self._last_write_time >= self.WRITE_INTERVAL_S:
             self._last_write_time = now
             self.storage.store_readings(readings, self._session_id)
+            self._remember_stored(readings)
+
+    def _remember_stored(self, readings: List[Dict]) -> None:
+        """記下剛寫進 storage 的 Live 讀值（每台機組最新一筆）。"""
+        latest = dict(self._last_stored_live)
+        for reading in readings:
+            scada = reading.get('scada')
+            turbine_id = str(reading.get('turbine_id', ''))
+            if turbine_id and isinstance(scada, dict):
+                latest[turbine_id] = (reading_timestamp(reading), dict(scada))
+        self._last_stored_live = latest  # 整個換掉：讀的一方拿到的永遠是完整的一份
+
+    def latest_stored_readings(self) -> List[Tuple[str, str, Dict[str, object]]]:
+        """最近一次寫進 storage 的 Live 讀值（對外唯讀 API 的「最新讀值」）。
+
+        Returns:
+            ``(機組 ID, 時間戳, SCADA 值)``，依機組 ID 排序；還沒寫過為空。
+        """
+        stored = self._last_stored_live
+        return [(turbine_id, stored[turbine_id][0], stored[turbine_id][1]) for turbine_id in sorted(stored)]
+
+    @property
+    def live_sample_period_s(self) -> float:
+        """Live 讀值寫進 storage 的間隔（模擬時間，秒）：寫入間隔 × 時間倍率。"""
+        scale = self.simulator.time_scale if self.simulator is not None else 1.0
+        return float(self.WRITE_INTERVAL_S) * max(1.0, float(scale))
 
     @staticmethod
     def _extract_event_class(event_ref: str) -> str:
@@ -595,6 +625,7 @@ class DataBroker:
         if now - self._last_write_time >= self.WRITE_INTERVAL_S:
             self._last_write_time = now
             self.storage.store_readings(readings, self._session_id)
+            self._remember_stored(readings)
 
     def stop(self):
         """Stop the active data source, end the current session, and halt maintenance."""
@@ -611,6 +642,7 @@ class DataBroker:
             if self._session_id is not None:
                 self.storage.end_session(self._session_id)
                 self._session_id = None
+            self._last_stored_live = {}
             self._source_active = False
             self._source_kind = None
 

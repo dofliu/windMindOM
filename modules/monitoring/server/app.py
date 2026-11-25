@@ -181,7 +181,8 @@ _cors_origins = (
 # 擋下（GET 不觸發 preflight 故正常，只有 POST/PUT/PATCH 掛）。明列可跨 Starlette 版本穩定，
 # 也是帶 credentials 時 CORS 的較安全寫法（利客戶現場部署，環境版本不一）。
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-CORS_ALLOW_HEADERS = ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"]
+# X-API-Key：對外唯讀 API（/api/ext/v1）的金鑰 header（WMOM-20261125-02）
+CORS_ALLOW_HEADERS = ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With", "X-API-Key"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -204,6 +205,8 @@ from server.routers.farms import router as farms_router  # noqa: E402
 from server.routers.scenarios import router as scenarios_router  # noqa: E402
 from server.routers.replay import router as replay_router  # noqa: E402
 from server.routers.source import router as source_router  # noqa: E402
+# WMOM-20261125-02：對外唯讀 API（外部系統以 API 金鑰取可觀測資料與警報）
+from server.routers.external import router as external_router  # noqa: E402
 
 # WMOM-20260504-07 + -20260509-05: cost module routers (M2 cost API + ledger query)
 from modules.cost.routers import (  # noqa: E402
@@ -243,6 +246,7 @@ app.include_router(farms_router)
 app.include_router(scenarios_router)
 app.include_router(replay_router)
 app.include_router(source_router)
+app.include_router(external_router)
 app.include_router(cost_router)
 app.include_router(cost_ledger_router)
 app.include_router(workflow_router)

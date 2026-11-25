@@ -135,6 +135,8 @@ WCNV_FreqWattDerate # Frequency-watt derate factor
 
 ## API Endpoints
 
+> **給外部系統用的唯讀 API 不在本檔**：`/api/ext/v1`（API 金鑰、只給可觀測資料與警報）見 [`docs/integration/external_api_v1.md`](integration/external_api_v1.md)。本檔以下的端點是操作端（登入的人員）用的，其中有些會回傳故障注入資訊，不要開給外部系統。
+
 ### Realtime Data
 
 #### GET `/api/turbines`
