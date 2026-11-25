@@ -4,9 +4,13 @@
 > 對應決策：[`decision_log.md`](decision_log.md) DEC-20260502-06
 > 相關文件：[`MVP_ARCHITECTURE.md`](MVP_ARCHITECTURE.md) / [`ROADMAP.md`](ROADMAP.md)
 
+> **2026-11-25 重新定位（[DEC-20261125-01](decision_log.md)）**：windMindOM 現在的定位是**仿真運維風場**——一座像真實風場一樣持續運轉的模擬風場，資料循環保存，可設定故障與耗損，工單 / 定檢 / 可用率連動，成本計算沿用，並提供對外資料 API 給外部的 RAG 運維助理做測試驗證。出發前助理保留，作為工單上的準備卡。
+>
+> 本文的五個模組都留用；運維廠商的商業定位、ICP 與商業時程保留為歷史。現行主線 EPIC-SF 見 [`ROADMAP.md`](ROADMAP.md) 末「現行主線（2026-11-25 起）」。
+>
 > **2026-10-21 方向調整（[DEC-20261021-01](decision_log.md)）**：本文的產品定位、ICP 與功能設計仍然有效；**商業時程**（M6 PoC、第一筆合約、「2026-Q4 第一個運維廠商客戶」）與真實風場 / OPC 介接**暫緩、不設恢復日期**，保留為歷史，不再作為排程依據。
 >
-> 現行主線是 **EPIC-DS 擬真資料源**：模擬器產生附標準答案的擬真 Z72 運轉資料，經資料包、WebSocket 回放、OPC UA 三條管道，餵給學生專題建立的 RAG 即時維修助手做驗證。
+> 2026-10-21 至 10-26 的主線是 **EPIC-DS 擬真資料源**（已完成，保留為題庫）：模擬器產生附標準答案的擬真 Z72 運轉資料，經資料包、WebSocket 回放、OPC UA 三條管道，餵給學生專題建立的 RAG 即時維修助手做驗證。
 >
 > - 設計：[`EPIC-DS_realistic_data_source.md`](EPIC-DS_realistic_data_source.md)
 > - 介面合約：[`../integration/rag_assistant_data_contract_v1.md`](../integration/rag_assistant_data_contract_v1.md)
