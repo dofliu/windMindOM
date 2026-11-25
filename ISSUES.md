@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 11 |
-| in_progress | 1 |
+| open | 10 |
+| in_progress | 2 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 152 |
-| **total** | **166** |
+| done | 154 |
+| **total** | **168** |
 
-最後更新：2026-11-26（**WMOM-20261125-02 done**（EPIC-SF 第 1 項，DEC-20261126-01）：對外唯讀 API `/api/ext/v1`（九個 `GET`）與外部系統的 API 金鑰——金鑰不是角色、一律強制，只給 Live 的可觀測資料與警報，格式與盲測版資料包相同；管理走 admin 端點或 `tools/external_api_keys.py`；文件 `docs/integration/external_api_v1.md`；code review 的必須修（統計的窗結束判定）已修。實測發現寫進 -03。open 11 / in_progress 1 / deferred 2 / done 152 = 166。詳見 `work-logs/2026-11/2026-11-26-external-readonly-api.md`）。
+最後更新：2026-11-26（**WMOM-20261125-03-a / -03-b done**（EPIC-SF 第 2 項前兩段，DEC-20261126-02）：Live 的模擬時鐘只往前走、寫入對齊 10 秒；狀態存檔與重啟續跑（`WMOM_LIVE_RESUME`）、開機自動啟動（`WMOM_AUTOSTART_SOURCE`）、產生情境不動到即時風場；母 issue -03 改 in_progress，剩 -03-c。open 10 / in_progress 2 / deferred 2 / done 154 = 168。詳見 `work-logs/2026-11/2026-11-26-live-clock-and-resume.md`）。
+前次：2026-11-26（**WMOM-20261125-02 done**（EPIC-SF 第 1 項，DEC-20261126-01）：對外唯讀 API `/api/ext/v1`（九個 `GET`）與外部系統的 API 金鑰——金鑰不是角色、一律強制，只給 Live 的可觀測資料與警報，格式與盲測版資料包相同；管理走 admin 端點或 `tools/external_api_keys.py`；文件 `docs/integration/external_api_v1.md`；code review 的必須修（統計的窗結束判定）已修。實測發現寫進 -03。open 11 / in_progress 1 / deferred 2 / done 152 = 166。詳見 `work-logs/2026-11/2026-11-26-external-readonly-api.md`）。
 前次：2026-11-26（**WMOM-20261125-08 done**：研究架構圖定稿（劉老師回覆「架構圖可以定稿」），收進 `docs/architecture/research-framework.md`。open 12 / in_progress 1 / deferred 2 / done 151 = 166）。
 前次：2026-11-25 深夜（劉老師 2026-11-25 回覆「同意你的規劃」：開發順序、保留半年、REST 為主、外部身分用長效 API 金鑰對應唯讀角色，都確認；新增 **WMOM-20261125-08 研究架構圖**（in_progress，草稿 v0.1 已發布、待劉老師看過定稿）。open 12 / in_progress 2 / deferred 2 / done 150 = 166。詳見 `work-logs/2026-11/2026-11-25-research-framework-diagram.md`）。
 前次：2026-11-25（**WMOM-20261125-01 done**（重新定位：仿真運維風場，DEC-20261125-01）：新主線 EPIC-SF，新增 WMOM-20261125-02 ~ -07（對外唯讀 API、長時間運轉的基礎、運維閉環、出發前準備卡、機率式故障產生器、實測風況匯入），成本一項沿用 WMOM-20260504-11；沒有程式變更。逐條解析 header 核實前值 open 6 / in_progress 1 / deferred 2 / done 149 = 158（統計表先前停在 157，一併更正）；本次 +6 open、+1 done：open 12 / in_progress 1 / deferred 2 / done 150 = 165。詳見 `work-logs/2026-11/2026-11-25-repositioning-decision.md`）。
@@ -1906,11 +1907,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261125-03 — 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、穩定性
 
-- **Status**: open
+- **Status**: in_progress（-03-a、-03-b done；-03-c 未做）
 - **Milestone**: EPIC-SF
 - **Priority**: high
 - **Estimate**: 4–6 天（動工時拆子項）
-- **Owner**: -
+- **Owner**: Claude session 2026-11-26
 - **Description**: 讓仿真風場能像真實風場一樣連續運轉數月，資料循環保存。
   - **現況**：`server/data_broker.py` 寫死 `RAW_RETENTION_DAYS = 3`、`AGG_1M_RETENTION_DAYS = 90`、`SNAPSHOTS_RETENTION_DAYS = 7`，10 分鐘彙整永久保留。模擬器狀態（故障、嚴重度、疲勞損傷、冷卻結垢、PLC 鎖存、模擬時鐘）不存檔，重啟就歸零。長時間運轉沒有驗證過。
   - **容量實測**（14 台、10 秒取樣、1 小時）：SQLite 每列約 4.2 KB（`scada_json` 平均 3.1 KB），約 0.5 GB / 天、15 GB / 月、91 GB / 半年。範例資料包的 `timeseries_raw.parquet` 每列約 113 bytes，約 0.4 GB / 月、2.5 GB / 半年（由 6 小時的檔外推，動工時要重量）。
@@ -1929,6 +1930,41 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Decision needed**: 部署機器的可用磁碟空間（保留期目標半年已確認）。
 - **Blocks**: WMOM-20261125-05、WMOM-20261125-06
 - **Reference**: DEC-20261125-01；時間戳守則、批次守則（`CLAUDE.md` §10）
+
+### WMOM-20261125-03-a — Live 時鐘只往前走、寫入對齊 10 秒
+
+- **Status**: done（2026-11-26）
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 1 天
+- **Owner**: Claude session 2026-11-26
+- **Description**: -02 實測發現的三件事：寫入間隔約 10.15 秒、時間倍率大於 1 時資料變稀疏、倍率調回 1 時時間戳跳回實際時間。
+- **完成紀錄**（DEC-20261126-02）：
+  - `simulator/engine.py` 的 Live 迴圈改寫：模擬時鐘（`sim_clock`）每步推進剛好一個 `time_step`、起點對齊整秒、只往前走；時間到了才算下一步；落後時不等待、全速補跑，落後超過 `MAX_CATCH_UP_S`（6 小時）跳到現在。callback 每一步都呼叫。
+  - `data_broker.py`：寫入依讀值的模擬時間對齊 10 秒時段；Live 的事件沒給時間時用模擬時鐘（`live_clock()`）。
+  - 快照（事件前後的 1 秒資料）的視窗與冷卻改用模擬時間；事件的結束時間、事件參照的時間字串也跟模擬時鐘（code review）。
+  - 驗證：`test_live_clock.py` 14 項；真伺服器上讀值時間落在 `:00 / :10 / :20`，間隔全是 10 秒。
+- **Depends on**: WMOM-20261125-02
+
+### WMOM-20261125-03-b — 重啟續跑：狀態存檔、開機自動啟動、產生情境不動到即時風場
+
+- **Status**: done（2026-11-26）
+- **Milestone**: EPIC-SF
+- **Priority**: high
+- **Estimate**: 1–2 天
+- **Owner**: Claude session 2026-11-26
+- **Description**: 伺服器重啟後風場狀態歸零、要有人登入選來源；產生情境會清掉即時風場的故障。
+- **完成紀錄**（DEC-20261126-02）：
+  - `WindFarmSimulator.checkpoint_state` / `restore_state`（pickle）；`simulator/checkpoint.py`：存檔檔案（JSON 檔頭帶版本與模擬器程式指紋，對不上就不解開、從頭開始；壞檔與還原途中出錯都當成沒有存檔）。實測 14 台 1.2 MB、存一次 26 ms；還原後接著跑與沒有中斷的那一份逐位元相同。
+  - `WMOM_LIVE_RESUME=true`：Live 迴圈每 30 秒存一次、操作員動過風場後下一步就存、正常停止時再存；啟動時還原。`WMOM_AUTOSTART_SOURCE=simulation`：開機就啟動即時模擬。兩個都預設關。
+  - 伺服器被強制關閉：存檔點之後已寫進 storage 的讀值與事件，重啟後重跑那一段時不重寫（重跑段）；最後一筆讀值之後才記的事件逐筆查重（去重段）。
+  - 開了續跑時，選即時模擬預設接著上次的狀態；`POST /api/source/select` 帶 `fresh: true` 從頭開始。存檔時若在加速，還原後時間倍率回到 1。
+  - `pause_live_for_batch` 在批次前後保存 / 還原 Live 的狀態（不必開存檔）：產生情境不再清掉即時風場的故障，走勢小圖的歷史也保留；批次端點回報的結束時故障狀態在還原之前取；還原失敗時 `live_epoch` 改變。
+  - `live_epoch` 改為「這份狀態從頭開始的那個 session 的 id」，還原沿用。
+  - code review（`code-reviewer`）：3 項必須修（正常重啟後「故障開始」重複記一次、啟動瞬間的事件用到實際時間、強制關閉前最後幾秒的事件重複）與 10 項補強，都修了；清單見 work-log §2.5。
+  - 驗證：`test_live_resume.py` 27 項、`test_source_selection.py` 多 15 項；變異檢查 15 項都被抓到；backend 2369 passed / 1 skipped / 1 xfailed（本機）。修完後在真伺服器再做一次：跳機後 1 秒 `kill -9`（最後一筆讀值之後才記的跳機事件）→ 重啟後事件與讀值都沒有重複；`fresh: true` 之後 `live_epoch` 改變、沒有鎖存。真伺服器：開機自動啟動、注入故障後 `kill -9`、40 秒後重啟——鎖存的 242 還在、中斷期間的讀值補上且間隔全是 10 秒、沒有重複的讀值與事件、`live_epoch` 不變；正常停止再重啟亦同。改過模擬器程式後重啟：印出「存檔不還原」、風場從頭開始。
+  - **限制**：模擬器程式每更新一次，風場狀態重來一次（`live_epoch` 改變，前一段鎖存的跳機沒有解除事件）。
+- **Depends on**: WMOM-20261125-03-a
 
 ### WMOM-20261125-04 — 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算
 
@@ -2029,7 +2065,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 |---|---|---|---|
 | 0 | ~~WMOM-20261125-01~~ ✅ | 重新定位：DEC、EPIC 拆解、文件同步 | 🔵 |
 | 1 | ~~WMOM-20261125-02~~ ✅ | 對外唯讀 API 與外部系統身分（只給可觀測資料與警報；`/api/ext/v1`、API 金鑰，DEC-20261126-01） | 🔵 |
-| 2 | WMOM-20261125-03 | 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、72 小時穩定性 | 🟡 磁碟空間動工時確認 |
+| 2 | WMOM-20261125-03 | 長時間運轉的基礎：~~-03-a Live 時鐘只往前走、寫入對齊 10 秒~~ ✅、~~-03-b 重啟續跑~~ ✅（DEC-20261126-02）、-03-c 保留期可設定與分層儲存、72 小時穩定性 | 🟡 磁碟空間動工時確認 |
 | 3 | WMOM-20261125-04 | 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算 | 🟡 修復規則待定 |
 | 4 | WMOM-20261125-05 | 出發前準備卡：故障出勤卡先做，例行巡檢卡後做 | 🔵 |
 | 5 | WMOM-20261125-06 | 機率式故障產生器、不對外的故障紀錄、模擬維修班 | 🔵 |

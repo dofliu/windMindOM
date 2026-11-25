@@ -3,8 +3,10 @@ import sys
 import os
 import threading
 import time as _time
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Iterator, List, Optional, Dict, Tuple, TYPE_CHECKING
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -15,6 +17,7 @@ from server.models import (
 )
 from server.storage import Storage, reading_timestamp
 from server.farm_registry import FarmRegistry
+from simulator import checkpoint as live_checkpoint
 from simulator.bulk_events import BulkEvent
 from simulator.engine import WindFarmSimulator
 from simulator.physics.plc_protection import PlcEvent
@@ -228,6 +231,11 @@ class DataBroker:
 
     # Default: write to SQLite every N seconds
     WRITE_INTERVAL_S = 10
+    # 這些來源的 Live 事件代表操作員動過風場（注入 / 清除故障、控制、設定、維修、工單）：要求盡快存檔
+    _OPERATOR_EVENT_SOURCES = frozenset({"faults", "control", "config", "maintenance", "workflow", "test_plan"})
+    # 還原存檔時，storage 裡最後一筆 Live 讀值離存檔點多遠以內才算「存檔後、關閉前寫的」（秒）。存檔每
+    # 30 秒一次，超過這個範圍的列是別的來源寫的，不拿來決定重跑段
+    _MAX_REPLAY_S = 120.0
     # Raw data retention (days)
     RAW_RETENTION_DAYS = 3
     # 1-min aggregate retention (days)
@@ -268,7 +276,26 @@ class DataBroker:
         self._source_active: bool = False
         self._source_kind: Optional[str] = None
         # Write throttle state
-        self._last_write_time: float = 0
+        self._last_write_time: float = 0  # OPC 來源用（依實際時間節流）
+        # 重啟續跑（WMOM-20261125-03-b）：開了才定期把即時模擬的狀態存檔、啟動時還原。預設關——由
+        # 伺服器依 WMOM_LIVE_RESUME 開啟（見 server/app.py）；測試與一次性的 broker 不讀寫存檔
+        self.checkpoint_enabled: bool = False
+        # 這次啟動的即時模擬是不是從存檔還原的
+        self.live_restored: bool = False
+        # 即時資料的連續段編號：這份風場狀態從頭開始的那個 session 的 id。還原存檔時沿用存檔裡的，
+        # 所以重啟續跑、產生情境都不會改變它；只有風場狀態真的重來才會變
+        self.live_epoch: int = 0
+        # 還原存檔後的重跑段：存檔點到伺服器停掉之間的讀值與事件已經在 storage 裡，模擬時鐘走到這個時間
+        # （含）之前，重跑出來的不再寫（避免重複）；None＝沒有重跑段
+        self._replay_until: Optional[datetime] = None
+        # 重跑段之後、下一個寫入時段開始之前：這些步在伺服器被強制關閉前可能已經處理過（讀值還沒寫、
+        # 事件已經記了），重跑時 Live 執行緒送出的事件逐筆對 storage 查重；None＝沒有這一段
+        self._dedupe_until: Optional[datetime] = None
+        # 重跑段 / 去重段裡由 Live 執行緒設定：只影響這個執行緒送出的 Live 事件（其他執行緒的操作事件照寫）
+        self._replay_local = threading.local()
+        # 即時模擬上次寫入的時段編號（讀值的模擬時間 // WRITE_INTERVAL_S）。依模擬時間對齊寫入：
+        # 每個時段寫第一筆，間隔固定、不受每步計算時間與時間倍率影響（WMOM-20261125-03-a）
+        self._last_write_slot: Optional[int] = None
         # 最近一次寫進 storage 的 Live 讀值：機組 ID →（時間戳, SCADA 值）。對外唯讀 API 的「最新讀值」
         # 用它（WMOM-20261125-02）——與歷史查得到的列相同，不讀 simulator 記憶體（批次期間那裡是情境的值）
         self._last_stored_live: Dict[str, Tuple[str, Dict[str, object]]] = {}
@@ -326,7 +353,9 @@ class DataBroker:
 
             if self.simulator:
                 for model in self.simulator.turbines.values():
-                    model.update_spec(spec)
+                    # 規格相同就不重套：update_spec 會重建 PLC 保護層，從存檔還原的鎖存與計數會被清掉
+                    if model.spec != spec:
+                        model.update_spec(spec)
 
         return True
 
@@ -354,12 +383,12 @@ class DataBroker:
 
     def start(self, config: Optional[DataSourceConfig] = None,
               sim_config: Optional[SimulationConfig] = None,
-              run_loop: bool = True) -> None:
+              run_loop: bool = True, fresh: bool = False) -> None:
         """Start the data broker in simulation or OPC mode and launch background maintenance.
 
         ``run_loop`` 只在 SIMULATION 有意義：True＝即時模擬（自由跑連續產資料，source_kind
         ``simulation``）；False＝產生情境（simulator 供批次、不自由跑，source_kind ``scenario``，
-        DEC-20260720-01 PR B）。
+        DEC-20260720-01 PR B）。``fresh``＝即使開了重啟續跑也不還原存檔，風場從頭開始。
         """
         with self._lifecycle_lock:
             if sim_config:
@@ -371,8 +400,9 @@ class DataBroker:
                 self._init_farm_storage()
 
             if self.mode == DataSourceMode.SIMULATION:
-                self._start_simulator(run_loop=run_loop)
+                # 先設來源種類再起迴圈：Live 執行緒第一步的事件就要用模擬時鐘（live_clock 看這個欄位）
                 self._source_kind = "simulation" if run_loop else "scenario"
+                self._start_simulator(run_loop=run_loop, fresh=fresh)
             else:
                 self._start_opc(config)
                 self._source_kind = "live"
@@ -425,9 +455,24 @@ class DataBroker:
             yield False
             return
         was_running = sim.stop_live_loop()
+        # 批次會清故障、重設機組、把模型推到情境的時間；Live 的狀態先留一份，批次結束後還原——即時風場
+        # 接著原本的狀態跑（暫停的那段時間由 Live 迴圈補跑），不受產生情境影響（WMOM-20261125-03-b）
+        live_state = sim.checkpoint_state() if was_running else None
+        # 前端走勢小圖用的一小時讀值歷史不在存檔裡：另外留一份，批次後放回去（批次會把自己的讀值塞進去）
+        live_history = ({tid: deque(items, maxlen=items.maxlen) for tid, items in sim.history.items()}
+                        if was_running else None)
         try:
             yield was_running
         finally:
+            if live_state is not None:
+                try:
+                    sim.restore_state(live_state)
+                    if live_history is not None:
+                        sim.history = live_history
+                except Exception as exc:  # noqa: BLE001  還原失敗就照舊從批次留下的狀態接著跑
+                    print(f"[DataBroker] 批次後還原即時模擬的狀態失敗：{exc}")
+                    # 風場狀態其實被批次改掉了：換一個連續段編號，讓外部知道資料在這裡不連續
+                    self.live_epoch = int(_time.time())
             # time_step 僅在需恢復時取；用 broker 的 sim_config（Live 自由跑的節奏）。
             sim.restore_live_loop(
                 was_running,
@@ -445,7 +490,7 @@ class DataBroker:
         None（未選）。"""
         return self._source_kind
 
-    def _start_simulator(self, run_loop: bool = True) -> None:
+    def _start_simulator(self, run_loop: bool = True, fresh: bool = False) -> None:
         """建立 simulator。``run_loop=True``＝即時模擬（起自由跑背景 thread、連續產資料）；
         ``run_loop=False``＝**產生情境**（DEC-20260720-01 PR B）：只建 simulator 供批次生成用，
         **不起自由跑迴圈**——情境是可重現的凍結資料集，不該持續產生新資料。"""
@@ -463,6 +508,9 @@ class DataBroker:
         self._active_fault_keys.clear()
         self._last_fatigue_alarm.clear()
         self._last_stored_live = {}
+        self._last_write_slot = None
+        self._replay_until = None
+        self._dedupe_until = None
 
         self.simulator = WindFarmSimulator(
             turbine_count=self._sim_config.turbineCount,
@@ -486,10 +534,100 @@ class DataBroker:
         )
         print(f"[DataBroker] Created session #{self._session_id}")
 
+        self.live_restored = False
+        self.live_epoch = int(self._session_id)
+        if run_loop and self.checkpoint_enabled:
+            live_checkpoint.code_fingerprint()  # 現在就算（讀幾十個檔），不要拖到 Live 迴圈第一次存檔
+            if not fresh:
+                try:
+                    self._restore_live_checkpoint()
+                except Exception as exc:  # noqa: BLE001  還原的任何一步出錯都不該讓來源起不來
+                    print(f"[DataBroker] 還原即時模擬的狀態時出錯，從頭開始：{exc}")
+                    self._reset_resume_state()
+            self.simulator.on_checkpoint(self._write_live_checkpoint)
+
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)
         if run_loop:
             self.simulator.start(time_step=self._sim_config.timeStep)
+
+    def _checkpoint_path(self) -> Path:
+        """即時模擬的存檔位置：與目前風場的 DB 同一個目錄。"""
+        return Path(self.storage.db_path).with_name(live_checkpoint.CHECKPOINT_FILENAME)
+
+    def _reset_resume_state(self) -> None:
+        """清掉還原存檔留下的 broker 狀態（還原失敗、重新啟動時用）。"""
+        self.live_restored = False
+        if self._session_id is not None:
+            self.live_epoch = int(self._session_id)
+        self._replay_until = None
+        self._dedupe_until = None
+        self._last_write_slot = None
+        self._active_fault_keys.clear()
+        self._last_fault_phases.clear()
+
+    def _restore_live_checkpoint(self) -> None:
+        """有可用的存檔就還原即時模擬的狀態（剛建好、還沒起迴圈的 simulator）。"""
+        simulator = self.simulator
+        if simulator is None:
+            return
+        saved = live_checkpoint.load_checkpoint(
+            self._checkpoint_path(), list(simulator.turbines), simulator.wind_model.site_timezone_name)
+        if saved is None:
+            return
+        # 會出錯的查詢放在還原之前：這裡丟例外時模擬器還沒被動過，呼叫端可以直接當成沒有存檔
+        last_written = self.storage.last_live_reading_timestamp(next(iter(simulator.turbines), ""))
+        try:
+            simulator.restore_state(saved.state)
+        except Exception as exc:  # noqa: BLE001  存檔解不開就從頭開始，不讓伺服器起不來
+            print(f"[DataBroker] 即時模擬的存檔還原失敗，從頭開始：{exc}")
+            return
+        self.live_restored = True
+        self.live_epoch = saved.live_epoch or self.live_epoch
+        if simulator.time_scale > 1.0:
+            # 存檔時正在加速：重啟後回到 1 倍（時鐘維持領先的量），要加速請操作員重新設定
+            print(f"[DataBroker] 存檔時的時間倍率是 {simulator.time_scale:g}，還原後改回 1")
+            simulator.time_scale = 1.0
+        # 已經開著的故障生命週期事件在重啟前記過了：把基準補上，第一批讀值進來時不再記一次「故障開始」
+        for fault in simulator.fault_engine.get_fault_status():
+            turbine_id, scenario_id = str(fault.get("turbine_id") or ""), str(fault.get("scenario_id") or "")
+            self._active_fault_keys.setdefault(turbine_id, set()).add(scenario_id)
+            self._last_fault_phases.setdefault(turbine_id, {})[scenario_id] = str(fault.get("phase") or "")
+        # 上次已寫到哪：之後接著下一個時段寫
+        if not last_written or saved.sim_clock is None:
+            return
+        moment = parse_iso(last_written)
+        gap_s = (moment - saved.sim_clock).total_seconds()
+        if abs(gap_s) > self._MAX_REPLAY_S:
+            # 最後一列離存檔點太遠：不是「存檔後、關閉前」寫的（例：沒有命名的批次把模擬時間的列寫進
+            # Live session），不拿它當重跑的依據
+            return
+        slot = int(moment.timestamp() // self.WRITE_INTERVAL_S)
+        self._last_write_slot = slot
+        if gap_s > 0:
+            # 伺服器被強制關閉：存檔點到最後一筆寫入之間的步已經處理過，重跑時讀值與事件都不再寫
+            self._replay_until = moment
+        # 最後一筆寫入之後、下一個時段開始之前的步可能也處理過（讀值還沒到寫的時候，事件已經記了）：
+        # 這一段重跑時，事件逐筆對 storage 查重
+        # （含下一個時段的第一步：事件先記、讀值後寫，關閉可能落在兩者之間）
+        slot_end = datetime.fromtimestamp((slot + 1) * self.WRITE_INTERVAL_S, tz=moment.tzinfo)
+        if slot_end >= saved.sim_clock:
+            self._dedupe_until = slot_end
+        print(f"[DataBroker] 已還原即時模擬的狀態（存檔時間 {saved.saved_at}，模擬時鐘 {saved.sim_clock}）")
+
+    def _write_live_checkpoint(self, state: bytes) -> None:
+        """把即時模擬的狀態寫進存檔（Live 迴圈定期呼叫；停止來源時再寫一次）。"""
+        simulator = self.simulator
+        if simulator is None:
+            return
+        live_checkpoint.save_checkpoint(self._checkpoint_path(), live_checkpoint.LiveCheckpoint(
+            state=state,
+            sim_clock=simulator.sim_clock,
+            turbine_ids=list(simulator.turbines),
+            site_timezone=simulator.wind_model.site_timezone_name,
+            live_epoch=self.live_epoch,
+            saved_at=iso_utc(),
+        ))
 
     def _start_opc(self, config: Optional[DataSourceConfig]):
         # OPC DA adapter - lazy import to avoid dependency issues
@@ -504,14 +642,34 @@ class DataBroker:
             self._start_simulator()
 
     def _on_sim_data(self, readings: List[Dict]):
-        """Callback from simulator — called every 1s.
+        """Callback from simulator — called on every Live step（加速時也是每一步）.
 
         - Always checks for events (state changes, faults)
-        - Writes to SQLite only every WRITE_INTERVAL_S seconds
+        - Writes to SQLite once per WRITE_INTERVAL_S seconds of **simulated** time (aligned slots)
         - If a snapshot is active for a turbine, writes 1s data to snapshots table
         """
-        now = _time.time()
-        self._detect_sim_events(readings)
+        now = self._snapshot_clock()
+        step_time = self._reading_time(readings)
+        if self._replay_until is not None:
+            if step_time is not None and step_time <= self._replay_until:
+                # 還原存檔後重跑到上次寫到的時間之前：事件偵測照跑（建立基準、取走 PLC 事件），但不寫任何東西
+                self._replay_local.active = True
+                try:
+                    self._detect_sim_events(readings)
+                finally:
+                    self._replay_local.active = False
+                return
+            self._replay_until = None
+        if self._dedupe_until is not None and step_time is not None and step_time <= self._dedupe_until:
+            # 上次寫入之後、下一個時段之前：這一步在伺服器被強制關閉前可能已經處理過，事件逐筆查重
+            self._replay_local.dedupe = True
+            try:
+                self._detect_sim_events(readings)
+            finally:
+                self._replay_local.dedupe = False
+        else:
+            self._dedupe_until = None
+            self._detect_sim_events(readings)
 
         # Check if any turbine has an active snapshot window
         for reading in readings:
@@ -527,11 +685,60 @@ class DataBroker:
                 # 結束後仍能阻擋同類 event 馬上再 retroactive write（WMOM-20260505-01）。
                 # 若內存壓力大，未來可加「last_class 過期清理」(now - last_seen > cooldown*N)。
 
-        # Throttled regular writes
-        if now - self._last_write_time >= self.WRITE_INTERVAL_S:
-            self._last_write_time = now
+        # 對齊模擬時間的固定間隔寫入：每個時段（WRITE_INTERVAL_S 秒）寫進入該時段的第一筆
+        slot = self._write_slot(readings)
+        if slot != self._last_write_slot:
+            self._last_write_slot = slot
             self.storage.store_readings(readings, self._session_id)
             self._remember_stored(readings)
+
+    def _replaying(self) -> bool:
+        """目前的執行緒是否在還原存檔後的重跑段裡（Live 執行緒在重跑段送出的事件與快照不寫）。"""
+        local = getattr(self, "_replay_local", None)  # 以 object.__new__ 建的測試替身沒有這個屬性
+        return bool(getattr(local, "active", False))
+
+    def _deduping(self) -> bool:
+        """目前的執行緒是否在去重段裡（Live 執行緒送出的事件要先查 storage 有沒有同一筆）。"""
+        local = getattr(self, "_replay_local", None)
+        return bool(getattr(local, "dedupe", False))
+
+    @staticmethod
+    def _reading_time(readings: List[Dict]) -> Optional[datetime]:
+        """這批讀值的模擬時間（tz-aware UTC）；讀不到為 None。"""
+        for reading in readings:
+            stamp = reading.get('timestamp')
+            if stamp:
+                try:
+                    return to_utc(stamp if isinstance(stamp, datetime) else parse_iso(str(stamp)))
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _live_stamp(self) -> str:
+        """Live 事件參照用的時間字串：即時模擬在跑時是模擬時鐘（重跑同一步會得到同一個字串），否則現在。"""
+        try:
+            clock = self.live_clock()
+        except AttributeError:  # 以 object.__new__ 建的測試替身
+            clock = None
+        return iso_utc(clock) if clock is not None else iso_utc()
+
+    def _snapshot_clock(self) -> float:
+        """快照視窗用的時間（epoch 秒）：即時模擬在跑時用模擬時鐘，否則用實際時間。
+
+        用模擬時鐘是因為 callback 每一步都會被呼叫：補跑或加速時一個實際秒有幾十步，視窗若以實際時間算，
+        一次事件會存下幾十萬列快照。
+        """
+        try:
+            clock = self.live_clock()
+        except AttributeError:  # 以 object.__new__ 建的測試替身
+            clock = None
+        return clock.timestamp() if clock is not None else _time.time()
+
+    def _write_slot(self, readings: List[Dict]) -> int:
+        """這批讀值屬於哪個寫入時段：讀值的模擬時間 // ``WRITE_INTERVAL_S``（讀不到時間就用實際時間）。"""
+        moment = self._reading_time(readings)
+        epoch = moment.timestamp() if moment is not None else _time.time()
+        return int(epoch // self.WRITE_INTERVAL_S)
 
     def _remember_stored(self, readings: List[Dict]) -> None:
         """記下剛寫進 storage 的 Live 讀值（每台機組最新一筆）。"""
@@ -554,9 +761,16 @@ class DataBroker:
 
     @property
     def live_sample_period_s(self) -> float:
-        """Live 讀值寫進 storage 的間隔（模擬時間，秒）：寫入間隔 × 時間倍率。"""
-        scale = self.simulator.time_scale if self.simulator is not None else 1.0
-        return float(self.WRITE_INTERVAL_S) * max(1.0, float(scale))
+        """Live 讀值寫進 storage 的間隔（模擬時間，秒）。寫入對齊模擬時間，不受時間倍率影響。"""
+        return float(self.WRITE_INTERVAL_S)
+
+    def live_clock(self) -> Optional[datetime]:
+        """即時模擬的時鐘（最近一步的模擬時間）；即時模擬沒在跑（未啟動、批次中、非模擬來源）為 None。"""
+        simulator = self.simulator
+        if (simulator is None or self._source_kind != "simulation" or not simulator.is_running
+                or simulator.is_bulk_running):
+            return None
+        return simulator.sim_clock
 
     @staticmethod
     def _extract_event_class(event_ref: str) -> str:
@@ -590,7 +804,10 @@ class DataBroker:
         ★ 不重新 retroactive write 10 分鐘 history（這是失控的主因），
         ★ 沿用既有 event_ref（保持 grouping，避免 distinct event_ref 暴增）。
         """
-        now = _time.time()
+        if self._replaying():
+            return  # 還原存檔後的重跑段：不再擷取快照
+
+        now = self._snapshot_clock()
         event_class = self._extract_event_class(event_ref)
 
         last = self._snapshot_last_class.get(turbine_id)
@@ -613,8 +830,8 @@ class DataBroker:
         self._snapshot_event_ref[turbine_id] = event_ref
         self._snapshot_last_class[turbine_id] = (event_class, now)
 
-        # Retroactively save recent history from in-memory buffer
-        if self.simulator:
+        # Retroactively save recent history from in-memory buffer（去重段不補存：伺服器被強制關閉前已經存過）
+        if self.simulator and not self._deduping():
             recent = self.simulator.get_history(turbine_id, limit=self.SNAPSHOT_WINDOW_S)
             if recent:
                 self.storage.store_snapshots(recent, event_ref, self._session_id)
@@ -633,6 +850,12 @@ class DataBroker:
             self._stop_maintenance()
             if self.simulator and self.simulator.is_running:
                 self.simulator.stop()
+                if self.checkpoint_enabled and self._source_kind == "simulation":
+                    # Live 迴圈已停：把最後的狀態存下來，下次啟動從這裡接著跑
+                    try:
+                        self._write_live_checkpoint(self.simulator.checkpoint_state())
+                    except Exception as exc:  # noqa: BLE001  存檔失敗不該擋住停止
+                        print(f"[DataBroker] 停止時存檔失敗：{exc}")
             if self._opc_adapter is not None:
                 # Must-fix（WMOM-20260720-04 (1)）：切走 live 前若不停 OPC 輪詢 thread，
                 # 它會是孤兒繼續跑，且在下一個 session（新 self._session_id）繼續寫入
@@ -643,12 +866,15 @@ class DataBroker:
                 self.storage.end_session(self._session_id)
                 self._session_id = None
             self._last_stored_live = {}
+            self._last_write_slot = None
+            self._replay_until = None
+            self._dedupe_until = None
             self._source_active = False
             self._source_kind = None
 
     def switch_mode(self, config: DataSourceConfig,
                     sim_config: Optional[SimulationConfig] = None,
-                    run_loop: bool = True) -> None:
+                    run_loop: bool = True, fresh: bool = False) -> None:
         """Switch between simulation and OPC data source modes.
 
         ``run_loop`` 傳給 ``start``（SIMULATION 時：True＝即時模擬自由跑、False＝產生情境不自由跑）。
@@ -656,7 +882,7 @@ class DataBroker:
         with self._lifecycle_lock:
             self.stop()
             self.mode = config.mode
-            self.start(config, sim_config, run_loop=run_loop)
+            self.start(config, sim_config, run_loop=run_loop, fresh=fresh)
 
     # ── Background maintenance ──
 
@@ -767,10 +993,25 @@ class DataBroker:
         Args:
             timestamp: 事件發生時刻（ISO）。批次生成的排定故障須傳「模擬時間」而非
                 wall-clock——否則事件標記會落在真實時間、與資料的模擬時間窗對不上
-                （WMOM-20260718-03）。預設 None → storage 落地為現在時刻（UTC）。
+                （WMOM-20260718-03）。預設 None → Live 的事件用即時模擬的時鐘；即時模擬沒在跑時
+                由 storage 落地為現在時刻（UTC）。
             session_id: 事件所屬 session；None＝目前的 Live session（WMOM-20261021-04）。情境生成
                 要傳情境自己的 session id。
         """
+        if session_id is None and self._replaying():
+            return  # 還原存檔後的重跑段：這些事件重啟前已經記過
+        if session_id is None and source in self._OPERATOR_EVENT_SOURCES and self.simulator is not None:
+            # 操作員動過風場：盡快存檔，伺服器被強制關閉時重啟還原的狀態不會少掉這個動作
+            self.simulator.request_checkpoint()
+        if timestamp is None and session_id is None:
+            # Live 的事件跟即時模擬的時鐘：時間倍率大於 1 之後模擬時鐘跑在實際時間前面，用實際時間的話
+            # 事件會和讀值的時間對不上（WMOM-20261125-03-a）
+            clock = self.live_clock()
+            if clock is not None:
+                timestamp = iso_utc(clock)
+        if (session_id is None and timestamp is not None and self._deduping()
+                and self.storage.live_event_exists(timestamp, turbine_id, source, event_type, title)):
+            return  # 伺服器被強制關閉前已經記過同一筆
         self.storage.record_event(
             event_type=event_type,
             source=source,
@@ -814,7 +1055,17 @@ class DataBroker:
 
     def close_open_events(self, event_type: str, source: Optional[str] = None,
                           turbine_id: Optional[str] = None, closed_at: Optional[str] = None):
-        """Close open-ended events by setting their end timestamp."""
+        """Close open-ended events by setting their end timestamp.
+
+        沒給 ``closed_at`` 時用即時模擬的時鐘（與事件的開始時間同一個時鐘）；即時模擬沒在跑時由 storage
+        落地為現在時刻。還原存檔後的重跑段不關（重啟前已經關過；現在開著的可能是之後的另一筆）。
+        """
+        if self._replaying():
+            return
+        if closed_at is None:
+            clock = self.live_clock()
+            if clock is not None:
+                closed_at = iso_utc(clock)
         self.storage.close_open_events(
             event_type=event_type,
             source=source,
@@ -870,7 +1121,7 @@ class DataBroker:
                     tripped = [f for f in active_faults if f.get("tripped")]
                     tripped_faults = [f.get("scenario_id") for f in tripped]
                     trip_codes = [f.get("trip_code") for f in tripped if f.get("trip_code") is not None]
-                    event_ref = f"fault_trip:{turbine_id}:{iso_utc()}"
+                    event_ref = f"fault_trip:{turbine_id}:{self._live_stamp()}"
                     self.record_event(
                         event_type="fault",
                         source="simulator",
@@ -937,7 +1188,7 @@ class DataBroker:
 
             # Removed faults → close lifecycle event
             for sid in prev_keys - current_fault_keys:
-                self.storage.close_open_events(
+                self.close_open_events(
                     event_type="fault_lifecycle",
                     source="simulator",
                     turbine_id=turbine_id,
@@ -1100,7 +1351,7 @@ class DataBroker:
         if current_state == 7 or (current_state == 9 and isinstance(shutdown_cause, str) and
                                   ("fault" in shutdown_cause or "plc:" in shutdown_cause
                                    or "grid" in shutdown_cause or "emergency" in shutdown_cause)):
-            event_ref = f"stop:{turbine_id}:{current_state}:{iso_utc()}"
+            event_ref = f"stop:{turbine_id}:{current_state}:{self._live_stamp()}"
             self._trigger_snapshot(turbine_id, event_ref)
         self.record_event(**fields)
 

@@ -223,11 +223,24 @@ def test_select_simulation_activates_freerun(client, monkeypatch):
     called = {}
     monkeypatch.setattr(
         "server.app.activate_simulation",
-        lambda run_loop=True: called.__setitem__("run_loop", run_loop),
+        lambda run_loop=True, fresh=False: called.update(run_loop=run_loop, fresh=fresh),
     )
     r = client.post("/api/source/select", json={"mode": "simulation"})
     assert r.status_code == 200
     assert called.get("run_loop") is True
+    assert called.get("fresh") is False, "預設接著上次的風場狀態跑（有開重啟續跑時）"
+
+
+def test_select_simulation_can_ask_for_a_fresh_farm(client, monkeypatch):
+    """mode=simulation + fresh=true → 不還原存檔、風場從頭開始（WMOM-20261125-03-b）。"""
+    called = {}
+    monkeypatch.setattr(
+        "server.app.activate_simulation",
+        lambda run_loop=True, fresh=False: called.update(run_loop=run_loop, fresh=fresh),
+    )
+    r = client.post("/api/source/select", json={"mode": "simulation", "fresh": True})
+    assert r.status_code == 200
+    assert called == {"run_loop": True, "fresh": True}
 
 
 def test_status_enforced_requires_auth(client, monkeypatch):
@@ -379,6 +392,61 @@ def test_activate_simulation_freerun_starts_modbus(app_broker, monkeypatch):
     assert b.simulator is not None and b.simulator.is_running is True
 
 
+# ─── 持續運轉的設定：環境變數（WMOM-20261125-03-b）──────────────────────────────
+
+@pytest.mark.parametrize("value,expected", [
+    ("true", True), ("TRUE", True), (" 1 ", True), ("yes", True), ("on", True),
+    ("", False), ("false", False), ("0", False), ("no", False), ("enabled", False),
+])
+def test_env_flag_values(monkeypatch, value, expected):
+    from server import app as app_module
+    monkeypatch.setenv("WMOM_TEST_FLAG", value)
+    assert app_module._env_flag("WMOM_TEST_FLAG") is expected
+
+
+def test_continuous_run_is_off_by_default(app_broker, monkeypatch):
+    """兩個環境變數都沒設：不存檔、不自動啟動（開機仍等人選來源，WMOM-20260719-04 的行為不變）。"""
+    app_module, b = app_broker
+    monkeypatch.delenv("WMOM_LIVE_RESUME", raising=False)
+    monkeypatch.delenv("WMOM_AUTOSTART_SOURCE", raising=False)
+    b.checkpoint_enabled = True  # 確認真的被設回 False，而不是沿用舊值
+    app_module._apply_continuous_run_settings("farm")
+    assert b.checkpoint_enabled is False and b.source_active is False and b.simulator is None
+
+
+def test_autostart_starts_the_live_simulation(app_broker, monkeypatch):
+    app_module, b = app_broker
+    monkeypatch.setenv("WMOM_LIVE_RESUME", "true")
+    monkeypatch.setenv("WMOM_AUTOSTART_SOURCE", "Simulation")
+    monkeypatch.setattr(app_module, "_start_modbus_for", lambda sim: None)
+    app_module._apply_continuous_run_settings("farm")
+    assert b.checkpoint_enabled is True
+    assert b.source_kind == "simulation" and b.simulator is not None and b.simulator.is_running
+    assert b.simulator._checkpoint_sink is not None, "開了續跑：Live 迴圈會定期存檔"
+
+
+def test_autostart_failure_leaves_the_server_idle(app_broker, monkeypatch, capsys):
+    """自動啟動出錯（存檔、風場設定……）不能讓伺服器起不來：留在未選來源的狀態。"""
+    app_module, b = app_broker
+    monkeypatch.setenv("WMOM_AUTOSTART_SOURCE", "simulation")
+
+    def boom(run_loop: bool = True, fresh: bool = False) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(app_module, "activate_simulation", boom)
+    app_module._apply_continuous_run_settings("farm")
+    out = capsys.readouterr().out
+    assert "自動啟動即時模擬失敗" in out and "awaiting source selection" in out
+    assert b.source_active is False
+
+
+def test_unknown_autostart_value_is_ignored(app_broker, monkeypatch, capsys):
+    app_module, b = app_broker
+    monkeypatch.setenv("WMOM_AUTOSTART_SOURCE", "live")  # 實接不自動啟動（會對外握手）
+    app_module._apply_continuous_run_settings("farm")
+    assert b.source_active is False and "不支援" in capsys.readouterr().out
+
+
 # ─── 切走 live 的角色檢查（WMOM-20260720-04 (2)）───────────────────────────────
 # 起 live 需 SUPERVISOR，但切走 live（回 simulation/scenario/view）之前無角色檢查——
 # 前端 #144 的二次確認只防手滑，不防任何登入者直接呼叫 API 斷現場連線。切走與起 live 對稱。
@@ -390,7 +458,7 @@ def test_switch_away_from_live_requires_supervisor(client, broker, monkeypatch):
     broker._source_active = True
     broker._source_kind = "live"
     called = {"v": False}
-    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True: called.__setitem__("v", True))
+    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True, fresh=False: called.__setitem__("v", True))
     from modules.auth.tokens import create_access_token
 
     tok = create_access_token(subject="u3", role="employee", name="E")
@@ -428,7 +496,7 @@ def test_switch_away_from_live_allows_supervisor(client, broker, monkeypatch):
     monkeypatch.setenv("WMOM_AUTH_ENFORCE", "true")
     broker._source_active = True
     broker._source_kind = "live"
-    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True: None)
+    monkeypatch.setattr("server.app.activate_simulation", lambda run_loop=True, fresh=False: None)
     from modules.auth.tokens import create_access_token
 
     tok = create_access_token(subject="u5", role="supervisor", name="S")

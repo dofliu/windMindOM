@@ -606,6 +606,8 @@ def _generate_bulk_in_slot(body: dict) -> dict:
                 b.storage.update_session_config(scenario_id, {"status": "error"})
                 b.storage.end_session(scenario_id)
             raise
+        # 批次結束時的故障狀態要在這裡取：離開這個區塊之後，即時模擬的狀態會被還原（WMOM-20261125-03-b）
+        final_fault_status = sim.fault_engine.get_fault_status() if schedule else []
 
     stats = b.storage.get_db_stats()
     return {
@@ -616,7 +618,7 @@ def _generate_bulk_in_slot(body: dict) -> dict:
         "total_readings": total,
         "faults_injected": injected_count,
         "farm_events_scheduled": len(farm_events),
-        "final_fault_status": b.simulator.fault_engine.get_fault_status() if schedule else [],
+        "final_fault_status": final_fault_status,
         "storage_stats": stats,
     }
 

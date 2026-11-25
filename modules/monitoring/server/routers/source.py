@@ -29,8 +29,13 @@ def get_broker():
 
 
 class SourceSelect(BaseModel):
-    """來源選擇 payload。mode ∈ simulation / scenario / live / view。"""
+    """來源選擇 payload。mode ∈ simulation / scenario / live / view。
+
+    ``fresh``（只對 simulation 有意義，WMOM-20261125-03-b）：伺服器開了重啟續跑時，選即時模擬預設接著上次的
+    風場狀態跑；``fresh=true`` 改成從頭開始（丟掉鎖存的跳機、疲勞、結垢，``live_epoch`` 改變）。
+    """
     mode: str
+    fresh: bool = False
 
 
 @router.get(
@@ -75,7 +80,7 @@ async def select_source(req: SourceSelect, request: Request):
     if mode == "simulation":
         # 即時模擬：自由跑連續產資料（source_kind=simulation）。
         from server.app import activate_simulation
-        activate_simulation(run_loop=True)
+        activate_simulation(run_loop=True, fresh=req.fresh)
     elif mode == "scenario":
         # 產生情境（DEC-20260720-01 PR B）：起 simulator 供批次生成，但**不自由跑**——情境是可重現
         # 的凍結資料集，不該持續產生新資料（source_kind=scenario）。
