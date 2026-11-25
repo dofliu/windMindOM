@@ -25,11 +25,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import queue
 import re
 import threading
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Set, Tuple
 from uuid import UUID
 
 from modules.workflow.domain import Priority, WorkOrderStatus, WorkOrderType
@@ -45,11 +47,34 @@ from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
     from server.data_broker import DataBroker
+    from server.live_history import LiveHistory
+    from server.storage import Storage
 
 logger = logging.getLogger(__name__)
 
 # 自動重啟被封鎖（手冊 A039）：等級是警報，但機組要有人復位才會再啟動
 RESTART_BLOCKED_CODE = 39
+# 還沒完工的工單才補產生出發前準備卡：完工之後機組已經修好，補出來的卡與答案都不是出發前的樣子
+_BRIEFABLE_STATUSES = frozenset({WorkOrderStatus.DRAFT, WorkOrderStatus.DISPATCHED, WorkOrderStatus.IN_PROGRESS,
+                                 WorkOrderStatus.REOPENED})
+# 同一張工單的卡連續做不出來幾次之後，定期檢查就不再替它排（管理端仍可用 POST 手動補）
+_MAX_BRIEFING_ATTEMPTS = 3
+
+
+class _BriefingJob(NamedTuple):
+    """一張待做的出發前準備卡。排進去當下就把要用的東西都記下來：做的時候風場可能已經換了。"""
+
+    turbine_id: str
+    work_order: WorkOrder
+    cutoff: datetime                 # 資料截止點（風場時鐘）
+    answer: Dict[str, object]        # 評分用的答案（當下這台機組實際的故障）
+    late: bool                       # 是否事後補產生
+    farm_id: str
+    storage: "Storage"
+    history: "LiveHistory"
+    turbines: Tuple[str, ...]
+
+
 # 這些工單類型的停機算計畫停機
 PLANNED_TYPES = frozenset({WorkOrderType.INSPECTION, WorkOrderType.PREVENTIVE, WorkOrderType.COMMISSIONING})
 _POWER_TAG = "WTUR_TotPwrAt"   # 併網有效功率（kW）
@@ -100,6 +125,12 @@ class OmLoop:
         self._batch_paused = False
         self._last_ensure: Optional[datetime] = None
         self._lock = threading.Lock()
+        # 出發前準備卡的背景工作：不能停下來等的執行緒（即時模擬、事件迴圈）開單時，卡片排到這裡做
+        self._briefing_jobs: "queue.Queue[_BriefingJob]" = queue.Queue()
+        self._briefing_worker: Optional[threading.Thread] = None
+        self._briefing_lock = threading.Lock()
+        self._briefing_queued: Set[str] = set()         # 已經排進去、還沒做完的工單 id
+        self._briefing_failures: Dict[str, int] = {}    # 工單 id → 做不出來的次數
 
     # ── 取用 ───────────────────────────────────────────────────────────────
 
@@ -122,6 +153,7 @@ class OmLoop:
             pending, self._pending = self._pending, []
         for work_order, action, from_status in pending:
             self.on_work_order(work_order, action, from_status)
+        self.ensure_briefings()   # 批次期間建立的工單當下沒有風場時鐘、沒有卡：現在補
         return len(pending)
 
     def _farm_id(self) -> Optional[str]:
@@ -201,6 +233,14 @@ class OmLoop:
             action: ``create`` 或狀態機的 action 名稱。
             from_status: 變更前的狀態。
         """
+        if action == "create":
+            # 出發前準備卡（WMOM-20261125-05）：故障維修工單建立當下，把看得到的證據整理成一張卡
+            if work_order.type is WorkOrderType.CORRECTIVE and self._live():
+                turbine_id = self._turbine(work_order)
+                if turbine_id is not None:
+                    # 不能停下來等的執行緒開的單（跳機自動開單、API 建單）：卡片排到背景做
+                    self.make_briefing(turbine_id, work_order)
+            return
         if action not in ("start_work", "finish", "cancel", "reject"):
             return
         if self.enabled and self._batch_paused:
@@ -229,6 +269,183 @@ class OmLoop:
             self._leave_service(turbine_id, work_order, restart=True)
             self._note(f"Work cancelled: {work_order.business_key}", turbine_id, None,
                        {"workOrderId": str(work_order.id)})
+
+    def turbine_names(self, turbine_id: str) -> List[str]:
+        """一台機組在工單上可能用的名稱：模擬器的 ID 與畫面上的名稱。"""
+        names = [turbine_id]
+        if turbine_id.startswith("WT") and turbine_id[2:].isdigit():
+            names.append(f"WTG-{int(turbine_id[2:]):02d}")
+        return names
+
+    def _on_live_thread(self) -> bool:
+        """現在是不是在即時模擬的執行緒上。"""
+        simulator = self._broker.simulator
+        return simulator is not None and getattr(simulator, "_thread", None) is threading.current_thread()
+
+    def _must_not_block(self) -> bool:
+        """現在這條執行緒是不是不能停下來做卡：即時模擬的執行緒、asyncio 事件迴圈的執行緒。
+
+        一張卡要讀同場每台機組幾小時的讀值。在即時模擬的執行緒上做，整場一起跳機時模擬會停好幾秒；在事件
+        迴圈上做（``async def`` 的建單路由直接呼叫 repository），整個伺服器的請求都要等它。
+        """
+        if self._on_live_thread():
+            return True
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        return True
+
+    def make_briefing(self, turbine_id: str, work_order: WorkOrder, late: bool = False,
+                      wait: Optional[bool] = None) -> Optional[Dict[str, object]]:
+        """替一張故障維修工單產生出發前準備卡並存起來。已經有卡的工單不會被換掉。
+
+        資料截止點（風場時鐘）與評分用的答案（這台機組當下實際的故障）在呼叫當下取；卡片只含可觀測資料，
+        答案另外存、不在卡片裡。
+
+        Args:
+            turbine_id: 模擬器的機組 ID。
+            work_order: 工單。
+            late: 不是在工單建立當下產生的（之後補產生）。
+            wait: True＝現在做完並回傳卡片；False＝排到背景執行緒；None＝看這條執行緒能不能停下來等
+                （:meth:`_must_not_block`）。
+
+        Returns:
+            卡片；排到背景、即時模擬沒在跑或產生失敗時為 None（不影響工單）。
+        """
+        from server import briefing
+
+        broker = self._broker
+        simulator = broker.simulator
+        clock = broker.live_clock()
+        farm_id = self._farm_id()
+        if simulator is None or clock is None or not farm_id or work_order.farm_id != farm_id:
+            return None
+        job = _BriefingJob(
+            turbine_id=turbine_id, work_order=work_order, cutoff=clock,
+            answer=briefing.capture_answer(simulator, turbine_id), late=late, farm_id=farm_id,
+            storage=broker.storage, history=broker.live_history, turbines=tuple(simulator.turbines))
+        if wait is None:
+            wait = not self._must_not_block()
+        if wait:
+            return self._build_briefing(job)
+        key = str(work_order.id)
+        with self._briefing_lock:
+            if key in self._briefing_queued:
+                return None   # 已經在排了：定期檢查不要把同一張工單一排再排
+            self._briefing_queued.add(key)
+            self._briefing_jobs.put(job)
+            if self._briefing_worker is None or not self._briefing_worker.is_alive():
+                self._briefing_worker = threading.Thread(target=self._briefing_loop, daemon=True,
+                                                         name="briefing-cards")
+                self._briefing_worker.start()
+        return None
+
+    def _briefing_loop(self) -> None:
+        """背景執行緒：把排著的卡做完就結束（下次有工作再起一條），不留著佔連線。"""
+        while True:
+            with self._briefing_lock:
+                try:
+                    job = self._briefing_jobs.get_nowait()
+                except queue.Empty:
+                    self._briefing_worker = None
+                    return
+            try:
+                self._build_briefing(job)
+            finally:
+                with self._briefing_lock:
+                    self._briefing_queued.discard(str(job.work_order.id))
+                self._briefing_jobs.task_done()
+
+    def wait_briefings(self) -> None:
+        """等背景的卡片都做完（測試用）。"""
+        self._briefing_jobs.join()
+
+    def _build_briefing(self, job: _BriefingJob) -> Optional[Dict[str, object]]:
+        """做一張卡並存起來；失敗只記 log。讀寫都用排進去當下記下的那座風場。"""
+        from server import briefing
+
+        work_order = job.work_order
+        if self._broker.storage is not job.storage or self._farm_id() != job.farm_id:
+            # 排著的時候風場換了：不做。換回這座風場之後，定期檢查會補一張（標 generated_late）
+            logger.info("運維閉環：風場已經換了，不做工單 %s 的出發前準備卡", work_order.business_key)
+            return None
+        try:
+            past = briefing.past_orders(
+                get_repository(str(job.storage.db_path)), job.farm_id, self.turbine_names(job.turbine_id),
+                work_order, before=None if job.late else work_order.created_at)
+            card = briefing.build_fault_card(
+                storage=job.storage, history=job.history, work_order=work_order, turbine_id=job.turbine_id,
+                turbines=list(job.turbines), cutoff=job.cutoff, past_work_orders=past, generated_late=job.late)
+            job.storage.save_briefing(str(work_order.id), work_order.business_key, job.turbine_id,
+                                      str(card["kind"]), iso_utc(job.cutoff), card, job.answer)
+        except Exception:  # noqa: BLE001  卡片做不出來不能影響工單或即時模擬
+            logger.exception("運維閉環：工單 %s 的出發前準備卡產生失敗", work_order.business_key)
+            with self._briefing_lock:
+                key = str(work_order.id)
+                self._briefing_failures[key] = self._briefing_failures.get(key, 0) + 1
+            return None
+        return card
+
+    def backfill_briefing(self, work_order_id: UUID) -> Tuple[str, Optional[Dict[str, object]]]:
+        """替一張還沒完工、也還沒有卡的故障維修工單補一張卡（管理端手動補；現在做完才回來）。
+
+        Args:
+            work_order_id: 工單 id。
+
+        Returns:
+            （結果, 卡片）。結果：``ok``、``not_found``（沒有這張工單）、``not_corrective``（不是對得到機組的
+            故障維修工單）、``finished``（已經完工：補出來的不是出發前的樣子）、``not_live``（即時模擬沒在跑）、
+            ``failed``（卡片做不出來，看伺服器的 log）。
+        """
+        order = self._repository().get(work_order_id)
+        if order is None:
+            return "not_found", None
+        turbine_id = self._turbine(order)
+        if order.type is not WorkOrderType.CORRECTIVE or turbine_id is None:
+            return "not_corrective", None
+        if order.status not in _BRIEFABLE_STATUSES:
+            return "finished", None
+        if not self._live():
+            return "not_live", None
+        card = self.make_briefing(turbine_id, order, late=True, wait=True)
+        return ("ok", card) if card is not None else ("failed", None)
+
+    def ensure_briefings(self) -> int:
+        """還沒完工的故障維修工單都要有準備卡：沒有的排到背景補（標 ``generated_late``）。
+
+        會沒有卡的情況：工單在產生情境的批次期間建立（那時即時模擬暫停，沒有風場時鐘）、建立當下卡片做
+        失敗、排著的時候風場換了。已經完工的不補：機組修好之後補出來的不是出發前的樣子。已經在排的不重複
+        排；連續做不出來 ``_MAX_BRIEFING_ATTEMPTS`` 次的不再排。
+
+        未結案的工單每台機組最多三張（工單模組的規則），這裡一次取 500 張足夠。
+
+        Returns:
+            這次排了幾張。
+        """
+        simulator = self._broker.simulator
+        farm_id = self._farm_id()
+        if not self._live() or simulator is None or not farm_id:
+            return 0
+        try:
+            orders, _total = self._repository().list(farm_id=farm_id, only_open=True, limit=500)
+            wanted = [o for o in orders if o.type is WorkOrderType.CORRECTIVE and o.status in _BRIEFABLE_STATUSES]
+            have = self._broker.storage.briefing_work_order_ids([str(o.id) for o in wanted])
+        except Exception:  # noqa: BLE001  查不到下次再試
+            logger.exception("運維閉環：查不到哪些工單缺出發前準備卡")
+            return 0
+        with self._briefing_lock:
+            skip = set(self._briefing_queued) | {key for key, count in self._briefing_failures.items()
+                                                 if count >= _MAX_BRIEFING_ATTEMPTS}
+        made = 0
+        known = list(simulator.turbines)
+        for order in wanted:
+            turbine_id = sim_turbine_id(order.turbine_id, known)
+            if str(order.id) in have or str(order.id) in skip or turbine_id is None:
+                continue
+            self.make_briefing(turbine_id, order, late=True, wait=False)
+            made += 1
+        return made
 
     def _start_work(self, turbine_id: str, work_order: WorkOrder, resumed: bool = False) -> None:
         """這張工單開始佔著機組：機組以正常停機進維修模式。"""
@@ -312,6 +529,8 @@ class OmLoop:
         with self._lock:
             self._in_service.clear()
             self._pending.clear()
+        with self._briefing_lock:
+            self._briefing_failures.clear()
         self._batch_paused = False
         self._last_ensure = None
         simulator = self._broker.simulator
@@ -357,14 +576,14 @@ class OmLoop:
         farm_id = self._farm_id()
         if simulator is None or not farm_id:
             return []
+        self.ensure_briefings()
         opened: List[WorkOrder] = []
         for turbine_id, model in simulator.turbines.items():
             if not (model.maintenance_lock or model.plc.restart_inhibited):
                 continue
             try:
                 repo = self._repository()
-                known_ids = {turbine_id, f"WTG-{int(turbine_id[2:]):02d}"} if turbine_id[2:].isdigit() else {turbine_id}
-                if any(repo.count_open_for_turbine(farm_id, name) for name in known_ids):
+                if any(repo.count_open_for_turbine(farm_id, name) for name in self.turbine_names(turbine_id)):
                     continue
                 trips = sorted(code for code, level in model.plc.active_codes().items() if level in ("T1", "T2"))
                 code = trips[0] if trips else None

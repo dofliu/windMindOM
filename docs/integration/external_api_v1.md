@@ -1,6 +1,6 @@
-# windMindOM 對外唯讀 API v1.1
+# windMindOM 對外唯讀 API v1.2
 
-> **版本**：1.1（2026-11-26；初版 1.0 是 WMOM-20261125-02，EPIC-SF 第 1 項，[DEC-20261126-01](../product/decision_log.md)；1.1 加 `raw_retention_days`、歷史延伸到半年，WMOM-20261125-03-c，[DEC-20261126-03](../product/decision_log.md)）
+> **版本**：1.2（2026-11-26；初版 1.0 是 WMOM-20261125-02，EPIC-SF 第 1 項，[DEC-20261126-01](../product/decision_log.md)；1.1 加 `raw_retention_days`、歷史延伸到半年，WMOM-20261125-03-c，[DEC-20261126-03](../product/decision_log.md)；1.2 加工單與出發前準備卡兩個端點，WMOM-20261125-05，[DEC-20261126-05](../product/decision_log.md)）
 > **對象**：要像外部監控一樣，向持續運轉的仿真風場取 SCADA 資料與警報的外部系統——例如 RAG 運維助理。
 > **資料格式**跟著 [資料介面合約 v1.7](rag_assistant_data_contract_v1.md)：讀值欄位、事件、10 分鐘統計與盲測版資料包、回放訊息是同一套。本文只規定端點、金鑰與翻頁方式。
 
@@ -14,12 +14,14 @@
 - 警報、跳機與運轉狀態轉換的事件（真實 Z72 警報碼）。
 - 目前成立的警報與鎖存中的跳機碼。
 - tag 字典、Z72 警報目錄、風場的固定資訊。
+- 工單的結構化欄位（編號、機組、類型、狀態、優先級、警報碼、各階段的時間），以及故障維修工單的出發前準備卡（1.2 起，§3.9、§3.10）。
 
 不給的：
 
 - 故障注入、故障種類與嚴重度、情境名稱、風況設定——這些是答案。
 - 模擬器內部量（疲勞累積損傷、齒面磨耗指數等，合約 §3 的 `MODEL_INTERNAL_TAGS`）。
 - 凍結情境（題庫）的資料。那些以資料包、WebSocket 回放、OPC UA 交付（合約 §3、§12、§13）。
+- 工單的標題、說明、施工摘要這些自由文字；完工時修掉了哪些故障；準備卡的評分與評分用的答案。
 - 任何寫入或控制。全部端點都是 `GET`。
 
 ## 2. 金鑰
@@ -71,12 +73,14 @@ DELETE /api/auth/api-keys/{id}
 | `GET /stats-10min` | 一台機組的 10 分鐘統計 |
 | `GET /events` | 警報、跳機與運轉狀態轉換 |
 | `GET /alarms/active` | 每台機組目前成立的警報與跳機碼 |
+| `GET /work-orders` | 風場的工單（1.2 起） |
+| `GET /work-orders/{business_key}/briefing` | 一張故障維修工單的出發前準備卡（1.2 起） |
 
 ### 3.1 `GET /status`
 
 ```json
 {
-  "api_version": "1.1",
+  "api_version": "1.2",
   "contract_version": "1.7",
   "server_time": "2026-11-25T17:29:02.606956Z",
   "live": true,
@@ -164,6 +168,117 @@ DELETE /api/auth/api-keys/{id}
 
 內容分別與資料包的 `tag_dictionary.json`、`alarm_catalog.json` 相同（合約 §3）。它們只在版本更新時改變，取一次存起來即可。
 
+### 3.9 `GET /work-orders`（1.2 起）
+
+風場的工單，依建立順序由舊到新。跳機（T1 / T2）或自動重啟被封鎖（A039）時伺服器會自動開一張故障維修工單；管理端也會手動開單、排定檢。
+
+| 參數 | 說明 |
+|---|---|
+| `turbine_id` | 只取這台機組；不給＝全部 |
+| `open_only` | `true`＝只列未結案的；預設 `false` |
+| `after` | 游標：上一次回應的 `next_cursor`；不給＝從最舊的開始 |
+| `limit` | 一頁幾筆，預設 200，最多 500 |
+
+```json
+{"work_orders": [
+  {"business_key": "WO-LEGAC-202611-001", "turbine_id": "WT005", "type": "corrective", "status": "draft",
+   "priority": "normal", "source_alarm_code": 240,
+   "created_at": "2026-11-25T21:12:50.267391Z", "dispatched_at": null, "started_at": null,
+   "finished_at": null, "closed_at": null, "has_briefing": true}
+ ],
+ "next_cursor": "2026-11-25T21:12:50.267391Z~WO-LEGAC-202611-001", "has_more": false}
+```
+
+- `type`：`corrective`（故障維修）、`inspection`（定檢）、`preventive`（預防保養）、`commissioning`（試運轉）。
+- `status`：`draft`（已開單）→ `dispatched`（已派工）→ `in_progress`（施工中，機組在維修模式）→ `awaiting_signoff`（現場完工、等簽核）→ `closed`；另有 `cancelled`、`reopened`。
+- `priority`：`low` / `normal` / `high` / `critical`。
+- `source_alarm_code`：開單依據的事件碼（整數）；手動開的單沒填、或填的不是數字時是 `null`。
+- `has_briefing`：這張工單有沒有出發前準備卡（§3.10）。
+- **工單的時間是實際時間，不是風場時鐘。** 讀值、事件、準備卡的資料截止點用風場時鐘（§5）；時間倍率大於 1 之後兩者不一致，不要拿 `created_at` 去對事件的時間，要對就用準備卡的 `data_cutoff`。
+- 只列對得到機組的工單；`turbine_id` 一律是機組 ID（`WT001` 這種），不是畫面上的名稱。
+- `business_key` 的第二段是風場代號的前五個字（管理端取的代號，不是風場名稱）。
+- `has_briefing` 在工單剛建立的那一瞬間可能還是 `false`：卡片在背景產生，通常不到 1 秒。這時 §3.10 回 `404`，稍後再問。
+- 同一張工單的 `status` 與各階段的時間之後會變。游標只會給「還沒給過的工單」，不會回頭通知狀態改變；要追狀態就定期用 `open_only=true` 重新取未結案的清單。
+- 兩張工單在同一毫秒內由不同來源建立時（自動開單和管理端手動開單剛好撞在一起），較早的那張可能較晚寫入；輪詢剛好落在中間就會漏掉它。很少見，但要完全不漏，就用上一點的未結案清單定期對一次。
+
+### 3.10 `GET /work-orders/{business_key}/briefing`（1.2 起）
+
+一張故障維修工單的**出發前準備卡**：伺服器在工單建立當下，用規則把看得到的證據整理成一張卡。它只用這個 API 本來就給得出去的資料（讀值、事件、工單的結構化欄位、警報目錄），**不判定根因**。外部助理可以拿同一批資料做自己的摘要，再和這張卡比較。
+
+沒有卡片回 `404`：定檢 / 保養工單、對不到機組的工單、工單建立時即時模擬沒在跑。卡片存了就不會變。
+
+```json
+{"business_key": "WO-LEGAC-202611-001", "turbine_id": "WT005", "data_cutoff": "2026-11-25T22:30:17.000000Z",
+ "card": {
+  "card_version": "1.0", "kind": "fault_dispatch",
+  "work_order": {"business_key": "WO-LEGAC-202611-001", "turbine_id": "WT005", "type": "corrective",
+                 "priority": "normal", "source_alarm_code": 240},
+  "data_cutoff": "2026-11-25T22:30:17.000000Z", "generated_late": false,
+  "event": {"ts": "2026-11-25T22:30:17.000000Z", "code": 240, "level": "T1",
+            "text": "Bearing 1 temperature very high", "event_id": "T_240", "event_type": "trip",
+            "turbine_state": 6, "turbine_state_ts": "2026-11-25T22:30:10.000000Z"},
+  "recent_events": {
+   "window": {"start": "2026-11-18T22:30:17.000000Z", "end": "2026-11-25T22:30:17.000000Z"},
+   "same_code": {"count": 1, "first_ts": "...", "last_ts": "...", "recent": ["2026-11-25T22:30:17.000000Z"]},
+   "other_codes": [{"code": 262, "level": "A", "text": "Main bearing 1 temperature high", "count": 1,
+                    "last_ts": "2026-11-25T22:27:10.000000Z"}],
+   "farm_same_code": {"window_minutes": 10, "turbines": []},
+   "source": "..."},
+  "signals": {
+   "window": {"start": "2026-11-25T21:30:17.000000Z", "end": "2026-11-25T22:30:17.000000Z"},
+   "recent_window": {"start": "2026-11-25T22:20:17.000000Z", "end": "2026-11-25T22:30:17.000000Z"},
+   "baseline_window": {"start": "2026-11-25T15:30:17.000000Z", "end": "2026-11-25T21:30:17.000000Z"},
+   "samples": 360, "baseline_samples": 277, "peers": 13,
+   "last_reading_ts": "2026-11-25T22:30:10.000000Z", "source": "...",
+   "items": [
+    {"name": "Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp1", "label_zh": "發電機軸承溫度",
+     "label_en": "Generator Bearing Temp", "unit": "°C", "role": "primary",
+     "turbine_mean": 44.42, "farm_median": 29.93, "farm_min": 27.72, "farm_max": 32.27, "peer_count": 13,
+     "deviation": "high", "recent_mean": 81.12, "recent_farm_median": 30.49,
+     "baseline_mean": 28.48, "change_from_baseline": 15.94}
+   ]},
+  "past_work_orders": [],
+  "manual": {"status": "ok", "code": 240, "level": "T1", "text": "Bearing 1 temperature very high",
+             "cause": "Bearing temperature 1 is very high",
+             "rectification": "Check lubrication main bearing. Check cooling fan.",
+             "max_per_hour": 1, "manual_page": 110, "source": "Z72 User Manual Appendix C"},
+  "inventory": {"status": "no_mapping", "note": "..."},
+  "data_quality": {"flags": [], "degraded": false},
+  "notes": ["..."]
+ }}
+```
+
+（範例的數值四捨五入過；實際回應是完整的浮點數。）
+
+| 區塊 | 內容 |
+|---|---|
+| `data_cutoff` | 資料截止點（風場時鐘）＝工單建立當下。卡上的每一項都只用這個時間以前的資料。`generated_late` 為 `true` 表示卡片是事後補的，截止點是補的那一刻 |
+| `event` | 開單依據的那筆事件（同 `/events` 的內容）。`turbine_state` 是截止點前最後一筆讀值的運轉狀態，`turbine_state_ts` 是那筆讀值的時間——讀值每 10 秒一筆，跳機當下產生的卡，這個狀態可能還是跳機前的 |
+| `recent_events` | 截止點前 7 天：這台機組同一個碼出現幾次（`same_code`）、其他警報 / 跳機碼各幾次（`other_codes`，最多 10 種）、事件前後 10 分鐘同場還有哪些機組送出同一個碼（`farm_same_code`——整場一起跳通常是外部原因） |
+| `signals` | 相關訊號的對照。`window`＝截止點前 1 小時、`recent_window`＝最後 10 分鐘、`baseline_window`＝再往前 6 小時。`peers`＝拿來比的機組數：同場其他機組裡，那 1 小時有一半以上時間在發電的 |
+| `signals.items[]` | `role`：`primary`（PLC 判定這個碼時看的量測）、`related`（同一條判定邏輯的其他量測；`primary` 加 `related` 最多 8 個）、`context`（機艙風速、功率、轉速）。`turbine_mean` / `recent_mean`＝這台機組 1 小時 / 最後 10 分鐘的平均；`farm_median`、`farm_min`、`farm_max`、`recent_farm_median`＝同場的對照；`baseline_mean`＝自己前 6 小時的平均；`deviation`＝`high` / `low` / `normal` / `unknown` |
+| `past_work_orders` | 這張工單之前開的、同一台機組的工單（最多 10 張，新的在前；只有結構化欄位：`business_key`、`type`、`status`、`source_alarm_code`、`created_at`、`finished_at`） |
+| `manual` | 警報目錄（Z72 手冊 Appendix C）對這個碼列的原因與處置，照引、不加判斷。`status`：`ok` / `no_alarm_code` / `not_in_catalog` |
+| `inventory` | 目前固定是 `{"status": "no_mapping"}`：還沒有「警報碼 → 料件」的對應表，卡上不列料件 |
+| `data_quality` | `flags` 不是空的時候 `degraded` 為 `true`，表示證據不完整，要保守判讀 |
+
+`deviation` 的算法：這台機組的平均減同場中位數，除以同場的離散程度（1.4826 × 絕對中位差；至少取中位數的 2 % 與量測範圍的 0.5 %），絕對值 ≥ 3 算偏高或偏低。1 小時與最後 10 分鐘各算一次，任一個偏離就算偏離——最後才飆高的訊號在 1 小時平均裡會被稀釋。可比較的機組少於 3 台時給 `unknown`。
+
+`data_quality.flags` 的值：
+
+| 值 | 意思 |
+|---|---|
+| `no_alarm_code` | 工單沒有帶事件碼（手動開的單）：只列背景量測 |
+| `no_event_found` | 工單帶了事件碼，但截止點前 7 天找不到這台機組的這筆事件 |
+| `events_truncated` | 7 天內的事件太多，沒有掃完：次數可能少算 |
+| `signals_unmapped` | 這個碼沒有對應的量測：只列背景量測 |
+| `signal_data_missing` | 截止點前 1 小時這台機組沒有讀值 |
+| `stale_data` | 最後一筆讀值比截止點早 5 分鐘以上 |
+| `too_few_peers` | 可比較的機組少於 3 台：不做同場對照 |
+| `no_baseline` | 前 6 小時沒有讀值：沒有自己的基準 |
+
+`card_version` 管卡片的欄位：加欄位升次版本，改名或刪除升主版本。目前只有 `kind`＝`fault_dispatch`（故障出勤卡）；例行巡檢卡還沒有做。
+
 ## 4. 翻頁與輪詢
 
 `/readings` 與 `/events` 用游標往後走：
@@ -173,6 +288,8 @@ DELETE /api/auth/api-keys/{id}
 3. `has_more` 為 `true` 就立刻再取；為 `false` 表示已經追到最新，等一個取樣週期再問。
 
 沒有新資料時回空清單，`next_cursor` 不變。游標是不透明的整數，只保證往後走不重複、不遺漏；不要拿它推算時間或筆數。`/events` 在可觀測事件很稀疏時可能回空清單而 `has_more` 為 `true`，照樣用 `next_cursor` 接著取。
+
+`/work-orders` 的用法相同，差別只有兩點：游標是不透明的**字串**（第一次不帶 `after`；還沒有任何工單時 `next_cursor` 是 `null`，下次照樣不帶），而且它只往後給新建立的工單，已經給過的工單狀態改變不會再出現（§3.9）。游標只含英數字與 `-`、`:`、`.`、`~`，可以直接放進網址。
 
 ```python
 import json
@@ -214,6 +331,8 @@ while True:
 - **伺服器被強制關閉時，最後幾秒的操作可能要重做。** 狀態每 30 秒存一次，操作員動過風場（注入或清除故障、控制指令）之後會立刻再存；兩次存檔之間被強制關閉，重啟後從上一次存檔接著跑。已經寫進歷史的讀值與事件不會重複。
 - **管理端產生情境（題庫）期間即時模擬暫停**（`live` 為 `false`）。結束後風場接著原本的狀態補跑，`live_epoch` 不變。
 - **歷史留半年，循環保存。** 天數看 `/status` 的 `raw_retention_days`（預設 183；伺服器可以設定）。較舊的讀值在伺服器那邊搬到長期保存，對外沒有差別：同一個游標從最舊翻到最新，值與格式相同。超過保留期的讀值查不到；游標落在已經刪掉的範圍時，會從還留著的最舊一筆接著給。伺服器的長期保存暫時讀不到時，`/readings` 與 `/stats-10min` 回 `503`（稍後再試），不會回一份缺了舊資料的結果。
+- **工單的時間是實際時間。** `/work-orders` 的 `created_at` 等欄位是伺服器的實際時間；讀值、事件與準備卡的 `data_cutoff` 是模擬時鐘。兩者在時間倍率調大過之後就不一致（§3.9）。
+- **管理端產生情境期間開的工單沒有即時的準備卡。** 那段時間即時模擬暫停、沒有風場時鐘；結束後伺服器會替還沒完工的故障維修工單補一張，標 `generated_late`。
 - **時間倍率很大時伺服器可能跟不上**（14 台機組實測約 75 倍），資料量也跟著放大：倍率 60 等於每個實際秒寫 6 批讀值。
 
 ## 6. 錯誤
@@ -222,7 +341,9 @@ while True:
 |---|---|
 | `401` | 沒帶金鑰、金鑰無效或已撤銷。未驗證的請求一律先回這個，不檢查參數 |
 | `403` | 金鑰的權限範圍不含這個端點 |
-| `422` | 參數錯誤：少必填參數、時間沒帶時區、格式不對或超出可表示的範圍、`end` 不晚於 `start`、`limit` 超出範圍、統計超過 24 小時 |
+| `404` | `/work-orders/{business_key}/briefing`：這張工單沒有出發前準備卡（或沒有這張工單） |
+| `422` | 參數錯誤：少必填參數、時間沒帶時區、格式不對或超出可表示的範圍、`end` 不晚於 `start`、`limit` 超出範圍、統計超過 24 小時、`after` 不是這個端點給的游標 |
+| `503` | 長期保存的歷史讀值暫時讀不到（`/readings`、`/stats-10min`）：稍後再試 |
 
 不存在的機組 ID 不算錯誤，回空清單。
 
@@ -235,3 +356,4 @@ while True:
 |---|---|---|
 | 1.0 | 2026-11-26 | 初版：金鑰、九個唯讀端點、游標翻頁。同日修訂 §5：取樣間隔固定 10 秒、模擬時鐘只往前走、重啟續跑、產生情境不再改變 `live_epoch`（WMOM-20261125-03-a / -b；端點與欄位沒有變） |
 | 1.1 | 2026-11-26 | `/status` 加 `raw_retention_days`；原始讀值的歷史由 3 天延伸到半年（預設），`/readings` 與 `/stats-10min` 查得到的範圍跟著變長，端點與參數沒有變。`/stats-10min` 改由 PLC 資料型別的讀值計算（與 `/readings` 給的值相同），個別統計值的最後一位有效數字可能和 1.0 不同（WMOM-20261125-03-c） |
+| 1.2 | 2026-11-26 | 加 `GET /work-orders`（工單的結構化欄位、字串游標）與 `GET /work-orders/{business_key}/briefing`（故障維修工單的出發前準備卡，`card_version` 1.0）。既有端點沒有變（WMOM-20261125-05） |

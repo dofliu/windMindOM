@@ -70,6 +70,15 @@ class Farm:
             sim._sim_clock = T0 + timedelta(seconds=self._step)
             self.broker._on_sim_data(sim._run_one_step(sim._sim_clock, 1.0))
 
+    def drive_slow(self, steps: int) -> None:
+        """每步 10 秒（快速累積歷史用；每一步都會寫進歷史）。"""
+        sim = self.broker.simulator
+        assert sim is not None
+        for _ in range(steps):
+            self._step += 10
+            sim._sim_clock = T0 + timedelta(seconds=self._step)
+            self.broker._on_sim_data(sim._run_one_step(sim._sim_clock, 10.0))
+
     def model(self, turbine_id: str = "WT001"):
         sim = self.broker.simulator
         assert sim is not None
