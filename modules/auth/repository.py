@@ -8,6 +8,7 @@ drop-in production 實作；dev_mode 仍走 in-memory demo。
 - 表：``auth_users``（自 ``metadata.create_all`` 建，無需 migration 工具）。
 - DB 位置：``WMOM_AUTH_DB_URL``（預設 ``sqlite:///./wmom_auth.db``）。
 - 密碼只存 PBKDF2 雜湊（見 ``passwords.py``），不存明文。
+- 外部系統的 API 金鑰（``auth_api_keys``，WMOM-20261125-02）同一個 DB；只存 sha256，見 ``api_keys.py``。
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 from sqlalchemy import Boolean, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
+from .api_keys import ApiKey
 from .passwords import verify_password
 from .roles import Role
 from .users import AuthUser
@@ -103,3 +105,91 @@ class SqlUserStore:
         """user 總數（用於 bootstrap 判斷 store 是否為空）。"""
         with self._sessionmaker() as sess:
             return int(sess.scalar(select(func.count()).select_from(UserRow)) or 0)
+
+
+class ApiKeyRow(AuthBase):
+    """``auth_api_keys`` 資料列（外部系統的 API 金鑰，WMOM-20261125-02）。"""
+
+    __tablename__ = "auth_api_keys"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    prefix: Mapped[str] = mapped_column(String(32))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    scope: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[str] = mapped_column(String(40))
+    created_by: Mapped[str] = mapped_column(String(64))
+    last_used_at: Mapped[str | None] = mapped_column(String(40), nullable=True, default=None)
+    revoked_at: Mapped[str | None] = mapped_column(String(40), nullable=True, default=None)
+
+    def to_api_key(self) -> ApiKey:
+        """轉回 domain 的 :class:`ApiKey`。"""
+        return ApiKey(
+            id=self.id,
+            name=self.name,
+            prefix=self.prefix,
+            key_hash=self.key_hash,
+            scope=self.scope,
+            created_at=self.created_at,
+            created_by=self.created_by,
+            last_used_at=self.last_used_at,
+            revoked_at=self.revoked_at,
+        )
+
+
+class SqlApiKeyStore:
+    """SQLAlchemy 支撐的 API 金鑰 store。介面與 ``InMemoryApiKeyStore`` 一致。"""
+
+    def __init__(self, db_url: str = "sqlite:///./wmom_auth.db") -> None:
+        self._engine = create_engine(db_url, future=True)
+        AuthBase.metadata.create_all(self._engine)
+        self._sessionmaker = sessionmaker(self._engine, expire_on_commit=False, future=True)
+
+    def add(self, key: ApiKey) -> None:
+        """新增一把金鑰。"""
+        with self._sessionmaker() as sess:
+            sess.add(
+                ApiKeyRow(
+                    id=key.id,
+                    name=key.name,
+                    prefix=key.prefix,
+                    key_hash=key.key_hash,
+                    scope=key.scope,
+                    created_at=key.created_at,
+                    created_by=key.created_by,
+                    last_used_at=key.last_used_at,
+                    revoked_at=key.revoked_at,
+                )
+            )
+            sess.commit()
+
+    def get_by_hash(self, key_hash: str) -> ApiKey | None:
+        """依 sha256 取金鑰；無則 ``None``。"""
+        with self._sessionmaker() as sess:
+            row = sess.scalar(select(ApiKeyRow).where(ApiKeyRow.key_hash == key_hash))
+            return row.to_api_key() if row is not None else None
+
+    def list_keys(self) -> list[ApiKey]:
+        """列出全部金鑰（依建立時間；含已撤銷的）。"""
+        with self._sessionmaker() as sess:
+            rows = sess.scalars(select(ApiKeyRow).order_by(ApiKeyRow.created_at, ApiKeyRow.id)).all()
+            return [r.to_api_key() for r in rows]
+
+    def revoke(self, key_id: str, revoked_at: str) -> bool:
+        """撤銷金鑰；不存在回 False，已撤銷的維持原撤銷時間並回 True。"""
+        with self._sessionmaker() as sess:
+            row = sess.get(ApiKeyRow, key_id)
+            if row is None:
+                return False
+            if row.revoked_at is None:
+                row.revoked_at = revoked_at
+                sess.commit()
+            return True
+
+    def touch(self, key_id: str, used_at: str) -> None:
+        """記下最近一次使用的時間。"""
+        with self._sessionmaker() as sess:
+            row = sess.get(ApiKeyRow, key_id)
+            if row is not None:
+                row.last_used_at = used_at
+                sess.commit()

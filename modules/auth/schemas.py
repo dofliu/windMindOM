@@ -47,3 +47,28 @@ class UserInfo(BaseModel):
     name: str
     role: Role
     is_active: bool
+
+
+class CreateApiKeyRequest(BaseModel):
+    """``POST /api/auth/api-keys``（admin 發外部系統金鑰）請求體。"""
+
+    name: str = Field(min_length=1, max_length=256)  # 用途說明，例 rag-assistant
+
+
+class ApiKeyInfo(BaseModel):
+    """API 金鑰的公開資訊（**不含金鑰與雜湊**）。"""
+
+    id: str
+    name: str
+    prefix: str
+    scope: str
+    created_at: str
+    created_by: str
+    last_used_at: str | None
+    revoked_at: str | None
+
+
+class ApiKeyCreated(ApiKeyInfo):
+    """建立金鑰的回應：公開資訊 + 金鑰本身（只有這一次拿得到）。"""
+
+    key: str

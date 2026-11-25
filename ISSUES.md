@@ -13,14 +13,15 @@
 
 | Status | Count |
 |--------|------|
-| open | 12 |
+| open | 11 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 151 |
+| done | 152 |
 | **total** | **166** |
 
-最後更新：2026-11-26（**WMOM-20261125-08 done**：研究架構圖定稿（劉老師回覆「架構圖可以定稿」），收進 `docs/architecture/research-framework.md`。open 12 / in_progress 1 / deferred 2 / done 151 = 166）。
+最後更新：2026-11-26（**WMOM-20261125-02 done**（EPIC-SF 第 1 項，DEC-20261126-01）：對外唯讀 API `/api/ext/v1`（九個 `GET`）與外部系統的 API 金鑰——金鑰不是角色、一律強制，只給 Live 的可觀測資料與警報，格式與盲測版資料包相同；管理走 admin 端點或 `tools/external_api_keys.py`；文件 `docs/integration/external_api_v1.md`；code review 的必須修（統計的窗結束判定）已修。實測發現寫進 -03。open 11 / in_progress 1 / deferred 2 / done 152 = 166。詳見 `work-logs/2026-11/2026-11-26-external-readonly-api.md`）。
+前次：2026-11-26（**WMOM-20261125-08 done**：研究架構圖定稿（劉老師回覆「架構圖可以定稿」），收進 `docs/architecture/research-framework.md`。open 12 / in_progress 1 / deferred 2 / done 151 = 166）。
 前次：2026-11-25 深夜（劉老師 2026-11-25 回覆「同意你的規劃」：開發順序、保留半年、REST 為主、外部身分用長效 API 金鑰對應唯讀角色，都確認；新增 **WMOM-20261125-08 研究架構圖**（in_progress，草稿 v0.1 已發布、待劉老師看過定稿）。open 12 / in_progress 2 / deferred 2 / done 150 = 166。詳見 `work-logs/2026-11/2026-11-25-research-framework-diagram.md`）。
 前次：2026-11-25（**WMOM-20261125-01 done**（重新定位：仿真運維風場，DEC-20261125-01）：新主線 EPIC-SF，新增 WMOM-20261125-02 ~ -07（對外唯讀 API、長時間運轉的基礎、運維閉環、出發前準備卡、機率式故障產生器、實測風況匯入），成本一項沿用 WMOM-20260504-11；沒有程式變更。逐條解析 header 核實前值 open 6 / in_progress 1 / deferred 2 / done 149 = 158（統計表先前停在 157，一併更正）；本次 +6 open、+1 done：open 12 / in_progress 1 / deferred 2 / done 150 = 165。詳見 `work-logs/2026-11/2026-11-25-repositioning-decision.md`）。
 前次：2026-10-26（**WMOM-20261021-08-d done**（EPIC-DS Phase 4-d 多重故障＋早期徵兆，DEC-20261026-01；母 issue -08 全部子項 done → done）：同機組多 case 歸屬不變＋新指標診斷精確率、早期徵兆 case 分開列；排程 `max_severity` 把故障壓在門檻下；範例資料包 07；合約 v1.7。open 6 / in_progress 1 / deferred 2 / done 149 = 158。詳見 `work-logs/2026-10/2026-10-26-multi-fault-early-signs.md`）。
@@ -1872,11 +1873,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261125-02 — 對外唯讀 API 與外部系統身分（只給可觀測資料與警報）
 
-- **Status**: open
+- **Status**: done（2026-11-26）
 - **Milestone**: EPIC-SF
 - **Priority**: high
 - **Estimate**: 2–3 天
-- **Owner**: -
+- **Owner**: Claude session 2026-11-26
 - **Description**: 讓外部系統（劉老師的 RAG 運維助理）像外部監控一樣，向持續運轉的仿真風場取 SCADA 資料與警報。
   - **現況**：角色只有人員的五種（`modules/auth/roles.py`），沒有外部系統身分。`GET /api/export/events` 回傳全部事件，包含 `Fault injected: {scenarioId}`（`server/routers/faults.py` 的 `record_event`）；`GET /api/faults/active` 任何登入者可讀。外部系統照現況接，等於看到答案。
   - **要做**：
@@ -1887,6 +1888,20 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
   - -04 完成後補工單的唯讀端點，供外部助理對同一張工單產生摘要（-05 的對照）。
 - **Decision**: 外部身分用長效 API 金鑰對應一個唯讀角色，不走人員登入（劉老師 2026-11-25 回覆「同意你的規劃」確認）。
 - **Blocks**: 劉老師的 RAG 運維助理接 Live 資料
+- **完成紀錄**（DEC-20261126-01）：
+  - **金鑰**：`modules/auth/api_keys.py`——`wmk_` 開頭、只在建立時顯示一次、DB 只存 sha256（`auth_api_keys` 表，dev mode 也存 SQL）；`require_api_key` 一律強制。金鑰不是 RBAC 角色，放在 `X-API-Key`，其他端點不認它。管理：`POST / GET / DELETE /api/auth/api-keys`（admin）與 CLI `tools/external_api_keys.py`。
+  - **端點**：`modules/monitoring/server/routers/external.py`，`/api/ext/v1` 九個 `GET`——`status`、`farm`、`tags`、`alarm-catalog`、`readings/latest`、`readings`、`stats-10min`、`events`、`alarms/active`。讀值欄位＝盲測版資料包的 105 個 tag；事件逐筆過 `is_observable_event` 再 `pack_event`；只取 Live（排除情境 session）；游標依寫入順序翻頁 / 輪詢；10 分鐘統計即時計算。
+  - **文件**：`docs/integration/external_api_v1.md`（API v1.0；資料介面合約維持 v1.7，沒有升版）。
+  - **驗證**：新測試 76 項（`test_external_api.py` 51、`test_api_keys.py` 22、`test_external_api_keys_cli.py` 3）；八項變異檢查（逐一拿掉防線）全部被測試抓到。真伺服器端到端（`WMOM_AUTH_ENFORCE=true`、14 台）：金鑰打其他端點全是 401；注入兩個故障後，外部金鑰看到 WT003 的真實跳機碼 242，16 萬位元組的回應裡掃不到故障情境名稱 / `scenarioId` / `severity`；重啟後金鑰仍有效、歷史接得上；撤銷立刻 401。
+  - **code review**（`code-reviewer`：沒有找到外洩故障資訊的路徑；1 項必須修、5 項應該修）：
+    - 必須修（已修）：`stats-10min` 以實際時間判定窗是否結束——最後一筆還沒寫入的窗會被放出去、之後值又變，時間倍率大於 1 時未來的窗查不到。改看這台機組最近一次寫入的讀值時間（`storage.last_live_reading_timestamp`）。
+    - 已修：極端日期（`0001-…+05:00`）讓時間參數解析拋 `OverflowError` 回 500 → 422；`/status` 拿掉 `batch_running`（等於告訴外部系統管理端正在出題）；輪詢查詢改成從游標沿主鍵往後掃（原本每次掃整台機組再排序）。
+    - 查證後不改：`session_id` 為 NULL 的舊事件——那些是 -04 之前的 Live 事件；當時產生情境只寫 `source="scenario"` 的標記，不是可觀測事件。加了測試鎖住。
+    - 寫進文件：dev mode 下金鑰管理端點不用登入（與使用者管理相同），dev mode 不能用來做盲測。
+    - 留給 -03：有時間下限的讀值查詢要把範圍內的列排序，成本隨保留期成長。
+  - **實測發現**寫進 WMOM-20261125-03（重啟後狀態歸零、重啟後要重新選定資料來源、寫入間隔 10.12–10.17 秒、時間倍率、批次打斷 Live）。
+  - **沒有做**：前端的金鑰管理頁；工單的唯讀端點（等 -04）；`/api/export/events`、`/api/faults/active` 照舊給登入的人員看。
+  - work-log：`work-logs/2026-11/2026-11-26-external-readonly-api.md`
 - **Reference**: DEC-20261125-01；盲測守則、資料包守則（`CLAUDE.md` §10）
 
 ### WMOM-20261125-03 — 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、穩定性
@@ -1904,6 +1919,12 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
     - b. 重啟續跑：模擬器狀態存檔與還原。
     - c. 72 小時連續運轉測試；重現企劃 v0.1 記的兩個現象——雲端長跑約 57 分停止寫入、十分鐘彙整重疊計數（原始紀錄不在 repo，先重現再判斷）。
     - d. 歷史回填：先用批次生成補出一段歷史，再接著 Live 運轉（14 台 1 小時約 11 秒，一個月約 2.3 小時）。
+  - **-02 實測發現、要在這裡處理的**（2026-11-26，真伺服器端到端檢查）：
+    - 伺服器重啟後模擬器狀態歸零：重啟前鎖存的跳機不在目前成立的警報裡，事件流也沒有對應的解除事件，兩邊對不上。
+    - 伺服器重啟後要有人登入重新選定資料來源，即時模擬才會再跑；在那之前 storage 指向預設 DB，Live 的歷史查不到。
+    - Live 的寫入間隔不是精確的 10 秒：以「距上次寫入滿 10 秒的第一個 tick」寫入，實測 10.12–10.17 秒，一個 10 分鐘窗通常 59 筆。應改成對齊 10 秒整點的固定間隔。
+    - 時間倍率大於 1 時仍以實際時間每 10 秒寫一次，資料變稀疏（倍率 60＝每 600 秒模擬時間一筆）；時間戳跑在實際時間前面，倍率調回 1 時會跳回實際時間，Live 的時間戳不單調。
+    - 產生情境（批次）會暫停即時模擬並重設風場狀態，Live 資料在那裡不連續（對外 API 以 `live_epoch` 標示）。要當成持續運轉的風場，批次應該用另一個 simulator。
   - 目標：10 秒原始資料保留半年（DEC-20261125-01，劉老師 2026-11-25 確認）。-05 的準備卡回看 7 到 30 天，所以至少要 30 天。
 - **Decision needed**: 部署機器的可用磁碟空間（保留期目標半年已確認）。
 - **Blocks**: WMOM-20261125-05、WMOM-20261125-06
@@ -2007,7 +2028,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 | 順序 | Issue | 內容 | 類型 |
 |---|---|---|---|
 | 0 | ~~WMOM-20261125-01~~ ✅ | 重新定位：DEC、EPIC 拆解、文件同步 | 🔵 |
-| 1 | WMOM-20261125-02 | 對外唯讀 API 與外部系統身分（只給可觀測資料與警報） | 🔵 |
+| 1 | ~~WMOM-20261125-02~~ ✅ | 對外唯讀 API 與外部系統身分（只給可觀測資料與警報；`/api/ext/v1`、API 金鑰，DEC-20261126-01） | 🔵 |
 | 2 | WMOM-20261125-03 | 長時間運轉的基礎：保留期可設定、分層儲存、重啟續跑、72 小時穩定性 | 🟡 磁碟空間動工時確認 |
 | 3 | WMOM-20261125-04 | 運維閉環：警報開單、工單完工才修復、定檢計畫停機、可用率由運轉狀態計算 | 🟡 修復規則待定 |
 | 4 | WMOM-20261125-05 | 出發前準備卡：故障出勤卡先做，例行巡檢卡後做 | 🔵 |

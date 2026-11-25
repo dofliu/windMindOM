@@ -492,6 +492,27 @@ class StatsBuilder:
             return None
         return float(self._steps.most_common(1)[0][0])
 
+    @property
+    def median_period_s(self) -> Optional[float]:
+        """相鄰讀值間隔的中位數（秒）；每台機組都只有一筆時為 None。
+
+        即時資料用它（WMOM-20261125-02）：Live 每筆讀值的間隔帶一點抖動（約 10.1–10.2 秒，不會有兩筆
+        剛好一樣），取「最常見的間隔」不穩定；中位數不受抖動與停機造成的大間隔影響。
+        """
+        total = sum(self._steps.values())
+        if total == 0:
+            return None
+        middle = (total - 1) / 2.0
+        seen = 0
+        lower: Optional[float] = None
+        for step in sorted(self._steps):
+            seen += self._steps[step]
+            if lower is None and seen > math.floor(middle):
+                lower = step
+            if seen > math.ceil(middle):
+                return (lower + step) / 2.0 if lower is not None else step
+        return lower
+
     def finish(self) -> None:
         for turbine_id, window in list(self.open_windows.items()):
             self._flush(turbine_id, window)

@@ -51,6 +51,9 @@ _MIGRATION_BATCH_ROWS = 20_000
 # 故障生命週期、Live 的 FaultEngine 跳機 / 解除、操作 / 設定紀錄、疲勞等級）都不是可觀測事件——
 # 很多直接反映 FaultEngine 的內部狀態＝答案。新來源預設不可觀測，要明確加進白名單。
 OBSERVABLE_EVENT_SOURCES = frozenset({"plc"})
+# SQL 預篩用（對外唯讀 API 的 Live 事件，WMOM-20261125-02）：可觀測事件只可能來自這些來源——PLC 事件與
+# 模擬器記錄的運轉狀態轉換。它只縮小掃描範圍；是否可觀測仍由 ``is_observable_event`` 判定。
+OBSERVABLE_CANDIDATE_SOURCES = OBSERVABLE_EVENT_SOURCES | {"simulator"}
 # payload 帶這些鍵＝含故障 ID（雙重保險：即使來源在白名單也排除）
 _GROUND_TRUTH_PAYLOAD_KEYS = frozenset({"scenarioId", "faults"})
 
@@ -109,6 +112,18 @@ def _local_to_utc_sql(column: str) -> str:
         f"substr(CASE WHEN substr({column}, 20, 1) = '.' THEN substr({column}, 20) ELSE '.' END "
         f"|| '000000', 1, 7) || '+00:00'"
     )
+
+
+def reading_timestamp(reading: dict) -> str:
+    """reading 寫進 ``turbine_data.timestamp`` 的時間戳（``iso_utc`` 格式）。
+
+    Args:
+        reading: 模擬器 / OPC adapter 的 reading。
+
+    Returns:
+        與 ``store_readings`` 落庫時相同的字串。
+    """
+    return _reading_timestamp(reading)
 
 
 def _reading_timestamp(reading: dict) -> str:
@@ -1691,6 +1706,117 @@ class Storage:
             ORDER BY t1.turbine_id
         """).fetchall()
         return [dict(row) for row in rows]
+
+    # ── 對外唯讀 API 的 Live 查詢（WMOM-20261125-02）──────────────────
+    # 只取 Live 的資料（排除情境 session：情境以模擬時間寫入，且是出題用的凍結資料集），依寫入順序
+    # （id）往後翻頁——外部系統以「上次看到的最後一筆」當游標輪詢。
+    _NOT_SCENARIO_SQL = ("(session_id IS NULL OR session_id NOT IN "
+                         "(SELECT id FROM sessions WHERE json_extract(config_json, '$.kind') = ?))")
+
+    def live_readings(self, turbine_id: str, after_id: int = 0, start: Optional[str] = None,
+                      end: Optional[str] = None, limit: int = 1000) -> List[sqlite3.Row]:
+        """一台機組的 Live 讀值（不含情境 session），依寫入順序。
+
+        Args:
+            turbine_id: 機組 ID。
+            after_id: 只取 id 大於它的列（游標；0＝從頭）。
+            start: 時間下限（含）；None＝不限。
+            end: 時間上限（不含）；None＝不限。
+            limit: 最多幾列。
+
+        Returns:
+            ``id`` / ``timestamp`` / ``turbine_id`` / ``scada_json`` 的列。
+        """
+        start, end = normalize_iso(start), normalize_iso(end)
+        # 沒有時間下限（輪詢新資料、從頭翻頁）時從游標沿主鍵往後掃：成本只跟這一頁有關。交給 SQLite 選的話
+        # 它會用 (turbine_id, timestamp) 索引掃過這台機組的全部列再依 id 排序。有時間下限時才用那個索引
+        # 縮小範圍。
+        table = "turbine_data" if start else "turbine_data NOT INDEXED"
+        query = (f"SELECT id, timestamp, turbine_id, scada_json FROM {table} "
+                 "WHERE turbine_id = ? AND id > ? AND " + self._NOT_SCENARIO_SQL)
+        params: list = [turbine_id, after_id, self.SCENARIO_KIND]
+        if start:
+            query += " AND timestamp >= ?"
+            params.append(start)
+        if end:
+            query += " AND timestamp < ?"
+            params.append(end)
+        query += " ORDER BY id LIMIT ?"
+        params.append(limit)
+        return self._get_conn().execute(query, params).fetchall()
+
+    def last_live_reading_timestamp(self, turbine_id: str, max_sessions: int = 20) -> Optional[str]:
+        """一台機組**最近一次寫入**的 Live 讀值的時間戳（依寫入順序，不是最大的時間）。
+
+        對外 API 拿它當這台機組的「資料時鐘」：10 分鐘窗結束於它之前，才算已經收齊（WMOM-20261125-02）。
+        從最近的 Live session 往回找，每個 session 沿 ``(session_id)`` 索引倒著掃到這台機組的列為止，
+        不必掃過情境 session 的列。
+
+        Args:
+            turbine_id: 機組 ID。
+            max_sessions: 最多往回看幾個 Live session。
+
+        Returns:
+            ``iso_utc`` 格式的時間戳；這台機組沒有 Live 讀值時為 None。
+        """
+        conn = self._get_conn()
+        query = ("SELECT timestamp FROM turbine_data INDEXED BY idx_turbine_data_session "
+                 "WHERE session_id {match} AND turbine_id = ? ORDER BY id DESC LIMIT 1")
+        sessions = conn.execute(
+            "SELECT id FROM sessions WHERE json_extract(config_json, '$.kind') IS NULL "
+            "OR json_extract(config_json, '$.kind') != ? ORDER BY id DESC LIMIT ?",
+            (self.SCENARIO_KIND, max_sessions),
+        ).fetchall()
+        for (session_id,) in sessions:
+            row = conn.execute(query.format(match="= ?"), (session_id, turbine_id)).fetchone()
+            if row is not None:
+                return str(row[0])
+        # 很舊的 Live 列沒有 session_id
+        row = conn.execute(query.format(match="IS NULL"), (turbine_id,)).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def live_events(self, after_id: int = 0, turbine_id: Optional[str] = None, start: Optional[str] = None,
+                    end: Optional[str] = None, limit: int = 500) -> List[dict]:
+        """Live 的事件裡可能可觀測的那些（不含情境 session），依寫入順序。
+
+        只以來源預篩（``OBSERVABLE_CANDIDATE_SOURCES``）；呼叫端仍要逐筆過 ``is_observable_event``。
+
+        Args:
+            after_id: 只取 id 大於它的事件（游標；0＝從頭）。
+            turbine_id: 只取這台機組的事件；None＝全部。
+            start: 時間下限（含）；None＝不限。
+            end: 時間上限（不含）；None＝不限。
+            limit: 最多幾筆。
+
+        Returns:
+            事件 dict（``payload`` 已解析），依 id 遞增。
+        """
+        sources = sorted(OBSERVABLE_CANDIDATE_SOURCES)
+        query = (f"SELECT * FROM history_events WHERE id > ? AND source IN ({', '.join('?' * len(sources))}) "
+                 "AND " + self._NOT_SCENARIO_SQL)
+        params: list = [after_id, *sources, self.SCENARIO_KIND]
+        if turbine_id is not None:
+            query += " AND turbine_id = ?"
+            params.append(turbine_id)
+        start, end = normalize_iso(start), normalize_iso(end)
+        if start:
+            query += " AND timestamp >= ?"
+            params.append(start)
+        if end:
+            query += " AND timestamp < ?"
+            params.append(end)
+        query += " ORDER BY id LIMIT ?"
+        params.append(limit)
+        result = []
+        for row in self._get_conn().execute(query, params).fetchall():
+            d = dict(row)
+            if d.get("payload_json"):
+                try:
+                    d["payload"] = json.loads(d["payload_json"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            result.append(d)
+        return result
 
     def query_snapshots(self, turbine_id: str, event_ref: Optional[str] = None,
                         start: Optional[str] = None, end: Optional[str] = None,
