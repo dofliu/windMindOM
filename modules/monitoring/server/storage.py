@@ -1775,6 +1775,32 @@ class Storage:
         row = conn.execute(query.format(match="IS NULL"), (turbine_id,)).fetchone()
         return str(row[0]) if row is not None else None
 
+    def live_event_exists(self, timestamp: str, turbine_id: Optional[str], source: str, event_type: str,
+                          title: str) -> bool:
+        """Live（非情境 session）有沒有一筆時間、機組、來源、種類、標題都相同的事件。
+
+        重啟續跑用（WMOM-20261125-03-b）：伺服器被強制關閉前已經記過的事件，重跑同一步時不再記一次。
+
+        Args:
+            timestamp: 事件時間（任何 ISO 格式；比對前正規化）。
+            turbine_id: 機組 ID；None＝風場層事件。
+            source: 事件來源。
+            event_type: 事件種類。
+            title: 事件標題。
+
+        Returns:
+            是否已存在。
+        """
+        query = ("SELECT 1 FROM history_events WHERE timestamp = ? AND source = ? AND event_type = ? AND title = ? "
+                 "AND " + self._NOT_SCENARIO_SQL)
+        params: list = [normalize_iso(timestamp), source, event_type, title, self.SCENARIO_KIND]
+        if turbine_id is None:
+            query += " AND turbine_id IS NULL"
+        else:
+            query += " AND turbine_id = ?"
+            params.append(turbine_id)
+        return self._get_conn().execute(query + " LIMIT 1", params).fetchone() is not None
+
     def live_events(self, after_id: int = 0, turbine_id: Optional[str] = None, start: Optional[str] = None,
                     end: Optional[str] = None, limit: int = 500) -> List[dict]:
         """Live 的事件裡可能可觀測的那些（不含情境 session），依寫入順序。

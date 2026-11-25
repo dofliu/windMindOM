@@ -48,3 +48,7 @@ modules/knowledge/models/
 
 # intro-video 中間產物（逐景 MP4 + 抽查格）— 成片與場景 HTML 有進 git，這層不進
 promo/work/
+
+# 即時模擬的狀態存檔（WMOM_LIVE_RESUME，與風場 DB 同目錄）
+live_checkpoint.pkl
+live_checkpoint.pkl.tmp

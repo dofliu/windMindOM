@@ -1,5 +1,6 @@
 import sys
 import os
+import pickle
 import time
 import math
 import threading
@@ -58,6 +59,18 @@ class WindFarmSimulator:
     # 必須落在 add_turbine() 的逐風機 seed 範圍（1..turbine_count，預設上限 14）之外，
     # 否則某個風機的 seed 會跟這個共用模型撞號（WMOM-20260927-01 code review 發現）。
     _GRID_MODEL_SEED = 1042
+    # Live 落後實際時間時最多補跑多久（秒）：程序被暫停、產生情境、重啟還原之後，落後在這個範圍內就全速
+    # 補跑到現在（歷史連續）；超過就把時鐘跳到現在，留下資料缺口
+    MAX_CATCH_UP_S = 6 * 3600.0
+    # Live 迴圈每隔多久（實際秒）把狀態交給存檔 sink 一次（WMOM-20261125-03-b）
+    CHECKPOINT_INTERVAL_S = 30.0
+    CHECKPOINT_RETRY_S = 5.0  # 存檔失敗後多久再試（實際秒）
+    # 會隨時間演變、存檔 / 還原要帶的狀態。不含執行緒與鎖、callback、Modbus server、一小時的讀值歷史
+    # （``history``，只供前端的走勢小圖）與批次計數（``bulk_runs``：還原不該把它倒回去）
+    _CHECKPOINT_FIELDS = (
+        "wind_model", "grid_model", "turbines", "fault_engine", "_turbulence_gen", "_per_turbine_wind",
+        "_last_yaw_err_rad", "_direction_offset_deg", "_sim_clock", "latest_data",
+    )
 
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
                  turbulence_intensity: float = 0.1,
@@ -84,6 +97,9 @@ class WindFarmSimulator:
         # Optional sink for "fault caused a PLC trip" (set by generate_bulk; WMOM-20261021-03-b)
         self._on_fault_tripped: Optional[Callable[[str, str, int, datetime], None]] = None
 
+        # Live 模擬時鐘：最近一步的時間（tz-aware UTC）；Live 還沒跑過為 None。單調遞增——時間倍率調回 1、
+        # 批次結束、重啟還原之後都從這裡往後走，不跳回實際時間（WMOM-20261125-03-a）
+        self._sim_clock: Optional[datetime] = None
         self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
         # generate_bulk 啟動次數：即時模擬的外部讀取端（OPC UA LiveFeeder）據此辨認批次留下的狀態
@@ -95,6 +111,11 @@ class WindFarmSimulator:
         # 分支（wall_sleep 睡眠，WMOM-20260922-01）都靠它中斷。
         self._wake = threading.Event()
         self._callbacks: List[Callable] = []
+        # Live 迴圈定期呼叫的存檔 sink（收 ``checkpoint_state()`` 的內容）；None＝不存檔
+        self._checkpoint_sink: Optional[Callable[[bytes], None]] = None
+        # 有人要求盡快存檔（操作員剛動過風場）：Live 迴圈在下一步之後存
+        self._checkpoint_requested = False
+        self._emit_failures = 0  # callback 出錯的累計次數（第一次與之後每 600 次印一行）
         self._lock = threading.Lock()
         self._warned_non_finite = False  # non-finite SCADA 警告只印一次
 
@@ -112,6 +133,62 @@ class WindFarmSimulator:
     def on_data(self, callback: Callable[[List[Dict]], None]):
         """Register a callback that receives a list of turbine readings each step."""
         self._callbacks.append(callback)
+
+    def on_checkpoint(self, sink: Optional[Callable[[bytes], None]]) -> None:
+        """設定存檔 sink：Live 迴圈每 ``CHECKPOINT_INTERVAL_S`` 實際秒、在兩步之間呼叫一次。
+
+        Args:
+            sink: 收 ``checkpoint_state()`` 內容的函式；None＝不存檔。
+        """
+        self._checkpoint_sink = sink
+
+    def request_checkpoint(self) -> None:
+        """要求 Live 迴圈盡快存檔一次（下一步之後），不等定期的時間到。
+
+        操作員動過風場（注入 / 清除故障、控制指令、完工修復）之後呼叫：伺服器若在下一次定期存檔前被
+        強制關閉，重啟還原的狀態不會少掉這個動作。沒有存檔 sink 時不做事。
+        """
+        self._checkpoint_requested = True
+
+    def checkpoint_state(self) -> bytes:
+        """把會隨時間演變的狀態打包（``pickle``）：機組物理模型與 PLC、故障引擎、風況 / 電網模型、亂數狀態、
+        模擬時鐘、最新讀值。
+
+        只能在沒有別的執行緒同時推進模擬時呼叫：Live 迴圈自己在兩步之間呼叫，或 Live 迴圈已停
+        （``stop`` / ``stop_live_loop`` 之後）。API 執行緒的操作（注入故障、控制指令）不經過這裡的鎖：
+        存檔若剛好撞上一個做到一半的操作，可能存到中間狀態或打包失敗——打包失敗時 Live 迴圈幾秒後重試；
+        操作完成後的事件會再要求存一次，所以落地的最後一份存檔是操作完成後的狀態。
+
+        Returns:
+            可交給 ``restore_state`` 的內容。
+        """
+        return pickle.dumps({name: getattr(self, name) for name in self._CHECKPOINT_FIELDS},
+                            protocol=pickle.HIGHEST_PROTOCOL)
+
+    def restore_state(self, blob: bytes) -> None:
+        """還原 ``checkpoint_state`` 打包的狀態。Live 迴圈必須是停的。
+
+        一小時的讀值歷史清空（走勢小圖重新累積）；callback、Modbus server、批次計數不動。
+
+        Args:
+            blob: ``checkpoint_state()`` 的回傳值（同一版程式產生的；跨版本的相容性由
+                ``simulator/checkpoint.py`` 的程式指紋把關）。
+
+        Raises:
+            RuntimeError: Live 迴圈還在跑。
+            ValueError: 內容不是這個模擬器的狀態（缺欄位、機組不同）。
+        """
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("Live 迴圈還在跑，不能還原狀態")
+        state = pickle.loads(blob)  # noqa: S301  自己打包的內容
+        if not isinstance(state, dict) or set(state) != set(self._CHECKPOINT_FIELDS):
+            raise ValueError("不是 WindFarmSimulator 的狀態")
+        if list(state["turbines"]) != list(self.turbines):
+            raise ValueError("存檔的機組與目前的不同")
+        with self._lock:
+            for name in self._CHECKPOINT_FIELDS:
+                setattr(self, name, state[name])
+            self.history = {tid: deque(maxlen=self.history_maxlen) for tid in self.turbines}
 
     def start(self, time_step: float = 1.0):
         """Start the simulation loop in a background thread at the given timestep."""
@@ -323,57 +400,95 @@ class WindFarmSimulator:
 
         return readings
 
-    def _loop(self, time_step: float):
-        """Main simulation loop. Supports time_scale for accelerated simulation.
+    @property
+    def sim_clock(self) -> Optional[datetime]:
+        """Live 模擬時鐘：最近一步的時間（tz-aware UTC）；Live 還沒跑過為 None。"""
+        return self._sim_clock
 
-        time_scale=1: real-time (1 physics second per wall second)
-        time_scale=60: 60 physics seconds per wall second (1 min/s)
-        time_scale=3600: 1 hour of simulation per wall second
+    def _emit(self, readings: List[Dict]) -> None:
+        """把一步的讀值交給各 callback（個別 callback 出錯不影響模擬）。
+
+        出錯不往上丟，但要看得到：第一次與之後每 600 次印一行（callback 每一步都呼叫，逐次印會洗版）。
+        """
+        for cb in self._callbacks:
+            try:
+                cb(readings)
+            except Exception as exc:  # noqa: BLE001  寫入端出錯不能讓風場停下來
+                self._emit_failures += 1
+                if self._emit_failures == 1 or self._emit_failures % 600 == 0:
+                    print(f"[Simulator] callback 出錯（累計 {self._emit_failures} 次）：{exc!r}")
+
+    def _loop(self, time_step: float):
+        """Live 主迴圈：固定節拍、模擬時鐘單調（WMOM-20261125-03-a）。
+
+        - 每一步把模擬時鐘往前推 ``time_step`` 秒，並以這個時間算物理——時鐘與物理的 dt 一致，
+          不會因為每步的計算時間而慢慢落後。時鐘起點對齊整秒。
+        - ``time_scale`` ≤ 1：實際時間走到下一步的時間才算下一步（1 模擬秒 / 實際秒）。落後時（程序被
+          暫停、產生情境之後、重啟還原之後）不等待、全速補跑；落後超過 ``MAX_CATCH_UP_S`` 就把時鐘跳到
+          現在，留下資料缺口。
+        - ``time_scale`` > 1：每個實際秒跑 ``int(time_scale)`` 步，時鐘因此跑在實際時間前面；調回 1
+          之後維持領先的量繼續走，不跳回實際時間。
+        - 每一步都呼叫 callback（加速時也是）：寫入的間隔、事件的時間都跟模擬時鐘。
 
         模擬時間一律 tz-aware UTC（WMOM-20261021-03-c）。
         """
-        sim_time = utc_now()
+        step = timedelta(seconds=time_step)
+        clock = self._sim_clock
+        if clock is None:
+            # 第一步就是「現在」（對齊整秒）：往回一步，讓迴圈第一輪不必等待
+            clock = utc_now().replace(microsecond=0) - step
+        lead = max(timedelta(0), clock + step - utc_now())  # 模擬時鐘領先實際時間的量
+        accelerated = False
+        next_checkpoint = time.monotonic() + self.CHECKPOINT_INTERVAL_S
 
         while self._running:
             try:
-                ts = self.wind_model.time_scale
-                if ts <= 1.0:
-                    # Real-time mode: 1 step per wall-clock second
-                    sim_time = utc_now()
-                    readings = self._run_one_step(sim_time, time_step)
-                    for cb in self._callbacks:
-                        try:
-                            cb(readings)
-                        except Exception:
-                            pass
-                    self._wake.wait(time_step)
+                if self._checkpoint_sink is not None and (
+                        self._checkpoint_requested or time.monotonic() >= next_checkpoint):
+                    # 在兩步之間存檔：這時沒有別的執行緒在改模型
+                    self._checkpoint_requested = False
+                    next_checkpoint = time.monotonic() + self.CHECKPOINT_INTERVAL_S
+                    try:
+                        self._checkpoint_sink(self.checkpoint_state())
+                    except Exception as exc:  # noqa: BLE001  存檔失敗不影響模擬
+                        print(f"[Simulator] 存檔失敗：{exc}")
+                        # 不等下一個定期時間：幾秒後再試（多半是撞上 API 執行緒正在改模型）
+                        next_checkpoint = time.monotonic() + self.CHECKPOINT_RETRY_S
+                scale = self.wind_model.time_scale
+                if scale <= 1.0:
+                    if accelerated:
+                        accelerated = False
+                        lead = max(timedelta(0), clock - utc_now())
+                    target = utc_now() + lead  # 時鐘現在應該走到哪
+                    next_time = clock + step
+                    behind = (target - next_time).total_seconds()
+                    if behind < 0:
+                        # 下一步的時間還沒到。stop() 會喚醒；其餘情況醒來後回頂端重新判斷
+                        self._wake.wait(-behind)
+                        continue
+                    if behind > self.MAX_CATCH_UP_S:
+                        next_time = target.replace(microsecond=0)  # 落後太多：跳到現在
+                    clock = next_time
+                    self._sim_clock = clock
+                    self._emit(self._run_one_step(clock, time_step))
                 else:
                     # Accelerated mode: run multiple physics steps per wall second
-                    # Each wall second advances sim_time by time_scale seconds
-                    steps_per_tick = int(ts)
-                    wall_sleep = max(0.1, time_step / ts * steps_per_tick)
-
+                    accelerated = True
+                    steps_per_tick = int(scale)
+                    wall_sleep = max(0.1, time_step / scale * steps_per_tick)
                     for _ in range(steps_per_tick):
                         if not self._running:
                             break
-                        sim_time += timedelta(seconds=time_step)
-                        readings = self._run_one_step(sim_time, time_step)
-
-                    # Only fire callbacks once per wall-tick (with latest readings)
-                    for cb in self._callbacks:
-                        try:
-                            cb(readings)
-                        except Exception:
-                            pass
-
-                    # 比照 real-time 分支（見上）：accelerated 模式的 wall_sleep 也要能被
-                    # stop() 立刻中斷，否則高倍速模式下 stop() 得等到這次 wall_sleep 自然
-                    # 結束才能 join()（WMOM-20260720-08 review 已知留待處理的 open question）。
+                        clock += step
+                        self._sim_clock = clock
+                        self._emit(self._run_one_step(clock, time_step))
+                    # 比照 real-time 分支：wall_sleep 也要能被 stop() 立刻中斷，否則高倍速模式下
+                    # stop() 得等到這次 wall_sleep 自然結束才能 join()（WMOM-20260922-01）。
                     self._wake.wait(wall_sleep)
 
             except Exception as e:
                 print(f"[Simulator] Error: {e}")
-                time.sleep(1)
+                self._wake.wait(1)  # 可被 stop() 喚醒，不用 time.sleep
 
     def _link_faults_to_plc(self, tid: str, model: TurbinePhysicsModel,
                             faults: List[ActiveFault], sim_time: datetime) -> None:

@@ -49,7 +49,8 @@ async def lifespan(app: FastAPI):
     # 產生情境/調閱過去情境），選定才由 /api/source/select 呼叫 activate_* 啟動。這修掉
     # 「一進系統就自動以預設風場產生資料」。
     farm_id = farm_registry.ensure_default_farm()
-    print(f"[Server] Active farm: {farm_id} (idle — awaiting source selection)")
+
+    _apply_continuous_run_settings(farm_id)
 
     # Start WebSocket broadcast task（未選來源前 broker.get_all_turbines() 回空、不廣播）
     task = asyncio.create_task(_ws_broadcast_loop())
@@ -76,6 +77,36 @@ async def lifespan(app: FastAPI):
             broker.simulator.modbus_server.stop()
         broker.stop()
         print("[Server] Shutdown complete")
+
+
+def _apply_continuous_run_settings(farm_id: str) -> None:
+    """依環境變數設定持續運轉的仿真風場（WMOM-20261125-03-b；兩個都要明確開，預設都關）。
+
+    - ``WMOM_LIVE_RESUME=true``：即時模擬的狀態定期存檔、啟動時還原（重啟前鎖存的跳機、疲勞、結垢都還在）。
+    - ``WMOM_AUTOSTART_SOURCE=simulation``：開機就啟動即時模擬，不等人登入選來源。啟動失敗不讓伺服器起不來，
+      留在未選來源的狀態。
+
+    Args:
+        farm_id: 啟用中的風場（只用在啟動訊息）。
+    """
+    broker.checkpoint_enabled = _env_flag("WMOM_LIVE_RESUME")
+    autostart = os.environ.get("WMOM_AUTOSTART_SOURCE", "").strip().lower()
+    if autostart == "simulation":
+        try:
+            activate_simulation(run_loop=True)
+            resumed = "resumed from checkpoint" if broker.live_restored else "fresh state"
+            print(f"[Server] Active farm: {farm_id} (autostart: live simulation, {resumed})")
+            return
+        except Exception as exc:  # noqa: BLE001  自動啟動失敗不能讓伺服器起不來
+            print(f"[Server] Warning: 自動啟動即時模擬失敗（{exc!r}），等待選擇資料來源")
+    elif autostart:
+        print(f"[Server] Warning: WMOM_AUTOSTART_SOURCE={autostart!r} 不支援（只認 simulation），不自動啟動")
+    print(f"[Server] Active farm: {farm_id} (idle — awaiting source selection)")
+
+
+def _env_flag(name: str) -> bool:
+    """環境變數是否為真（true / 1 / yes / on，大小寫不拘）。"""
+    return os.environ.get(name, "").strip().lower() in ("true", "1", "yes", "on")
 
 
 def _stop_modbus() -> None:
@@ -110,8 +141,10 @@ def _start_modbus_for(simulator: 'Optional[WindFarmSimulator]') -> None:
         print(f"[Server] Warning: Modbus TCP server not started: {e}")
 
 
-def activate_simulation(run_loop: bool = True) -> None:
+def activate_simulation(run_loop: bool = True, fresh: bool = False) -> None:
     """啟動模擬來源：起 simulator + 套風場 spec（+ Modbus）。由 ``/api/source/select`` 呼叫、可重入。
+
+    ``fresh=True``：即使開了重啟續跑（``WMOM_LIVE_RESUME``）也不還原存檔，風場從頭開始（WMOM-20261125-03-b）。
 
     ``run_loop=True``（「即時模擬」）＝自由跑連續產資料 + 起 Modbus TCP（給外部 client 讀即時值）。
     ``run_loop=False``（「產生情境」，DEC-20260720-01 PR B）＝只建 simulator 供批次生成、**不自由跑**、
@@ -126,6 +159,7 @@ def activate_simulation(run_loop: bool = True) -> None:
         DataSourceConfig(mode=DataSourceMode.SIMULATION),
         SimulationConfig(turbineCount=turbine_count),
         run_loop=run_loop,
+        fresh=fresh,
     )
 
     if farm and farm.turbine_spec and broker.simulator:
@@ -133,7 +167,9 @@ def activate_simulation(run_loop: bool = True) -> None:
         try:
             spec = TurbineSpec.from_farm_dict(farm.turbine_spec)
             for model in broker.simulator.turbines.values():
-                model.update_spec(spec)
+                # 規格相同就不重套：update_spec 會重建 PLC 保護層，從存檔還原的鎖存與計數會被清掉
+                if model.spec != spec:
+                    model.update_spec(spec)
         except Exception as e:  # noqa: BLE001
             print(f"[Server] Warning: could not apply farm spec: {e}")
 

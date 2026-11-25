@@ -155,8 +155,9 @@ def status() -> Dict[str, JsonValue]:
         "contract_version": CONTRACT_VERSION,
         "server_time": sp.iso_z(iso_utc()),
         "live": _live(broker),
-        # 即時資料的連續段編號：風場狀態被重設（產生情境的批次會這樣）時加 1，數字變了表示資料在那裡不連續
-        "live_epoch": int(simulator.bulk_runs) if simulator is not None else 0,
+        # 即時資料的連續段編號：風場狀態從頭開始時才會變（重啟續跑、產生情境都不會），數字變了表示資料
+        # 在那裡不連續
+        "live_epoch": int(broker.live_epoch),
         "time_scale": float(simulator.time_scale) if simulator is not None else 1.0,
         "sample_period_s": broker.live_sample_period_s,
         "latest_reading_ts": sp.iso_z(iso_utc(max(latest))) if latest else None,

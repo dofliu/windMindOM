@@ -19,7 +19,9 @@
 最後更新：2026-11-26（`WMOM-20261125-02` done：對外唯讀 API `/api/ext/v1` 與外部系統的 API 金鑰，DEC-20261126-01；研究架構圖定稿）。
 主線 **EPIC-SF 仿真運維風場**（DEC-20261125-01）：像真實風場一樣持續運轉、資料循環保存、可設定故障與耗損、工單 / 定檢 / 可用率連動、成本、對外資料 API 給外部的 RAG 運維助理；出發前助理保留為工單上的準備卡。
 **下個 session 起依此挑題**（劉老師 2026-11-25 確認順序與預設值）：
-- ▶️ 下一個：`WMOM-20261125-03` 長時間運轉的基礎——建議先做重啟續跑與固定取樣間隔（直接影響對外 API 給出去的資料連不連續），再做保留期與分層儲存；-02 的實測發現已寫進該 issue
+- ✅ `WMOM-20261125-03-a` Live 時鐘只往前走、寫入對齊 10 秒；`-03-b` 重啟續跑（2026-11-26，DEC-20261126-02）
+- ▶️ 下一個：`WMOM-20261125-03-c` 保留期可設定、分層儲存（近期 SQLite、長期每日 Parquet）
+- 🏃 要讓風場持續運轉：伺服器開 `WMOM_LIVE_RESUME=true` 與 `WMOM_AUTOSTART_SOURCE=simulation`
 - 之後依序：`-04` 運維閉環 → `-05` 出發前準備卡 → `-06` 機率式故障產生器 → `WMOM-20260504-11` 成本 → `-07` 實測風況匯入
 - 🔌 RAG 運維助理要接：伺服器開 `WMOM_AUTH_ENFORCE=true`，`python tools/external_api_keys.py create rag-assistant` 發金鑰，照 `docs/integration/external_api_v1.md` 接
 - 🖼️ 研究架構圖：`docs/architecture/research-framework.md`

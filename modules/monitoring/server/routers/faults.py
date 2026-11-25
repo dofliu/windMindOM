@@ -260,9 +260,8 @@ def _run_test_plan_in_slot(plan_id: str, body: dict) -> dict:
         )
         # Downsampling after bulk generation
         b.storage.run_downsampling()
-
-    # Get final fault status
-    fault_status = b.simulator.fault_engine.get_fault_status()
+        # 測試計畫結束時的故障狀態要在這裡取：離開這個區塊之後，即時模擬的狀態會被還原（WMOM-20261125-03-b）
+        fault_status = b.simulator.fault_engine.get_fault_status()
 
     stats = b.storage.get_db_stats()
     return {

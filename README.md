@@ -86,6 +86,8 @@ npm run dev
 | `WMOM_JWT_SECRET` | JWT 簽章金鑰（未設且沒開 `WMOM_DEV_MODE` 時啟動會 raise） |
 | `WMOM_AUTH_ENFORCE=true` | 全面強制登入（未開時沒帶 token 的請求退回 dev 行為）；**正式評測必開** |
 | `WMOM_DEV_MODE=true` | 僅測試 / demo：跳過職責分離檢查（一人可走完建單到簽核）、沒設金鑰時用隨機 dev 金鑰；正式部署不要開 |
+| `WMOM_AUTOSTART_SOURCE=simulation` | 開機就啟動即時模擬，不等人登入選來源（持續運轉的仿真風場用） |
+| `WMOM_LIVE_RESUME=true` | 即時模擬的狀態定期存檔（`live_checkpoint.pkl`，與風場 DB 同目錄）、啟動時還原：重啟前鎖存的跳機、疲勞、結垢都還在。模擬器程式更新後舊存檔不相容，風場會從頭開始。要手動從頭開始：`POST /api/source/select` 帶 `{"mode": "simulation", "fresh": true}` |
 | `WMOM_OPCUA_ENABLE=true` | 即時模擬的 OPC UA server（預設只聽 `127.0.0.1:4840`；`WMOM_OPCUA_HOST` / `WMOM_OPCUA_PORT` 可改） |
 
 ### Docker Compose
