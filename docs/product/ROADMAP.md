@@ -229,7 +229,7 @@ Month 1 結束時，要能對 friendly 客戶說：
 
 ## 現行主線（2026-11-25 起）— EPIC-SF 仿真運維風場
 
-> 依 [DEC-20261125-01](decision_log.md)。不設日期，依序推進；順序是 Claude 建議、劉老師尚未逐項確認。Issue 規格見 [`ISSUES.md`](../../ISSUES.md) 的「2026-11-25 session 新增 issue」，狀態以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
+> 依 [DEC-20261125-01](decision_log.md)。不設日期，依序推進；順序由 Claude 建議、劉老師 2026-11-25 回覆「同意你的規劃」確認。研究架構圖草稿見 WMOM-20261125-08。Issue 規格見 [`ISSUES.md`](../../ISSUES.md) 的「2026-11-25 session 新增 issue」，狀態以 [`STATUS.yaml`](../../STATUS.yaml) 為準。
 
 | 順序 | Issue | 交付 | 狀態 |
 |---|---|---|---|
