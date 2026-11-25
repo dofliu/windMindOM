@@ -305,6 +305,21 @@ class Storage:
         """)
 
         # ── History events (existing) ──
+        # ── 出發前準備卡（WMOM-20261125-05）：每張工單一張；answer_json 是評分用的答案，不對外 ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS briefing_cards (
+                work_order_id TEXT PRIMARY KEY,
+                business_key TEXT NOT NULL,
+                turbine_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                data_cutoff TEXT NOT NULL,
+                card_json TEXT NOT NULL,
+                answer_json TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_briefing_cards_key ON briefing_cards (business_key)")
+
         # ── 運轉狀態紀錄（WMOM-20261125-04）：每台機組每小時在各種狀態下的秒數與電量 ──
         # 可用率、停機時數、損失發電量由它計算；只記 Live（即時模擬），永久保留（一台機組一年 8,760 列）
         conn.execute("""
@@ -1766,6 +1781,80 @@ class Storage:
         query += " ORDER BY id LIMIT ?"
         params.append(limit)
         return self._get_conn().execute(query, params).fetchall()
+
+    def save_briefing(self, work_order_id: str, business_key: str, turbine_id: str, kind: str, data_cutoff: str,
+                      card: Dict, answer: Optional[Dict] = None) -> bool:
+        """存一張出發前準備卡。卡片不可變：同一張工單已經有卡就不動（建立當下的卡與答案要留著）。
+
+        Args:
+            work_order_id: 工單 id。
+            business_key: 工單的業務編號。
+            turbine_id: 模擬器的機組 ID。
+            kind: 卡片種類（``fault_dispatch``）。
+            data_cutoff: 資料截止點（風場時鐘，任何 ISO 格式）。
+            card: 卡片內容（只含可觀測資料）。
+            answer: 評分用的答案（工單建立當下機組實際的故障）；不對外。
+
+        Returns:
+            這次有沒有寫入（已經有卡時為 False）。
+        """
+        conn = self._get_conn()
+        written = conn.execute(
+            "INSERT INTO briefing_cards (work_order_id, business_key, turbine_id, kind, created_at, "
+            "data_cutoff, card_json, answer_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (work_order_id) DO NOTHING",
+            (work_order_id, business_key, turbine_id, kind, iso_utc(), normalize_iso(data_cutoff),
+             json.dumps(card, ensure_ascii=False),
+             json.dumps(answer, ensure_ascii=False) if answer is not None else None)).rowcount
+        conn.commit()
+        return written > 0
+
+    def briefing_work_order_ids(self, work_order_ids: List[str]) -> set:
+        """這些工單裡哪些有出發前準備卡（一次查完，不必逐張讀整張卡）。
+
+        Args:
+            work_order_ids: 工單 id。
+
+        Returns:
+            有卡的工單 id。
+        """
+        found: set = set()
+        conn = self._get_conn()
+        for offset in range(0, len(work_order_ids), 500):
+            chunk = work_order_ids[offset:offset + 500]
+            marks = ", ".join("?" * len(chunk))
+            found.update(str(row[0]) for row in conn.execute(
+                f"SELECT work_order_id FROM briefing_cards WHERE work_order_id IN ({marks})", chunk))
+        return found
+
+    def get_briefing(self, work_order_id: Optional[str] = None, business_key: Optional[str] = None) -> Optional[Dict]:
+        """讀一張出發前準備卡（以工單 id 或業務編號）。
+
+        Args:
+            work_order_id: 工單 id。
+            business_key: 工單的業務編號（沒給 id 時用）。
+
+        Returns:
+            ``{"work_order_id", "business_key", "turbine_id", "kind", "created_at", "data_cutoff", "card",
+            "answer"}``；沒有這張卡時為 None。``answer`` 是評分用的答案，呼叫端要自己決定給不給。
+        """
+        if work_order_id is not None:
+            row = self._get_conn().execute(
+                "SELECT * FROM briefing_cards WHERE work_order_id = ?", (work_order_id,)).fetchone()
+        elif business_key is not None:
+            row = self._get_conn().execute(
+                "SELECT * FROM briefing_cards WHERE business_key = ? ORDER BY created_at DESC LIMIT 1",
+                (business_key,)).fetchone()
+        else:
+            return None
+        if row is None:
+            return None
+        return {
+            "work_order_id": row["work_order_id"], "business_key": row["business_key"],
+            "turbine_id": row["turbine_id"], "kind": row["kind"], "created_at": row["created_at"],
+            "data_cutoff": row["data_cutoff"], "card": json.loads(row["card_json"]),
+            "answer": json.loads(row["answer_json"]) if row["answer_json"] else None,
+        }
 
     AVAILABILITY_STATES = ("producing", "ready", "planned", "unplanned")
 

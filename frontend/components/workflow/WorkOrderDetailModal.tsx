@@ -20,6 +20,7 @@ import {
   type WorkOrderResponse,
 } from '../../services/workOrderService';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { BriefingCard } from './BriefingCard';
 import {
   followupLabel,
   fmtDateTime,
@@ -301,6 +302,11 @@ const WorkOrderDetailModal: React.FC<Props> = ({
                 </div>
               </Card>
             </div>
+
+            {/* 出發前準備卡（WMOM-20261125-05）：故障維修工單才有 */}
+            {wo.type === 'corrective' && (
+              <BriefingCard workOrderId={wo.id} farmId={wo.farm_id} lang={lang} />
+            )}
 
             {/* Description */}
             <Card tone="muted">

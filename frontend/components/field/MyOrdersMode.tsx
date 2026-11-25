@@ -17,6 +17,7 @@ import { workOrderApi } from '../../services/workOrderService';
 import type { WorkOrderResponse } from '../../services/workOrderService';
 import { authFetch } from '../../services/authClient';
 import { Card, Btn, PageHeader, StatusPill, Field, Input } from '../ui';
+import { BriefingCard } from '../workflow/BriefingCard';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8100';
 
@@ -312,6 +313,8 @@ export const MyOrdersMode: React.FC<MyOrdersModeProps> = ({ lang }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WorkOrderResponse | null>(null);
+  // 展開哪一張工單的出發前準備卡（WMOM-20261125-05）
+  const [briefingFor, setBriefingFor] = useState<string | null>(null);
   // 請求序號：切換登入者時並發 reload，只套用「最新一次」的結果（防慢網路下
   // stale 回應覆寫新資料 — 現場 4G 弱訊號場景）。
   const reqId = useRef(0);
@@ -405,6 +408,26 @@ export const MyOrdersMode: React.FC<MyOrdersModeProps> = ({ lang }) => {
                 {o.status}
               </StatusPill>
             </div>
+            {o.type === 'corrective' && farmId && (
+              <div style={{ marginTop: 10 }}>
+                <Btn
+                  variant="secondary"
+                  fullWidth
+                  ariaLabel={`${zh ? '出發前準備' : 'Briefing'} ${o.business_key}`}
+                  ariaPressed={briefingFor === o.id}
+                  onClick={() => setBriefingFor(prev => (prev === o.id ? null : o.id))}
+                >
+                  {briefingFor === o.id
+                    ? (zh ? '收起出發前準備' : 'Hide briefing')
+                    : (zh ? '出發前準備' : 'Pre-departure briefing')}
+                </Btn>
+                {briefingFor === o.id && (
+                  <div style={{ marginTop: 10 }}>
+                    <BriefingCard workOrderId={o.id} farmId={farmId} lang={lang} />
+                  </div>
+                )}
+              </div>
+            )}
             {finishable && (
               <div style={{ marginTop: 10 }}>
                 <Btn

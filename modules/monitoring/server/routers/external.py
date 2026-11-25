@@ -29,10 +29,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Annotated, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Annotated, Dict, List, Optional, Tuple
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from modules.auth.api_keys import require_api_key
 from modules.auth.dependencies import is_auth_enforced
@@ -48,7 +48,7 @@ JsonValue = sp.JsonValue
 
 # 對外 API 自己的版本（端點、參數、翻頁方式）。資料格式（讀值欄位、事件、10 分鐘統計）跟著資料介面合約
 # （``CONTRACT_VERSION``）：加端點 / 加欄位升次版本，改名 / 刪除升主版本並換路徑前綴。
-EXTERNAL_API_VERSION = "1.1"
+EXTERNAL_API_VERSION = "1.2"
 
 READINGS_DEFAULT_LIMIT = 500
 READINGS_MAX_LIMIT = 2000
@@ -58,9 +58,14 @@ EVENTS_MAX_LIMIT = 2000
 STATS_MAX_RANGE = timedelta(hours=24)
 # 事件 / 統計在內部一次向 storage 取幾列
 _SCAN_BATCH = 1000
+WORK_ORDERS_MAX_LIMIT = 500
+WORK_ORDERS_DEFAULT_LIMIT = 200
 # 事件一個請求最多掃幾批（可觀測事件很稀疏時，避免一個請求掃完整張表）
 _MAX_SCAN_BATCHES = 20
 _SQLITE_INT_MAX = 2**63 - 1
+
+if TYPE_CHECKING:
+    from modules.workflow.domain.work_order import WorkOrder
 
 logger = logging.getLogger(__name__)
 
@@ -395,3 +400,112 @@ def active_alarms() -> Dict[str, JsonValue]:
             "trip2": list(lists.get("T2", [])),
         })
     return {"live": True, "turbines": turbines}
+
+
+def _work_order_repository(broker: DataBroker):  # noqa: ANN202  回傳型別在工單模組裡，這裡不在模組層 import 它
+    """目前這座風場的工單 repository（工單和讀值存在同一個風場 DB）。"""
+    from modules.workflow.repository.work_order_repository import get_repository
+
+    return get_repository(str(broker.storage.db_path))
+
+
+_CURSOR_SEPARATOR = "~"
+
+
+def _work_order_cursor(value: Optional[str]) -> Optional[Tuple[datetime, str]]:
+    """工單清單的游標（``建立時間~工單編號``）→ repository 用的 ``(created_at, business_key)``。
+
+    游標只含英數字與 ``-``、``:``、``.``、``~``：可以直接放進網址，不必編碼（時間用 ``Z`` 結尾——``+00:00``
+    的 ``+`` 沒編碼會被當成空白）。
+    """
+    if value is None or value == "":
+        return None
+    stamp, _, key = value.partition(_CURSOR_SEPARATOR)
+    moment = _aware_time("after", stamp) if stamp and key else None   # 時間要帶時區，同其他端點
+    if moment is None:
+        raise HTTPException(422, "after 不是這個端點回傳的 next_cursor")
+    return moment.astimezone(timezone.utc), key
+
+
+@router.get("/work-orders")
+def work_orders(
+    turbine_id: Annotated[Optional[str], Query(min_length=1, max_length=64)] = None,
+    open_only: Annotated[bool, Query(description="只列未結案的")] = False,
+    after: Annotated[Optional[str], Query(max_length=120, description="游標：上一頁回傳的 next_cursor")] = None,
+    limit: Annotated[int, Query(ge=1, le=WORK_ORDERS_MAX_LIMIT)] = WORK_ORDERS_DEFAULT_LIMIT,
+) -> Dict[str, JsonValue]:
+    """風場的工單，依建立順序由舊到新；以 ``next_cursor`` 往後翻頁或輪詢新工單（1.2 起）。
+
+    只給結構化欄位：編號、機組、類型、狀態、優先級、警報碼、各階段的時間。標題、說明、施工摘要是自由文字，
+    不給。只列對得到機組的工單。工單的時間是**實際時間**，不是風場時鐘。
+
+    Args:
+        turbine_id: 只取這台機組；不給＝全部。
+        open_only: 只列未結案的。
+        after: 游標（上一頁的 ``next_cursor``）；不給＝從最舊的開始。
+        limit: 一頁最多幾筆。
+
+    Returns:
+        ``{"work_orders": [...], "next_cursor": str | None, "has_more": bool}``；每筆多一個
+        ``has_briefing``（有沒有出發前準備卡）。``next_cursor`` 是下一次要帶的 ``after``；還沒有任何工單時
+        為 None。
+    """
+    from server.briefing import public_work_order
+    from server.om_loop import sim_turbine_id
+
+    broker = get_broker()
+    farm_id = broker._active_farm_id
+    simulator = broker.simulator
+    cursor = _work_order_cursor(after)
+    if not farm_id or simulator is None:
+        return {"work_orders": [], "next_cursor": after, "has_more": False}
+    known = list(simulator.turbines)
+    repository = _work_order_repository(broker)
+    picked: List[Tuple[WorkOrder, str]] = []
+    has_more = False
+    for _ in range(_MAX_SCAN_BATCHES):
+        batch = repository.list_forward(farm_id=farm_id, after=cursor, only_open=open_only, limit=_SCAN_BATCH)
+        for order in batch:
+            mapped = sim_turbine_id(order.turbine_id, known)
+            # 對不到機組的工單（機組欄位是自由文字）不給
+            if mapped is not None and (turbine_id is None or mapped == turbine_id):
+                if len(picked) >= limit:
+                    has_more = True
+                    break
+                picked.append((order, mapped))
+            cursor = (order.created_at.astimezone(timezone.utc), order.business_key)
+        if has_more or len(batch) < _SCAN_BATCH:
+            break
+    else:
+        has_more = True   # 掃到上限還沒掃完：下一頁從游標接著掃
+    with_card = broker.storage.briefing_work_order_ids([str(order.id) for order, _ in picked])
+    out: List[Dict[str, JsonValue]] = []
+    for order, mapped in picked:
+        item = public_work_order(order, mapped)
+        item["has_briefing"] = str(order.id) in with_card
+        out.append(item)
+    next_cursor = f"{sp.iso_z(iso_utc(cursor[0]))}{_CURSOR_SEPARATOR}{cursor[1]}" if cursor is not None else None
+    return {"work_orders": out, "next_cursor": next_cursor, "has_more": has_more}
+
+
+@router.get("/work-orders/{business_key}/briefing")
+def work_order_briefing(
+    business_key: Annotated[str, Path(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9-]+$")],
+) -> Dict[str, JsonValue]:
+    """一張工單的出發前準備卡（1.2 起）。
+
+    卡片是伺服器用規則整理的證據摘要，只含這個 API 本來就給得出去的資料（讀值、PLC 事件、工單的結構化欄位、
+    手冊），以工單建立當下的風場時鐘為資料截止點，不判定根因。外部助理可以拿同一批資料產生自己的摘要，
+    再和這張卡比較。
+
+    Args:
+        business_key: 工單編號（``/work-orders`` 的 ``business_key``）。
+
+    Returns:
+        ``{"business_key", "turbine_id", "data_cutoff", "card"}``；沒有卡片回 404。
+    """
+    stored = get_broker().storage.get_briefing(business_key=business_key)
+    if stored is None:
+        raise HTTPException(404, "這張工單沒有出發前準備卡")
+    return {"business_key": stored["business_key"], "turbine_id": stored["turbine_id"],
+            "data_cutoff": sp.iso_z(str(stored["data_cutoff"])), "card": stored["card"]}

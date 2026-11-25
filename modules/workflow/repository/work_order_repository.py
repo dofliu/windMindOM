@@ -435,6 +435,41 @@ class WorkOrderRepository:
             items = [self._to_domain(o) for o in sess.execute(page_stmt).scalars()]
             return items, total
 
+    def list_forward(
+        self,
+        *,
+        farm_id: str,
+        after: tuple[datetime, str] | None = None,
+        only_open: bool = False,
+        limit: int = 200,
+    ) -> list[WorkOrder]:
+        """依建立順序由舊到新取一頁（WMOM-20261125-05，對外唯讀 API 的工單清單用）。
+
+        游標是上一頁最後一張的 ``(created_at, business_key)``：同一時刻建立的多張工單以業務編號分出
+        先後，不會漏也不會重複。和 :meth:`list`（新的在前、用 offset）不同，資料一邊增加一邊翻頁也穩定。
+
+        Args:
+            farm_id: 風場 ID。
+            after: 上一頁最後一張的 ``(created_at, business_key)``；None＝從最舊的開始。
+            only_open: 只取未結案的。
+            limit: 最多幾張。
+
+        Returns:
+            工單，依 ``(created_at, business_key)`` 遞增。
+        """
+        with self._sessionmaker() as sess:
+            stmt = select(WorkOrderORM).where(WorkOrderORM.farm_id == farm_id)
+            if only_open:
+                stmt = stmt.where(WorkOrderORM.status.in_([s.value for s in open_states()]))
+            if after is not None:
+                moment, key = after
+                stmt = stmt.where(
+                    (WorkOrderORM.created_at > moment)
+                    | ((WorkOrderORM.created_at == moment) & (WorkOrderORM.business_key > key))
+                )
+            stmt = stmt.order_by(WorkOrderORM.created_at, WorkOrderORM.business_key).limit(limit)
+            return [self._to_domain(o) for o in sess.execute(stmt).scalars()]
+
     # ── State machine wrapping ──────────────────────────────────────
 
     def transition(

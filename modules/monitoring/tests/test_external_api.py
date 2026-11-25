@@ -124,13 +124,15 @@ def _add_scenario_rows(broker: DataBroker) -> int:
 
 _ENDPOINTS = ["/status", "/farm", "/tags", "/alarm-catalog", "/readings/latest", "/readings?turbine_id=WT001",
               "/stats-10min?turbine_id=WT001&start=2026-01-01T00:00:00Z&end=2026-01-01T01:00:00Z",
-              "/events", "/alarms/active"]
+              "/events", "/alarms/active", "/work-orders"]
+# 帶路徑參數的端點：模板 → 測試用的網址（沒有這筆資料時帶金鑰是 404，不帶是 401）
+_PARAM_ENDPOINTS = {"/work-orders/{business_key}/briefing": "/work-orders/WO-NONE-000000-001/briefing"}
 
 
 def test_endpoint_list_covers_every_route() -> None:
     """新增端點時要一起進上面的清單（每個端點都驗金鑰）；對外端點只有 GET。"""
     paths = {r.path for r in ext.router.routes}
-    assert paths == {BASE + e.split("?")[0] for e in _ENDPOINTS}
+    assert paths == {BASE + e.split("?")[0] for e in _ENDPOINTS} | {BASE + e for e in _PARAM_ENDPOINTS}
     assert {m for r in ext.router.routes for m in r.methods} == {"GET"}
 
 
@@ -138,6 +140,13 @@ def test_endpoint_list_covers_every_route() -> None:
 def test_every_endpoint_requires_a_key(client: TestClient, key: str, endpoint: str) -> None:
     assert client.get(BASE + endpoint).status_code == 401
     assert client.get(BASE + endpoint, headers=_h(key)).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint", sorted(_PARAM_ENDPOINTS.values()))
+def test_parameterised_endpoints_require_a_key_too(client: TestClient, key: str, endpoint: str) -> None:
+    assert client.get(BASE + endpoint).status_code == 401
+    assert client.get(BASE + endpoint, headers=_h(key)).status_code == 404, "有金鑰、沒有這筆資料"
+    assert client.get(BASE + "/work-orders/../status/briefing", headers=_h(key)).status_code in (404, 422)
 
 
 @pytest.mark.parametrize("endpoint", ["/readings", "/stats-10min"])
