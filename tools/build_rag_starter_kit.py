@@ -5,9 +5,10 @@
 一個新的暫存 DB（情境 session id 固定、與建置順序無關），不碰伺服器的 DB。
 
 可重產：同一份程式碼、同版 numpy / pyarrow 重跑，資料檔逐位元相同（manifest 的 ``exported_at`` 與答案的
-``generated_at`` 除外；Parquet 檔尾記有 pyarrow 版本，換版本只會差在那裡）。模擬器讀「現在時間」的地方
-有三處：``simulator.engine``（批次起點）、``wind_model``（profile 從現在的自動風況過渡）都在 ``_sim_clock``
-釘住；``fault_engine`` 的 ``started_at`` 與 ``grid_model`` 的 profile 起點目前不影響輸出（測試會擋）。
+``generated_at`` 除外；Parquet 檔尾記有 pyarrow 版本，換版本只會差在那裡）。模擬器讀「現在時間」而且會影響
+輸出的地方只有 ``simulator.engine``（批次起點），在 ``_sim_clock`` 釘住；風況模型只用模擬時間、不必釘
+（WMOM-20261126-03）；``fault_engine`` 的 ``started_at`` 與 ``grid_model`` 的 profile 起點目前不影響輸出
+（測試會擋；``grid_model`` 見 WMOM-20261126-04）。
 
 輸出（預設 ``examples/rag_starter_kit/``）：
 
@@ -42,7 +43,6 @@ for _path in (REPO_ROOT, MONITORING_ROOT):
         sys.path.insert(0, str(_path))
 
 import simulator.engine as engine_mod  # noqa: E402
-import wind_model as wind_model_mod  # noqa: E402
 from server.data_broker import DataBroker  # noqa: E402
 from server.routers import config as config_ep  # noqa: E402
 from server.scenario_pack import export_ground_truth, export_scenario_pack  # noqa: E402
@@ -227,17 +227,16 @@ class _HeadlessBroker:
 
 @contextmanager
 def _sim_clock(start: datetime) -> Iterator[None]:
-    """把時鐘釘在 ``start``：``generate_bulk`` 以 ``utc_now()`` 為起點，``set_profile`` / ``set_override``
-    從「現在」的自動風況平滑過渡到設定風況——兩者都要釘住，資料才能重產。"""
-    modules = (engine_mod, wind_model_mod)
-    originals = [m.utc_now for m in modules]
-    for module in modules:
-        module.utc_now = lambda: start
+    """把批次的起點釘在 ``start``：``generate_bulk`` 以 ``utc_now()`` 為起點，釘住它資料才能重產。
+
+    風況模型不讀時鐘（``set_profile`` / ``set_override`` 的漸變起點用批次的模擬時間，WMOM-20261126-03），
+    不必另外釘。"""
+    original = engine_mod.utc_now
+    engine_mod.utc_now = lambda: start
     try:
         yield
     finally:
-        for module, original in zip(modules, originals):
-            module.utc_now = original
+        engine_mod.utc_now = original
 
 
 def generate(storage: Storage, spec: StarterPack) -> int:

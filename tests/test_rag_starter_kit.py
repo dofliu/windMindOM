@@ -617,10 +617,11 @@ def test_pack_reader_rejects_a_tampered_pack(tmp_path: Path) -> None:
         pack_reader.load_pack(copy)
 
 
-def test_build_tool_generates_a_small_pack(tmp_path: Path) -> None:
+def test_build_tool_generates_a_small_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import build_rag_starter_kit as builder
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, tzinfo
 
+    import simulator.time_utils as time_utils
     from server.storage import Storage
 
     spec = builder.StarterPack(
@@ -631,9 +632,8 @@ def test_build_tool_generates_a_small_pack(tmp_path: Path) -> None:
     )
     with builder._sim_clock(spec.start):
         import simulator.engine as engine_mod
-        import wind_model as wind_model_mod
 
-        assert engine_mod.utc_now() == wind_model_mod.utc_now() == spec.start, "兩處時鐘都要釘住才能重產"
+        assert engine_mod.utc_now() == spec.start, "批次的起點要釘住才能重產"
     storage = Storage(db_path=str(tmp_path / "kit.db"))
     sid = builder.generate(storage, spec)
     manifest = sp.export_scenario_pack(storage, sid, tmp_path / "packs" / spec.pack_id, pack_id=spec.pack_id)
@@ -649,7 +649,16 @@ def test_build_tool_generates_a_small_pack(tmp_path: Path) -> None:
         sp.export_ground_truth(storage, 99999, tmp_path / "none.json")
     assert exc.value.status_code == 404
 
-    # 可重產：同一個設定再生成一次（全新 DB），資料檔逐位元相同（_sim_clock 釘住時鐘才成立）
+    # 可重產：同一個設定在另一個實際時間（別的季節、別的時刻）再生成一次（全新 DB），資料檔逐位元相同——
+    # _sim_clock 釘住批次起點，風況的漸變起點用模擬時間、不讀實際時間（WMOM-20261126-03）
+    class _AnotherDay(datetime):
+        @classmethod
+        def now(cls, tz: Optional[tzinfo] = None) -> datetime:
+            moment = datetime(2031, 8, 9, 13, 37, 41, tzinfo=timezone.utc)
+            return moment.astimezone(tz) if tz is not None else moment.replace(tzinfo=None)
+
+    monkeypatch.setattr(time_utils, "datetime", _AnotherDay)
+    assert time_utils.utc_now().year == 2031, "前提：模擬器經 time_utils 讀到的實際時間已經換掉"
     storage2 = Storage(db_path=str(tmp_path / "kit2.db"))
     manifest2 = sp.export_scenario_pack(storage2, builder.generate(storage2, spec), tmp_path / "again",
                                         pack_id=spec.pack_id)
