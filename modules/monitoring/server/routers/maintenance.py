@@ -1,7 +1,12 @@
 """
-Maintenance work order and technician management API.
+Maintenance work order and technician management API（**舊介面**）.
 
 Replaces the frontend mock data with real persistent storage.
+
+這是 digiWT 時期的工單表（風場 DB 裡的 ``work_orders`` / ``technicians``），只有狀態欄位、沒有狀態機與簽核。
+正式的工單在 ``modules/workflow``（``/api/workflow/work-orders``）。運維閉環（WMOM-20261125-04：跳機開單、
+完工修復機組、可用率）只接正式的工單——這裡的工單完工**不會**修復模擬器裡的機組。保留是因為既有畫面
+（``frontend`` 的 ``useMaintenanceData``）還在用；新功能不要接這裡。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query

@@ -42,6 +42,7 @@ from modules.workflow.domain import (
 )
 from modules.workflow.domain.day_work_form import ActivityEntry, ActivityKind
 from modules.workflow.domain.work_order import _utc_now
+from modules.workflow.hooks import notify_work_order
 
 from ._helpers import (
     assert_utc as _assert_utc_helper,
@@ -284,7 +285,7 @@ class WorkOrderRepository:
         last_err: Exception | None = None
         for _attempt in range(2):  # max 1 retry on business_key collision
             try:
-                return self._create_once(
+                created = self._create_once(
                     farm_id=farm_id,
                     turbine_id=turbine_id,
                     type=type,
@@ -298,6 +299,9 @@ class WorkOrderRepository:
                     estimated_hours=estimated_hours,
                     created_by=created_by,
                 )
+                # 已經寫進資料庫之後才通知（WMOM-20261125-04）；listener 出錯不影響建單
+                notify_work_order(created, "create", None)
+                return created
             except IntegrityError as e:
                 last_err = e
                 # business_key UNIQUE 撞 → retry 一次取下一個 NN
@@ -493,6 +497,9 @@ class WorkOrderRepository:
         if action == "approve_all":
             self._record_completed_wo_activity(result)
 
+        # 已經寫進資料庫之後才通知（WMOM-20261125-04：開工進維修模式、完工修復機組）；
+        # listener 出錯不影響這次狀態轉換
+        notify_work_order(result, action, from_status)
         return result
 
     def _record_completed_wo_activity(self, wo: WorkOrder) -> None:
