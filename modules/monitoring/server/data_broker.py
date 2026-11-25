@@ -29,6 +29,7 @@ from simulator.time_utils import (
 )
 
 if TYPE_CHECKING:
+    from server.om_loop import OmLoop
     from server.opc_adapter import OPCDAAdapter
 
 
@@ -267,6 +268,9 @@ class DataBroker:
         # 保留期的例行工作同一時間只能有一方在跑（maintenance 執行緒每小時一次、管理端可以手動觸發）：
         # 兩邊同時寫日檔與索引會互相蓋掉
         self._retention_lock = threading.Lock()
+        # 運維閉環（跳機開單、完工修復、運轉狀態紀錄，WMOM-20261125-04）：第一次取用時才建立——它會載入
+        # 工單模組，沒開閉環的 broker（測試、工具）不必載入
+        self._om_loop: Optional['OmLoop'] = None
         self.simulator: Optional[WindFarmSimulator] = None
         self._opc_adapter: Optional['OPCDAAdapter'] = None
         self._sim_config = SimulationConfig()
@@ -468,6 +472,10 @@ class DataBroker:
             yield False
             return
         was_running = sim.stop_live_loop()
+        # 運維閉環：批次期間收到的工單動作先記著，Live 的狀態還原之後才套用（WMOM-20261125-04）
+        paused_loop = self._om_loop_if_enabled() if was_running else None
+        if paused_loop is not None:
+            paused_loop.pause()
         # 批次會清故障、重設機組、把模型推到情境的時間；Live 的狀態先留一份，批次結束後還原——即時風場
         # 接著原本的狀態跑（暫停的那段時間由 Live 迴圈補跑），不受產生情境影響（WMOM-20261125-03-b）
         live_state = sim.checkpoint_state() if was_running else None
@@ -491,6 +499,9 @@ class DataBroker:
                 was_running,
                 self._sim_config.timeStep if was_running else 1.0,
             )
+            if paused_loop is not None:
+                # 批次期間有人開工 / 完工 / 撤單：等 Live 的狀態還原、迴圈恢復之後才套用到機組（WMOM-20261125-04）
+                paused_loop.resume()
 
     @property
     def source_active(self) -> bool:
@@ -561,6 +572,9 @@ class DataBroker:
         if run_loop and not self.live_restored:
             # 風場從頭開始（沒開續跑、沒有可用的存檔、選擇從頭開始）：時鐘接在已存的 Live 讀值之後
             self._continue_after_stored_data()
+        loop = self._om_loop_if_enabled()
+        if run_loop and loop is not None:
+            loop.rebuild()  # 進行中的工單 → 哪些機組在維修模式
 
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)
@@ -729,6 +743,9 @@ class DataBroker:
             self._last_write_slot = slot
             self.storage.store_readings(readings, self._session_id)
             self._remember_stored(readings)
+            loop = self._om_loop_if_enabled()
+            if loop is not None:
+                loop.account(readings, float(self.WRITE_INTERVAL_S))  # 運轉狀態紀錄（WMOM-20261125-04）
 
     def _replaying(self) -> bool:
         """目前的執行緒是否在還原存檔後的重跑段裡（Live 執行緒在重跑段送出的事件與快照不寫）。"""
@@ -960,6 +977,19 @@ class DataBroker:
                     last_cleanup = now
             except Exception as e:
                 print(f"[DataBroker] Maintenance error: {e}")
+
+    @property
+    def om_loop(self) -> 'OmLoop':
+        """運維閉環（``server/om_loop.py``）；預設關，伺服器依 ``WMOM_OM_LOOP`` 開。"""
+        if self._om_loop is None:
+            from server.om_loop import OmLoop
+            self._om_loop = OmLoop(self)
+        return self._om_loop
+
+    def _om_loop_if_enabled(self) -> Optional['OmLoop']:
+        """閉環有開才回傳（熱路徑用：沒開就不載入工單模組）。"""
+        loop = getattr(self, "_om_loop", None)  # 以 object.__new__ 建的測試替身沒有這個屬性
+        return loop if loop is not None and loop.enabled else None
 
     @property
     def live_archive(self) -> LiveArchive:
@@ -1432,6 +1462,9 @@ class DataBroker:
             timestamp: 事件發生時刻（ISO，模擬時間軸）；None＝現在時刻。
         """
         self.record_event(**self._plc_event_fields(turbine_id, event), timestamp=timestamp)
+        loop = self._om_loop_if_enabled()
+        if loop is not None and not self._replaying():
+            loop.on_plc_event(turbine_id, event)  # 跳機開單（WMOM-20261125-04）；重跑段不再開
 
     @classmethod
     def _plc_event_fields(cls, turbine_id: str, event: PlcEvent) -> Dict:

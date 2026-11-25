@@ -11,10 +11,7 @@
 
 `modules/monitoring/wind_model.py` 在設定風速覆寫 / ramp profile 的當下用 `utc_now()` 取「現在的自動風況」當漸變起點。批次的模擬時間是固定的，起點卻跟著實際時間變，同樣的設定在不同的實際分鐘產生，前幾分鐘的讀值就不同。全套 backend 測試偶發失敗（`test_nuisance_events.py::test_data_before_a_farm_event_is_identical_to_a_run_without_it`）就是這個原因。
 
-開工時的兩個落差：
-
-- `ISSUES.md` 沒有 `WMOM-20261126-03` 這一條（main 與所有遠端分支都沒有）。依任務說明補上，並照說明的內容做。
-- 任務說明提到 `_farm` helper 已經先固定 `wind_model.utc_now`；repo 裡的 `_farm` 只固定 `simulator.engine.utc_now`，沒有那一行，所以第 4 項沒有東西要拿掉。
+開工時 repo 裡還沒有這張 issue 的條目，`_farm` helper 也還沒有固定 `wind_model.utc_now` 的那一行：這兩樣是隨 WMOM-20261125-04（運維閉環，PR #245）進 main 的，那個 PR 在這個 session 進行到一半時才合併。開 PR 之後把 main 合併進來（見 2.8）。
 
 ## 2. 實際完成
 
@@ -88,6 +85,7 @@ ramp profile 連同一分鐘內都不同，因為 profile 的起點精確到秒�
   - 修正前 26 項有 24 項失敗（通過的兩項是「設了又清掉」「連設兩次」，起點是覆寫值、本來就不取自動風況）。
 - `tests/test_rag_starter_kit.py::test_build_tool_generates_a_small_pack`：第二次生成改在另一個實際時間（2031 年）做，資料檔仍要逐位元相同。拿新的建置工具配修正前的風況模型，這一項會失敗。
 - `tools/build_rag_starter_kit.py` 的 `_sim_clock` 只釘批次起點，不再釘 `wind_model.utc_now`（已經沒有這個名稱）。
+- `test_nuisance_events.py` 的 `_farm`：暫時固定 `wind_model.utc_now` 的那一行拿掉，只釘批次起點。
 
 ### 2.6 Code review 與驗證結果
 
@@ -116,6 +114,15 @@ review 修完後重跑：
 - `FaultEngine.inject` 的 `started_at=utc_now()` 也是實際時間，只出現在管理端的故障狀態清單，不進讀值、事件、資料包，一併寫進 -04 評估。
 - 順帶看到、沒有動：漸變的長度依 `get_wind_speed` 的呼叫次數計（30 步 / 120 步），不是模擬秒數，所以批次（子步 5 s）的漸變是 150 / 600 模擬秒，Live（1 s）是 30 / 120 秒。它不讀實際時間，結果是確定的；改它會動到所有帶覆寫的既有資料。`set_profile("ramp_up")` 之後 `_transition_duration` 留在 120，之後的覆寫也用 120 步。
 
+### 2.8 合併 main（PR #245 運維閉環）
+
+開 PR 時 main 已經多了 WMOM-20261125-04（運維閉環），PR 有衝突、CI 沒有啟動。把 main 合併進分支：
+
+- `ISSUES.md`：main 新增的 `WMOM-20261126-03` 條目（open）與這邊補的條目合成一條——標題與描述用 main 的，狀態改 done，接上完成紀錄。統計 open 12 / in_progress 1 / deferred 2 / done 158 = 173。
+- `STATUS.yaml`、`CLAUDE.md`、`TODO.md`：兩邊的紀錄都留，下一步照 main（EPIC-SF 第 4 項）。
+- `test_nuisance_events.py`：main 帶進來的暫時處理（固定 `wind_model.utc_now`）拿掉。合併後不拿掉的話，這個檔案的測試會因為 `wind_model` 沒有 `utc_now` 而全部出錯。
+- 合併後全套 backend：2472 passed / 7 skipped / 1 xfailed（main 的 2446 passed 加上這次的 26 項）。
+
 ## 3. 產出清單
 
 ### 新增檔案
@@ -129,12 +136,13 @@ review 修完後重跑：
 - `tools/build_rag_starter_kit.py`（`_sim_clock` 只釘批次起點）
 - `tests/test_rag_starter_kit.py`（重產的檢查改在另一個實際時間做）
 - `modules/monitoring/tests/test_healthy_blade_sync.py`（docstring）
+- `modules/monitoring/tests/test_nuisance_events.py`（拿掉暫時固定 `wind_model.utc_now` 的那一行）
 - `docs/product/EPIC-DS_realistic_data_source.md`（「時鐘要釘兩處」加註現況）
 - `ISSUES.md`、`STATUS.yaml`、`TODO.md`、`CLAUDE.md`
 
 ### 動了狀態的 issue
 
-- WMOM-20261126-03：新增條目（原本不在 `ISSUES.md`）→ done
+- WMOM-20261126-03：open → done
 - WMOM-20261126-04（電網 recovery profile 的起點讀實際時間）：新開，open
 
 ### 寫進 decision_log 的決策
@@ -143,7 +151,7 @@ review 修完後重跑：
 
 ## 4. 下次怎麼接手
 
-1. EPIC-SF 第 3 項 `WMOM-20261125-04`（運維閉環），順序不變。
+1. EPIC-SF 第 4 項 `WMOM-20261125-05`（出發前準備卡），順序不變。
 2. `WMOM-20261126-04`（電網 recovery profile）：修法與這次相同，約半天；`test_wind_setting_sim_time.py` 的守門測試加上電網設定即可。
 3. 阻擋項：無。
 

@@ -305,6 +305,23 @@ class Storage:
         """)
 
         # ── History events (existing) ──
+        # ── 運轉狀態紀錄（WMOM-20261125-04）：每台機組每小時在各種狀態下的秒數與電量 ──
+        # 可用率、停機時數、損失發電量由它計算；只記 Live（即時模擬），永久保留（一台機組一年 8,760 列）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS availability_hourly (
+                turbine_id TEXT NOT NULL,
+                hour TEXT NOT NULL,
+                producing_s REAL NOT NULL DEFAULT 0,
+                ready_s REAL NOT NULL DEFAULT 0,
+                planned_s REAL NOT NULL DEFAULT 0,
+                unplanned_s REAL NOT NULL DEFAULT 0,
+                energy_kwh REAL NOT NULL DEFAULT 0,
+                lost_planned_kwh REAL NOT NULL DEFAULT 0,
+                lost_unplanned_kwh REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (turbine_id, hour)
+            )
+        """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS history_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1749,6 +1766,59 @@ class Storage:
         query += " ORDER BY id LIMIT ?"
         params.append(limit)
         return self._get_conn().execute(query, params).fetchall()
+
+    AVAILABILITY_STATES = ("producing", "ready", "planned", "unplanned")
+
+    def add_availability(self, samples: List[Tuple[str, str, str, float, float, float]]) -> None:
+        """把一批運轉狀態取樣累加進 ``availability_hourly``（WMOM-20261125-04）。
+
+        Args:
+            samples: ``[(機組 ID, 小時起點（iso_utc）, 狀態, 秒數, 發電量 kWh, 損失發電量 kWh), ...]``；
+                狀態是 ``AVAILABILITY_STATES`` 之一。損失發電量只在 ``planned`` / ``unplanned`` 時計入。
+
+        Raises:
+            ValueError: 不認得的狀態。
+        """
+        if not samples:
+            return
+        rows = []
+        for turbine_id, hour, state, seconds, energy_kwh, lost_kwh in samples:
+            if state not in self.AVAILABILITY_STATES:
+                raise ValueError(f"不認得的運轉狀態：{state}")
+            rows.append((turbine_id, normalize_iso(hour),
+                         seconds if state == "producing" else 0.0, seconds if state == "ready" else 0.0,
+                         seconds if state == "planned" else 0.0, seconds if state == "unplanned" else 0.0,
+                         energy_kwh, lost_kwh if state == "planned" else 0.0,
+                         lost_kwh if state == "unplanned" else 0.0))
+        conn = self._get_conn()
+        conn.executemany(
+            "INSERT INTO availability_hourly (turbine_id, hour, producing_s, ready_s, planned_s, unplanned_s, "
+            "energy_kwh, lost_planned_kwh, lost_unplanned_kwh) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (turbine_id, hour) DO UPDATE SET producing_s = producing_s + excluded.producing_s, "
+            "ready_s = ready_s + excluded.ready_s, planned_s = planned_s + excluded.planned_s, "
+            "unplanned_s = unplanned_s + excluded.unplanned_s, energy_kwh = energy_kwh + excluded.energy_kwh, "
+            "lost_planned_kwh = lost_planned_kwh + excluded.lost_planned_kwh, "
+            "lost_unplanned_kwh = lost_unplanned_kwh + excluded.lost_unplanned_kwh", rows)
+        conn.commit()
+
+    def availability_totals(self, start: str, end: str) -> List[Dict]:
+        """``[start, end)`` 之間各機組的運轉狀態合計（以小時為單位：算進小時起點落在範圍內的列）。
+
+        Args:
+            start: 時間下限（含，任何 ISO 格式）。
+            end: 時間上限（不含）。
+
+        Returns:
+            每台機組一筆：``turbine_id``、四種狀態的秒數、``energy_kwh``、``lost_planned_kwh``、
+            ``lost_unplanned_kwh``；依機組 ID 排序。
+        """
+        rows = self._get_conn().execute(
+            "SELECT turbine_id, SUM(producing_s) AS producing_s, SUM(ready_s) AS ready_s, "
+            "SUM(planned_s) AS planned_s, SUM(unplanned_s) AS unplanned_s, SUM(energy_kwh) AS energy_kwh, "
+            "SUM(lost_planned_kwh) AS lost_planned_kwh, SUM(lost_unplanned_kwh) AS lost_unplanned_kwh "
+            "FROM availability_hourly WHERE hour >= ? AND hour < ? GROUP BY turbine_id ORDER BY turbine_id",
+            (normalize_iso(start), normalize_iso(end))).fetchall()
+        return [dict(row) for row in rows]
 
     def reading_turbine_ids(self) -> List[str]:
         """``turbine_data`` 裡出現過的機組 ID（含情境 session 的；只掃索引）。"""
