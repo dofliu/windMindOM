@@ -190,6 +190,9 @@ class OmLoop:
         farm_id = self._farm_id()
         if not farm_id:
             return None
+        if blocked and self._has_open_corrective(farm_id, turbine_id):
+            # A039 是「同一個跳機碼一小時內跳太多次」：那個跳機碼的工單還開著，不必為同一件事再開一張
+            return None
         detail = f"{event.level} {event.code:03d} {event.text}"
         if event.value is not None and event.setpoint is not None:
             detail += f"（訊號值 {event.value}、設定值 {event.setpoint}）"
@@ -270,6 +273,17 @@ class OmLoop:
             self._leave_service(turbine_id, work_order, restart=True)
             self._note(f"Work cancelled: {work_order.business_key}", turbine_id, None,
                        {"workOrderId": str(work_order.id)})
+
+    def _has_open_corrective(self, farm_id: str, turbine_id: str) -> bool:
+        """這台機組有沒有未結案的故障維修工單。查不到當成沒有（寧可多開一張）。"""
+        try:
+            for name in self.turbine_names(turbine_id):
+                orders, _total = self._repository().list(farm_id=farm_id, turbine_id=name, only_open=True, limit=10)
+                if any(order.type is WorkOrderType.CORRECTIVE for order in orders):
+                    return True
+        except Exception:  # noqa: BLE001
+            logger.exception("運維閉環：查不到 %s 的未結案工單", turbine_id)
+        return False
 
     def turbine_names(self, turbine_id: str) -> List[str]:
         """一台機組在工單上可能用的名稱：模擬器的 ID 與畫面上的名稱。"""
@@ -665,7 +679,8 @@ class OmLoop:
         if model is not None:
             if model.service_mode:
                 return "planned"
-            if model.maintenance_lock or model.plc.restart_inhibited:
+            # 帶著故障重啟、還沒再跳的那幾分鐘機組在發電：照實算發電（WMOM-20261125-06-a）
+            if model.plc.restart_inhibited or (model.maintenance_lock and state != _PRODUCTION_STATE):
                 return "unplanned"
         return "producing" if state == _PRODUCTION_STATE else "ready"
 
