@@ -175,10 +175,13 @@ def test_emergency_trips_and_blocked_restarts_get_high_priority(farm: Farm) -> N
     assert farm.loop.on_plc_event("WT002", event("alarm_raised", 262, "A")) is None, "一般警報不開單"
     assert farm.loop.on_plc_event("WT002", event("trip_cleared", 242, "T1")) is None
     emergency = farm.loop.on_plc_event("WT002", event("trip", 336, "T2"))
-    blocked = farm.loop.on_plc_event("WT002", event("alarm_raised", 39, "A"))
+    # A039＝同一個跳機碼一小時內跳太多次：那台機組已經有故障維修工單就不另開一張（WMOM-20261125-06-a）
+    assert farm.loop.on_plc_event("WT002", event("alarm_raised", 39, "A")) is None
+    blocked = farm.loop.on_plc_event("WT003", event("alarm_raised", 39, "A"))
     normal = farm.loop.on_plc_event("WT002", event("trip", 242, "T1"))
     assert emergency is not None and blocked is not None and normal is not None
     assert (emergency.priority, blocked.priority, normal.priority) == (Priority.HIGH, Priority.HIGH, Priority.NORMAL)
+    assert farm.loop.on_plc_event("WT002", event("trip", 229, "T1")) is not None
     assert farm.loop.on_plc_event("WT002", event("trip", 240, "T1")) is None, "一台機組最多三張未結案工單"
     assert farm.loop.on_plc_event("WT002", event("trip", 336, "T2")) is None, "同碼不重複開"
 
@@ -639,6 +642,71 @@ def test_a_turbine_held_for_service_stays_shut_down(tmp_path) -> None:
             release()
             model.cmd_start()
             assert farm.until_producing("WT001") is not None, "放掉之後照常起動"
+    finally:
+        hooks.clear_work_order_listeners()
+        wo_repo.clear_engine_cache_for_test()
+
+
+def test_a_faulty_turbine_restarts_and_trips_again_until_the_work_order_is_finished(tmp_path) -> None:
+    """即時模擬（WMOM-20261125-06-a）：跳機的鎖存照手冊在條件消失後解除，機組自動重啟；故障還在就再跳一次，
+    同一個碼一小時內第二次跳機由 A039 封鎖。工單只有一張；完工才真的修好。"""
+    farm = Farm(tmp_path, turbines=5)
+    try:
+        sim = farm.broker.simulator
+        assert sim is not None
+        sim.retrip_after_restart = True
+        farm.drive_slow(60)
+        farm.inject("bearing_wear", "WT002", severity=0.55)
+        model = farm.model("WT002")
+        seen: list = []
+        for _ in range(3000):
+            farm.drive(1)
+            key = (model.tur_state == 6, 240 in model.plc.active_codes(), 39 in model.plc.active_codes())
+            if not seen or seen[-1] != key:
+                seen.append(key)
+            if key[2]:
+                break
+        # 發電 → 跳機 → 鎖存解除（停著）→ 重啟發電 → 再跳 → A039
+        assert (True, True, False) in seen and seen.count((True, False, False)) >= 2, seen
+        assert seen[-1][1:] == (True, True) and model.plc.restart_inhibited and model.tur_state == 1
+        assert [f.tripped for f in sim.fault_engine.active_faults] == [True]
+        orders = farm.orders()
+        assert [(o.source_alarm_code, o.type.value) for o in orders] == [("240", "corrective")], "A039 不另開一張"
+        model.cmd_reset()            # 復位不等於修好：重啟之後又跳
+        for _ in range(900):
+            farm.drive(1)
+            if 240 in model.plc.active_codes():
+                break
+        assert 240 in model.plc.active_codes() and farm.faults("WT002") == ["bearing_wear"]
+        farm.start(orders[0])
+        farm.finish(orders[0])
+        assert farm.faults("WT002") == []
+        assert farm.until_producing("WT002") is not None
+        farm.drive(600)
+        assert model.tur_state == 6 and not model.plc.active_codes().keys() & {240, 39}, "修好之後不再跳"
+    finally:
+        hooks.clear_work_order_listeners()
+        wo_repo.clear_engine_cache_for_test()
+
+
+def test_batch_scenarios_keep_the_maintenance_lock(tmp_path) -> None:
+    """批次情境（題庫）不受影響：跳機後機組停到維護清除，不自動重啟。"""
+    farm = Farm(tmp_path, turbines=5)
+    try:
+        sim = farm.broker.simulator
+        assert sim is not None
+        sim.retrip_after_restart = True
+        sim._bulk_running = True
+        farm.drive_slow(60)
+        farm.inject("bearing_wear", "WT002", severity=0.55)
+        model = farm.model("WT002")
+        for _ in range(1300):
+            farm.drive(1)
+            if model.maintenance_lock:
+                break
+        assert model.maintenance_lock
+        farm.drive(900)
+        assert model.tur_state != 6 and model.lock_blocks_restart is True
     finally:
         hooks.clear_work_order_listeners()
         wo_repo.clear_engine_cache_for_test()

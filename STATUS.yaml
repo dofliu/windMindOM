@@ -766,7 +766,7 @@ issue_stats:
   # 2026-10-21 重新逐條解析 ISSUES.md `### WMOM-` header 核實（舊表少算 -25-b/-25-c 兩筆：
   # 實際 done 126 / open 7 / in_progress 2 = 135），再套用本次變動：WMOM-20260503-05、
   # WMOM-20260509-F6 → deferred；新增 WMOM-20261021-01/-02（done）+ -03~-09（open 7）。
-  open: 12  # 6 舊 + EPIC-SF（WMOM-20261125-06、-07 共 2）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-04（電網 recovery profile 的起點讀實際時間）、-05（例行巡檢卡）
+  open: 11  # （WMOM-20261125-06 改 in_progress，2026-11-26） 6 舊 + EPIC-SF（WMOM-20261125-06、-07 共 2）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-04（電網 recovery profile 的起點讀實際時間）、-05（例行巡檢卡）
   # open 前值: 12  # 含 WMOM-20261125-05（2026-11-26 done）；不含 WMOM-20261126-05
   # open 前值: 12  # 6 舊 + EPIC-SF（WMOM-20261125-05 ~ -07 共 3）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-03（風況覆寫讀實際時間）
   # open 前值: 12  # 含 WMOM-20261125-04（2026-11-26 done）
@@ -793,7 +793,7 @@ issue_stats:
   # 前次：2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
   # 更新自上次核實過的準確底數（open 7/in_progress 2/done 121/total 130）。
   # open 舊值: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
-  in_progress: 1  # WMOM-20260504-12（WMOM-20261125-03 done，2026-11-26）
+  in_progress: 2  # ＋WMOM-20261125-06（-06-a done）； WMOM-20260504-12（WMOM-20261125-03 done，2026-11-26）
   # in_progress 前值: 2  # WMOM-20260504-12、WMOM-20261125-03（-03-a / -03-b done，剩 -03-c）
   # in_progress 前值: 1  # WMOM-20260504-12（2026-11-26 稍早）
   # in_progress 前值: 2  # WMOM-20260504-12、WMOM-20261125-08（研究架構圖，2026-11-26 定稿 → done）

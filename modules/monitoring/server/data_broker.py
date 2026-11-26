@@ -297,6 +297,8 @@ class DataBroker:
         # 重啟續跑（WMOM-20261125-03-b）：開了才定期把即時模擬的狀態存檔、啟動時還原。預設關——由
         # 伺服器依 WMOM_LIVE_RESUME 開啟（見 server/app.py）；測試與一次性的 broker 不讀寫存檔
         self.checkpoint_enabled: bool = False
+        # 即時模擬裡跳過機的故障不鎖機組、自動重啟再跳（WMOM-20261125-06-a）；伺服器依 WMOM_LIVE_RETRIP 開
+        self.live_retrip: bool = False
         # 這次啟動的即時模擬是不是從存檔還原的
         self.live_restored: bool = False
         # 即時資料的連續段編號：這份風場狀態從頭開始的那個 session 的 id。還原存檔時沿用存檔裡的，
@@ -575,6 +577,9 @@ class DataBroker:
         loop = self._om_loop_if_enabled()
         if run_loop and loop is not None:
             loop.rebuild()  # 進行中的工單 → 哪些機組在維修模式
+
+        # 即時模擬裡跳過機的故障不鎖機組，鎖存解除後自動重啟、再跳（WMOM-20261125-06-a）；批次不受影響
+        self.simulator.retrip_after_restart = bool(getattr(self, "live_retrip", False))
 
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)

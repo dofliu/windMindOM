@@ -89,6 +89,7 @@ npm run dev
 | `WMOM_AUTOSTART_SOURCE=simulation` | 開機就啟動即時模擬，不等人登入選來源（持續運轉的仿真風場用） |
 | `WMOM_LIVE_RESUME=true` | 即時模擬的狀態定期存檔（`live_checkpoint.pkl`，與風場 DB 同目錄）、啟動時還原：重啟前鎖存的跳機、疲勞、結垢都還在。模擬器程式更新後舊存檔不相容，風場會從頭開始。要手動從頭開始：`POST /api/source/select` 帶 `{"mode": "simulation", "fresh": true}` |
 | `WMOM_RAW_RETENTION_DAYS=183` | 10 秒原始讀值總共留幾天（預設 183＝半年），循環保存。較舊的讀值依 UTC 日期轉成 Parquet 日檔（風場 DB 旁邊的 `live_archive/`，14 台機組約 16 MB / 天、半年約 3 GB）。`0`＝不歸檔，只留下面的熱資料天數 |
+| `WMOM_LIVE_RETRIP=false` | 關掉「跳過機的故障不鎖機組」（預設開）：即時模擬裡 PLC 的鎖存解除後機組自動重啟，故障還在就再跳一次，同一個碼一小時內第二次由 A039 封鎖等人處理。關掉＝跳機後停到工單完工。批次情境不受影響 |
 | `WMOM_OM_LOOP=false` | 關掉運維閉環（預設開）：即時模擬的跳機自動開工單、工單開工讓機組進維修模式、完工修復機組、記運轉狀態供可用率計算（`GET /api/operations/availability`）、故障維修工單建立時產生出發前準備卡（`GET /api/operations/work-orders/{id}/briefing`） |
 | `WMOM_RAW_HOT_DAYS=3` | 其中留在 SQLite 的最近幾天（預設 3；14 台機組約 0.5 GB / 天）。天數看資料自己的時間，不看實際時間 |
 | `WMOM_OPCUA_ENABLE=true` | 即時模擬的 OPC UA server（預設只聽 `127.0.0.1:4840`；`WMOM_OPCUA_HOST` / `WMOM_OPCUA_PORT` 可改） |

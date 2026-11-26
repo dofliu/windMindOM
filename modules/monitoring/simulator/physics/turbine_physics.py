@@ -513,6 +513,9 @@ class TurbinePhysicsModel:
         # turbine stays down until maintenance clears the fault (reset ≠ repair,
         # WMOM-20260719-01) — a restart inhibit, not repeated emergency stops.
         self.maintenance_lock = False
+        # 維護鎖擋不擋重啟：批次情境擋（跳機後停到維護清除）；即時模擬不擋——PLC 的鎖存解除後機組照
+        # 手冊自動重啟，故障還在就再跳一次，超過每小時上限才由 A039 封鎖（WMOM-20261125-06-a）
+        self.lock_blocks_restart = True
 
         self.tur_state = 1
         self.rotor_speed = 0.0
@@ -1282,7 +1285,7 @@ class TurbinePhysicsModel:
 
     def _restart_inhibited(self) -> bool:
         """PLC 跳機鎖存（含封鎖）或維修鎖期間不可啟動。"""
-        return self.maintenance_lock or self.plc.restart_inhibited
+        return (self.maintenance_lock and self.lock_blocks_restart) or self.plc.restart_inhibited
 
     def _reset_wind_averages(self) -> None:
         """建立空的切出判定用平均風速，暴風停機旗標歸零（只在建構時）。"""
@@ -1355,7 +1358,7 @@ class TurbinePhysicsModel:
             self._request_stop("normal", "operator")
         # 已有停機要求（例：PLC 剛以 T1 跳機）時不再要求，否則同模式的要求會把 shutdown_cause
         # 從 "plc:<碼>" 蓋成內部機制名稱
-        if self.maintenance_lock and st in (4, 5, 6, 8) and not self._stop_requested:
+        if self.maintenance_lock and self.lock_blocks_restart and st in (4, 5, 6, 8) and not self._stop_requested:
             self._request_stop("normal", "maintenance_lock")
         inhibit = self._restart_inhibited()
         # 暴風停機走正常停機（事件 201 是 I 類資訊事件，不是跳機）；已有停機要求時不改寫原因

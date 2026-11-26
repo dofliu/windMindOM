@@ -104,6 +104,8 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     - ``WMOM_RAW_RETENTION_DAYS``（預設 183）：10 秒原始讀值總共留幾天，循環保存；超過熱資料天數的部分在
       每日 Parquet 歸檔裡。0＝不歸檔，只留熱資料天數（WMOM-20261125-03-c）。
     - ``WMOM_RAW_HOT_DAYS``（預設 3）：其中留在 SQLite 的最近幾天。
+    - ``WMOM_LIVE_RETRIP``（預設開）：即時模擬裡跳過機的故障不鎖機組——PLC 的鎖存解除後機組自動重啟，故障還在就
+      再跳一次，超過每小時上限才由 A039 封鎖等人處理（WMOM-20261125-06-a）。批次情境不受影響。
     - ``WMOM_OM_LOOP``（預設開）：運維閉環——即時模擬的跳機自動開工單、工單開工讓機組進維修模式、完工修復
       機組、記運轉狀態供可用率計算（WMOM-20261125-04）。
 
@@ -115,6 +117,8 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     om_loop_on = os.environ.get("WMOM_OM_LOOP", "true").strip().lower() not in ("false", "0", "no", "off")
     if om_loop_on or broker._om_loop is not None:
         broker.om_loop.enabled = om_loop_on
+    # 跳過機的故障不鎖機組：鎖存解除後自動重啟、故障還在就再跳，超過每小時上限由 A039 封鎖（預設開）
+    broker.live_retrip = os.environ.get("WMOM_LIVE_RETRIP", "true").strip().lower() not in ("false", "0", "no", "off")
     broker.raw_hot_days = _env_days("WMOM_RAW_HOT_DAYS", broker.RAW_RETENTION_DAYS, minimum=1)
     broker.archive_days = _env_days("WMOM_RAW_RETENTION_DAYS", broker.ARCHIVE_RETENTION_DAYS, minimum=0)
     autostart = os.environ.get("WMOM_AUTOSTART_SOURCE", "").strip().lower()

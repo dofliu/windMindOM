@@ -102,6 +102,9 @@ class WindFarmSimulator:
         self._sim_clock: Optional[datetime] = None
         self._running = False       # Live 自由跑迴圈旗標（_loop / start / stop 專用）
         self._bulk_running = False  # generate_bulk 批次續跑旗標（與 _running 解耦，見 stop_live_loop）
+        # 即時模擬裡跳過機的故障不鎖機組：鎖存解除後自動重啟、故障還在就再跳（WMOM-20261125-06-a）。
+        # 只作用在即時模擬；批次情境（題庫）維持「跳機後停到維護清除」
+        self.retrip_after_restart = False
         # generate_bulk 啟動次數：即時模擬的外部讀取端（OPC UA LiveFeeder）據此辨認批次留下的狀態
         self.bulk_runs = 0
         self._thread: Optional[threading.Thread] = None
@@ -313,6 +316,8 @@ class WindFarmSimulator:
         # FaultEngine.step() advances severity progression and alarm tracking.
         # Tag offsets are no longer used — all fault effects flow through
         # _get_fault_physics() inside each TurbinePhysicsModel.
+        retrip = self.retrip_after_restart and not self._bulk_running
+        self.fault_engine.keep_tripped_active = retrip
         self.fault_engine.step(dt=time_step)
 
         readings = []
@@ -347,6 +352,7 @@ class WindFarmSimulator:
                 # 一小時內第二次跳機留下的封鎖（A039）會讓已修好的機組永遠停機
                 model.plc.maintenance_release(model._sim_time)
             model.maintenance_lock = lock
+            model.lock_blocks_restart = not retrip
 
             scada_output = model.step(
                 local_wind,

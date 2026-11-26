@@ -1175,6 +1175,9 @@ class FaultEngine:
 
     def __init__(self):
         self._active_faults: List[ActiveFault] = []
+        # True＝跳過機的故障照樣作用在機組上（即時模擬：機組重啟後會再跳，WMOM-20261125-06-a）；
+        # False＝跳機後故障凍結，機組由維護鎖擋著（批次情境，EPIC-DS 的題庫照舊）
+        self.keep_tripped_active = False
 
     @property
     def active_faults(self) -> List[ActiveFault]:
@@ -1253,7 +1256,7 @@ class FaultEngine:
         result: Dict[str, Dict[str, float]] = {}
 
         for fault in self._active_faults:
-            if fault.tripped:
+            if fault.tripped and not self.keep_tripped_active:
                 continue
 
             # Progress severity. Alarms / trips are no longer derived from severity:
