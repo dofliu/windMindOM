@@ -178,12 +178,13 @@ def test_emergency_trips_and_blocked_restarts_get_high_priority(farm: Farm) -> N
     # A039＝同一個跳機碼一小時內跳太多次：那台機組已經有故障維修工單就不另開一張（WMOM-20261125-06-a）
     assert farm.loop.on_plc_event("WT002", event("alarm_raised", 39, "A")) is None
     blocked = farm.loop.on_plc_event("WT003", event("alarm_raised", 39, "A"))
-    normal = farm.loop.on_plc_event("WT002", event("trip", 242, "T1"))
+    normal = farm.loop.on_plc_event("WT001", event("trip", 242, "T1"))
     assert emergency is not None and blocked is not None and normal is not None
     assert (emergency.priority, blocked.priority, normal.priority) == (Priority.HIGH, Priority.HIGH, Priority.NORMAL)
-    assert farm.loop.on_plc_event("WT002", event("trip", 229, "T1")) is not None
-    assert farm.loop.on_plc_event("WT002", event("trip", 240, "T1")) is None, "一台機組最多三張未結案工單"
+    # 已經有未結案的故障維修工單：同一次停機的其他跳機碼不再開（WMOM-20261126-01）
+    assert farm.loop.on_plc_event("WT002", event("trip", 229, "T1")) is None
     assert farm.loop.on_plc_event("WT002", event("trip", 336, "T2")) is None, "同碼不重複開"
+    assert len(farm.orders()) == 3
 
 
 # ── 2、3. 開工進維修模式、完工修復 ─────────────────────────────────────────
@@ -684,6 +685,42 @@ def test_a_faulty_turbine_restarts_and_trips_again_until_the_work_order_is_finis
         assert farm.until_producing("WT002") is not None
         farm.drive(600)
         assert model.tur_state == 6 and not model.plc.active_codes().keys() & {240, 39}, "修好之後不再跳"
+    finally:
+        hooks.clear_work_order_listeners()
+        wo_repo.clear_engine_cache_for_test()
+
+
+def test_one_stop_one_work_order_and_no_retrip_after_the_repair(tmp_path) -> None:
+    """WMOM-20261126-01 長跑實測：冷卻泵磨耗同時送出 439 與 021，以前各開一張工單；一張完工修好之後，
+    復位下一步又跳一次 021 / 439（停機時泵不轉、流量仍低，已成立的規則解不掉），多開一張沒有故障的工單，
+    另一張還把修好的機組再停下來修一次。現在一次停機一張工單，完工後不再跳、不再開單。"""
+    farm = Farm(tmp_path, turbines=2)
+    try:
+        sim = farm.broker.simulator
+        assert sim is not None
+        sim.retrip_after_restart = True
+        farm.drive(300)
+        farm.inject("converter_cooling_pump_wear", "WT001")
+        model = farm.model("WT001")
+        for _ in range(1800):
+            farm.drive(1)
+            if {21, 439} <= model.plc.active_codes().keys():
+                break
+        assert {21, 439} <= model.plc.active_codes().keys(), "測試前提：兩個碼一起跳"
+        farm.drive(30)
+        orders = farm.orders()
+        assert len(orders) == 1 and orders[0].source_alarm_code in ("21", "439"), [o.source_alarm_code for o in orders]
+        farm.start(orders[0])
+        farm.drive(30)
+        farm.finish(orders[0])
+        assert farm.faults() == []
+        trips = []
+        for _ in range(600):
+            farm.drive(1)
+            trips += [c for c, level in model.plc.active_codes().items() if level in ("T1", "T2")]
+        assert trips == [], f"修好之後不再跳：{sorted(set(trips))}"
+        assert model.tur_state == 6
+        assert len(farm.orders()) == 1, "不再多開工單"
     finally:
         hooks.clear_work_order_listeners()
         wo_repo.clear_engine_cache_for_test()

@@ -835,6 +835,11 @@ class PlcProtection:
         ``trip_cleared``（OPC 的 ActiveTrip 陣列據此移除）。物理層保護停機的跳機只解除封鎖，跳機本身在
         機組再起動時解除（``on_restart``）。每小時跳機計數不清除：復位後一小時內再跳仍算數。
 
+        有判定窗的規則（``producing_only`` / ``gate``）在復位時重新判定：停機中窗是關的，「已成立」只能
+        靠遲滯解除，條件早已不在也解不掉（例：冷卻泵修好了，停機時泵不轉、流量仍低），復位下一步就會
+        再跳。重新判定後要等窗打開、延時到了才再跳（WMOM-20261126-01：修好後一復位就再跳 021 / 439，
+        多開一張沒有故障的工單）。其他規則照舊：條件仍成立者下一步會再跳。
+
         Args:
             sim_time: 機組模擬時間（秒）。
         """
@@ -848,6 +853,11 @@ class PlcProtection:
                 released.append(code)
         unblocked = bool(self._protection_blocked)
         self._protection_blocked.clear()
+        for idx, rule in enumerate(self.rules):
+            if rule.producing_only or rule.gate is not None:
+                st = self._rule_state[idx]
+                st.on = False
+                st.elapsed = None
         # 停機中保持的轉速差（029）：復位後重新比對，條件仍成立就在轉子轉起來後再跳
         self._rotor_speed_dev = 0.0
         if released or unblocked:

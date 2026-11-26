@@ -200,8 +200,13 @@ class OmLoop:
         farm_id = self._farm_id()
         if not farm_id:
             return None
-        if blocked and self._has_open_corrective(farm_id, turbine_id):
-            # A039 是「同一個跳機碼一小時內跳太多次」：那個跳機碼的工單還開著，不必為同一件事再開一張
+        if self._has_open_corrective(farm_id, turbine_id):
+            # 這台機組已經有未結案的故障維修工單：不為同一次停機再開一張。
+            # - A039 是「同一個跳機碼一小時內跳太多次」：那個跳機碼的工單還開著
+            # - 同一個故障常同時送出兩個跳機碼（例：冷卻水流量 439 ＋ 變頻器跳機要求 021），各開一張的話，
+            #   一張完工修好故障之後，另一張還會把機組再停下來修一次（WMOM-20261126-01）
+            # 開著的那張修不到的故障，完工後機組仍鎖著：PLC 會再跳（那時已沒有未結案工單，照常開單），
+            # 或由 ensure_work_orders 補開
             return None
         detail = f"{event.level} {event.code:03d} {event.text}"
         if event.value is not None and event.setpoint is not None:
