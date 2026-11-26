@@ -46,6 +46,7 @@ from simulator.physics.plc_protection import PlcEvent
 from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
+    from server.crew import MaintenanceCrew
     from server.data_broker import DataBroker
     from server.live_history import LiveHistory
     from server.storage import Storage
@@ -133,6 +134,7 @@ class OmLoop:
         self._briefing_failures: Dict[str, int] = {}    # 工單 id → 做不出來的次數
         # 等下一批讀值寫進歷史才做的卡：工單 id →（機組, 工單, 建單當下的答案）
         self._briefing_awaiting: Dict[str, Tuple[str, WorkOrder, Dict[str, object]]] = {}
+        self._crew: Optional["MaintenanceCrew"] = None
 
     # ── 取用 ───────────────────────────────────────────────────────────────
 
@@ -157,6 +159,14 @@ class OmLoop:
             self.on_work_order(work_order, action, from_status)
         self.ensure_briefings()   # 批次期間建立的工單當下沒有風場時鐘、沒有卡：現在補
         return len(pending)
+
+    @property
+    def crew(self) -> "MaintenanceCrew":
+        """模擬維修班（``server/crew.py``，WMOM-20261125-06-d）；預設關。"""
+        if self._crew is None:
+            from server.crew import MaintenanceCrew
+            self._crew = MaintenanceCrew(self)
+        return self._crew
 
     def _farm_id(self) -> Optional[str]:
         return self._broker._active_farm_id
@@ -540,7 +550,9 @@ class OmLoop:
             holding = work_order.id in self._in_service.get(turbine_id, {})
         repaired = self._repair_targets(turbine_id, work_order)
         for scenario_id in repaired:
+            # 故障紀錄要知道是哪張工單修的（不對外）
             simulator.fault_engine.clear(turbine_id=turbine_id, scenario_id=scenario_id)
+            self._broker.fault_records.on_fault_cleared(turbine_id, scenario_id, work_order.business_key)
         still_in_service = self._leave_service(turbine_id, work_order, restart=False)
         # 復位會把發電機轉速、併網狀態歸零：只對停著或鎖著的機組做。這張工單沒有佔著機組、機組又正常在發電時
         # （簽核退回後直接再完工、開工時閉環沒在跑），不能把它重置
@@ -581,6 +593,8 @@ class OmLoop:
         with self._briefing_lock:
             self._briefing_failures.clear()
             self._briefing_awaiting.clear()
+        if self._crew is not None:
+            self._crew.reset()
         self._batch_paused = False
         self._last_ensure = None
         simulator = self._broker.simulator
@@ -726,6 +740,8 @@ class OmLoop:
             latest = max(moment for _, moment, _, _ in rows)
             self._flush_awaiting(latest)   # 等這批讀值的準備卡現在可以做了
             self.ensure_work_orders(latest)
+            if self._crew is not None:
+                self._crew.step(latest)    # 模擬維修班（沒開就什麼都不做）
 
     def availability(self, start: datetime, end: datetime) -> Dict[str, object]:
         """一段時間的可用率、停機時數與損失發電量（由運轉狀態紀錄計算）。

@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from modules.auth.dependencies import require_authenticated, require_role, require_roles
 from modules.auth.roles import Role
 from modules.workflow.domain import WorkOrderType
+from server.batch_state import reject_during_batch
 from server.data_broker import DataBroker
 from simulator.time_utils import iso_utc, parse_iso, utc_now
 
@@ -196,3 +197,122 @@ async def work_order_briefing_score(
         raise HTTPException(409, "這張卡沒有存評分用的答案，不能評分")
     return {"business_key": stored["business_key"], "score": briefing.score_card(stored["card"], answer),
             "answer": answer}
+
+
+# ── 機率式故障產生器、模擬維修班、不對外的故障紀錄（WMOM-20261125-06）────────
+# 這三組端點都只給主管，而且永遠強制（不看 WMOM_AUTH_ENFORCE）：故障紀錄是答案，產生器的設定透露
+# 風場會出什麼題。外部的 API 金鑰打不到這裡。
+
+
+def _live_simulator():  # noqa: ANN202  回傳型別在 simulator.engine，這裡不在模組層 import
+    simulator = get_broker().simulator
+    if simulator is None:
+        raise HTTPException(409, "即時模擬沒在跑")
+    return simulator
+
+
+@router.get("/fault-generator", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def fault_generator_settings() -> Dict[str, object]:
+    """機率式故障產生器的設定與現況。
+
+    Returns:
+        ``{"config": {...}, "generated": 開始以來產生了幾個, "scenarios": 各情境的預設權重}``。
+    """
+    from simulator.fault_generator import default_weight
+    from simulator.physics.fault_engine import FAULT_SCENARIOS
+
+    generator = _live_simulator().fault_generator
+    return {"config": generator.config.to_dict(), "generated": generator.generated,
+            "scenarios": {sid: default_weight(sid) for sid in sorted(FAULT_SCENARIOS)}}
+
+
+@router.put("/fault-generator",
+            dependencies=[Depends(reject_during_batch), Depends(require_roles(Role.SUPERVISOR))])
+async def set_fault_generator_settings(body: Dict[str, object]) -> Dict[str, object]:
+    """設定機率式故障產生器。設定存在風場 DB，重啟後照舊；沒給的欄位用預設值。
+
+    Args:
+        body: ``enabled``、``mean_days_between_faults``、``scenario_weights``、``turbine_weights``、
+            ``wear_gain``、``min_hours_to_full``、``max_hours_to_full``、``max_active_per_turbine``、``seed``。
+
+    Returns:
+        同 ``GET``。
+    """
+    from simulator.fault_generator import FaultGeneratorConfig
+
+    simulator = _live_simulator()
+    try:
+        config = FaultGeneratorConfig.from_dict(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    unknown = sorted(set(config.turbine_weights) - set(simulator.turbines))
+    if unknown:
+        raise HTTPException(422, f"沒有這些機組：{unknown}")
+    broker = get_broker()
+    broker.storage.set_setting(broker.SETTING_FAULT_GENERATOR, config.to_dict())
+    simulator.fault_generator.configure(config)
+    return await fault_generator_settings()
+
+
+def _crew():  # noqa: ANN202  回傳型別在 server.crew
+    loop = get_broker()._om_loop_if_enabled()
+    if loop is None:
+        raise HTTPException(409, "運維閉環沒有開，沒有模擬維修班")
+    return loop.crew
+
+
+@router.get("/crew", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def crew_settings() -> Dict[str, object]:
+    """模擬維修班的設定。
+
+    Returns:
+        ``{"config": {...}}``。
+    """
+    return {"config": _crew().config.to_dict()}
+
+
+@router.put("/crew", dependencies=[Depends(reject_during_batch), Depends(require_roles(Role.SUPERVISOR))])
+async def set_crew_settings(body: Dict[str, object]) -> Dict[str, object]:
+    """設定模擬維修班。設定存在風場 DB，重啟後照舊；沒給的欄位用預設值。
+
+    Args:
+        body: ``enabled``、``response_minutes``、``repair_minutes``、``inspection_minutes``、``crews``、
+            ``close_after_finish``。時間是風場時鐘的分鐘數。
+
+    Returns:
+        同 ``GET``。
+    """
+    from server.crew import CrewConfig
+
+    crew = _crew()
+    try:
+        config = CrewConfig.from_dict(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    broker = get_broker()
+    broker.storage.set_setting(broker.SETTING_CREW, config.to_dict())
+    crew.configure(config)
+    return {"config": config.to_dict()}
+
+
+@router.get("/fault-records", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def fault_records(
+    turbine_id: Annotated[Optional[str], Query(min_length=1, max_length=64)] = None,
+    open_only: bool = False,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 200,
+) -> Dict[str, object]:
+    """不對外的故障紀錄：即時風場每一筆故障的發生、第一次警報、跳機、修復，加上答案欄位。
+
+    這是 Live 版的標準答案，只給評分端。
+
+    Args:
+        turbine_id: 只取這台機組；不給＝全部。
+        open_only: 只取還沒修好的。
+        limit: 最多幾筆（新的在前）。
+
+    Returns:
+        ``{"cases": [...]}``。
+    """
+    broker = get_broker()
+    cases = await asyncio.to_thread(broker.fault_records.cases, turbine_id, open_only, limit)
+    return {"cases": cases}

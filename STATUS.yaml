@@ -694,7 +694,7 @@ last_updated: "2026-11-26"  # **2026-11-26 WMOM-20261125-05 done（EPIC-SF 第 4
   # `FaultInjectionPanel`/`HistoryPage`/`SettingsPage`/`TrendChartPanel`，其中 `FarmSelector`/
   # `FaultInjectionPanel`/`SettingsPage` 含 SUPERVISOR/ADMIN 寫入），登記為新 follow-up
   # **WMOM-20260923-10**，標記為 M6 auth cutover（`WMOM-20260716-05i`）前置阻塞項，未在本次修復。
-next_milestone: "【2026-11-26】下一步：（另有約半天的小修 WMOM-20261126-04：電網 recovery profile 的起點讀實際時間，WMOM-20261126-03 的同類問題）EPIC-SF 第 5 項 WMOM-20261125-06（機率式故障產生器、不對外的故障紀錄、模擬維修班），接著第 6 項 WMOM-20260504-11（成本）。第 1 項（對外唯讀 API）、第 2 項（Live 時鐘、重啟續跑、保留期與分層儲存）、第 3 項（運維閉環）、第 4 項（出發前準備卡：故障出勤卡）已完成；72 小時連續運轉測試、歷史回填、例行巡檢卡另開 WMOM-20261126-01 / -02 / -05。順序見 docs/product/ROADMAP.md 的 EPIC-SF 一節"
+next_milestone: "【2026-11-26】第 5 項（WMOM-20261125-06）已完成；下一步是第 6 項 WMOM-20260504-11（成本），建議先做 72 小時連續運轉測試 WMOM-20261126-01。以下是先前的紀錄：（另有約半天的小修 WMOM-20261126-04：電網 recovery profile 的起點讀實際時間，WMOM-20261126-03 的同類問題）EPIC-SF 第 5 項 WMOM-20261125-06（機率式故障產生器、不對外的故障紀錄、模擬維修班），接著第 6 項 WMOM-20260504-11（成本）。第 1 項（對外唯讀 API）、第 2 項（Live 時鐘、重啟續跑、保留期與分層儲存）、第 3 項（運維閉環）、第 4 項（出發前準備卡：故障出勤卡）已完成；72 小時連續運轉測試、歷史回填、例行巡檢卡另開 WMOM-20261126-01 / -02 / -05。順序見 docs/product/ROADMAP.md 的 EPIC-SF 一節"
 technologies:
   - FastAPI
   - React
@@ -754,7 +754,7 @@ milestones:
     name: "仿真運維風場（持續運轉、機率式故障、運維閉環、對外資料 API、出發前準備卡）"
     target_month: null  # 不設日期（DEC-20261125-01）
     status: in_progress
-    progress: 56  # 第 1、2、3、4 項 done（2026-11-26）；-06、-07 與 WMOM-20260504-11 未做
+    progress: 70  # 第 1–5 項 done（2026-11-26）；-07 與 WMOM-20260504-11 未做
   EPIC-DS:
     name: "擬真資料源（供外部 RAG 即時維修助手驗證）"
     target_month: null  # 不設日期（DEC-20261021-01）
@@ -766,7 +766,7 @@ issue_stats:
   # 2026-10-21 重新逐條解析 ISSUES.md `### WMOM-` header 核實（舊表少算 -25-b/-25-c 兩筆：
   # 實際 done 126 / open 7 / in_progress 2 = 135），再套用本次變動：WMOM-20260503-05、
   # WMOM-20260509-F6 → deferred；新增 WMOM-20261021-01/-02（done）+ -03~-09（open 7）。
-  open: 11  # （WMOM-20261125-06 改 in_progress，2026-11-26） 6 舊 + EPIC-SF（WMOM-20261125-06、-07 共 2）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-04（電網 recovery profile 的起點讀實際時間）、-05（例行巡檢卡）
+  open: 12  # ＋WMOM-20261126-07（風場事件的機率觸發）； （WMOM-20261125-06 改 in_progress，2026-11-26） 6 舊 + EPIC-SF（WMOM-20261125-06、-07 共 2）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-04（電網 recovery profile 的起點讀實際時間）、-05（例行巡檢卡）
   # open 前值: 12  # 含 WMOM-20261125-05（2026-11-26 done）；不含 WMOM-20261126-05
   # open 前值: 12  # 6 舊 + EPIC-SF（WMOM-20261125-05 ~ -07 共 3）+ WMOM-20261126-01（72 小時連續運轉測試）、-02（歷史回填）、-03（風況覆寫讀實際時間）
   # open 前值: 12  # 含 WMOM-20261125-04（2026-11-26 done）
@@ -793,7 +793,7 @@ issue_stats:
   # 前次：2026-09-28（第二十二個 autonomous session）WMOM-20260928-05 完成，delta-only
   # 更新自上次核實過的準確底數（open 7/in_progress 2/done 121/total 130）。
   # open 舊值: 7  # 不變（WMOM-20260505-25 母 issue 保持 open，標註 Part A 已完成）
-  in_progress: 2  # ＋WMOM-20261125-06（-06-a done）； WMOM-20260504-12（WMOM-20261125-03 done，2026-11-26）
+  in_progress: 1  # WMOM-20261125-06 done； ＋WMOM-20261125-06（-06-a done）； WMOM-20260504-12（WMOM-20261125-03 done，2026-11-26）
   # in_progress 前值: 2  # WMOM-20260504-12、WMOM-20261125-03（-03-a / -03-b done，剩 -03-c）
   # in_progress 前值: 1  # WMOM-20260504-12（2026-11-26 稍早）
   # in_progress 前值: 2  # WMOM-20260504-12、WMOM-20261125-08（研究架構圖，2026-11-26 定稿 → done）
@@ -802,7 +802,7 @@ issue_stats:
                   # WMOM-20260503-05 改 deferred
   blocked: 0
   deferred: 2  # WMOM-20260503-05（客戶接觸）、WMOM-20260509-F6（PostgreSQL row-lock）— DEC-20261021-01
-  done: 160  # 前值 159 + WMOM-20261126-06（情境測試與修正，2026-11-26）；12 + 1 + 0 + 2 + 160 = 175
+  done: 161  # ＋WMOM-20261125-06（第 5 項）； 前值 159 + WMOM-20261126-06（情境測試與修正，2026-11-26）；12 + 1 + 0 + 2 + 160 = 175
   # done 前值: 159  # 前值 158 + WMOM-20261125-05（出發前準備卡，2026-11-26）
   # done 前值: 158  # 前值 157 + WMOM-20261126-03（風況覆寫的漸變起點改用模擬時間，2026-11-26）
   # done 前值: 157  # 前值 156 + WMOM-20261125-04（2026-11-26）

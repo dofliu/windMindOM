@@ -245,6 +245,15 @@ def _farm_id_short(farm_id: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+# 不是真人的被派工者（例：模擬維修班）：結案時不替它寫當日工作表（WMOM-20261125-06-d）
+_NO_DAY_FORM_ASSIGNEES: set[UUID] = set()
+
+
+def skip_day_form_for(assignee_id: UUID) -> None:
+    """登記一個不是真人的被派工者：它的工單結案時不寫當日工作表。"""
+    _NO_DAY_FORM_ASSIGNEES.add(assignee_id)
+
+
 class WorkOrderRepository:
     """SQLAlchemy 2.0 repository for wmom_work_orders + progress notes + event log。"""
 
@@ -549,7 +558,7 @@ class WorkOrderRepository:
         不應該讓已經 ``sess.commit()`` 落地的工單關閉本身失敗或回滾——比照
         ``approval_router.approve_step`` 既有的 catch + log 模式。
         """
-        if wo.assignee_id is None:
+        if wo.assignee_id is None or wo.assignee_id in _NO_DAY_FORM_ASSIGNEES:
             return
         try:
             # Lazy import：避免 module-level 循環 import（day_work_form_repository 已

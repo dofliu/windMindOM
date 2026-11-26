@@ -320,6 +320,37 @@ class Storage:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_briefing_cards_key ON briefing_cards (business_key)")
 
+        # ── 不對外的故障紀錄（WMOM-20261125-06-c）：即時風場每一筆故障的發生、第一次警報、跳機、修復 ──
+        # 這是 Live 版的標準答案：只給評分端，不進對外 API、準備卡、可觀測事件
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS fault_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                turbine_id TEXT NOT NULL,
+                scenario_id TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                onset_ts TEXT NOT NULL,
+                first_alarm_ts TEXT,
+                first_alarm_code INTEGER,
+                trip_ts TEXT,
+                trip_code INTEGER,
+                trip_count INTEGER NOT NULL DEFAULT 0,
+                observed_json TEXT NOT NULL DEFAULT '[]',
+                cleared_ts TEXT,
+                cleared_by TEXT,
+                severity_rate REAL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_fault_records_open ON fault_records (turbine_id, cleared_ts)")
+
+        # ── 風場的設定（WMOM-20261125-06）：故障產生器、模擬維修班；key → JSON ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS farm_settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         # ── 運轉狀態紀錄（WMOM-20261125-04）：每台機組每小時在各種狀態下的秒數與電量 ──
         # 可用率、停機時數、損失發電量由它計算；只記 Live（即時模擬），永久保留（一台機組一年 8,760 列）
         conn.execute("""
@@ -1826,6 +1857,100 @@ class Storage:
             found.update(str(row[0]) for row in conn.execute(
                 f"SELECT work_order_id FROM briefing_cards WHERE work_order_id IN ({marks})", chunk))
         return found
+
+    # ── 風場的設定 ─────────────────────────────────────────────────────────
+
+    def get_setting(self, key: str) -> Optional[Dict]:
+        """讀一筆風場設定；沒有或讀不出來為 None。"""
+        row = self._get_conn().execute("SELECT value_json FROM farm_settings WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def set_setting(self, key: str, value: Dict) -> None:
+        """存一筆風場設定（整筆換掉）。"""
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO farm_settings (key, value_json, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+            (key, json.dumps(value, ensure_ascii=False), iso_utc()))
+        conn.commit()
+
+    # ── 不對外的故障紀錄（WMOM-20261125-06-c）─────────────────────────────
+
+    _FAULT_RECORD_COLUMNS = ("id", "turbine_id", "scenario_id", "origin", "onset_ts", "first_alarm_ts",
+                             "first_alarm_code", "trip_ts", "trip_code", "trip_count", "observed_json",
+                             "cleared_ts", "cleared_by", "severity_rate")
+
+    def open_fault_record(self, turbine_id: str, scenario_id: str, origin: str, onset_ts: str,
+                          severity_rate: Optional[float] = None) -> Optional[int]:
+        """開一筆故障紀錄；這台機組的這個情境已經有還沒結束的紀錄時不重複開。
+
+        Returns:
+            新紀錄的 id；已經有就是 None。
+        """
+        conn = self._get_conn()
+        exists = conn.execute(
+            "SELECT 1 FROM fault_records WHERE turbine_id = ? AND scenario_id = ? AND cleared_ts IS NULL LIMIT 1",
+            (turbine_id, scenario_id)).fetchone()
+        if exists is not None:
+            return None
+        cursor = conn.execute(
+            "INSERT INTO fault_records (turbine_id, scenario_id, origin, onset_ts, severity_rate) "
+            "VALUES (?, ?, ?, ?, ?)", (turbine_id, scenario_id, origin, normalize_iso(onset_ts), severity_rate))
+        conn.commit()
+        return int(cursor.lastrowid)
+
+    def open_fault_records(self, turbine_id: Optional[str] = None) -> List[Dict]:
+        """還沒結束的故障紀錄（依發生順序）。"""
+        return self.fault_records(turbine_id=turbine_id, open_only=True, limit=10000)
+
+    def update_fault_record(self, record_id: int, **fields: object) -> None:
+        """改一筆故障紀錄的欄位（``observed`` 會存成 JSON）。"""
+        if "observed" in fields:
+            fields["observed_json"] = json.dumps(fields.pop("observed"), ensure_ascii=False)
+        unknown = set(fields) - (set(self._FAULT_RECORD_COLUMNS) - {"id"})
+        if unknown or not fields:
+            raise ValueError(f"不能改的欄位：{sorted(unknown)}")
+        assignments = ", ".join(f"{name} = ?" for name in fields)
+        conn = self._get_conn()
+        conn.execute(f"UPDATE fault_records SET {assignments} WHERE id = ?", (*fields.values(), record_id))
+        conn.commit()
+
+    def fault_records(self, turbine_id: Optional[str] = None, open_only: bool = False,
+                      limit: int = 500, newest_first: bool = False) -> List[Dict]:
+        """故障紀錄。
+
+        Args:
+            turbine_id: 只取這台機組；None＝全部。
+            open_only: 只取還沒結束的。
+            limit: 最多幾筆。
+            newest_first: True＝新的在前。
+        """
+        where, params = [], []
+        if turbine_id:
+            where.append("turbine_id = ?")
+            params.append(turbine_id)
+        if open_only:
+            where.append("cleared_ts IS NULL")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        order = "DESC" if newest_first else "ASC"
+        rows = self._get_conn().execute(
+            f"SELECT {', '.join(self._FAULT_RECORD_COLUMNS)} FROM fault_records {clause} ORDER BY id {order} LIMIT ?",
+            (*params, int(limit))).fetchall()
+        out: List[Dict] = []
+        for row in rows:
+            item = dict(zip(self._FAULT_RECORD_COLUMNS, row))
+            try:
+                item["observed"] = json.loads(item.pop("observed_json") or "[]")
+            except (TypeError, ValueError):
+                item["observed"] = []
+            out.append(item)
+        return out
 
     def get_briefing(self, work_order_id: Optional[str] = None, business_key: Optional[str] = None) -> Optional[Dict]:
         """讀一張出發前準備卡（以工單 id 或業務編號）。
