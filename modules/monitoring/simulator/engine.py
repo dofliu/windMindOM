@@ -263,8 +263,15 @@ class WindFarmSimulator:
 
     @time_scale.setter
     def time_scale(self, value: float):
-        """Set time acceleration factor (clamped to minimum 1.0)."""
-        self.wind_model.time_scale = max(1.0, value)
+        """Set time acceleration factor (clamped to minimum 1.0).
+
+        倍率改變時要求盡快存檔：重啟還原時，broker 依存檔裡的倍率估計存檔點之後最多跑了多遠
+        （``DataBroker._restore_live_checkpoint``），存檔要帶著現在的倍率（WMOM-20261126-01）。
+        """
+        value = max(1.0, value)
+        if value != self.wind_model.time_scale:
+            self._checkpoint_requested = True
+        self.wind_model.time_scale = value
 
     def _run_one_step(self, sim_time: datetime, time_step: float):
         """Execute one physics timestep for all turbines. Returns readings list."""

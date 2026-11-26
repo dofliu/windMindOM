@@ -520,6 +520,47 @@ def test_rows_far_from_the_checkpoint_do_not_open_a_replay_window(tmp_path) -> N
     assert [r for r in rows if 20 < r <= 40], "還原後馬上接著寫，沒有被遠處的那一列擋住"
 
 
+def test_hard_kill_while_accelerated_does_not_rewrite_the_replayed_span(tmp_path) -> None:
+    """加速時被強制關閉（WMOM-20261126-01 長跑實測）：存檔每 30 實際秒一次，倍率 200 時存檔點與最後
+    一筆寫入可以差好幾分鐘模擬時間。那一段仍是重跑段，讀值不寫第二次、也不在時段中間多寫一筆。"""
+    first = _broker(tmp_path, enabled=True)
+    _start(first)
+    base = _take_over(first)
+    sim = first.simulator
+    assert sim is not None
+    sim.time_scale = 30.0
+    _drive(first, base, range(0, 41))
+    first._write_live_checkpoint(sim.checkpoint_state())   # 存檔：倍率 30、時鐘在 +40 s
+    _drive(first, base, range(41, 601))                     # 存檔之後又跑了 9 分多鐘（> 120 s）
+    before = _stored_offsets(first, base)
+    _kill(first)
+    assert before[-1] == 600
+
+    second = _broker(tmp_path, enabled=True)
+    _start(second)
+    restored = second.simulator
+    assert restored is not None and second.live_restored
+    restored.stop_live_loop()
+    assert restored.time_scale == 1.0
+    assert second._replay_until == base + timedelta(seconds=600), "存檔時的倍率放寬了重跑段的範圍"
+    _drive(second, base, range(_offset(second, base) + 1, 631))
+    rows = _stored_offsets(second, base)
+    _kill(second)
+    assert rows[:len(before)] == before
+    assert rows[len(before):] == [610, 620, 630]
+    assert len(rows) == len(set(rows))
+
+
+def test_changing_the_time_scale_requests_a_checkpoint() -> None:
+    """改倍率之後盡快存檔：存檔裡的倍率才涵蓋存檔點之後跑的那一段。"""
+    sim = WindFarmSimulator(turbine_count=1)
+    sim._checkpoint_requested = False
+    sim.time_scale = 1.0
+    assert sim._checkpoint_requested is False, "倍率沒變不要求"
+    sim.time_scale = 200.0
+    assert sim._checkpoint_requested is True
+
+
 def test_fresh_start_ignores_the_checkpoint(tmp_path) -> None:
     seeded = _broker(tmp_path, enabled=True)
     _start(seeded)

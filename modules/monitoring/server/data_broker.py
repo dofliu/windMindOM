@@ -236,8 +236,10 @@ class DataBroker:
     WRITE_INTERVAL_S = 10
     # 這些來源的 Live 事件代表操作員動過風場（注入 / 清除故障、控制、設定、維修、工單）：要求盡快存檔
     _OPERATOR_EVENT_SOURCES = frozenset({"faults", "control", "config", "maintenance", "workflow", "test_plan"})
-    # 還原存檔時，storage 裡最後一筆 Live 讀值離存檔點多遠以內才算「存檔後、關閉前寫的」（秒）。存檔每
-    # 30 秒一次，超過這個範圍的列是別的來源寫的，不拿來決定重跑段
+    # 還原存檔時，storage 裡最後一筆 Live 讀值離存檔點多遠以內才算「存檔後、關閉前寫的」（模擬秒，
+    # 1 倍時）。存檔每 30 實際秒一次，加速時模擬時鐘每實際秒走「倍率」秒，所以上限再乘上存檔時的倍率
+    # （WMOM-20261126-01：倍率 200 時存檔點與最後一筆差了 9 分鐘，沒當成重跑段，那段讀值寫了兩次）；
+    # 超過這個範圍的列是別的來源寫的，不拿來決定重跑段
     _MAX_REPLAY_S = 120.0
     # Raw data retention (days)：SQLite 裡留最近幾天的原始讀值（每列約 4 KB）
     RAW_RETENTION_DAYS = 3
@@ -645,6 +647,7 @@ class DataBroker:
             return
         self.live_restored = True
         self.live_epoch = saved.live_epoch or self.live_epoch
+        saved_scale = max(1.0, float(simulator.time_scale))
         if simulator.time_scale > 1.0:
             # 存檔時正在加速：重啟後回到 1 倍（時鐘維持領先的量），要加速請操作員重新設定
             print(f"[DataBroker] 存檔時的時間倍率是 {simulator.time_scale:g}，還原後改回 1")
@@ -659,7 +662,7 @@ class DataBroker:
             return
         moment = parse_iso(last_written)
         gap_s = (moment - saved.sim_clock).total_seconds()
-        if abs(gap_s) > self._MAX_REPLAY_S:
+        if abs(gap_s) > self._MAX_REPLAY_S * saved_scale:
             # 最後一列離存檔點太遠：不是「存檔後、關閉前」寫的（例：沒有命名的批次把模擬時間的列寫進
             # Live session），不拿它當重跑的依據
             return
