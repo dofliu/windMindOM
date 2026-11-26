@@ -115,8 +115,8 @@ def test_related_signals_are_compared_with_the_rest_of_the_farm(worn: Farm) -> N
     assert {item["name"] for item in context} == {_name(t) for t in briefing.CONTEXT_TAGS}
     assert all(item["deviation"] == "normal" for item in context), "風速、功率、轉速和別台差不多"
     window = card["signals"]["window"]
-    assert window["end"] == card["data_cutoff"] and card["signals"]["samples"] == 360
-    assert card["signals"]["last_reading_ts"] <= card["data_cutoff"]
+    assert window["end"] == card["data_cutoff"] and card["signals"]["samples"] == 361
+    assert card["signals"]["last_reading_ts"] == card["data_cutoff"], "截止點那一筆讀值算在裡面"
 
 
 def test_manual_section_quotes_the_catalog_without_judging(worn: Farm) -> None:
@@ -208,7 +208,7 @@ def test_a_card_built_for_an_earlier_moment_sees_nothing_after_it(worn: Farm) ->
     assert "no_event_found" in card["data_quality"]["flags"] and card["recent_events"]["same_code"]["count"] == 0
     assert card["recent_events"]["other_codes"] == [] or all(
         o["last_ts"] <= card["data_cutoff"] for o in card["recent_events"]["other_codes"])
-    assert card["signals"]["last_reading_ts"] < card["data_cutoff"] and card["signals"]["samples"] == 360
+    assert card["signals"]["last_reading_ts"] <= card["data_cutoff"] and card["signals"]["samples"] == 361
     assert card["signals"]["window"]["end"] == card["data_cutoff"]
     bearing = next(i for i in card["signals"]["items"] if i["name"] == _name(BEARING))
     late_card = _card(worn)
@@ -321,7 +321,7 @@ def test_too_few_peers_and_stale_readings_degrade_the_card(farm: Farm) -> None:
     card = farm.broker.storage.get_briefing(work_order_id=str(order.id))["card"]
     flags = card["data_quality"]["flags"]
     assert card["signals"]["peers"] == 1 and "too_few_peers" in flags and "stale_data" not in flags
-    assert card["signals"]["samples"] == 360
+    assert card["signals"]["samples"] == 361
     assert {item["deviation"] for item in card["signals"]["items"]} == {"unknown"}, "只有一台可比：不下判斷"
     assert all(item["turbine_mean"] is not None for item in card["signals"]["items"]), "自己的讀值照樣給"
 
@@ -780,3 +780,37 @@ def test_wire_break_card_points_at_the_sensor_reading(farm: Farm) -> None:
     blob = json.dumps(card, ensure_ascii=False)
     assert WIRE_BREAK not in blob and "sensor_fault" not in blob
     assert T0 + timedelta(hours=1) <= briefing.parse_iso(card["data_cutoff"]) and TECH != BOSS
+    # 斷線在幾秒內就跳機，異常的讀值在跳機之後才寫進歷史（每 10 秒一筆）：卡片要等到那一筆
+    # （2026-11-26 情境測試：馬上做的卡，五個訊號全是「相近」）
+    trip = briefing.parse_iso(card["event"]["ts"])
+    cutoff = briefing.parse_iso(card["data_cutoff"])
+    assert trip <= cutoff <= trip + timedelta(seconds=10), "截止點＝跳機之後第一批寫進歷史的讀值"
+    assert card["signals"]["last_reading_ts"] == card["data_cutoff"]
+    assert primary["last_value"] > 500 and primary["farm_median"] < 60, "最後一筆讀值照給：遠在量測範圍外"
+    assert primary["deviation"] == "high"
+    stored = farm.broker.storage.get_briefing(work_order_id=str(farm.orders()[0].id))
+    assert briefing.score_card(card, stored["answer"])["key_signal_flagged"] is True
+    assert stored["answer"]["faults"][0]["scenario_id"] == WIRE_BREAK, "答案在建單當下取"
+
+
+def test_card_waits_for_the_next_stored_reading(farm: Farm) -> None:
+    """建單落在兩筆讀值之間：等下一批讀值寫進歷史才做卡。歷史已經涵蓋到現在就馬上做。"""
+    farm.drive_slow(60)
+    now = farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.CORRECTIVE, title="x",
+                           description="")
+    assert farm.broker.storage.get_briefing(work_order_id=str(now.id)) is not None, "剛寫完一批：馬上做"
+    farm.drive(3)   # 現在在兩筆之間
+    mid = farm.repo.create(farm_id=FARM, turbine_id="WT002", type=WorkOrderType.CORRECTIVE, title="x",
+                           description="")
+    clock = farm.broker.live_clock()
+    assert farm.broker.storage.get_briefing(work_order_id=str(mid.id)) is None
+    assert farm.loop.ensure_briefings() == 0, "在等讀值的不算缺卡"
+    farm.inject("bearing_wear", "WT002", severity=0.2)   # 建單之後才有的故障：不算進這張卡的答案
+    farm.drive(7)   # 下一批讀值寫進去
+    stored = farm.broker.storage.get_briefing(work_order_id=str(mid.id))
+    assert stored["answer"]["faults"] == [], "答案在建單當下取，不是做卡的時候"
+    card = stored["card"]
+    cutoff = briefing.parse_iso(card["data_cutoff"])
+    assert cutoff == clock + timedelta(seconds=7) and card["generated_late"] is False
+    assert card["signals"]["last_reading_ts"] == card["data_cutoff"]
+    assert farm.loop._briefing_awaiting == {}

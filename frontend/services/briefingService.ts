@@ -29,6 +29,8 @@ export interface BriefingSignal {
   deviation: SignalDeviation;
   /** 最近 10 分鐘的平均：最後才飆高的訊號在 1 小時平均裡會被稀釋 */
   recent_mean: number | null;
+  /** 截止點前最後一筆讀值（卡片 1.1 起；舊卡沒有）。 */
+  last_value?: number | null;
   recent_farm_median: number | null;
   baseline_mean: number | null;
   change_from_baseline: number | null;

@@ -131,6 +131,8 @@ class OmLoop:
         self._briefing_lock = threading.Lock()
         self._briefing_queued: Set[str] = set()         # 已經排進去、還沒做完的工單 id
         self._briefing_failures: Dict[str, int] = {}    # 工單 id → 做不出來的次數
+        # 等下一批讀值寫進歷史才做的卡：工單 id →（機組, 工單, 建單當下的答案）
+        self._briefing_awaiting: Dict[str, Tuple[str, WorkOrder, Dict[str, object]]] = {}
 
     # ── 取用 ───────────────────────────────────────────────────────────────
 
@@ -238,8 +240,7 @@ class OmLoop:
             if work_order.type is WorkOrderType.CORRECTIVE and self._live():
                 turbine_id = self._turbine(work_order)
                 if turbine_id is not None:
-                    # 不能停下來等的執行緒開的單（跳機自動開單、API 建單）：卡片排到背景做
-                    self.make_briefing(turbine_id, work_order)
+                    self._brief_on_create(turbine_id, work_order)
             return
         if action not in ("start_work", "finish", "cancel", "reject"):
             return
@@ -296,8 +297,39 @@ class OmLoop:
             return False
         return True
 
+    def _brief_on_create(self, turbine_id: str, work_order: WorkOrder) -> None:
+        """工單剛建立：歷史裡的讀值已經涵蓋到現在就馬上做卡，否則等下一批讀值寫進去再做。
+
+        讀值每 10 秒才存一筆，跳機卻可能發生在兩筆之間。馬上做的話，卡上最後一筆讀值是跳機之前的——
+        量測回路斷線這種幾秒內就跳機的故障，異常的讀值根本還沒進歷史，卡上每個訊號都是「相近」
+        （2026-11-26 情境測試）。所以資料截止點取「建單之後第一批寫進歷史的讀值」的時間，最多晚一個
+        取樣週期；評分用的答案仍在建單當下取。
+        """
+        from server import briefing
+
+        broker = self._broker
+        clock = broker.live_clock()
+        simulator = broker.simulator
+        if clock is None or simulator is None:
+            return
+        stored = {tid: stamp for tid, stamp, _values in broker.latest_stored_readings()}.get(turbine_id)
+        if stored is not None and parse_iso(stored) >= clock:
+            self.make_briefing(turbine_id, work_order)
+            return
+        with self._briefing_lock:
+            self._briefing_awaiting[str(work_order.id)] = (
+                turbine_id, work_order, briefing.capture_answer(simulator, turbine_id))
+
+    def _flush_awaiting(self, moment: datetime) -> None:
+        """一批讀值剛寫進歷史：把等著的卡做掉，資料截止點＝這批讀值的時間。"""
+        with self._briefing_lock:
+            waiting, self._briefing_awaiting = self._briefing_awaiting, {}
+        for turbine_id, work_order, answer in waiting.values():
+            self.make_briefing(turbine_id, work_order, cutoff=moment, answer=answer)
+
     def make_briefing(self, turbine_id: str, work_order: WorkOrder, late: bool = False,
-                      wait: Optional[bool] = None) -> Optional[Dict[str, object]]:
+                      wait: Optional[bool] = None, cutoff: Optional[datetime] = None,
+                      answer: Optional[Dict[str, object]] = None) -> Optional[Dict[str, object]]:
         """替一張故障維修工單產生出發前準備卡並存起來。已經有卡的工單不會被換掉。
 
         資料截止點（風場時鐘）與評分用的答案（這台機組當下實際的故障）在呼叫當下取；卡片只含可觀測資料，
@@ -309,6 +341,8 @@ class OmLoop:
             late: 不是在工單建立當下產生的（之後補產生）。
             wait: True＝現在做完並回傳卡片；False＝排到背景執行緒；None＝看這條執行緒能不能停下來等
                 （:meth:`_must_not_block`）。
+            cutoff: 資料截止點；None＝現在的風場時鐘。
+            answer: 評分用的答案；None＝現在取。
 
         Returns:
             卡片；排到背景、即時模擬沒在跑或產生失敗時為 None（不影響工單）。
@@ -317,13 +351,14 @@ class OmLoop:
 
         broker = self._broker
         simulator = broker.simulator
-        clock = broker.live_clock()
+        clock = cutoff or broker.live_clock()
         farm_id = self._farm_id()
         if simulator is None or clock is None or not farm_id or work_order.farm_id != farm_id:
             return None
         job = _BriefingJob(
             turbine_id=turbine_id, work_order=work_order, cutoff=clock,
-            answer=briefing.capture_answer(simulator, turbine_id), late=late, farm_id=farm_id,
+            answer=answer if answer is not None else briefing.capture_answer(simulator, turbine_id),
+            late=late, farm_id=farm_id,
             storage=broker.storage, history=broker.live_history, turbines=tuple(simulator.turbines))
         if wait is None:
             wait = not self._must_not_block()
@@ -435,7 +470,7 @@ class OmLoop:
             logger.exception("運維閉環：查不到哪些工單缺出發前準備卡")
             return 0
         with self._briefing_lock:
-            skip = set(self._briefing_queued) | {key for key, count in self._briefing_failures.items()
+            skip = set(self._briefing_queued) | set(self._briefing_awaiting) | {key for key, count in self._briefing_failures.items()
                                                  if count >= _MAX_BRIEFING_ATTEMPTS}
         made = 0
         known = list(simulator.turbines)
@@ -531,6 +566,7 @@ class OmLoop:
             self._pending.clear()
         with self._briefing_lock:
             self._briefing_failures.clear()
+            self._briefing_awaiting.clear()
         self._batch_paused = False
         self._last_ensure = None
         simulator = self._broker.simulator
@@ -672,7 +708,9 @@ class OmLoop:
         except Exception:  # noqa: BLE001  記不進去不能讓讀值的寫入失敗
             logger.exception("運維閉環：運轉狀態紀錄寫入失敗")
         if rows:
-            self.ensure_work_orders(max(moment for _, moment, _, _ in rows))
+            latest = max(moment for _, moment, _, _ in rows)
+            self._flush_awaiting(latest)   # 等這批讀值的準備卡現在可以做了
+            self.ensure_work_orders(latest)
 
     def availability(self, start: datetime, end: datetime) -> Dict[str, object]:
         """一段時間的可用率、停機時數與損失發電量（由運轉狀態紀錄計算）。

@@ -617,3 +617,28 @@ def test_app_wiring_follows_the_environment(tmp_path, monkeypatch) -> None:
     finally:
         broker.stop()
         wo_repo.clear_engine_cache_for_test()
+
+
+def test_a_turbine_held_for_service_stays_shut_down(tmp_path) -> None:
+    """維修模式 / 操作員停機期間機組停在 SHUTDOWN 不動。以前每一步都重新要求停機，機組在 SHUTDOWN 與
+    NORMAL STOP 之間每 13 秒來回一次，事件流裡一串沒有意義的狀態轉換（2026-11-26 情境測試）。"""
+    farm = Farm(tmp_path)
+    try:
+        farm.drive(60)
+        model = farm.model("WT001")
+        for hold, release in ((lambda: model.cmd_service(True), lambda: model.cmd_service(False)),
+                              (model.cmd_stop, lambda: None)):
+            assert farm.until_producing("WT001") is not None
+            hold()
+            states = []
+            for _ in range(120):
+                farm.drive(1)
+                states.append(model.tur_state)
+            changes = [b for a, b in zip(states, states[1:]) if a != b]
+            assert states[0] == 9 and states[-1] == 1 and changes == [1], f"停一次就停好：{changes}"
+            release()
+            model.cmd_start()
+            assert farm.until_producing("WT001") is not None, "放掉之後照常起動"
+    finally:
+        hooks.clear_work_order_listeners()
+        wo_repo.clear_engine_cache_for_test()
