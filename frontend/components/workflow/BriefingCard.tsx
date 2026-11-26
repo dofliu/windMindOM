@@ -171,6 +171,7 @@ export const BriefingCardView: React.FC<ViewProps> = ({ card, lang }) => {
                 <th scope="col" style={{ ...head, textAlign: 'left' }}>{ui('Signal', '訊號')}</th>
                 <th scope="col" style={head}>{ui('This turbine', '本機')}</th>
                 <th scope="col" style={head}>{ui('Last 10 min', '最近 10 分鐘')}</th>
+                <th scope="col" style={head}>{ui('Last reading', '最後一筆')}</th>
                 <th scope="col" style={head}>{ui('Farm median', '同場中位數')}</th>
                 <th scope="col" style={head}>{ui('Earlier (6 h)', '自己前 6 小時')}</th>
                 <th scope="col" style={head}>{ui('vs. farm', '與同場比')}</th>
@@ -185,6 +186,7 @@ export const BriefingCardView: React.FC<ViewProps> = ({ card, lang }) => {
                   </td>
                   <td style={cell}>{fmt(item.turbine_mean)}</td>
                   <td style={cell}>{fmt(item.recent_mean)}</td>
+                  <td style={cell}>{fmt(item.last_value)}</td>
                   <td style={cell}>{fmt(item.farm_median)}</td>
                   <td style={cell}>{fmt(item.baseline_mean)}</td>
                   <td style={cell}>{deviationPill(item)}</td>

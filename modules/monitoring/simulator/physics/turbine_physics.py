@@ -1348,7 +1348,10 @@ class TurbinePhysicsModel:
         if self.rotor_speed > s.overspeed_hardware_rpm and st not in (7,):
             self._request_stop("emergency", "overspeed_hardware")
 
-        if self.operator_stop or self.service_mode:
+        # 操作員停機 / 維修模式：還沒停好才要求停機。已經在 SHUTDOWN（1）的機組不再要求——每一步都要求
+        # 的話，機組會在 SHUTDOWN 與 NORMAL STOP 之間每 13 秒來回一次，事件流裡是一串沒有意義的狀態轉換
+        held = self.operator_stop or self.service_mode
+        if held and st != 1:
             self._request_stop("normal", "operator")
         # 已有停機要求（例：PLC 剛以 T1 跳機）時不再要求，否則同模式的要求會把 shutdown_cause
         # 從 "plc:<碼>" 蓋成內部機制名稱
@@ -1373,7 +1376,7 @@ class TurbinePhysicsModel:
         # stops (low wind, cut-out) are not limited (WMOM-20261022-02).
         if st == 1:
             self._sync_progress = 0.0
-            if wind_ok and not inhibit:
+            if wind_ok and not inhibit and not held:
                 self._enter_state(2)
         elif st == 2:
             if not wind_ok:

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CARD_VERSION = "1.0"
+CARD_VERSION = "1.1"
 KIND_FAULT_DISPATCH = "fault_dispatch"
 EVENT_WINDOW = timedelta(days=7)
 SIGNAL_WINDOW = timedelta(hours=1)
@@ -210,11 +210,13 @@ class _Window:
         self.last_ts: Optional[str] = rows[-1].timestamp if rows else None
         self.means = np.full(len(tags), np.nan)
         self.recent = np.full(len(tags), np.nan)
+        self.last = np.full(len(tags), np.nan)
         self.producing = 0.0
         if not rows:
             return
         matrix = np.vstack([row.values for row in rows])
         self.means = self._mean(matrix[:, :-1])
+        self.last = matrix[-1, :-1]
         state = matrix[:, -1]
         known = ~np.isnan(state)
         self.producing = float(np.mean(state[known] == _PRODUCTION_STATE)) if known.any() else 0.0
@@ -254,13 +256,15 @@ def _signal_items(history: LiveHistory, turbine_id: str, turbines: Sequence[str]
     start = cutoff - SIGNAL_WINDOW
     recent_from = cutoff - RECENT_WINDOW
     pack = _pack_tags()
-    mine = _Window(history, turbine_id, tags, start, cutoff, recent_from)
+    # 截止點那一筆讀值要算進來（讀值的查詢是左閉右開）：它就是建單之後第一批寫進歷史的那一筆
+    upto = cutoff + timedelta(microseconds=1)
+    mine = _Window(history, turbine_id, tags, start, upto, recent_from)
     baseline = _Window(history, turbine_id, tags, start - BASELINE_WINDOW, start)
     peers: List[_Window] = []
     for other in turbines:
         if other == turbine_id:
             continue
-        window = _Window(history, other, tags, start, cutoff, recent_from)
+        window = _Window(history, other, tags, start, upto, recent_from)
         # 停機中的機組不拿來比：溫度、轉速、功率本來就和發電中的不一樣
         if window.samples and window.producing >= PEER_PRODUCING_FRACTION:
             peers.append(window)
@@ -289,6 +293,8 @@ def _signal_items(history: LiveHistory, turbine_id: str, turbines: Sequence[str]
             # 最近 10 分鐘偏離就算偏離：最後才飆高的訊號在 1 小時平均裡會被稀釋
             "deviation": recent_deviation if recent_deviation in ("high", "low") else deviation,
             "recent_mean": recent,
+            # 最後一筆讀值：斷線、卡住這類突然的變化在平均裡看不出來，原值要給
+            "last_value": _number(mine.last[index]),
             "recent_farm_median": recent_median if column.is_analog else None,
             "baseline_mean": before,
             "change_from_baseline": (value - before) if value is not None and before is not None else None,

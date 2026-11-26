@@ -197,7 +197,7 @@ DELETE /api/auth/api-keys/{id}
 - **工單的時間是實際時間，不是風場時鐘。** 讀值、事件、準備卡的資料截止點用風場時鐘（§5）；時間倍率大於 1 之後兩者不一致，不要拿 `created_at` 去對事件的時間，要對就用準備卡的 `data_cutoff`。
 - 只列對得到機組的工單；`turbine_id` 一律是機組 ID（`WT001` 這種），不是畫面上的名稱。
 - `business_key` 的第二段是風場代號的前五個字（管理端取的代號，不是風場名稱）。
-- `has_briefing` 在工單剛建立的那一瞬間可能還是 `false`：卡片在背景產生，通常不到 1 秒。這時 §3.10 回 `404`，稍後再問。
+- `has_briefing` 在工單剛建立時可能還是 `false`：卡片要等下一批讀值寫進歷史才產生，最多約一個取樣週期（10 秒）。這時 §3.10 回 `404`，稍後再問。
 - 同一張工單的 `status` 與各階段的時間之後會變。游標只會給「還沒給過的工單」，不會回頭通知狀態改變；要追狀態就定期用 `open_only=true` 重新取未結案的清單。
 - 兩張工單在同一毫秒內由不同來源建立時（自動開單和管理端手動開單剛好撞在一起），較早的那張可能較晚寫入；輪詢剛好落在中間就會漏掉它。很少見，但要完全不漏，就用上一點的未結案清單定期對一次。
 
@@ -210,7 +210,7 @@ DELETE /api/auth/api-keys/{id}
 ```json
 {"business_key": "WO-LEGAC-202611-001", "turbine_id": "WT005", "data_cutoff": "2026-11-25T22:30:17.000000Z",
  "card": {
-  "card_version": "1.0", "kind": "fault_dispatch",
+  "card_version": "1.1", "kind": "fault_dispatch",
   "work_order": {"business_key": "WO-LEGAC-202611-001", "turbine_id": "WT005", "type": "corrective",
                  "priority": "normal", "source_alarm_code": 240},
   "data_cutoff": "2026-11-25T22:30:17.000000Z", "generated_late": false,
@@ -234,7 +234,7 @@ DELETE /api/auth/api-keys/{id}
     {"name": "Z72PLC__UI_Loc_WGEN_Analogue_GnBrgTmp1", "label_zh": "發電機軸承溫度",
      "label_en": "Generator Bearing Temp", "unit": "°C", "role": "primary",
      "turbine_mean": 44.42, "farm_median": 29.93, "farm_min": 27.72, "farm_max": 32.27, "peer_count": 13,
-     "deviation": "high", "recent_mean": 81.12, "recent_farm_median": 30.49,
+     "deviation": "high", "recent_mean": 81.12, "last_value": 96.2, "recent_farm_median": 30.49,
      "baseline_mean": 28.48, "change_from_baseline": 15.94}
    ]},
   "past_work_orders": [],
@@ -252,11 +252,11 @@ DELETE /api/auth/api-keys/{id}
 
 | 區塊 | 內容 |
 |---|---|
-| `data_cutoff` | 資料截止點（風場時鐘）＝工單建立當下。卡上的每一項都只用這個時間以前的資料。`generated_late` 為 `true` 表示卡片是事後補的，截止點是補的那一刻 |
+| `data_cutoff` | 資料截止點（風場時鐘）＝工單建立之後第一批寫進歷史的讀值的時間，所以最多比建單晚一個取樣週期（10 秒）；建單當下歷史已經涵蓋到現在時就是建單當下。卡上的每一項都只用這個時間以前（含）的資料。`generated_late` 為 `true` 表示卡片是事後補的，截止點是補的那一刻 |
 | `event` | 開單依據的那筆事件（同 `/events` 的內容）。`turbine_state` 是截止點前最後一筆讀值的運轉狀態，`turbine_state_ts` 是那筆讀值的時間——讀值每 10 秒一筆，跳機當下產生的卡，這個狀態可能還是跳機前的 |
 | `recent_events` | 截止點前 7 天：這台機組同一個碼出現幾次（`same_code`）、其他警報 / 跳機碼各幾次（`other_codes`，最多 10 種）、事件前後 10 分鐘同場還有哪些機組送出同一個碼（`farm_same_code`——整場一起跳通常是外部原因） |
 | `signals` | 相關訊號的對照。`window`＝截止點前 1 小時、`recent_window`＝最後 10 分鐘、`baseline_window`＝再往前 6 小時。`peers`＝拿來比的機組數：同場其他機組裡，那 1 小時有一半以上時間在發電的 |
-| `signals.items[]` | `role`：`primary`（PLC 判定這個碼時看的量測）、`related`（同一條判定邏輯的其他量測；`primary` 加 `related` 最多 8 個）、`context`（機艙風速、功率、轉速）。`turbine_mean` / `recent_mean`＝這台機組 1 小時 / 最後 10 分鐘的平均；`farm_median`、`farm_min`、`farm_max`、`recent_farm_median`＝同場的對照；`baseline_mean`＝自己前 6 小時的平均；`deviation`＝`high` / `low` / `normal` / `unknown` |
+| `signals.items[]` | `role`：`primary`（PLC 判定這個碼時看的量測）、`related`（同一條判定邏輯的其他量測；`primary` 加 `related` 最多 8 個）、`context`（機艙風速、功率、轉速）。`turbine_mean` / `recent_mean`＝這台機組 1 小時 / 最後 10 分鐘的平均；`last_value`（卡片 1.1 起）＝截止點前最後一筆讀值，斷線、卡住這類突然的變化在平均裡看不出來；`farm_median`、`farm_min`、`farm_max`、`recent_farm_median`＝同場的對照；`baseline_mean`＝自己前 6 小時的平均；`deviation`＝`high` / `low` / `normal` / `unknown` |
 | `past_work_orders` | 這張工單之前開的、同一台機組的工單（最多 10 張，新的在前；只有結構化欄位：`business_key`、`type`、`status`、`source_alarm_code`、`created_at`、`finished_at`） |
 | `manual` | 警報目錄（Z72 手冊 Appendix C）對這個碼列的原因與處置，照引、不加判斷。`status`：`ok` / `no_alarm_code` / `not_in_catalog` |
 | `inventory` | 目前固定是 `{"status": "no_mapping"}`：還沒有「警報碼 → 料件」的對應表，卡上不列料件 |
@@ -277,7 +277,7 @@ DELETE /api/auth/api-keys/{id}
 | `too_few_peers` | 可比較的機組少於 3 台：不做同場對照 |
 | `no_baseline` | 前 6 小時沒有讀值：沒有自己的基準 |
 
-`card_version` 管卡片的欄位：加欄位升次版本，改名或刪除升主版本。目前只有 `kind`＝`fault_dispatch`（故障出勤卡）；例行巡檢卡還沒有做。
+`card_version` 管卡片的欄位：加欄位升次版本，改名或刪除升主版本。1.1（2026-11-26）：每個訊號加 `last_value`；資料截止點改為建單之後第一批讀值的時間，訊號的視窗含截止點那一筆。目前只有 `kind`＝`fault_dispatch`（故障出勤卡）；例行巡檢卡還沒有做。
 
 ## 4. 翻頁與輪詢
 
