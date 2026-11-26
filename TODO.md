@@ -23,11 +23,12 @@
 - ✅ `WMOM-20261125-03-c` 保留期可設定、分層儲存（2026-11-26，DEC-20261126-03）：原始讀值預設留半年，最近 3 天在 SQLite、較舊的在每日 Parquet 檔；第 2 項三段都完成
 - ✅ `WMOM-20261125-04` 運維閉環（2026-11-26，DEC-20261126-04）：跳機自動開單、工單開工讓機組停機、完工才修好、可用率由運轉狀態紀錄計算；伺服器預設開（`WMOM_OM_LOOP`）
 - ✅ `WMOM-20261125-05` 出發前準備卡（2026-11-26，DEC-20261126-05）：故障維修工單建立當下產生故障出勤卡，管理端與 `/field/` 都看得到；對外 API 1.2 給同一張工單與同一張卡；規則版評分只給主管。沒有接知識庫、沒有列料件
-- ▶️ 下一個：`WMOM-20261125-06` 機率式故障產生器、不對外的故障紀錄、模擬維修班（現在沒有人處理工單時機組會一直停著）
+- ✅ `WMOM-20261125-06` 機率式故障、故障紀錄、模擬維修班（2026-11-26，DEC-20261126-07 / -08）：預設都關，用 `PUT /api/operations/fault-generator` / `/crew` 打開（或啟動時設 `WMOM_FAULT_GENERATOR=true`、`WMOM_CREW=true`）
+- ▶️ 下一個：`WMOM-20260504-11` 成本模組吃模擬結果；建議先跑 72 小時連續運轉測試（`WMOM-20261126-01`）
 - 🧪 還沒做：72 小時連續運轉測試（`WMOM-20261126-01`）、歷史回填（`WMOM-20261126-02`）、例行巡檢卡（`WMOM-20261126-05`）
 - 🐞 小修（約半天）：`WMOM-20261126-04` 電網 recovery profile 的起點讀實際時間（`WMOM-20261126-03` 的同類問題，修法相同）
 - 🏃 要讓風場持續運轉：伺服器開 `WMOM_LIVE_RESUME=true` 與 `WMOM_AUTOSTART_SOURCE=simulation`
-- 之後依序：`WMOM-20260504-11` 成本 → `-07` 實測風況匯入
+- 之後：`WMOM-20261125-07` 實測風況匯入；風場事件的機率觸發（`WMOM-20261126-07`）
 - 🔌 RAG 運維助理要接：伺服器開 `WMOM_AUTH_ENFORCE=true`，`python tools/external_api_keys.py create rag-assistant` 發金鑰，照 `docs/integration/external_api_v1.md` 接
 - 🖼️ 研究架構圖：`docs/architecture/research-framework.md`
 - 已確認的預設值：10 秒原始資料保留半年；外部系統以 REST 為主、OPC UA 並存

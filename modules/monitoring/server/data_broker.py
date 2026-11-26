@@ -501,6 +501,8 @@ class DataBroker:
                 was_running,
                 self._sim_config.timeStep if was_running else 1.0,
             )
+            if was_running:
+                self.apply_live_settings()   # 還原的是批次前的產生器：設定以風場 DB 存的為準
             if paused_loop is not None:
                 # 批次期間有人開工 / 完工 / 撤單：等 Live 的狀態還原、迴圈恢復之後才套用到機組（WMOM-20261125-04）
                 paused_loop.resume()
@@ -580,6 +582,8 @@ class DataBroker:
 
         # 即時模擬裡跳過機的故障不鎖機組，鎖存解除後自動重啟、再跳（WMOM-20261125-06-a）；批次不受影響
         self.simulator.retrip_after_restart = bool(getattr(self, "live_retrip", False))
+        if run_loop:
+            self.apply_live_settings()   # 故障產生器、模擬維修班的設定（存在風場 DB）
 
         # Register data callback (throttled writes)
         self.simulator.on_data(self._on_sim_data)
@@ -991,6 +995,54 @@ class DataBroker:
             self._om_loop = OmLoop(self)
         return self._om_loop
 
+    @property
+    def fault_records(self):  # noqa: ANN201  回傳型別在 server.fault_record，這裡不在模組層 import
+        """不對外的故障紀錄（``server/fault_record.py``，WMOM-20261125-06-c）。"""
+        recorder = getattr(self, "_fault_recorder", None)
+        if recorder is None:
+            from server.fault_record import FaultRecorder
+            recorder = self._fault_recorder = FaultRecorder(self)
+        return recorder
+
+    # ── 故障產生器與模擬維修班的設定（WMOM-20261125-06）──────────────────
+
+    SETTING_FAULT_GENERATOR = "fault_generator"
+    SETTING_CREW = "crew"
+
+    def apply_live_settings(self) -> None:
+        """把存在風場 DB 的設定套到即時模擬；沒存過就用啟動時的預設（``default_live_settings``）。"""
+        from simulator.fault_generator import FaultGeneratorConfig
+
+        defaults = getattr(self, "default_live_settings", {})
+        simulator = self.simulator
+        if simulator is None:
+            return
+        try:
+            saved = self.storage.get_setting(self.SETTING_FAULT_GENERATOR)
+            simulator.fault_generator.configure(
+                FaultGeneratorConfig.from_dict(saved if saved is not None else defaults.get("fault_generator", {})))
+        except Exception as exc:  # noqa: BLE001  設定壞了就關著，不讓即時模擬起不來
+            print(f"[DataBroker] 故障產生器的設定讀不出來，先關著：{exc}")
+            simulator.fault_generator.configure(FaultGeneratorConfig())
+        loop = self._om_loop_if_enabled()
+        if loop is None:
+            return
+        from server.crew import CrewConfig
+
+        try:
+            saved = self.storage.get_setting(self.SETTING_CREW)
+            loop.crew.configure(CrewConfig.from_dict(saved if saved is not None else defaults.get("crew", {})))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[DataBroker] 模擬維修班的設定讀不出來，先關著：{exc}")
+            loop.crew.configure(CrewConfig())
+
+    def _recording_faults(self) -> bool:
+        """現在要不要記故障紀錄：只記即時模擬，重啟後重跑的那幾步不記。"""
+        simulator = self.simulator
+        # live_clock() 在批次期間是 None：批次情境不記（那邊的答案是 scenario_ground_truth）
+        return (simulator is not None and self.live_clock() is not None
+                and not self._replaying() and not self._deduping())
+
     def _om_loop_if_enabled(self) -> Optional['OmLoop']:
         """閉環有開才回傳（熱路徑用：沒開就不載入工單模組）。"""
         loop = getattr(self, "_om_loop", None)  # 以 object.__new__ 建的測試替身沒有這個屬性
@@ -1329,6 +1381,12 @@ class DataBroker:
 
             # New faults → lifecycle start event (open-ended)
             for sid in current_fault_keys - prev_keys:
+                if self._recording_faults():   # 不對外的故障紀錄（WMOM-20261125-06-c）
+                    made = {(g.turbine_id, g.scenario_id): g for g in self.simulator.last_generated}
+                    generated = made.get((turbine_id, sid))
+                    self.fault_records.on_fault_started(
+                        turbine_id, sid, "generator" if generated is not None else "manual",
+                        generated.severity_rate if generated is not None else None)
                 phase = current_phases.get(sid, "incipient")
                 sev = next((f.get("severity", 0) for f in active_faults
                             if f.get("scenario_id") == sid), 0)
@@ -1349,6 +1407,8 @@ class DataBroker:
 
             # Removed faults → close lifecycle event
             for sid in prev_keys - current_fault_keys:
+                if self._recording_faults():
+                    self.fault_records.on_fault_cleared(turbine_id, sid)
                 self.close_open_events(
                     event_type="fault_lifecycle",
                     source="simulator",
@@ -1467,6 +1527,8 @@ class DataBroker:
             timestamp: 事件發生時刻（ISO，模擬時間軸）；None＝現在時刻。
         """
         self.record_event(**self._plc_event_fields(turbine_id, event), timestamp=timestamp)
+        if self._recording_faults():
+            self.fault_records.on_plc_event(turbine_id, event, timestamp)   # 不對外的故障紀錄
         loop = self._om_loop_if_enabled()
         if loop is not None and not self._replaying():
             loop.on_plc_event(turbine_id, event)  # 跳機開單（WMOM-20261125-04）；重跑段不再開

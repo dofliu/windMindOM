@@ -21,6 +21,7 @@ from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 from simulator.bulk_events import STATE_CHANGE, BulkEvent
 from simulator.farm_events import FarmEvent
+from simulator.fault_generator import FaultGenerator, GeneratedFault
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, to_utc, utc_now
 
 
@@ -69,7 +70,7 @@ class WindFarmSimulator:
     # （``history``，只供前端的走勢小圖）與批次計數（``bulk_runs``：還原不該把它倒回去）
     _CHECKPOINT_FIELDS = (
         "wind_model", "grid_model", "turbines", "fault_engine", "_turbulence_gen", "_per_turbine_wind",
-        "_last_yaw_err_rad", "_direction_offset_deg", "_sim_clock", "latest_data",
+        "_last_yaw_err_rad", "_direction_offset_deg", "_sim_clock", "latest_data", "fault_generator",
     )
 
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
@@ -105,6 +106,9 @@ class WindFarmSimulator:
         # 即時模擬裡跳過機的故障不鎖機組：鎖存解除後自動重啟、故障還在就再跳（WMOM-20261125-06-a）。
         # 只作用在即時模擬；批次情境（題庫）維持「跳機後停到維護清除」
         self.retrip_after_restart = False
+        # 機率式故障產生器（WMOM-20261125-06-b）：預設關；只在即時模擬作用。它有自己的亂數 stream
+        self.fault_generator = FaultGenerator()
+        self.last_generated: List[GeneratedFault] = []   # 最近一步產生的故障（broker 記進故障紀錄用）
         # generate_bulk 啟動次數：即時模擬的外部讀取端（OPC UA LiveFeeder）據此辨認批次留下的狀態
         self.bulk_runs = 0
         self._thread: Optional[threading.Thread] = None
@@ -316,6 +320,9 @@ class WindFarmSimulator:
         # FaultEngine.step() advances severity progression and alarm tracking.
         # Tag offsets are no longer used — all fault effects flow through
         # _get_fault_physics() inside each TurbinePhysicsModel.
+        # 機率式故障：只在即時模擬（批次情境的故障由排程決定）
+        self.last_generated = ([] if self._bulk_running else
+                               self.fault_generator.step(time_step, self.turbines, self.fault_engine))
         retrip = self.retrip_after_restart and not self._bulk_running
         self.fault_engine.keep_tripped_active = retrip
         self.fault_engine.step(dt=time_step)

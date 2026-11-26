@@ -1004,11 +1004,12 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
     from server.routers import control as control_ep
     from server.routers import farms as farms_ep
     from server.routers import faults as faults_ep
+    from server.routers import operations as operations_ep
     from server.routers import source as source_ep
 
     guarded = {
         (method, route.path)
-        for module in (config_ep, control_ep, farms_ep, faults_ep, scenarios_ep, source_ep)
+        for module in (config_ep, control_ep, farms_ep, faults_ep, operations_ep, scenarios_ep, source_ep)
         for route in module.router.routes
         for method in getattr(route, "methods", set())
         if any(dep.dependency is reject_during_batch for dep in getattr(route, "dependencies", []))
@@ -1020,6 +1021,8 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
         ("POST", "/api/config/turbine-spec"), ("POST", "/api/control/command"), ("POST", "/api/control/curtail"),
         ("POST", "/api/farms/{farm_id}/activate"), ("POST", "/api/faults/inject"), ("POST", "/api/faults/clear"),
         ("DELETE", "/api/scenarios/{scenario_id}"), ("POST", "/api/source/select"),
+        # 故障產生器與模擬維修班的設定：批次結束時即時模擬的狀態會還原，批次中改的會被蓋掉（WMOM-20261125-06）
+        ("PUT", "/api/operations/fault-generator"), ("PUT", "/api/operations/crew"),
     }
     assert guarded == expected
 
