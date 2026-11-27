@@ -97,10 +97,8 @@ def farm_rates(farm_id: str, farm_registry: object = None) -> FarmRates:
     wind_farm = params.wind_farm
     hourly = float(wind_farm.tech_hourly_rate or 0.0)
     if hourly <= 0:
-        salary = float(wind_farm.tech_yearly_salary or 0.0)
-        if meta.source == "registry_derived":
-            # 監控登錄的風場（仿真的 Z72 陸域）沒有自己的成本設定：年薪用陸域的假設值，不用 K13 離岸的
-            salary = float(_onshore()["staff"]["yearly_salary"])
+        # 年薪和人員固定成本同一個來源（``_yearly_salary``）：風場沒設年薪時用陸域的假設值，不用 K13 離岸的
+        salary, _from_farm = _yearly_salary(wind_farm, meta.source, _farm_overrides(farm_id, meta.source))
         hourly = salary / WORKING_HOURS_PER_YEAR
     # 幣別跟電價同一層：只有用了農場自己的 cost_inputs.json 時才讀它的幣別，其餘是 K13 的 EUR
     inputs = (_load_cost_inputs_json(farm_id) or {}) if meta.source == "farm_overlay" else {}
@@ -155,7 +153,40 @@ def _money(value: float) -> Decimal:
 
 @lru_cache(maxsize=1)
 def _onshore() -> Dict[str, object]:
+    """陸域假設值（``data/z72_onshore_costs.json``）；讀一次就留著，改了檔案要重啟伺服器。"""
     return json.loads(ONSHORE_COSTS_PATH.read_text(encoding="utf-8"))
+
+
+def _farm_overrides(farm_id: str, meta_source: str) -> Mapping[str, object]:
+    """風場自己的成本設定（``cost_inputs.json`` 的 ``wind_farm_overrides``）；沒有時是空的。"""
+    from modules.cost.adapter import _load_cost_inputs_json
+
+    if meta_source != "farm_overlay":
+        return {}
+    return (_load_cost_inputs_json(farm_id) or {}).get("wind_farm_overrides") or {}
+
+
+def _yearly_salary(wind_farm: object, meta_source: str, overrides: Mapping[str, object]) -> tuple[float, bool]:
+    """技師年薪，以及是不是風場自己設的。
+
+    風場設的年薪（或時薪 × 年工時）＞ 沒登錄的風場用 K13 的 ＞ 陸域假設值。``farm_rates`` 的時薪與
+    ``fixed_costs`` 的人員固定成本都用這個，兩邊不會對不上（code review）。
+
+    Args:
+        wind_farm: 成本引擎的風場參數（``WindFarmParams``）。
+        meta_source: 參數從哪裡來（``farm_overlay`` / ``registry_derived`` / ``k13_fallback``）。
+        overrides: ``_farm_overrides`` 的結果。
+
+    Returns:
+        ``(年薪, 是不是風場自己設的)``。
+    """
+    if overrides.get("tech_yearly_salary"):
+        return float(overrides["tech_yearly_salary"]), True  # type: ignore[arg-type]
+    if overrides.get("tech_hourly_rate"):
+        return float(overrides["tech_hourly_rate"]) * WORKING_HOURS_PER_YEAR, True  # type: ignore[arg-type]
+    if meta_source == "k13_fallback":
+        return float(getattr(wind_farm, "tech_yearly_salary", 0.0) or 0.0), False
+    return float(_onshore()["staff"]["yearly_salary"]), False  # type: ignore[index]
 
 
 @dataclass(frozen=True)
@@ -166,7 +197,7 @@ class CraneCost:
     mobilization: float
     day_rate: float
     days_per_job: float
-    ftc: frozenset
+    ftc: frozenset[int]
 
     def per_job(self) -> float:
         """一次作業的費用。"""
@@ -188,13 +219,14 @@ class FixedCosts:
     Attributes:
         technicians: 駐場技師人數。
         yearly_salary: 每人年薪。
-        equipment: 設備年費（名稱, 每年）。
-        source: ``farm_overlay``（風場自己的成本設定）或 ``onshore_default``（陸域假設值）。
+        equipment: 設備年費（名稱, 每年）；目前都是陸域假設值。
+        source: 人員的部分從哪裡來——``farm_overlay``（人數與年薪都是風場自己的設定）、``onshore_default``
+            （都是陸域假設值）或 ``mixed``（只有一部分是風場的，或沒登錄的風場用 K13 的年薪）。
     """
 
     technicians: int
     yearly_salary: float
-    equipment: tuple
+    equipment: tuple[tuple[str, float], ...]
     source: str
 
     @property
@@ -224,7 +256,8 @@ def fixed_costs(farm_id: str, turbines: int, farm_registry: object = None) -> Fi
     """一座風場的固定成本：駐場技師（人數 × 年薪）與設備年費。
 
     風場的 ``cost_inputs.json`` 有 ``tech_yearly_salary`` / ``tech_count.year`` 時用風場的；其餘用陸域假設值
-    （每台機組 ``technicians_per_turbine`` 人、至少 ``min_technicians`` 人）。
+    （每台機組 ``technicians_per_turbine`` 人、至少 ``min_technicians`` 人）。年薪與 ``farm_rates`` 的時薪同一個
+    來源（``_yearly_salary``）。
 
     Args:
         farm_id: 風場 ID。
@@ -234,31 +267,37 @@ def fixed_costs(farm_id: str, turbines: int, farm_registry: object = None) -> Fi
     Returns:
         固定成本。
     """
-    from modules.cost.adapter import _load_cost_inputs_json, load_engine_params_from_farm
+    from modules.cost.adapter import load_engine_params_from_farm
 
-    staff = _onshore()["staff"]
-    salary = float(staff["yearly_salary"])
-    count = max(int(staff["min_technicians"]), math.ceil(max(0, turbines) * float(staff["technicians_per_turbine"])))
-    source = "onshore_default"
-    _params, meta = load_engine_params_from_farm(farm_id, farm_registry=farm_registry)
-    if meta.source == "farm_overlay":
-        overrides = (_load_cost_inputs_json(farm_id) or {}).get("wind_farm_overrides") or {}
-        if overrides.get("tech_yearly_salary"):
-            salary, source = float(overrides["tech_yearly_salary"]), "farm_overlay"
-        tech_count = overrides.get("tech_count")
-        if isinstance(tech_count, dict) and tech_count.get("year"):
-            count, source = int(tech_count["year"]), "farm_overlay"
-    equipment = tuple((str(item["label_zh"]), float(item["per_year"])) for item in _onshore()["equipment_fixed"])
+    params, meta = load_engine_params_from_farm(farm_id, farm_registry=farm_registry)
+    overrides = _farm_overrides(farm_id, meta.source)
+    salary, salary_from_farm = _yearly_salary(params.wind_farm, meta.source, overrides)
+    tech_count = overrides.get("tech_count")
+    if isinstance(tech_count, dict) and tech_count.get("year"):
+        count, count_from_farm = int(tech_count["year"]), True
+    else:
+        staff = _onshore()["staff"]
+        count = max(int(staff["min_technicians"]),  # type: ignore[index]
+                    math.ceil(max(0, turbines) * float(staff["technicians_per_turbine"])))  # type: ignore[index]
+        count_from_farm = False
+    if salary_from_farm and count_from_farm:
+        source = "farm_overlay"
+    elif not salary_from_farm and not count_from_farm and meta.source != "k13_fallback":
+        source = "onshore_default"
+    else:
+        source = "mixed"
+    equipment = tuple((str(item["label_zh"]), float(item["per_year"]))
+                      for item in _onshore()["equipment_fixed"])  # type: ignore[union-attr]
     return FixedCosts(technicians=count, yearly_salary=salary, equipment=equipment, source=source)
 
 
 def recorded_farm_days(availability: Mapping[str, object]) -> float:
-    """運轉狀態紀錄涵蓋了幾天（全場的紀錄時數 ÷ 有紀錄的機組數 ÷ 24）：固定成本照這個天數攤。"""
-    farm = availability.get("farm") or {}
-    turbines = availability.get("turbines") or []
-    hours = float(farm.get("recorded_hours", 0.0) or 0.0)  # type: ignore[union-attr]
-    count = len(turbines)  # type: ignore[arg-type]
-    return hours / count / 24.0 if count else 0.0
+    """運轉狀態紀錄涵蓋了幾天（紀錄最長的那台機組的時數 ÷ 24）：固定成本照這個天數攤。
+
+    看最長的那台、不看平均：剛加進來或少了幾小時紀錄的機組不會把全場的天數拉低（code review）。
+    """
+    turbines: Iterable[Mapping[str, object]] = availability.get("turbines") or []  # type: ignore[assignment]
+    return max((float(row.get("recorded_hours", 0.0) or 0.0) for row in turbines), default=0.0) / 24.0  # type: ignore[arg-type]
 
 
 def work_order_cost_entries(*, farm_id: str, work_order_id: UUID, business_key: str,
@@ -345,7 +384,8 @@ def summarize(availability: Mapping[str, object], expenses: Mapping[str, Decimal
         expenses: 帳本各類支出合計（類別 → 金額）。
         rates: 風場的費率。
         fixed: 固定成本；給了的話依運轉狀態紀錄涵蓋的天數攤進人工（技師年薪）與設備（年費），而且帳本裡
-            工單的人工分錄（``work_order_labour``）不另算——技師領年薪，工時已經含在人員固定成本裡。
+            工單的人工分錄（``work_order_labour``）不另算——技師領年薪，工時已經含在人員固定成本裡。這段時間
+            沒有運轉紀錄（攤 0 天）時工單的人工照算，不會兩邊都沒算到（code review）。
         work_order_labour: 帳本裡工單的人工分錄合計（``source_type=work_order``）。
 
     Returns:
@@ -358,10 +398,14 @@ def summarize(availability: Mapping[str, object], expenses: Mapping[str, Decimal
     # 少收的錢由運轉狀態紀錄算（上面的 lost_revenue），帳本的 revenue_loss 不算支出，免得算兩次
     spent = {cat.value: float(expenses.get(cat, Decimal("0"))) for cat in EXPENSE_CATEGORIES}
     fixed_part: Optional[Dict[str, object]] = None
+    counted = True
     if fixed is not None:
         fixed_part = fixed.for_days(recorded_farm_days(availability))
         labour = CostLedgerCategory.LABOUR.value
-        spent[labour] = round(spent[labour] - float(work_order_labour) + float(fixed_part["staff"]), 2)
+        if float(fixed_part["days"]) > 0:  # type: ignore[arg-type]
+            spent[labour] -= float(work_order_labour)
+            counted = False
+        spent[labour] = round(spent[labour] + float(fixed_part["staff"]), 2)  # type: ignore[arg-type]
         equipment = CostLedgerCategory.EQUIPMENT.value
         spent[equipment] = round(spent[equipment] + float(fixed_part["equipment"]), 2)
     total_expense = round(sum(spent.values()), 2)
@@ -372,7 +416,7 @@ def summarize(availability: Mapping[str, object], expenses: Mapping[str, Decimal
         "lost_revenue": {"planned": income["lost_planned"], "unplanned": income["lost_unplanned"]},
         "expenses": {**spent, "total": total_expense},
         "fixed_costs": fixed_part,
-        "work_order_labour": {"amount": round(float(work_order_labour), 2), "counted": fixed is None},
+        "work_order_labour": {"amount": round(float(work_order_labour), 2), "counted": counted},
         "net": round(income["revenue"] - total_expense, 2),
         "turbines": [{"turbine_id": row.get("turbine_id"),
                       "energy_kwh": round(float(row.get("energy_kwh", 0.0) or 0.0), 1),

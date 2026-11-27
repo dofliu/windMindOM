@@ -200,10 +200,9 @@ def _revenue_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Op
         return None
     from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSourceType
     from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
-    from modules.cost.services.simulation_costs import farm_rates, fixed_costs, recorded_farm_days, revenue
+    from modules.cost.services.simulation_costs import farm_rates, recorded_farm_days, revenue
     rates = farm_rates(farm_id, broker.farm_registry)
-    turbines = len(broker.simulator.turbines) if broker.simulator is not None else len(availability["turbines"])
-    fixed = fixed_costs(farm_id, turbines, broker.farm_registry).for_days(recorded_farm_days(availability))
+    fixed = loop.fixed_costs(farm_id, availability).for_days(recorded_farm_days(availability))
     labour = get_cost_ledger_repository(str(broker.storage.db_path)).summary_by_category(
         farm_id=farm_id, from_date=start, to_date=end,
         source_type=CostLedgerSourceType.WORK_ORDER).get(CostLedgerCategory.LABOUR, 0)

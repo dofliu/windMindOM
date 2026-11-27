@@ -150,6 +150,23 @@ describe('收支與可用率', () => {
     expect(screen.getByText(/固定成本：陸域假設值/)).toBeInTheDocument();
   });
 
+  it('固定成本只有一部分是風場的設定；缺了設備明細也照樣顯示', async () => {
+    routes['GET /api/operations/finance'] = () => ({
+      body: {
+        ...FINANCE,
+        fixed_costs: {
+          days: 1.5, staff: 900, equipment: 0, total: 900, technicians: 6, yearly_salary: 60000,
+          staff_per_year: 360000, equipment_per_year: 0, source: 'mixed',
+        },
+        work_order_labour: { amount: 200, counted: false },
+      },
+    });
+    await renderPage();
+    const box = await screen.findByTestId('fixed-costs');
+    expect(box).toHaveTextContent('6 位技師 × 年薪 60,000.00');
+    expect(screen.getByText(/固定成本：部分用陸域假設值/)).toBeInTheDocument();
+  });
+
   it('其他區間從風場時鐘的 end 往前算', async () => {
     await renderPage();
     await screen.findByText('61,519.34');

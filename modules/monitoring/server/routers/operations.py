@@ -114,7 +114,7 @@ async def finance(
         raise HTTPException(409, "目前沒有啟用的風場")
     from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSourceType
     from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
-    from modules.cost.services.simulation_costs import farm_rates, fixed_costs, summarize
+    from modules.cost.services.simulation_costs import farm_rates, summarize
 
     def compute() -> Dict[str, object]:
         loop = broker.om_loop
@@ -124,12 +124,10 @@ async def finance(
         work_order_labour = ledger.summary_by_category(
             farm_id=farm_id, from_date=start_dt, to_date=end_dt,
             source_type=CostLedgerSourceType.WORK_ORDER).get(CostLedgerCategory.LABOUR, Decimal("0"))
-        simulator = broker.simulator
         availability = loop.availability(start_dt, end_dt)
-        turbines = len(simulator.turbines) if simulator is not None else len(availability.get("turbines") or [])
         return {"enabled": loop.enabled,
                 **summarize(availability, expenses, farm_rates(farm_id, broker.farm_registry),
-                            fixed=fixed_costs(farm_id, turbines, broker.farm_registry),
+                            fixed=loop.fixed_costs(farm_id, availability),
                             work_order_labour=work_order_labour)}
 
     result = await asyncio.to_thread(compute)

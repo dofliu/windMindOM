@@ -194,12 +194,12 @@ const FinancePanel: React.FC<Props> = ({ lang }) => {
                 style={{ marginTop: 14, fontSize: 13, color: C.sub, display: 'grid', gap: 4 }}
               >
                 <div>
-                  {ui('Fixed costs over', '固定成本：攤')} {finance.fixed_costs.days.toFixed(1)}{' '}
+                  {ui('Fixed costs over', '固定成本：攤')} {(finance.fixed_costs.days ?? 0).toFixed(1)}{' '}
                   {ui('days of operation', '天運轉')} — {ui('staff', '人員')} {fmtMoney(finance.fixed_costs.staff)}（
                   {finance.fixed_costs.technicians} {ui('technicians ×', '位技師 × 年薪')}{' '}
                   {fmtMoney(finance.fixed_costs.yearly_salary)}）· {ui('equipment', '設備')}{' '}
                   {fmtMoney(finance.fixed_costs.equipment)}（
-                  {finance.fixed_costs.equipment_items.map(item => item.name).join('、')}）{' '}
+                  {(finance.fixed_costs.equipment_items ?? []).map(item => item.name).join('、')}）{' '}
                   {currency}
                 </div>
                 {finance.work_order_labour && !finance.work_order_labour.counted && (
@@ -216,8 +216,12 @@ const FinancePanel: React.FC<Props> = ({ lang }) => {
               {ui('Tariff', '電價')} {finance.rates.kwh_price} {currency}/kWh · {ui('Labour', '人事費')}{' '}
               {fmtMoney(finance.rates.hourly_labour_rate)} {currency}/{ui('h per person', '人時')} ·{' '}
               {ui('Rates from', '費率來源')}：{source ? ui(source.en, source.zh) : finance.rates.source}
-              {finance.fixed_costs?.source === 'onshore_default' &&
-                ui(' · fixed costs: onshore assumptions', ' · 固定成本：陸域假設值')}
+              {finance.fixed_costs &&
+                (finance.fixed_costs.source === 'onshore_default'
+                  ? ui(' · fixed costs: onshore assumptions', ' · 固定成本：陸域假設值')
+                  : finance.fixed_costs.source === 'mixed'
+                    ? ui(' · fixed costs: partly onshore assumptions', ' · 固定成本：部分用陸域假設值')
+                    : ui(' · equipment: onshore assumptions', ' · 設備年費：陸域假設值'))}
             </div>
           </Card>
 

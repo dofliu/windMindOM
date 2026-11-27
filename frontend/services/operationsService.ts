@@ -102,7 +102,7 @@ export interface FinanceFixedCosts {
   staff_per_year: number;
   equipment_per_year: number;
   equipment_items: { name: string; per_year: number }[];
-  /** farm_overlay（風場自己的成本設定）或 onshore_default（陸域假設值） */
+  /** 人員的部分：farm_overlay（人數與年薪都是風場的設定）、onshore_default（陸域假設值）或 mixed（一部分是）；設備年費都是陸域假設值 */
   source: string;
 }
 
