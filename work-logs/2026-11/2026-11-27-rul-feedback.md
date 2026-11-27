@@ -47,7 +47,12 @@
 - **小地方**：耗損來源共用 `_part_source`、`component_map` 回唯讀的 `MappingProxyType`、`z72_repair_classes.json` 還原原本的排版（只剩新增的列）。沒改的：權限測試接受 401 / 403（和既有收支端點的測試一致）。
 - 修完：受影響的後端 288 passed / 6 skipped / 1 xfailed；`test_failure_feedback.py` 10 項；前端營運頁 17 項、`tsc` 無錯。
 
-## 5. 下次接手
+## 5. 確認頁的回覆（2026-11-27）
 
-- 劉老師回覆確認頁後：`ArtifactData` 讀 `decisions` collection，依列 ID 改 `z72_onshore_costs.json`（`onshore.*`）、`z72_repair_classes.json`（`ftc.*` → `scenarios`、`k13.*` → `k13_components`）、`failure_rates.DEFAULT_PRIOR_TURBINE_YEARS`（`feedback.prior_turbine_years`）；要改的列在 work-log 記下來源與理由。
+- 劉老師說「確認頁回完了，讀回來改設定檔」。`ArtifactData` 讀 `decisions`：60 列全部 `choice: ok`、沒有新值也沒有備註（每列間隔約 0.3 秒，看起來是各節的「沒回覆的都同意」按的）。
+- 設定檔的值都不變；`z72_onshore_costs.json`、`z72_repair_classes.json`（兩段說明）、`simulation_costs.py` 的說明、DEC-20261127-08 / -09、ISSUES、STATUS、CLAUDE.md 改成「2026-11-27 劉老師確認」。`onshore.other_fixed` 同意＝保險、土地租金、電網費維持不列。
+
+## 6. 下次接手
+
+- 之後要改成本假設：同一頁可以再用（`decisions/<列 ID>`）；`onshore.*` → `z72_onshore_costs.json`、`ftc.*` → `z72_repair_classes.json` 的 `scenarios`、`k13.*` → `k13_components`、`feedback.prior_turbine_years` → `failure_rates.DEFAULT_PRIOR_TURBINE_YEARS`。
 - 已知限制：結垢在 0.35 封頂（約 8 年），封頂時換的零件之後不會再老；保險、土地租金、電網費沒有列。
