@@ -53,8 +53,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CARD_VERSION = "1.1"
+# 1.2：加例行巡檢卡（kind=routine_inspection，WMOM-20261126-05）；故障出勤卡的欄位不變
+CARD_VERSION = "1.2"
 KIND_FAULT_DISPATCH = "fault_dispatch"
+KIND_ROUTINE_INSPECTION = "routine_inspection"
+# 例行巡檢卡：事件看最近 30 天；訊號看最近 6 小時（最後 1 小時另算），和 7 天前同樣長的一段比
+INSPECTION_EVENT_WINDOW = timedelta(days=30)
+INSPECTION_SIGNAL_WINDOW = timedelta(hours=6)
+INSPECTION_RECENT_WINDOW = timedelta(hours=1)
+INSPECTION_BASELINE_LAG = timedelta(days=7)
+# 排序用的權重：跳機、未結案的故障維修工單最重，量測偏離其次，警報再其次（同一碼多次只算到上限）
+_WEIGHT_TRIP = 3
+_WEIGHT_OPEN_ORDER = 3
+_WEIGHT_SIGNAL = 2
+_WEIGHT_ALARM = 1
+_MAX_COUNT_PER_CODE = 3
 EVENT_WINDOW = timedelta(days=7)
 SIGNAL_WINDOW = timedelta(hours=1)
 RECENT_WINDOW = timedelta(minutes=10)
@@ -251,15 +264,28 @@ def _number(value: float) -> Optional[float]:
 
 
 def _signal_items(history: LiveHistory, turbine_id: str, turbines: Sequence[str], tags: Sequence[str],
-                  primary: Sequence[str], cutoff: datetime) -> Tuple[List[Dict[str, object]], Dict[str, object]]:
-    """相關訊號的比較：這台機組事件前的平均、同場其他發電中的機組、自己稍早的基準。"""
-    start = cutoff - SIGNAL_WINDOW
-    recent_from = cutoff - RECENT_WINDOW
+                  primary: Sequence[str], cutoff: datetime, window: timedelta = SIGNAL_WINDOW,
+                  recent: timedelta = RECENT_WINDOW, baseline_lag: Optional[timedelta] = None,
+                  ) -> Tuple[List[Dict[str, object]], Dict[str, object]]:
+    """相關訊號的比較：這台機組截止點前的平均、同場其他發電中的機組、自己稍早的基準。
+
+    Args:
+        window: 比較的時間長度（截止點往前）。
+        recent: 「最近一段」的長度。
+        baseline_lag: 基準往前推多久（基準和 ``window`` 一樣長）；None＝緊接在 ``window`` 之前、長
+            ``BASELINE_WINDOW``（故障出勤卡）。
+    """
+    start = cutoff - window
+    recent_from = cutoff - recent
+    if baseline_lag is None:
+        baseline_start, baseline_end = start - BASELINE_WINDOW, start
+    else:
+        baseline_start, baseline_end = start - baseline_lag, cutoff - baseline_lag
     pack = _pack_tags()
     # 截止點那一筆讀值要算進來（讀值的查詢是左閉右開）：它就是建單之後第一批寫進歷史的那一筆
     upto = cutoff + timedelta(microseconds=1)
     mine = _Window(history, turbine_id, tags, start, upto, recent_from)
-    baseline = _Window(history, turbine_id, tags, start - BASELINE_WINDOW, start)
+    baseline = _Window(history, turbine_id, tags, baseline_start, baseline_end)
     peers: List[_Window] = []
     for other in turbines:
         if other == turbine_id:
@@ -302,7 +328,7 @@ def _signal_items(history: LiveHistory, turbine_id: str, turbines: Sequence[str]
     info: Dict[str, object] = {
         "window": {"start": sp.iso_z(iso_utc(start)), "end": sp.iso_z(iso_utc(cutoff))},
         "recent_window": {"start": sp.iso_z(iso_utc(recent_from)), "end": sp.iso_z(iso_utc(cutoff))},
-        "baseline_window": {"start": sp.iso_z(iso_utc(start - BASELINE_WINDOW)), "end": sp.iso_z(iso_utc(start))},
+        "baseline_window": {"start": sp.iso_z(iso_utc(baseline_start)), "end": sp.iso_z(iso_utc(baseline_end))},
         "samples": mine.samples,
         "baseline_samples": baseline.samples,
         "peers": len(peers),
@@ -540,6 +566,249 @@ def score_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, 
         "false_escalation": bool(flagged) if not real else None,
         "degraded_when_missing": bool(quality.get("degraded")) if missing and isinstance(quality, dict) else None,
     }
+
+
+# ── 例行巡檢卡（WMOM-20261126-05，DEC-20261127-04）──────────────────────────
+
+
+def card_kind_for(work_order: WorkOrder) -> Optional[str]:
+    """這張工單要哪一種準備卡：故障維修→故障出勤卡；定檢 / 預防保養→例行巡檢卡；試運轉沒有卡。"""
+    from modules.workflow.domain import WorkOrderType
+
+    if work_order.type is WorkOrderType.CORRECTIVE:
+        return KIND_FAULT_DISPATCH
+    if work_order.type in (WorkOrderType.INSPECTION, WorkOrderType.PREVENTIVE):
+        return KIND_ROUTINE_INSPECTION
+    return None
+
+
+def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order: WorkOrder, turbine_id: str,
+                          turbines: Sequence[str], cutoff: datetime, past_work_orders: Sequence[WorkOrder] = (),
+                          generated_late: bool = False) -> Dict[str, object]:
+    """產生一張例行巡檢卡：原訂的檢查清單，依證據排順序。只讀資料，不改任何東西。
+
+    證據（都只用看得到的資料，和故障出勤卡同一條邊界）：
+
+    - 最近 30 天這台機組的警報 / 跳機：事件碼屬於清單的哪一項由 PLC 的判定規則推出來；
+    - 量測和同場其他發電中的機組比偏高 / 偏低（最近 6 小時，或最後 1 小時）；
+    - 這台機組未結案的故障維修工單（帶事件碼的）。
+
+    有證據的項目往前（證據越多越前面），沒有證據的維持原訂順序；整張都沒有證據時順序完全不動。不判定根因、
+    不刪項目——排在後面的照樣要檢查。
+
+    Args:
+        storage: 風場的 storage（事件）。
+        history: 風場的 Live 讀值（歸檔＋SQLite）。
+        work_order: 這張卡所屬的工單（定檢或預防保養）。
+        turbine_id: 模擬器的機組 ID。
+        turbines: 同場的機組 ID（含自己）。
+        cutoff: 資料截止點（風場時鐘）。
+        past_work_orders: 這台機組的其他工單（新的在前）。
+        generated_late: 不是在工單建立當下產生的。
+
+    Returns:
+        卡片（可直接轉成 JSON；只含可觀測資料）。
+    """
+    from server.inspection_checklist import CHECKLIST, item_of_code
+
+    cutoff = cutoff.astimezone(timezone.utc)
+    flags: List[str] = []
+    pack = _pack_tags()
+    evidence: Dict[str, List[Dict[str, object]]] = {item.id: [] for item in CHECKLIST}
+    score: Dict[str, int] = {item.id: 0 for item in CHECKLIST}
+
+    # 1. 事件
+    events, truncated = _alarm_events(storage, cutoff - INSPECTION_EVENT_WINDOW, cutoff, turbine_id)
+    if truncated:
+        flags.append("events_truncated")
+    by_code: Dict[Tuple[int, str], Dict[str, object]] = {}
+    for event in events:
+        code = int(str(event["alarm_code"]))
+        kind = str(event["event_type"])
+        entry = by_code.setdefault((code, kind), {
+            "code": code, "level": event["alarm_level"], "text": event["alarm_text"], "event_type": kind,
+            "count": 0, "first_ts": event["ts"], "last_ts": event["ts"], "checklist_item": item_of_code(code)})
+        entry["count"] = int(str(entry["count"])) + 1
+        entry["last_ts"] = event["ts"]
+    for entry in by_code.values():
+        item_id = entry["checklist_item"]
+        if item_id is None:
+            continue
+        count = int(str(entry["count"]))
+        weight = _WEIGHT_TRIP if entry["event_type"] == "trip" else _WEIGHT_ALARM
+        score[str(item_id)] += weight * min(count, _MAX_COUNT_PER_CODE)
+        evidence[str(item_id)].append({"type": "events", "code": entry["code"], "level": entry["level"],
+                                       "text": entry["text"], "event_type": entry["event_type"], "count": count,
+                                       "last_ts": entry["last_ts"]})
+
+    # 2. 量測
+    tags: List[str] = []
+    owner: Dict[str, str] = {}
+    for item in CHECKLIST:
+        for tag in item.tags:
+            if tag in pack and tag not in owner:
+                owner[tag] = item.id
+                tags.append(tag)
+    context = [tag for tag in CONTEXT_TAGS if tag in pack and tag not in owner]
+    items, info = _signal_items(history, turbine_id, turbines, tags + context, (), cutoff,
+                                window=INSPECTION_SIGNAL_WINDOW, recent=INSPECTION_RECENT_WINDOW,
+                                baseline_lag=INSPECTION_BASELINE_LAG)
+    names = {pack[tag].name: tag for tag in tags + context}
+    for signal in items:
+        tag = names.get(str(signal["name"]))
+        item_id = owner.get(tag or "")
+        signal["checklist_item"] = item_id
+        if item_id is None:
+            signal["role"] = "context"
+            continue
+        signal["role"] = "related"
+        if signal.get("deviation") in ("high", "low"):
+            score[item_id] += _WEIGHT_SIGNAL
+            evidence[item_id].append({"type": "signal", "name": signal["name"], "label_zh": signal["label_zh"],
+                                      "label_en": signal["label_en"], "unit": signal["unit"],
+                                      "deviation": signal["deviation"], "turbine_mean": signal["turbine_mean"],
+                                      "recent_mean": signal["recent_mean"], "farm_median": signal["farm_median"]})
+    samples, peer_count = int(str(info["samples"])), int(str(info["peers"]))
+    if samples == 0:
+        flags.append("signal_data_missing")
+    else:
+        last = info["last_reading_ts"]
+        if last is not None and cutoff - parse_iso(str(last)) > STALE_AFTER:
+            flags.append("stale_data")
+        if peer_count < MIN_PEERS:
+            flags.append("too_few_peers")
+    if int(str(info["baseline_samples"])) == 0:
+        flags.append("no_baseline")
+
+    # 3. 未結案的故障維修工單
+    from modules.workflow.domain import WorkOrderType, open_states
+
+    open_statuses = {status.value for status in open_states()}
+    for order in past_work_orders:
+        if order.type is not WorkOrderType.CORRECTIVE or order.status.value not in open_statuses:
+            continue
+        item_id = item_of_code(alarm_code_of(order))
+        if item_id is None:
+            continue
+        score[item_id] += _WEIGHT_OPEN_ORDER
+        evidence[item_id].append({"type": "open_work_order", "business_key": order.business_key,
+                                  "source_alarm_code": alarm_code_of(order), "status": order.status.value})
+
+    # 4. 排順序：有證據的往前（分數高的先），其餘照原訂順序
+    defaults = {item.id: index + 1 for index, item in enumerate(CHECKLIST)}
+    ordered = sorted(CHECKLIST, key=lambda item: (-score[item.id], defaults[item.id]))
+    checklist = [{
+        "id": item.id,
+        "label_zh": item.label_zh,
+        "label_en": item.label_en,
+        "default_position": defaults[item.id],
+        "position": position + 1,
+        "attention": score[item.id] > 0,
+        "score": score[item.id],
+        "evidence": evidence[item.id],
+        "signals": [pack[tag].name for tag in item.tags if tag in pack],
+    } for position, item in enumerate(ordered)]
+    changed = any(entry["position"] != entry["default_position"] for entry in checklist)
+    if not changed:
+        flags.append("no_evidence")
+
+    return {
+        "card_version": CARD_VERSION,
+        "kind": KIND_ROUTINE_INSPECTION,
+        "work_order": {
+            "business_key": work_order.business_key,
+            "turbine_id": turbine_id,
+            "type": work_order.type.value,
+            "priority": work_order.priority.value,
+            "source_alarm_code": alarm_code_of(work_order),
+        },
+        "data_cutoff": sp.iso_z(iso_utc(cutoff)),
+        "generated_late": generated_late,
+        "checklist": {"order_changed": changed, "items": checklist},
+        "recent_events": {
+            "window": {"start": sp.iso_z(iso_utc(cutoff - INSPECTION_EVENT_WINDOW)),
+                       "end": sp.iso_z(iso_utc(cutoff))},
+            "by_code": sorted(by_code.values(), key=lambda e: (-int(str(e["count"])), int(str(e["code"]))))[
+                :_MAX_LISTED * 2],
+            "source": "PLC 事件（與對外 API 的 /events 相同）",
+        },
+        "signals": {**info, "items": items},
+        "past_work_orders": [{
+            "business_key": order.business_key,
+            "type": order.type.value,
+            "status": order.status.value,
+            "source_alarm_code": alarm_code_of(order),
+            "created_at": iso_utc(order.created_at) if order.created_at else None,
+            "finished_at": iso_utc(order.finished_at) if order.finished_at else None,
+        } for order in list(past_work_orders)[:_MAX_LISTED]],
+        # 沒有證據、沒有 7 天前的基準（風場剛開始跑）都不算降級：排序不靠基準
+        "data_quality": {"flags": flags, "degraded": bool(set(flags) - {"no_evidence", "no_baseline"})},
+        "notes": [
+            "本卡只整理看得到的資料（讀值、PLC 事件、工單），不判定根因；排在後面的項目照樣要檢查。",
+            "有證據的項目往前：最近 30 天的警報 / 跳機、量測和同場其他發電中的機組比偏高 / 偏低"
+            "（最近 6 小時，或最後 1 小時）、未結案的故障維修工單。都沒有證據時維持原訂順序。",
+            "事件屬於清單的哪一項，依 PLC 的判定邏輯（事件碼看哪個量測）。",
+            "工單的時間是實際時間；卡上的資料截止點、事件與讀值的時間是風場時鐘。",
+        ],
+    }
+
+
+def score_inspection_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, object]:
+    """用答案核對一張例行巡檢卡（規則版）。
+
+    答案是建單當下這台機組實際有哪些故障——包括還沒到警報門檻的劣化、潛伏的故障。巡檢卡要做的，是在這些故障
+    還沒跳機之前，把相關的項目往前排。
+
+    - ``fault_items``：每個故障對到清單的哪一項、原訂第幾、卡上排第幾、有沒有標「注意」。
+    - ``moved_up``：至少一個故障的項目比原訂順序前面。
+    - ``flagged``：至少一個故障的項目標了「注意」。
+    - ``false_attention``：這台機組沒有故障，卡上卻有項目標了「注意」（沒有故障時才有值）。
+
+    Args:
+        card: ``build_inspection_card`` 的結果。
+        answer: ``capture_answer`` 的結果。
+
+    Returns:
+        各項分數。
+    """
+    from server.inspection_checklist import item_of_component
+
+    checklist = card.get("checklist")
+    raw = checklist.get("items", []) if isinstance(checklist, dict) else []
+    entries = {str(e["id"]): e for e in raw if isinstance(e, dict)}
+    raw_faults = answer.get("faults", [])
+    faults = [f for f in (raw_faults if isinstance(raw_faults, list) else [])
+              if isinstance(f, dict) and f.get("category") != "nuisance"]
+    results: List[Dict[str, object]] = []
+    for fault in faults:
+        item_id = item_of_component(str(fault.get("component") or ""))
+        entry = entries.get(item_id or "")
+        results.append({
+            "component": fault.get("component"),
+            "severity": fault.get("severity"),
+            "tripped": fault.get("tripped"),
+            "item": item_id,
+            "default_position": entry.get("default_position") if entry else None,
+            "position": entry.get("position") if entry else None,
+            "attention": bool(entry.get("attention")) if entry else None,
+        })
+    attention = [e for e in entries.values() if e.get("attention")]
+    placed = [r for r in results if r["position"] is not None]
+    return {
+        "has_fault": bool(faults),
+        "fault_items": results,
+        "moved_up": any(int(str(r["position"])) < int(str(r["default_position"])) for r in placed) if placed else None,
+        "flagged": any(r["attention"] for r in placed) if placed else None,
+        "attention_items": sorted(str(e["id"]) for e in attention),
+        "false_attention": bool(attention) if not faults else None,
+    }
+
+
+def score_any_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, object]:
+    """依卡片種類核對。"""
+    if card.get("kind") == KIND_ROUTINE_INSPECTION:
+        return score_inspection_card(card, answer)
+    return score_card(card, answer)
 
 
 def public_work_order(order: WorkOrder, turbine_id: Optional[str] = None) -> Dict[str, object]:

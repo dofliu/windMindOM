@@ -1,5 +1,5 @@
 /**
- * 出發前準備卡（WMOM-20261125-05）。
+ * 出發前準備卡（WMOM-20261125-05）：故障出勤卡（故障維修工單）與例行巡檢卡（定檢 / 預防保養工單，WMOM-20261126-05）。
  *
  * 故障維修工單建立時，後端把出發前該看的證據整理成一張卡：本次事件、近 7 天的事件、相關訊號與同場
  * 對照、過往工單、手冊（警報目錄）列的原因與處置。卡片只含看得到的資料，不判定根因。
@@ -80,7 +80,7 @@ export interface BriefingManual {
 
 export interface BriefingCard {
   card_version: string;
-  kind: string;
+  kind: 'fault_dispatch';
   work_order: {
     business_key: string;
     turbine_id: string;
@@ -111,13 +111,76 @@ export interface BriefingCard {
   notes: string[];
 }
 
+// ─── 例行巡檢卡（WMOM-20261126-05，卡片 1.2 起）─────────────────────────────
+
+export type InspectionEvidence =
+  | { type: 'events'; code: number; level: string; text: string; event_type: string; count: number; last_ts: string }
+  | {
+      type: 'signal';
+      name: string;
+      label_zh: string;
+      label_en: string;
+      unit: string;
+      deviation: SignalDeviation;
+      turbine_mean: number | null;
+      recent_mean: number | null;
+      farm_median: number | null;
+    }
+  | { type: 'open_work_order'; business_key: string; source_alarm_code: number | null; status: string };
+
+export interface InspectionItem {
+  id: string;
+  label_zh: string;
+  label_en: string;
+  /** 原訂第幾（技師上塔的路線） */
+  default_position: number;
+  /** 卡上排第幾：有證據的往前 */
+  position: number;
+  attention: boolean;
+  score: number;
+  evidence: InspectionEvidence[];
+  signals: string[];
+}
+
+export interface InspectionBriefingCard {
+  card_version: string;
+  kind: 'routine_inspection';
+  work_order: BriefingCard['work_order'];
+  data_cutoff: string;
+  generated_late: boolean;
+  checklist: { order_changed: boolean; items: InspectionItem[] };
+  recent_events: {
+    window: { start: string; end: string };
+    by_code: {
+      code: number;
+      level: string;
+      text: string;
+      event_type: string;
+      count: number;
+      first_ts: string;
+      last_ts: string;
+      checklist_item: string | null;
+    }[];
+  };
+  signals: BriefingCard['signals'];
+  past_work_orders: BriefingPastOrder[];
+  data_quality: { flags: string[]; degraded: boolean };
+  notes: string[];
+}
+
+export type AnyBriefingCard = BriefingCard | InspectionBriefingCard;
+
+export function isInspectionCard(card: AnyBriefingCard): card is InspectionBriefingCard {
+  return card.kind === 'routine_inspection';
+}
+
 export interface BriefingResponse {
   work_order_id: string;
   business_key: string;
   turbine_id: string;
   created_at: string;
   data_cutoff: string;
-  card: BriefingCard;
+  card: AnyBriefingCard;
 }
 
 /** 讀一張工單的出發前準備卡；沒有卡片回 null。 */

@@ -254,8 +254,11 @@ class OmLoop:
             from_status: 變更前的狀態。
         """
         if action == "create":
-            # 出發前準備卡（WMOM-20261125-05）：故障維修工單建立當下，把看得到的證據整理成一張卡
-            if work_order.type is WorkOrderType.CORRECTIVE and self._live():
+            # 出發前準備卡（WMOM-20261125-05）：故障維修工單建立當下，把看得到的證據整理成一張卡；
+            # 定檢 / 預防保養工單是例行巡檢卡（WMOM-20261126-05）
+            from server.briefing import card_kind_for
+
+            if card_kind_for(work_order) is not None and self._live():
                 turbine_id = self._turbine(work_order)
                 if turbine_id is not None:
                     self._brief_on_create(turbine_id, work_order)
@@ -359,7 +362,8 @@ class OmLoop:
     def make_briefing(self, turbine_id: str, work_order: WorkOrder, late: bool = False,
                       wait: Optional[bool] = None, cutoff: Optional[datetime] = None,
                       answer: Optional[Dict[str, object]] = None) -> Optional[Dict[str, object]]:
-        """替一張故障維修工單產生出發前準備卡並存起來。已經有卡的工單不會被換掉。
+        """替一張工單產生出發前準備卡並存起來（故障維修：故障出勤卡；定檢 / 預防保養：例行巡檢卡）。已經有卡的
+        工單不會被換掉。
 
         資料截止點（風場時鐘）與評分用的答案（這台機組當下實際的故障）在呼叫當下取；卡片只含可觀測資料，
         答案另外存、不在卡片裡。
@@ -438,7 +442,10 @@ class OmLoop:
             past = briefing.past_orders(
                 get_repository(str(job.storage.db_path)), job.farm_id, self.turbine_names(job.turbine_id),
                 work_order, before=None if job.late else work_order.created_at)
-            card = briefing.build_fault_card(
+            build = (briefing.build_inspection_card
+                     if briefing.card_kind_for(work_order) == briefing.KIND_ROUTINE_INSPECTION
+                     else briefing.build_fault_card)
+            card = build(
                 storage=job.storage, history=job.history, work_order=work_order, turbine_id=job.turbine_id,
                 turbines=list(job.turbines), cutoff=job.cutoff, past_work_orders=past, generated_late=job.late)
             job.storage.save_briefing(str(work_order.id), work_order.business_key, job.turbine_id,
@@ -452,21 +459,23 @@ class OmLoop:
         return card
 
     def backfill_briefing(self, work_order_id: UUID) -> Tuple[str, Optional[Dict[str, object]]]:
-        """替一張還沒完工、也還沒有卡的故障維修工單補一張卡（管理端手動補；現在做完才回來）。
+        """替一張還沒完工、也還沒有卡的工單補一張卡（管理端手動補；現在做完才回來）。
 
         Args:
             work_order_id: 工單 id。
 
         Returns:
             （結果, 卡片）。結果：``ok``、``not_found``（沒有這張工單）、``not_corrective``（不是對得到機組的
-            故障維修工單）、``finished``（已經完工：補出來的不是出發前的樣子）、``not_live``（即時模擬沒在跑）、
+            故障維修 / 定檢 / 預防保養工單）、``finished``（已經完工：補出來的不是出發前的樣子）、``not_live``（即時模擬沒在跑）、
             ``failed``（卡片做不出來，看伺服器的 log）。
         """
+        from server.briefing import card_kind_for
+
         order = self._repository().get(work_order_id)
         if order is None:
             return "not_found", None
         turbine_id = self._turbine(order)
-        if order.type is not WorkOrderType.CORRECTIVE or turbine_id is None:
+        if card_kind_for(order) is None or turbine_id is None:
             return "not_corrective", None
         if order.status not in _BRIEFABLE_STATUSES:
             return "finished", None
@@ -493,7 +502,9 @@ class OmLoop:
             return 0
         try:
             orders, _total = self._repository().list(farm_id=farm_id, only_open=True, limit=500)
-            wanted = [o for o in orders if o.type is WorkOrderType.CORRECTIVE and o.status in _BRIEFABLE_STATUSES]
+            from server.briefing import card_kind_for
+
+            wanted = [o for o in orders if card_kind_for(o) is not None and o.status in _BRIEFABLE_STATUSES]
             have = self._broker.storage.briefing_work_order_ids([str(o.id) for o in wanted])
         except Exception:  # noqa: BLE001  查不到下次再試
             logger.exception("運維閉環：查不到哪些工單缺出發前準備卡")

@@ -408,7 +408,7 @@ export const MyOrdersMode: React.FC<MyOrdersModeProps> = ({ lang }) => {
                 {o.status}
               </StatusPill>
             </div>
-            {o.type === 'corrective' && farmId && (
+            {['corrective', 'inspection', 'preventive'].includes(o.type) && farmId && (
               <div style={{ marginTop: 10 }}>
                 <Btn
                   variant="secondary"
