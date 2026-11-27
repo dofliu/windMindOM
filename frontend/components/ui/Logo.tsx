@@ -21,6 +21,7 @@ export type NavIconId =
   | 'workflow'
   | 'cost'
   | 'reports'
+  | 'operations'
   | 'history'
   | 'field'
   | 'faults'
@@ -77,6 +78,14 @@ export const NavIcon: React.FC<{ id: NavIconId; color?: string; size?: number }>
         <path d="M14 3v5h5" />
         {/* mini bar chart inside */}
         <path d="M9 17v-3M12 17v-6M15 17v-4" />
+      </g>
+    ),
+    operations: (
+      // 儀表：仿真風場自己運轉時的收支、可用率與自動運轉設定（WMOM-20261127-01）
+      <g {...cap}>
+        <path d="M4 16a8 8 0 1 1 16 0" />
+        <path d="M12 16l4-5" />
+        <path d="M4 20h16" />
       </g>
     ),
     tour: (

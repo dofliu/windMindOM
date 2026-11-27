@@ -38,6 +38,7 @@ import UserSwitcher from './components/UserSwitcher';
 import CostPage from './components/CostPage';
 import WorkflowPage from './components/workflow/WorkflowPage';
 import ReportsPage from './components/reporting/ReportsPage';
+import OperationsPage from './components/operations/OperationsPage';
 import FieldPage from './components/field/FieldPage';
 import GuidedTourPage from './components/tour/GuidedTourPage';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
@@ -64,6 +65,7 @@ type ViewId =
   | 'history'
   | 'cost'
   | 'reports'
+  | 'operations'
   | 'field'
   | 'scenario'
   | 'faults'
@@ -77,6 +79,7 @@ const PRIMARY_NAV: NavItem[] = [
   { id: 'workflow', iconId: 'workflow', labelEn: 'Workflow', labelZh: '工單管理' },
   { id: 'cost', iconId: 'cost', labelEn: 'Cost Model', labelZh: '成本模型' },
   { id: 'reports', iconId: 'reports', labelEn: 'Reports', labelZh: '報表' },
+  { id: 'operations', iconId: 'operations', labelEn: 'Operations', labelZh: '營運' },
   { id: 'history', iconId: 'history', labelEn: 'History', labelZh: '歷史資料' },
 ];
 
@@ -430,6 +433,8 @@ const AppShell: React.FC = () => {
         return <CostPage lang={lang} />;
       case 'reports':
         return <ReportsPage lang={lang} />;
+      case 'operations':
+        return <OperationsPage lang={lang} />;
       case 'field':
         return <FieldPage lang={lang} />;
       case 'scenario':
