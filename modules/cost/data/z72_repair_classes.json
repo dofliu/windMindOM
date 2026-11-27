@@ -1,6 +1,10 @@
 {
   "description": "Z72 故障情境 → K13 修復等級（FTC，k13_fault_types_wt.json 的 maintenance_categories）。料件費與人數取那個等級的 material_cost_euro / crew_size。等級是假設值（assumed，WMOM-20260504-11 / DEC-20261127-02）：感測器 2–3（耗材）、泵 / 風扇 / 液壓 / 變槳馬達 4–5（低成本）、定子繞組 11、主軸承 8；沒有東西要換的 1。K13 是 4 MW 離岸參考，Z72 2 MW 陸域的實際成本可能較低，有客戶資料再換。",
-  "default_ftc_by_category": {"sensor_fault": 2, "real_fault": 4, "nuisance": 1},
+  "default_ftc_by_category": {
+    "sensor_fault": 2,
+    "real_fault": 4,
+    "nuisance": 1
+  },
   "scenarios": {
     "anemometer_fault": 2,
     "bearing_wear": 8,
@@ -26,5 +30,32 @@
     "yaw_brake_pressure_sensor_fault": 2,
     "yaw_misalignment": 3,
     "yaw_sensor_drift": 2
+  },
+  "k13_components_description": "Z72 故障情境 → K13 元件（k13_fault_types_wt.json 的 components，名稱 ' - ' 前的代碼），故障率回饋用（WMOM-20261127-07，DEC-20261127-09）。也是假設值：機械本體歸本體（主軸承 MDK10、變槳 MDC、液壓 MDX、發電機 MKA、變壓器 MST、機艙通風 XA），變頻器與它的冷卻歸 MKY（發電機側的控制與保護），機艙頂與主軸承的感測器歸 MDY（機組的控制與保護），定子溫度感測器歸 MKY；null＝不是元件故障（結冰、電網、接點鬆動），不算進故障率。",
+  "k13_components": {
+    "anemometer_fault": "MDY",
+    "bearing_wear": "MDK10",
+    "blade1_pitch_encoder_fault": "MDC",
+    "blade_icing": null,
+    "converter_cooling_fault": "MKY",
+    "converter_cooling_pump_wear": "MKY",
+    "cooling_water_deionizer_exhausted": "MKY",
+    "generator_overspeed": "MDC",
+    "grid_voltage_sag": null,
+    "hydraulic_leak": "MDX",
+    "main_bearing_temp_loose_contact": null,
+    "main_bearing_temp_sensor_drift": "MDY",
+    "main_bearing_temp_sensor_wire_break": "MDY",
+    "nacelle_cooling_failure": "XA",
+    "pitch_imbalance": "MDC",
+    "pitch_motor_fault": "MDC",
+    "rotor_speed_sensor_fault": "MDY",
+    "stator_temp_sensor_drift": "MKY",
+    "stator_winding_degradation": "MKA",
+    "transformer_overheat": "MST",
+    "wind_vane1_stuck": "MDY",
+    "yaw_brake_pressure_sensor_fault": "MDY",
+    "yaw_misalignment": "MDY",
+    "yaw_sensor_drift": "MDY"
   }
 }

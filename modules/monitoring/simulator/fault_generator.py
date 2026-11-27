@@ -8,6 +8,10 @@
   情境的權重乘上 ``1 + wear_gain × 耗損（0–1）``。耗損高的機組整體更常故障，而且更常抽到和那種耗損
   有關的故障。
 - 發生時依權重抽一個情境，劣化速度在 ``min_hours_to_full``–``max_hours_to_full`` 之間取對數均勻。
+- **換了零件，那個零件的耗損從換新起算**（WMOM-20261127-07）：工單修掉故障時運維閉環呼叫
+  :meth:`FaultGenerator.record_replacement`，記下那一刻的疲勞 / 結垢；之後那個零件（:func:`part_of`）的情境看
+  「換新以來」增加的量，其餘零件照舊看整台機組的累積量。物理的疲勞損傷與結垢不變——換的是泵、軸承、感測器，
+  不是塔架或熱交換器。
 
 亂數用自己的 stream（``random.Random``），不碰模擬器既有的任何 RNG（物理改動守則）；每次檢查每台機組固定
 抽三個數，不論有沒有發生、設定怎麼改，抽樣次數都一樣。整個物件可以 pickle，跟著即時模擬的狀態存檔，
@@ -24,7 +28,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Mapping, Tuple
+from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
 
 from .physics.fault_engine import FAULT_SCENARIOS
 
@@ -41,6 +45,32 @@ DEFAULT_EXCLUDED = frozenset({"blade_icing", "yaw_misalignment", "grid_voltage_s
     sid for sid, scenario in FAULT_SCENARIOS.items() if scenario.category == "nuisance"})
 # 看結垢的元件（冷卻類）；其餘看疲勞
 _FOULING_COMPONENTS = frozenset({"converter_cooling_system", "nacelle_ventilation", "transformer"})
+# 修好時沒有換零件的情境：結冰（除冰）、電網的事件、自己會恢復的干擾
+_NOTHING_REPLACED = frozenset({"blade_icing", "grid_voltage_sag"} | {
+    sid for sid, scenario in FAULT_SCENARIOS.items() if scenario.category == "nuisance"})
+
+
+def part_of(scenario_id: str) -> Optional[str]:
+    """修好這個故障時換掉的零件；沒有換零件的是 None。
+
+    真故障換的是元件本身（``main_bearing``）；感測器故障換的是那個元件上的感測器（``main_bearing:sensor``）——
+    換 Pt100 不會讓主軸承變新。同一個元件的情境共用一個零件（例：變槳馬達過載與變槳不平衡都是
+    ``pitch_system_blade_1``）。
+
+    Args:
+        scenario_id: 故障情境 ID。
+
+    Returns:
+        零件名稱，或 None。
+    """
+    scenario = FAULT_SCENARIOS.get(scenario_id)
+    if scenario is None or scenario_id in _NOTHING_REPLACED:
+        return None
+    return f"{scenario.component}:sensor" if scenario.category == "sensor_fault" else scenario.component
+
+
+def _wear_source(scenario_id: str) -> str:
+    return "fouling" if FAULT_SCENARIOS[scenario_id].component in _FOULING_COMPONENTS else "fatigue"
 
 
 def default_weight(scenario_id: str) -> float:
@@ -145,6 +175,19 @@ class GeneratedFault:
     severity_rate: float
 
 
+def raw_wear(model: "TurbinePhysicsModel") -> Dict[str, float]:
+    """一台機組的耗損原始量：疲勞累積損傷（Miner 總和，取塔架與葉片最大的）與冷卻結垢係數。"""
+    fatigue = model.fatigue
+    damage = max(fatigue.damage_tower_fa, fatigue.damage_tower_ss, fatigue.damage_blade_flap,
+                 fatigue.damage_blade_edge)
+    return {"fatigue": float(damage), "fouling": float(model.cooling.water_loop.fouling)}
+
+
+def _normalized(raw: Mapping[str, float], config: FaultGeneratorConfig) -> Dict[str, float]:
+    return {"fatigue": min(1.0, max(0.0, raw["fatigue"] / config.fatigue_reference)),
+            "fouling": min(1.0, max(0.0, raw["fouling"] / config.fouling_reference))}
+
+
 def turbine_wear(model: "TurbinePhysicsModel", config: FaultGeneratorConfig | None = None) -> Dict[str, float]:
     """一台機組的耗損（0–1）：疲勞累積損傷與冷卻結垢，各除以設定的參考值。
 
@@ -155,13 +198,7 @@ def turbine_wear(model: "TurbinePhysicsModel", config: FaultGeneratorConfig | No
     Returns:
         ``{"fatigue": 0–1, "fouling": 0–1}``。
     """
-    fatigue = model.fatigue
-    damage = max(fatigue.damage_tower_fa, fatigue.damage_tower_ss, fatigue.damage_blade_flap,
-                 fatigue.damage_blade_edge)
-    config = config or FaultGeneratorConfig()
-    damage = float(damage) / config.fatigue_reference
-    fouling = model.cooling.water_loop.fouling / config.fouling_reference
-    return {"fatigue": min(1.0, max(0.0, float(damage))), "fouling": min(1.0, max(0.0, float(fouling)))}
+    return _normalized(raw_wear(model), config or FaultGeneratorConfig())
 
 
 def is_latent(fault: "ActiveFault") -> bool:
@@ -190,6 +227,53 @@ class FaultGenerator:
         self._rng = random.Random(self.config.seed)
         self._accumulated = 0.0
         self.generated = 0   # 開始以來產生了幾個
+        # 換過的零件：機組 → 零件 → {"fatigue", "fouling": 換新當下的原始耗損, "at": 換新的時間}。
+        # 寫的一方（運維閉環，可能在 API 執行緒）整份換掉、不就地改，Live 執行緒讀到的永遠是完整的一份
+        self._replaced: Dict[str, Dict[str, Dict[str, object]]] = {}
+
+    def record_replacement(self, turbine_id: str, scenario_ids: List[str], model: "TurbinePhysicsModel",
+                           at: Optional[str] = None) -> List[str]:
+        """工單修掉這些故障：換掉的零件從現在起重新累積耗損（WMOM-20261127-07）。
+
+        產生器關著也記（之後打開時照樣算）。沒有換零件的情境（:func:`part_of` 是 None）不記。
+
+        Args:
+            turbine_id: 機組 ID。
+            scenario_ids: 修掉的故障情境。
+            model: 那台機組的物理模型（讀換新當下的耗損）。
+            at: 換新的時間（風場時鐘，ISO 8601）；只給畫面看。
+
+        Returns:
+            換掉的零件。
+        """
+        parts = sorted({part for part in (part_of(sid) for sid in scenario_ids) if part is not None})
+        if not parts:
+            return []
+        raw = raw_wear(model)
+        turbine = dict(self._replaced.get(turbine_id, {}))
+        for part in parts:
+            turbine[part] = {**raw, "at": at}
+        self._replaced = {**self._replaced, turbine_id: turbine}
+        return parts
+
+    def part_wear(self, turbine_id: str, model: "TurbinePhysicsModel") -> Dict[str, float]:
+        """換過的零件從換新以來的耗損（0–1）；沒換過的零件不在裡面（看整台機組的 :func:`turbine_wear`）。"""
+        replaced = self._replaced.get(turbine_id)
+        if not replaced:
+            return {}
+        raw = raw_wear(model)
+        out: Dict[str, float] = {}
+        for part, base in replaced.items():
+            since = {source: max(0.0, raw[source] - float(base[source]))  # type: ignore[arg-type]
+                     for source in ("fatigue", "fouling")}
+            wear = _normalized(since, self.config)
+            source = "fouling" if part.split(":")[0] in _FOULING_COMPONENTS else "fatigue"
+            out[part] = wear[source]
+        return out
+
+    def replacements(self) -> Dict[str, Dict[str, Dict[str, object]]]:
+        """換過的零件（給畫面看）：機組 → 零件 → 換新當下的原始耗損與時間。"""
+        return {tid: {part: dict(info) for part, info in parts.items()} for tid, parts in self._replaced.items()}
 
     def configure(self, config: FaultGeneratorConfig) -> None:
         """換設定。種子變了才重設亂數序列；只改發生率或權重時序列接著走。"""
@@ -198,23 +282,33 @@ class FaultGenerator:
         if reseed:
             self._rng = random.Random(config.seed)
 
-    def scenario_weights(self, wear: Mapping[str, float]) -> List[Tuple[str, float]]:
-        """各情境在某個耗損下的權重（含耗損的放大），依情境 ID 排序。"""
+    def scenario_weights(self, wear: Mapping[str, float],
+                         parts: Optional[Mapping[str, float]] = None) -> List[Tuple[str, float]]:
+        """各情境在某個耗損下的權重（含耗損的放大），依情境 ID 排序。
+
+        Args:
+            wear: 整台機組的耗損（:func:`turbine_wear`）。
+            parts: 換過的零件從換新以來的耗損（:meth:`part_wear`）；那些零件的情境用它，不用整台機組的。
+        """
         config = self.config
         out: List[Tuple[str, float]] = []
         for scenario_id in sorted(FAULT_SCENARIOS):
             base = config.scenario_weights.get(scenario_id, default_weight(scenario_id))
             if base <= 0:
                 continue
-            component = FAULT_SCENARIOS[scenario_id].component
-            source = "fouling" if component in _FOULING_COMPONENTS else "fatigue"
-            out.append((scenario_id, base * (1.0 + config.wear_gain * wear.get(source, 0.0))))
+            part = part_of(scenario_id)
+            if parts and part in parts:
+                value = parts[part]  # type: ignore[index]
+            else:
+                value = wear.get(_wear_source(scenario_id), 0.0)
+            out.append((scenario_id, base * (1.0 + config.wear_gain * value)))
         return out
 
-    def hazard_per_second(self, turbine_id: str, wear: Mapping[str, float]) -> float:
-        """一台機組現在的故障發生率（每秒）。"""
+    def hazard_per_second(self, turbine_id: str, wear: Mapping[str, float],
+                          parts: Optional[Mapping[str, float]] = None) -> float:
+        """一台機組現在的故障發生率（每秒）。``parts`` 同 :meth:`scenario_weights`。"""
         config = self.config
-        weighted = self.scenario_weights(wear)
+        weighted = self.scenario_weights(wear, parts)
         plain = self.scenario_weights({})
         if not weighted or not plain:
             return 0.0
@@ -254,13 +348,14 @@ class FaultGenerator:
             # 每台機組固定抽三個數：有沒有發生、哪一種、多快。抽樣次數不隨結果或設定改變
             happens, which, speed = self._rng.random(), self._rng.random(), self._rng.random()
             wear = turbine_wear(turbines[turbine_id], config)
-            probability = 1.0 - math.exp(-self.hazard_per_second(turbine_id, wear) * elapsed)
+            parts = self.part_wear(turbine_id, turbines[turbine_id])
+            probability = 1.0 - math.exp(-self.hazard_per_second(turbine_id, wear, parts) * elapsed)
             if happens >= probability:
                 continue
             existing = active.get(turbine_id, [])
             if holding.get(turbine_id, 0) >= config.max_active_per_turbine:
                 continue
-            choices = [(sid, w) for sid, w in self.scenario_weights(wear) if sid not in existing]
+            choices = [(sid, w) for sid, w in self.scenario_weights(wear, parts) if sid not in existing]
             total = sum(w for _, w in choices)
             if total <= 0:
                 continue

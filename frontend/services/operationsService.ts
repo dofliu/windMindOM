@@ -136,6 +136,41 @@ export function fetchAvailability(start?: string, end?: string): Promise<Availab
   return request<AvailabilityResponse>('GET', `/api/operations/availability${rangeQuery(start, end)}`);
 }
 
+// ─── 故障率回饋（WMOM-20261127-07） ─────────────────────────────────────────
+
+/** 一個 K13 元件的故障率回饋（年故障率＝每台機組每年幾次）。 */
+export interface FailureRateRow {
+  code: string;
+  name: string;
+  /** 模擬器有沒有會讓它壞的情境；沒有的維持 K13 */
+  modelled: boolean;
+  k13_rate: number;
+  /** 這段時間由工單修好幾次 */
+  repairs: number;
+  /** 只看本風場：修過的次數 ÷ 運轉機組年 */
+  observed_rate: number | null;
+  /** 回饋後：（K13 × 先驗機組年＋修過的次數）÷（先驗機組年＋運轉機組年） */
+  rate: number;
+  /** 本風場紀錄佔的比重 */
+  weight: number;
+  scenarios: string[];
+}
+
+export interface FailureRatesResponse {
+  start: string;
+  end: string;
+  turbine_years: number;
+  prior_turbine_years: number;
+  components: FailureRateRow[];
+  /** 修過、但不是元件故障的情境（不算進故障率） */
+  unmapped: Record<string, number>;
+}
+
+/** 本風場的維修紀錄回饋到 K13 故障率（主管；預設從有紀錄開始全部算）。 */
+export function fetchFailureRates(): Promise<FailureRatesResponse> {
+  return request<FailureRatesResponse>('GET', '/api/operations/failure-rates');
+}
+
 // ─── 自動運轉 ─────────────────────────────────────────────────────────────
 
 export interface FaultGeneratorConfig {

@@ -9,6 +9,7 @@
 | POST   | /api/cost/forecast           | CostForecastRequest        | CostForecastResponse   |
 | POST   | /api/cost/lcoe               | LCOERequest                | LCOEResponse           |
 | POST   | /api/cost/monte-carlo        | MonteCarloRequest          | MonteCarloResponse     |
+| POST   | /api/cost/monte-carlo/empirical | EmpiricalMonteCarloRequest | MonteCarloResponse  |
 | POST   | /api/cost/var-fluct          | VarFluctRequest            | VarFluctResponse       |
 
 設計：
@@ -22,7 +23,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from modules.auth.dependencies import require_role
+from modules.auth.dependencies import require_role, require_roles
 from modules.auth.roles import Role
 from modules.cost.adapter import (
     EngineParams,
@@ -45,6 +46,8 @@ from modules.cost.schemas.cost_schemas import (
     CostForecastRequest,
     CostForecastResponse,
     DatasetMeta,
+    EmpiricalMonteCarloRequest,
+    EmpiricalRates,
     LCOERequest,
     LCOEResponse,
     MonteCarloRequest,
@@ -204,6 +207,55 @@ async def cost_monte_carlo(req: MonteCarloRequest) -> MonteCarloResponse:
         seed=req.seed,
     )
     return MonteCarloResponse(**mc_result_to_response(mc), dataset_meta=meta)
+
+
+@router.post(
+    "/monte-carlo/empirical",
+    response_model=MonteCarloResponse,
+    # 修過哪些故障來自不對外的故障紀錄：永遠強制登入的主管（WMOM-20261127-07）
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
+)
+async def cost_monte_carlo_empirical(req: EmpiricalMonteCarloRequest) -> MonteCarloResponse:
+    """本風場的維修紀錄回饋到故障率之後跑 Monte Carlo（WMOM-20261127-07，DEC-20261127-09）。
+
+    故障率＝（K13 × 先驗機組年＋修過的次數）÷（先驗機組年＋運轉機組年），只改模擬器有對應情境的元件；
+    三角分布的相對寬度不變。維修紀錄由監控的伺服器登記（``failure_rates.set_observation_provider``）。
+
+    Raises:
+        HTTPException: 422＝dataset 不是 ``farm:{farm_id}``；409＝這座風場沒有維修紀錄可以回饋。
+    """
+    from modules.cost.services.failure_rates import (
+        apply_rate_updates,
+        empirical_rates,
+        get_observation_provider,
+        unmapped_repairs,
+    )
+
+    if not req.dataset.startswith("farm:"):
+        raise HTTPException(status_code=422, detail="故障率回饋只用在風場（dataset 要是 'farm:{farm_id}'）")
+    p, meta = _resolve_dataset(req.dataset, stochastic=True)
+    provider = get_observation_provider()
+    observations = provider(req.dataset.removeprefix("farm:").strip()) if provider is not None else None
+    if observations is None:
+        raise HTTPException(status_code=409, detail="這座風場沒有維修紀錄可以回饋（不是正在運轉的仿真風場）")
+    updates = empirical_rates(p.components, observations, req.prior_turbine_years)
+    apply_rate_updates(p.components, updates)
+    mc = run_monte_carlo(
+        wind_farm=p.wind_farm,
+        components=p.components,
+        equipment_list=p.equipment_list,
+        pm_schedules=p.pm_schedules,
+        fixed_costs=p.fixed_costs,
+        poly_lookup=p.poly_lookup,
+        n_simulations=req.n_simulations,
+        seed=req.seed,
+    )
+    empirical = EmpiricalRates(start=observations.start, end=observations.end,
+                               turbine_years=round(observations.turbine_years, 4),
+                               prior_turbine_years=req.prior_turbine_years,
+                               components=[u.to_dict() for u in updates],  # type: ignore[misc]
+                               unmapped=unmapped_repairs(observations))
+    return MonteCarloResponse(**mc_result_to_response(mc), dataset_meta=meta, empirical=empirical)
 
 
 @router.post(

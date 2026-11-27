@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Btn, Card, Stat } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
+import FailureRatesCard from './FailureRatesCard';
 import {
   fetchAvailability,
   fetchFinance,
@@ -269,6 +270,8 @@ const FinancePanel: React.FC<Props> = ({ lang }) => {
               </table>
             </div>
           </Card>
+
+          <FailureRatesCard lang={lang} />
         </>
       )}
     </div>

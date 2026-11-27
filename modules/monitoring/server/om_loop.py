@@ -46,6 +46,7 @@ from simulator.physics.plc_protection import PlcEvent
 from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
+    from modules.cost.services.failure_rates import FailureObservations
     from modules.cost.services.simulation_costs import FixedCosts
     from server.crew import MaintenanceCrew
     from server.inspection_plan import InspectionPlan
@@ -586,6 +587,10 @@ class OmLoop:
             # 故障紀錄要知道是哪張工單修的（不對外）
             simulator.fault_engine.clear(turbine_id=turbine_id, scenario_id=scenario_id)
             self._broker.fault_records.on_fault_cleared(turbine_id, scenario_id, work_order.business_key)
+        # 換了零件：那個零件的耗損從現在起算，故障產生器的發生率跟著降（WMOM-20261127-07）
+        clock = self._broker.live_clock()
+        simulator.fault_generator.record_replacement(turbine_id, repaired, model,
+                                                     at=iso_utc(clock) if clock is not None else None)
         still_in_service = self._leave_service(turbine_id, work_order, restart=False)
         # 復位會把發電機轉速、併網狀態歸零：只對停著或鎖著的機組做。這張工單沒有佔著機組、機組又正常在發電時
         # （簽核退回後直接再完工、開工時閉環沒在跑），不能把它重置
@@ -843,6 +848,26 @@ class OmLoop:
         else:
             turbines = len(availability.get("turbines") or [])  # type: ignore[arg-type]
         return fixed_costs(farm_id, turbines, registry)
+
+    def failure_observations(self, start: datetime, end: datetime) -> "FailureObservations":
+        """一段時間裡本風場的維修紀錄（故障率回饋，WMOM-20261127-07）：由工單修好的故障與運轉機組年。
+
+        修了哪些故障來自不對外的故障紀錄，只給主管的成本試算。
+
+        Args:
+            start: 時間下限（含，tz-aware）。
+            end: 時間上限（不含）。
+
+        Returns:
+            維修紀錄。
+        """
+        from modules.cost.services.failure_rates import HOURS_PER_YEAR, FailureObservations
+
+        repairs = self._broker.storage.repaired_fault_counts(iso_utc(start), iso_utc(end))
+        farm = self.availability(start, end)["farm"]
+        hours = float(farm.get("recorded_hours", 0.0) or 0.0)  # type: ignore[union-attr]
+        return FailureObservations(repairs=repairs, turbine_years=hours / HOURS_PER_YEAR,
+                                   start=iso_utc(start), end=iso_utc(end))
 
     def availability(self, start: datetime, end: datetime) -> Dict[str, object]:
         """一段時間的可用率、停機時數與損失發電量（由運轉狀態紀錄計算）。

@@ -154,6 +154,39 @@ class MonteCarloPercentiles(BaseModel):
     availability_energy: PercentileStats
 
 
+class EmpiricalMonteCarloRequest(MonteCarloRequest):
+    """POST /api/cost/monte-carlo/empirical 的 request：本風場的維修紀錄回饋故障率之後再跑（WMOM-20261127-07）。"""
+
+    prior_turbine_years: float = Field(
+        default=14.0, gt=0, le=10000,
+        description="K13 的故障率算幾個機組年的經驗（可信度加權）；14 台運轉一年時與本風場各佔一半")
+
+
+class FailureRateUpdate(BaseModel):
+    """一個 K13 元件的故障率回饋（``failure_rates.RateUpdate.to_dict``）。"""
+
+    code: str
+    name: str
+    modelled: bool = Field(description="模擬器有沒有會讓它壞的情境；沒有的維持 K13")
+    k13_rate: float = Field(description="K13 的年故障率（每台機組每年）")
+    repairs: int = Field(description="這段時間由工單修好幾次")
+    observed_rate: float | None = Field(description="只看本風場：修過的次數 ÷ 運轉機組年")
+    rate: float = Field(description="回饋後的年故障率")
+    weight: float = Field(description="本風場紀錄佔的比重")
+    scenarios: list[str]
+
+
+class EmpiricalRates(BaseModel):
+    """故障率回饋的明細。"""
+
+    start: str | None
+    end: str | None
+    turbine_years: float
+    prior_turbine_years: float
+    components: list[FailureRateUpdate]
+    unmapped: dict[str, int] = Field(description="修過、但不是元件故障的情境（不算進故障率）")
+
+
 class MonteCarloResponse(BaseModel):
     """POST /api/cost/monte-carlo response — 含 deterministic + percentiles。"""
 
@@ -162,6 +195,8 @@ class MonteCarloResponse(BaseModel):
     deterministic: CostForecastResponse
     percentiles: MonteCarloPercentiles
     dataset_meta: DatasetMeta | None = Field(default=None)
+    empirical: EmpiricalRates | None = Field(
+        default=None, description="只有 /monte-carlo/empirical 有：本風場的維修紀錄回饋到故障率的明細")
 
 
 # ─────────────────────────────────────────────────────────────────────────

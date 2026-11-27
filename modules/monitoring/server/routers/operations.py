@@ -280,9 +280,28 @@ async def fault_generator_settings() -> Dict[str, object]:
     from simulator.fault_generator import default_weight
     from simulator.physics.fault_engine import FAULT_SCENARIOS
 
-    generator = _live_simulator().fault_generator
+    simulator = _live_simulator()
+    generator = simulator.fault_generator
     return {"config": generator.config.to_dict(), "generated": generator.generated,
-            "scenarios": {sid: default_weight(sid) for sid in sorted(FAULT_SCENARIOS)}}
+            "scenarios": {sid: default_weight(sid) for sid in sorted(FAULT_SCENARIOS)},
+            "wear": _wear_view(simulator)}
+
+
+def _wear_view(simulator: object) -> Dict[str, object]:
+    """各機組的耗損（0–1）與換過的零件從換新以來的耗損（WMOM-20261127-07）。模型內部量，只給主管。"""
+    from simulator.fault_generator import turbine_wear
+
+    generator = simulator.fault_generator  # type: ignore[attr-defined]
+    replaced = generator.replacements()
+    out: Dict[str, object] = {}
+    for turbine_id, model in sorted(simulator.turbines.items()):  # type: ignore[attr-defined]
+        wear = turbine_wear(model, generator.config)
+        parts = generator.part_wear(turbine_id, model)
+        out[turbine_id] = {
+            **{key: round(value, 4) for key, value in wear.items()},
+            "parts": {part: {"wear": round(value, 4), "replaced_at": replaced[turbine_id][part].get("at")}
+                      for part, value in sorted(parts.items())}}
+    return out
 
 
 @router.put("/fault-generator",
@@ -412,6 +431,55 @@ async def set_inspection_plan_settings(body: Dict[str, object]) -> Dict[str, obj
     broker.storage.set_setting(broker.SETTING_INSPECTION_PLAN, config.to_dict())
     loop.inspection_plan.configure(config)
     return await asyncio.to_thread(_inspection_plan_view, loop.inspection_plan)
+
+
+# 故障率回饋的預設起點：從有紀錄開始全部算
+_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+
+@router.get("/failure-rates", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def failure_rates(
+    start: Annotated[Optional[str], Query(max_length=40, description="ISO 8601；預設從有紀錄開始")] = None,
+    end: Annotated[Optional[str], Query(max_length=40, description="ISO 8601；預設風場時鐘的現在")] = None,
+    prior_turbine_years: Annotated[float, Query(gt=0, le=10000)] = 14.0,
+) -> Dict[str, object]:
+    """本風場的維修紀錄回饋到 K13 故障率（WMOM-20261127-07，DEC-20261127-09）。
+
+    故障率＝（K13 × 先驗機組年＋修過的次數）÷（先驗機組年＋運轉機組年）。修過的次數來自不對外的故障紀錄
+    （由工單修好的），所以只給永遠強制登入的主管。要拿回饋後的故障率跑 Monte Carlo 用
+    ``POST /api/cost/monte-carlo/empirical``。
+
+    Args:
+        start: 時間下限（含，取整到整點）。
+        end: 時間上限（不含）。
+        prior_turbine_years: K13 的故障率算幾個機組年的經驗。
+
+    Returns:
+        ``{"start", "end", "turbine_years", "prior_turbine_years", "components": [...], "unmapped": {...}}``。
+    """
+    from modules.cost.adapter import load_engine_params_from_farm
+    from modules.cost.services.failure_rates import empirical_rates, unmapped_repairs
+
+    broker = get_broker()
+    end_dt = _moment("end", end) if end else (broker.live_clock() or utc_now()) + timedelta(hours=1)
+    start_dt = _moment("start", start) if start else _HISTORY_START
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
+    if end_dt <= start_dt:
+        raise HTTPException(422, "end 要晚於 start（取整到整點之後）")
+    farm_id = broker._active_farm_id
+    if not farm_id:
+        raise HTTPException(409, "目前沒有啟用的風場")
+
+    def compute() -> Dict[str, object]:
+        observations = broker.om_loop.failure_observations(start_dt, end_dt)
+        params, _meta = load_engine_params_from_farm(farm_id, farm_registry=broker.farm_registry)
+        updates = empirical_rates(params.components, observations, prior_turbine_years)
+        return {"start": observations.start, "end": observations.end,
+                "turbine_years": round(observations.turbine_years, 4), "prior_turbine_years": prior_turbine_years,
+                "components": [u.to_dict() for u in updates], "unmapped": unmapped_repairs(observations)}
+
+    return await asyncio.to_thread(compute)
 
 
 @router.get("/fault-records", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
