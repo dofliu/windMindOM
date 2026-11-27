@@ -303,8 +303,8 @@ const WorkOrderDetailModal: React.FC<Props> = ({
               </Card>
             </div>
 
-            {/* 出發前準備卡（WMOM-20261125-05）：故障維修工單才有 */}
-            {wo.type === 'corrective' && (
+            {/* 出發前準備卡：故障維修工單是故障出勤卡（WMOM-20261125-05）、定檢 / 預防保養是例行巡檢卡（WMOM-20261126-05） */}
+            {['corrective', 'inspection', 'preventive'].includes(wo.type) && (
               <BriefingCard workOrderId={wo.id} farmId={wo.farm_id} lang={lang} />
             )}
 

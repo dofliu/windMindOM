@@ -168,7 +168,7 @@ async def work_order_briefing(
 # ``OmLoop.backfill_briefing`` 的結果 → HTTP 狀態碼與說明
 _BACKFILL_ERRORS: Dict[str, Tuple[int, str]] = {
     "not_found": (404, "找不到這張工單"),
-    "not_corrective": (409, "只有對得到機組的故障維修工單有出發前準備卡"),
+    "not_corrective": (409, "只有對得到機組的故障維修、定檢、預防保養工單有出發前準備卡"),
     "finished": (409, "工單已經完工：補出來的不是出發前的樣子，不補"),
     "not_live": (409, "即時模擬沒在跑，現在不能產生出發前準備卡"),
     "failed": (500, "出發前準備卡產生失敗，請看伺服器的 log"),
@@ -243,7 +243,7 @@ async def work_order_briefing_score(
     if answer is None:
         # 沒有答案就不評分：把「沒記到答案」當成「沒有故障」會算出假的誤報
         raise HTTPException(409, "這張卡沒有存評分用的答案，不能評分")
-    return {"business_key": stored["business_key"], "score": briefing.score_card(stored["card"], answer),
+    return {"business_key": stored["business_key"], "score": briefing.score_any_card(stored["card"], answer),
             "answer": answer}
 
 

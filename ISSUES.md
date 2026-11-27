@@ -17,10 +17,12 @@
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 166 |
-| **total** | **182** |
+| done | 167 |
+| **total** | **183** |
 
-最後更新：2026-11-27（**WMOM-20261127-01 done**：側欄新增「營運」頁——收支與可用率、自動運轉（故障產生器、模擬維修班）、實測風況（匯入、套用、刪除、回到模型），只用既有的端點；設備與固定成本、RUL 回饋、修復等級表確認拆到 WMOM-20261127-02。open 13 / in_progress 1 / deferred 2 / done 166 = 182。詳見 `work-logs/2026-11/2026-11-27-operations-page.md`）。
+最後更新：2026-11-27（**WMOM-20261126-05 done**：例行巡檢卡——固定的 11 項檢查清單，依看得到的證據排順序（30 天的警報 / 跳機、量測偏離、未結案的故障維修工單），潛伏的故障也會把那一項排到前面；定檢 / 預防保養工單建立時產生，卡片 1.2，前端顯示，DEC-20261127-04。另開 WMOM-20261127-03（依風場時鐘定期開定檢工單）。open 13 / in_progress 1 / deferred 2 / done 167 = 183。詳見 `work-logs/2026-11/2026-11-27-inspection-card.md`）。
+
+前次：2026-11-27（**WMOM-20261127-01 done**：側欄新增「營運」頁——收支與可用率、自動運轉（故障產生器、模擬維修班）、實測風況（匯入、套用、刪除、回到模型），只用既有的端點；設備與固定成本、RUL 回饋、修復等級表確認拆到 WMOM-20261127-02。open 13 / in_progress 1 / deferred 2 / done 166 = 182。詳見 `work-logs/2026-11/2026-11-27-operations-page.md`）。
 
 前次：2026-11-27（**WMOM-20261125-07 done**（EPIC-SF 第 7 項，DEC-20261127-03）：實測風況匯入——CSV 匯入、存在風場 DB、套用後風場依實測序列運轉（重播 / 絕對時間、播完循環 / 停住 / 回到模型），手動設定優先、模型在底下照跑、批次可重現。**EPIC-SF 七項全部完成**。open 13 / in_progress 1 / deferred 2 / done 165 = 181。詳見 `work-logs/2026-11/2026-11-27-measured-wind.md`）。
 
@@ -2041,6 +2043,17 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Depends on**: WMOM-20260504-11（done）
 - **Reference**: DEC-20261127-02
 
+### WMOM-20261127-03 — 仿真風場依風場時鐘定期開定檢工單
+
+- **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: -
+- **Source**: WMOM-20261126-05（DEC-20261127-04）。
+- **Description**: 定檢排程（`inspection_schedules`）到期才開工單，但只有人呼叫 `POST /api/workflow/inspection-schedules/run-scheduler` 時才跑，而且看實際時間。仿真風場自己運轉時不會有定檢，潛伏的故障（DEC-20261127-01）也就不會被巡檢發現、修掉。做法：運維閉環依風場時鐘定期跑排程（`run_inspection_scheduler(as_of=風場時鐘)`），預設關、存在風場設定；模擬維修班照樣接手。要決定：預設的排程（例：每台機組每半年一次，錯開）、批次期間不跑、重啟後不重複開。
+- **Depends on**: WMOM-20261126-05（done）
+
 ### WMOM-20261126-08 — 1 分鐘 / 10 分鐘彙整表依實際時間、時段重複彙整
 
 - **Status**: open
@@ -2174,7 +2187,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261126-05 — 出發前準備卡：例行巡檢卡（定檢工單）
 
-- **Status**: open
+- **Status**: done（2026-11-27；DEC-20261127-04。固定的 11 項檢查清單、依看得到的證據排順序〔30 天的警報 / 跳機、量測偏離、未結案的故障維修工單〕、評分只給主管；定檢 / 預防保養工單建立時產生，卡片 1.2；前端工單詳情與「我的工單」都顯示。依風場時鐘自動開定檢單另開 WMOM-20261127-03。詳見 `work-logs/2026-11/2026-11-27-inspection-card.md`）
 - **Milestone**: EPIC-SF
 - **Priority**: medium
 - **Estimate**: 3–4 天

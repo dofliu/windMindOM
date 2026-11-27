@@ -1,5 +1,5 @@
 /**
- * 出發前準備卡（WMOM-20261125-05）：故障出勤卡的畫面。
+ * 出發前準備卡（WMOM-20261125-05）：故障出勤卡與例行巡檢卡（WMOM-20261126-05）的畫面。
  *
  * 管理端的工單頁與現場工程師的「我的工單」共用。卡片由後端在工單建立當下產生，只整理看得到的資料
  * （讀值、PLC 事件、工單、手冊），不判定根因；資料有缺時卡上會標明。
@@ -13,9 +13,13 @@ import { Card, StatusPill } from '../ui';
 import { useTheme } from '../../theme/ThemeProvider';
 import {
   fetchBriefing,
+  isInspectionCard,
+  type AnyBriefingCard,
   type BriefingCard as BriefingCardData,
   type BriefingResponse,
   type BriefingSignal,
+  type InspectionBriefingCard,
+  type InspectionEvidence,
 } from '../../services/briefingService';
 
 type Lang = 'en' | 'zh';
@@ -29,6 +33,7 @@ const FLAG_TEXT: Record<string, [string, string]> = {
   too_few_peers: ['Too few other turbines to compare with', '同場可比較的機組太少'],
   no_baseline: ['No earlier readings to compare with', '沒有更早的讀值可以比'],
   events_truncated: ['Too many events to scan them all', '事件太多，沒有全部看完'],
+  no_evidence: ['No evidence: the planned order is kept', '沒有證據，維持原訂順序'],
 };
 
 const STATE_NAME: Record<number, [string, string]> = {
@@ -248,6 +253,107 @@ export const BriefingCardView: React.FC<ViewProps> = ({ card, lang }) => {
   );
 };
 
+/** 例行巡檢卡（WMOM-20261126-05）：原訂的檢查清單，依證據排順序；排在後面的照樣要檢查。 */
+export const InspectionCardView: React.FC<{ card: InspectionBriefingCard; lang: Lang }> = ({ card, lang }) => {
+  const { C } = useTheme();
+  const ui = (en: string, zh: string): string => (lang === 'zh' ? zh : en);
+  const quality = card.data_quality;
+  const shownFlags = quality.flags.filter(flag => flag !== 'no_evidence' && flag !== 'no_baseline');
+
+  const describe = (e: InspectionEvidence): string => {
+    if (e.type === 'events') {
+      const kind = e.event_type === 'trip' ? ui('trip', '跳機') : ui('alarm', '警報');
+      return `${e.level} ${String(e.code).padStart(3, '0')} ${e.text} — ${kind} ×${e.count}（${ui('last', '最近')} ${fmtTime(e.last_ts)}）`;
+    }
+    if (e.type === 'signal') {
+      const dir = e.deviation === 'high' ? ui('high', '偏高') : ui('low', '偏低');
+      return `${ui(e.label_en, e.label_zh)} ${dir}：${fmt(e.turbine_mean)} ${e.unit}（${ui('farm', '同場')} ${fmt(e.farm_median)}）`;
+    }
+    return `${ui('Open corrective order', '未結案的故障維修工單')} ${e.business_key}${e.source_alarm_code !== null ? `（${String(e.source_alarm_code).padStart(3, '0')}）` : ''}`;
+  };
+
+  return (
+    <Card>
+      <div data-testid="inspection-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+            {ui('Routine inspection briefing', '例行巡檢卡')}
+          </div>
+          <div style={{ fontSize: 11, color: C.faint }}>
+            {ui('Data up to', '資料截止')} {fmtTime(card.data_cutoff)}
+            {card.generated_late ? ui(' (generated later)', '（事後補產生）') : ''}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 6 }}>
+          {card.checklist.order_changed
+            ? ui(
+                'Items with evidence are moved up; the rest keep the planned order.',
+                '有證據的項目往前排，其餘維持原訂順序。',
+              )
+            : ui('No evidence found: the planned order is kept.', '沒有找到證據，維持原訂順序。')}
+        </div>
+
+        {quality.degraded && shownFlags.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <Card tone="warn" padding={10}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.warn }}>
+                {ui('Incomplete data — read with care', '資料不完整，請保守判讀')}
+              </div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12, color: C.text }}>
+                {shownFlags.map(flag => (
+                  <li key={flag}>{FLAG_TEXT[flag] ? ui(FLAG_TEXT[flag][0], FLAG_TEXT[flag][1]) : flag}</li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        )}
+
+        <ol style={{ margin: '12px 0 0', paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+          {card.checklist.items.map(item => (
+            <li
+              key={item.id}
+              data-testid={`inspection-item-${item.id}`}
+              style={{
+                border: `1px solid ${item.attention ? C.warn : C.border}`,
+                borderRadius: 10,
+                padding: '8px 12px',
+              }}
+            >
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 13, color: C.text, fontWeight: item.attention ? 600 : 400 }}>
+                  {item.position}. {ui(item.label_en, item.label_zh)}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {item.position !== item.default_position && (
+                    <span style={{ fontSize: 11, color: C.faint }}>
+                      {ui(`planned #${item.default_position}`, `原訂第 ${item.default_position}`)}
+                    </span>
+                  )}
+                  {item.attention && <StatusPill tone="warn">{ui('Check first', '注意')}</StatusPill>}
+                </div>
+              </div>
+              {item.evidence.length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: C.text }}>
+                  {item.evidence.map((e, i) => (
+                    <li key={i}>{describe(e)}</li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ol>
+
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 12 }}>
+          {ui(
+            'Evidence: alarms and trips in the last 30 days, readings vs other producing turbines (last 6 h or last hour), open corrective orders. No root cause is given; items further down still need checking.',
+            '證據：最近 30 天的警報與跳機、量測和同場其他發電中的機組比（最近 6 小時或最後 1 小時）、未結案的故障維修工單。不判定根因；排在後面的項目照樣要檢查。',
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
 interface Props {
   workOrderId: string;
   farmId: string;
@@ -258,7 +364,7 @@ interface Props {
 
 export const BriefingCard: React.FC<Props> = ({ workOrderId, farmId, lang, load = fetchBriefing }) => {
   const { C } = useTheme();
-  const [card, setCard] = useState<BriefingCardData | null>(null);
+  const [card, setCard] = useState<AnyBriefingCard | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'none' | 'error'>('loading');
 
   useEffect(() => {
@@ -294,7 +400,8 @@ export const BriefingCard: React.FC<Props> = ({ workOrderId, farmId, lang, load 
     );
   }
   if (state === 'none' || card === null) return null;
-  return <BriefingCardView card={card} lang={lang} />;
+  if (isInspectionCard(card)) return <InspectionCardView card={card} lang={lang} />;
+  return <BriefingCardView card={card as BriefingCardData} lang={lang} />;
 };
 
 export default BriefingCard;

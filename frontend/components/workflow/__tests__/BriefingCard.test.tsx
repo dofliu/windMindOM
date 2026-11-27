@@ -13,9 +13,14 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import React from 'react';
-import { BriefingCard, BriefingCardView } from '../BriefingCard';
+import { BriefingCard, BriefingCardView, InspectionCardView } from '../BriefingCard';
 import { ThemeProvider } from '../../../theme/ThemeProvider';
-import type { BriefingCard as CardData, BriefingResponse, BriefingSignal } from '../../../services/briefingService';
+import type {
+  BriefingCard as CardData,
+  BriefingResponse,
+  BriefingSignal,
+  InspectionBriefingCard,
+} from '../../../services/briefingService';
 
 afterEach(cleanup);
 
@@ -234,5 +239,99 @@ describe('BriefingCard', () => {
     );
     await waitFor(() => expect(load).toHaveBeenCalledWith('wo-2', 'farm-a'));
     expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+// ─── 例行巡檢卡（WMOM-20261126-05）──────────────────────────────────────────
+
+function inspectionCard(overrides: Partial<InspectionBriefingCard> = {}): InspectionBriefingCard {
+  const base = card();
+  return {
+    card_version: '1.2',
+    kind: 'routine_inspection',
+    work_order: { ...base.work_order, type: 'inspection', source_alarm_code: null },
+    data_cutoff: '2026-01-01T02:16:40Z',
+    generated_late: false,
+    checklist: {
+      order_changed: true,
+      items: [
+        {
+          id: 'transformer', label_zh: '變壓器', label_en: 'Transformer', default_position: 2, position: 1,
+          attention: true, score: 5,
+          evidence: [
+            { type: 'signal', name: 'TrfCoreTmp', label_zh: '變壓器鐵芯溫度', label_en: 'Transformer core temp',
+              unit: '°C', deviation: 'high', turbine_mean: 66.1, recent_mean: 67.9, farm_median: 34.2 },
+            { type: 'events', code: 417, level: 'A', text: 'Transformer temperature high', event_type: 'alarm_raised',
+              count: 2, last_ts: '2026-01-01T01:00:00Z' },
+            { type: 'open_work_order', business_key: 'WO-9', source_alarm_code: 444, status: 'draft' },
+          ],
+          signals: ['TrfCoreTmp'],
+        },
+        {
+          id: 'converter_cooling', label_zh: '變頻器與冷卻水系統', label_en: 'Converter and cooling water',
+          default_position: 1, position: 2, attention: false, score: 0, evidence: [], signals: [],
+        },
+      ],
+    },
+    recent_events: { window: { start: '', end: '' }, by_code: [] },
+    signals: base.signals,
+    past_work_orders: [],
+    data_quality: { flags: [], degraded: false },
+    notes: [],
+    ...overrides,
+  };
+}
+
+describe('InspectionCardView', () => {
+  it('lists the checklist in the card order with the evidence and the planned position', () => {
+    render(
+      <ThemeProvider>
+        <InspectionCardView card={inspectionCard()} lang="zh" />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('例行巡檢卡')).toBeInTheDocument();
+    const first = screen.getByTestId('inspection-item-transformer');
+    expect(first).toHaveTextContent('1. 變壓器');
+    expect(first).toHaveTextContent('原訂第 2');
+    expect(first).toHaveTextContent('注意');
+    expect(first).toHaveTextContent('變壓器鐵芯溫度 偏高：66.1 °C（同場 34.2）');
+    expect(first).toHaveTextContent('A 417 Transformer temperature high — 警報 ×2');
+    expect(first).toHaveTextContent('未結案的故障維修工單 WO-9（444）');
+    const second = screen.getByTestId('inspection-item-converter_cooling');
+    expect(second).toHaveTextContent('2. 變頻器與冷卻水系統');
+    expect(second).not.toHaveTextContent('注意');
+    expect(screen.getByText(/不判定根因/)).toBeInTheDocument();
+  });
+
+  it('says when there is no evidence and does not treat it as missing data', () => {
+    render(
+      <ThemeProvider>
+        <InspectionCardView
+          card={inspectionCard({
+            checklist: { order_changed: false, items: [] },
+            data_quality: { flags: ['no_evidence', 'no_baseline'], degraded: false },
+          })}
+          lang="en"
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('No evidence found: the planned order is kept.')).toBeInTheDocument();
+    expect(screen.queryByText(/Incomplete data/)).not.toBeInTheDocument();
+  });
+
+  it('is what BriefingCard shows for an inspection order', async () => {
+    const data = inspectionCard();
+    const load = vi.fn().mockResolvedValue({
+      work_order_id: 'wo-3', business_key: 'WO-3', turbine_id: 'WT003', created_at: '', data_cutoff: data.data_cutoff,
+      card: data,
+    });
+    render(
+      <ThemeProvider>
+        <BriefingCard workOrderId="wo-3" farmId="farm-a" lang="zh" load={load} />
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('inspection-card')).toBeInTheDocument());
+    expect(screen.queryByTestId('briefing-card')).not.toBeInTheDocument();
   });
 });

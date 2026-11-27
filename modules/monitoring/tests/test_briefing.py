@@ -339,15 +339,21 @@ def test_too_few_peers_and_stale_readings_degrade_the_card(farm: Farm) -> None:
     assert briefing.score_card(stale, {"faults": [], "has_fault": False})["degraded_when_missing"] is True
 
 
-def test_only_corrective_orders_on_known_turbines_get_a_card(farm: Farm) -> None:
+def test_only_orders_on_known_turbines_get_a_card(farm: Farm) -> None:
+    """故障維修→故障出勤卡、定檢→例行巡檢卡（WMOM-20261126-05）；試運轉、對不到機組、別座風場的沒有卡。"""
     farm.drive(30)
     inspection = farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.INSPECTION, title="定檢",
                                   description="")
+    farm.drive(10)
+    assert farm.broker.storage.get_briefing(work_order_id=str(inspection.id))["kind"] == "routine_inspection"
+    commissioning = farm.repo.create(farm_id=FARM, turbine_id="WT002", type=WorkOrderType.COMMISSIONING,
+                                     title="試運轉", description="")
     elsewhere = farm.repo.create(farm_id="other-farm", turbine_id="WT001", type=WorkOrderType.CORRECTIVE,
                                  title="x", description="")
     unknown = farm.repo.create(farm_id=FARM, turbine_id="葉片倉庫", type=WorkOrderType.CORRECTIVE, title="x",
                                description="")
-    for order in (inspection, elsewhere, unknown):
+    farm.drive(10)
+    for order in (commissioning, elsewhere, unknown):
         assert farm.broker.storage.get_briefing(work_order_id=str(order.id)) is None
 
 
@@ -413,9 +419,9 @@ def test_internal_endpoints_serve_the_card_and_guard_the_score(worn: Farm, monke
     again = asyncio.run(ops.build_work_order_briefing(str(late.id), farm_id=FARM))
     assert again == built, "已經有卡：不換掉"
     assert status_of(ops.build_work_order_briefing(str(done.id), farm_id=FARM)) == 409, "已經完工的不補"
-    inspection = worn.repo.create(farm_id=FARM, turbine_id="WT003", type=WorkOrderType.INSPECTION, title="定檢",
-                                  description="")
-    assert status_of(ops.build_work_order_briefing(str(inspection.id), farm_id=FARM)) == 409
+    commissioning = worn.repo.create(farm_id=FARM, turbine_id="WT003", type=WorkOrderType.COMMISSIONING,
+                                     title="試運轉", description="")
+    assert status_of(ops.build_work_order_briefing(str(commissioning.id), farm_id=FARM)) == 409, "試運轉沒有卡"
     assert status_of(ops.build_work_order_briefing(str(BOSS), farm_id=FARM)) == 404, "沒有這張工單"
     # 卡片做不出來是伺服器的問題（500），不要報成「即時模擬沒在跑」
     broken = worn.repo.create(farm_id=FARM, turbine_id="WT005", type=WorkOrderType.CORRECTIVE, title="x",
@@ -692,7 +698,7 @@ def test_external_api_lists_work_orders_without_free_text(worn: Farm, api: TestC
     body = api.get("/api/ext/v1/work-orders").json()
     orders = body["work_orders"]
     assert [(o["turbine_id"], o["type"], o["source_alarm_code"], o["has_briefing"]) for o in orders] == [
-        ("WT002", "corrective", 240, True), ("WT004", "inspection", None, False)], "對不到機組、別座風場的不給"
+        ("WT002", "corrective", 240, True), ("WT004", "inspection", None, True)], "對不到機組、別座風場的不給"
     assert set(orders[0]) == {"business_key", "turbine_id", "type", "status", "priority", "source_alarm_code",
                               "created_at", "dispatched_at", "started_at", "finished_at", "closed_at",
                               "has_briefing"}
