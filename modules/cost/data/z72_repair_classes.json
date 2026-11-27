@@ -1,0 +1,30 @@
+{
+  "description": "Z72 故障情境 → K13 修復等級（FTC，k13_fault_types_wt.json 的 maintenance_categories）。料件費與人數取那個等級的 material_cost_euro / crew_size。等級是假設值（assumed，WMOM-20260504-11 / DEC-20261127-02）：感測器 2–3（耗材）、泵 / 風扇 / 液壓 / 變槳馬達 4–5（低成本）、定子繞組 11、主軸承 8；沒有東西要換的 1。K13 是 4 MW 離岸參考，Z72 2 MW 陸域的實際成本可能較低，有客戶資料再換。",
+  "default_ftc_by_category": {"sensor_fault": 2, "real_fault": 4, "nuisance": 1},
+  "scenarios": {
+    "anemometer_fault": 2,
+    "bearing_wear": 8,
+    "blade1_pitch_encoder_fault": 3,
+    "blade_icing": 1,
+    "converter_cooling_fault": 4,
+    "converter_cooling_pump_wear": 4,
+    "cooling_water_deionizer_exhausted": 3,
+    "generator_overspeed": 5,
+    "grid_voltage_sag": 1,
+    "hydraulic_leak": 4,
+    "main_bearing_temp_loose_contact": 2,
+    "main_bearing_temp_sensor_drift": 2,
+    "main_bearing_temp_sensor_wire_break": 2,
+    "nacelle_cooling_failure": 4,
+    "pitch_imbalance": 3,
+    "pitch_motor_fault": 5,
+    "rotor_speed_sensor_fault": 3,
+    "stator_temp_sensor_drift": 3,
+    "stator_winding_degradation": 11,
+    "transformer_overheat": 5,
+    "wind_vane1_stuck": 2,
+    "yaw_brake_pressure_sensor_fault": 2,
+    "yaw_misalignment": 3,
+    "yaw_sensor_drift": 2
+  }
+}

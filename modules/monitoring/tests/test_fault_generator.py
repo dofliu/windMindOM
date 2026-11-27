@@ -28,6 +28,7 @@ from simulator.fault_generator import (
     DEFAULT_EXCLUDED,
     FaultGenerator,
     FaultGeneratorConfig,
+    is_latent,
     turbine_wear,
 )
 from simulator.physics.fault_engine import FAULT_SCENARIOS
@@ -224,6 +225,28 @@ def test_a_turbine_gets_at_most_the_configured_number_of_faults() -> None:
     assert all(len({f.scenario_id for f in sim.fault_engine.active_faults if f.turbine_id == t}) == 2 for t in per)
     rates = [f.severity_rate for f in sim.fault_engine.active_faults]
     assert all(1 / (48 * 3600) <= r <= 1 / (0.5 * 3600) for r in rates) and len(set(rates)) > 1
+
+
+def test_a_latent_fault_does_not_hold_the_turbine_slot() -> None:
+    """WMOM-20261126-09：嚴重度到頂卻沒有警報的故障（例：11 月的變壓器過熱）修不掉，不能讓那台機組從此
+    不再發生別的故障。開始報警或跳過機的，照樣佔名額。"""
+    sim = _sim(1)
+    generator = FaultGenerator(_config(mean_days_between_faults=0.001))
+    _run(sim, generator, 50, keep=True)
+    [fault] = sim.fault_engine.active_faults
+    assert not is_latent(fault), "還在劣化"
+    fault.severity = fault.max_severity
+    assert is_latent(fault)
+    for busy in ({"active_alarms": [{"code": 417}]}, {"tripped": True}):
+        for key, value in busy.items():
+            setattr(fault, key, value)
+        assert not is_latent(fault)
+        assert _run(sim, generator, 50, keep=True) == [], f"{busy}：佔著名額"
+        fault.active_alarms, fault.tripped = [], False
+    made = _run(sim, generator, 50, keep=True)
+    assert len(made) == 1 and made[0][2] != fault.scenario_id, "潛伏的不佔名額，另一種故障照樣發生"
+    assert len(sim.fault_engine.active_faults) == 2
+    assert _run(sim, generator, 50, keep=True) == [], "新的那個佔著名額"
 
 
 # ── 4. 設定 ───────────────────────────────────────────────────────────────

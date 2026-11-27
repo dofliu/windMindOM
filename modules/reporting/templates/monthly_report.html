@@ -100,6 +100,22 @@
   </table>
 </section>
 
+{% if data.generation %}
+<section class="generation">
+  <h2>發電收入與淨額</h2>
+  <table class="kpi-table">
+    <tr><th>發電量</th><td>{{ "{:,.0f}".format(data.generation.energy_kwh) }} kWh</td></tr>
+    <tr><th>電價</th><td>{{ "{:.4f}".format(data.generation.kwh_price) }} {{ data.generation.currency }} / kWh</td></tr>
+    <tr><th>發電收入</th><td>{{ "{:,.2f}".format(data.generation.revenue) }} {{ data.generation.currency }}</td></tr>
+    <tr><th>計畫停機少收</th><td>{{ "{:,.2f}".format(data.generation.lost_planned) }} {{ data.generation.currency }}</td></tr>
+    <tr><th>非計畫停機少收</th><td>{{ "{:,.2f}".format(data.generation.lost_unplanned) }} {{ data.generation.currency }}</td></tr>
+    <tr><th>運維支出（人工＋料件＋設備）</th><td>{{ "{:,.2f}".format(data.generation.operating_expense) }} {{ data.generation.currency }}</td></tr>
+    <tr><th>淨額</th><td><strong>{{ "{:,.2f}".format(data.generation.net) }} {{ data.generation.currency }}</strong></td></tr>
+  </table>
+  <p class="note">發電量與少發的電來自運轉狀態紀錄（與可用率同一份），時間以風場時鐘計。</p>
+</section>
+{% endif %}
+
 {% if data.notable_events %}
 <section class="events">
   <h2>5. 重大事件 timeline</h2>

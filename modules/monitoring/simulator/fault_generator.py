@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Dict, List, Mapping, Tuple
 from .physics.fault_engine import FAULT_SCENARIOS
 
 if TYPE_CHECKING:
-    from .physics.fault_engine import FaultEngine
+    from .physics.fault_engine import ActiveFault, FaultEngine
     from .physics.turbine_physics import TurbinePhysicsModel
 
 # 預設不自動產生的情境：
@@ -60,7 +60,7 @@ class FaultGeneratorConfig:
         wear_gain: 耗損（0–1）對發生率的放大：權重乘上 ``1 + wear_gain × 耗損``。0＝耗損不影響。
         min_hours_to_full: 故障從開始到最嚴重最快幾小時。
         max_hours_to_full: 最慢幾小時。
-        max_active_per_turbine: 一台機組同時最多幾個故障；到了就不再產生。
+        max_active_per_turbine: 一台機組同時最多幾個故障；到了就不再產生。潛伏的故障不算（:func:`is_latent`）。
         seed: 亂數種子。改了它，之後的故障序列就不同。
         fatigue_reference: 疲勞累積損傷（Miner 總和）到這個值算耗損 1。實測約每年 0.4（視風況），預設 0.1
             約是三個月。
@@ -164,6 +164,22 @@ def turbine_wear(model: "TurbinePhysicsModel", config: FaultGeneratorConfig | No
     return {"fatigue": min(1.0, max(0.0, float(damage))), "fouling": min(1.0, max(0.0, float(fouling)))}
 
 
+def is_latent(fault: "ActiveFault") -> bool:
+    """潛伏的故障：嚴重度已經到頂，卻從沒跳過機、現在也沒有預期碼成立。
+
+    在目前的條件下（季節、負載）它的訊號到不了警報門檻，沒有警報就沒有工單、修不掉。它不佔機組的故障
+    名額，那台機組照樣會發生別的故障（WMOM-20261126-09，72 小時長跑裡 14 個故障有 5 個這樣卡住機組）。
+    條件變了開始報警時，它又算回名額裡（只影響之後要不要再產生，不會移掉已經有的故障）。
+
+    Args:
+        fault: 故障引擎裡的故障。
+
+    Returns:
+        是不是潛伏。
+    """
+    return (fault.severity >= fault.max_severity - 1e-9 and not fault.tripped and not fault.active_alarms)
+
+
 class FaultGenerator:
     """機率式故障產生器。掛在 ``WindFarmSimulator`` 底下，每一步呼叫 :meth:`step`。"""
 
@@ -227,9 +243,12 @@ class FaultGenerator:
         elapsed, self._accumulated = self._accumulated, 0.0
         config = self.config
         made: List[GeneratedFault] = []
-        active: Dict[str, List[str]] = {}
+        active: Dict[str, List[str]] = {}     # 機組上全部的故障（不重複產生同一種）
+        holding: Dict[str, int] = {}          # 佔名額的（潛伏的不算）
         for fault in fault_engine.active_faults:
             active.setdefault(fault.turbine_id, []).append(fault.scenario_id)
+            if not is_latent(fault):
+                holding[fault.turbine_id] = holding.get(fault.turbine_id, 0) + 1
         log_min, log_max = math.log(config.min_hours_to_full), math.log(config.max_hours_to_full)
         for turbine_id in sorted(turbines):
             # 每台機組固定抽三個數：有沒有發生、哪一種、多快。抽樣次數不隨結果或設定改變
@@ -239,7 +258,7 @@ class FaultGenerator:
             if happens >= probability:
                 continue
             existing = active.get(turbine_id, [])
-            if len(existing) >= config.max_active_per_turbine:
+            if holding.get(turbine_id, 0) >= config.max_active_per_turbine:
                 continue
             choices = [(sid, w) for sid, w in self.scenario_weights(wear) if sid not in existing]
             total = sum(w for _, w in choices)
@@ -255,6 +274,7 @@ class FaultGenerator:
             rate = 1.0 / (hours * 3600.0)
             if fault_engine.inject(scenario_id, turbine_id, severity_rate=rate, initial_severity=0.0):
                 active.setdefault(turbine_id, []).append(scenario_id)
+                holding[turbine_id] = holding.get(turbine_id, 0) + 1
                 made.append(GeneratedFault(turbine_id=turbine_id, scenario_id=scenario_id, severity_rate=rate))
                 self.generated += 1
         return made

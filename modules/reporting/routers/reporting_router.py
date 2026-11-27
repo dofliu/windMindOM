@@ -40,6 +40,7 @@ from modules.reporting.services.annual_budget import (
 )
 from modules.reporting.services.kpi_calculator import (
     AvailabilityProvider,
+    RevenueProvider,
     compute_monthly_report_data,
 )
 from modules.reporting.services.monthly_report import render_html, render_pdf
@@ -61,6 +62,7 @@ router = APIRouter(prefix="/api/reporting", tags=["reporting"])
 _ledger_factory: Optional[Callable[[str], CostLedgerRepository]] = None
 _wo_factory: Optional[Callable[[str], WorkOrderRepository]] = None
 _availability_provider: Optional[AvailabilityProvider] = None
+_revenue_provider: Optional[RevenueProvider] = None
 
 
 def set_ledger_factory(factory: Optional[Callable[[str], CostLedgerRepository]]) -> None:
@@ -90,6 +92,12 @@ def set_availability_provider(provider: Optional[AvailabilityProvider]) -> None:
     """注入物理模擬 availability provider（M5+ 用）；None 走 work_order 推算。"""
     global _availability_provider
     _availability_provider = provider
+
+
+def set_revenue_provider(provider: Optional[RevenueProvider]) -> None:
+    """注入發電收入 provider（仿真風場由運轉狀態紀錄 × 電價，WMOM-20260504-11）；None＝月報沒有收入區塊。"""
+    global _revenue_provider
+    _revenue_provider = provider
 
 
 def _get_ledger_repo(farm_id: str) -> CostLedgerRepository:
@@ -190,6 +198,7 @@ async def generate_monthly_report(
             month=month,
             farm_name=farm_name,
             availability_provider=_availability_provider,
+            revenue_provider=_revenue_provider,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

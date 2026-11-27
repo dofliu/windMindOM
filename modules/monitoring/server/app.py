@@ -56,10 +56,11 @@ async def lifespan(app: FastAPI):
     _apply_continuous_run_settings(farm_id)
 
     # 運維閉環的接線（WMOM-20261125-04）：工單的狀態改變通知到閉環；報表的可用率由運轉狀態紀錄提供
-    from modules.reporting.routers.reporting_router import set_availability_provider
+    from modules.reporting.routers.reporting_router import set_availability_provider, set_revenue_provider
     from modules.workflow.hooks import add_work_order_listener, remove_work_order_listener
     add_work_order_listener(_on_work_order)
     set_availability_provider(_availability_for_report)
+    set_revenue_provider(_revenue_for_report)
 
     # Start WebSocket broadcast task（未選來源前 broker.get_all_turbines() 回空、不廣播）
     task = asyncio.create_task(_ws_broadcast_loop())
@@ -82,6 +83,8 @@ async def lifespan(app: FastAPI):
     from modules.reporting.routers import reporting_router as _reporting
     if _reporting._availability_provider is _availability_for_report:
         set_availability_provider(None)
+    if _reporting._revenue_provider is _revenue_for_report:
+        set_revenue_provider(None)
     if broker._om_loop is not None:
         broker._om_loop.enabled = False
     task.cancel()
@@ -171,6 +174,29 @@ def _availability_for_report(farm_id: str, start: 'datetime', end: 'datetime') -
     if time_availability is None or energy_availability is None:
         return None
     return float(time_availability), float(energy_availability)
+
+
+def _revenue_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Optional[dict]':
+    """報表的發電收入：運轉狀態紀錄 × 電價（WMOM-20260504-11）。條件同 ``_availability_for_report``。
+
+    Args:
+        farm_id: 風場 ID。
+        start: 期間起點。
+        end: 期間終點。
+
+    Returns:
+        ``{"currency", "kwh_price", "energy_kwh", "revenue", "lost_planned", "lost_unplanned"}``，或 None。
+    """
+    loop = broker._om_loop_if_enabled()
+    if loop is None or farm_id != broker._active_farm_id:
+        return None
+    farm = loop.availability(start, end)["farm"]
+    if not farm.get("recorded_hours"):
+        return None
+    from modules.cost.services.simulation_costs import farm_rates, revenue
+    rates = farm_rates(farm_id, broker.farm_registry)
+    return {"currency": rates.currency, "kwh_price": rates.kwh_price,
+            "energy_kwh": float(farm.get("energy_kwh") or 0.0), **revenue(farm, rates)}
 
 
 def _env_days(name: str, default: int, minimum: int) -> int:

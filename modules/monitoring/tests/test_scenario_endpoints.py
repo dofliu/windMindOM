@@ -1016,7 +1016,8 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
     }
     expected = {
         ("POST", "/api/config/datasource"), ("POST", "/api/config/simulation"), ("POST", "/api/config/wind"),
-        ("POST", "/api/config/wind/clear"), ("POST", "/api/config/simulation/time-scale"),
+        ("POST", "/api/config/wind/clear"), ("POST", "/api/config/wind/series/{series_id}/apply"),
+        ("POST", "/api/config/simulation/time-scale"),
         ("POST", "/api/config/grid"), ("POST", "/api/config/grid/clear"), ("POST", "/api/config/storage/maintenance"),
         ("POST", "/api/config/turbine-spec"), ("POST", "/api/control/command"), ("POST", "/api/control/curtail"),
         ("POST", "/api/farms/{farm_id}/activate"), ("POST", "/api/faults/inject"), ("POST", "/api/faults/clear"),

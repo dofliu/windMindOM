@@ -25,14 +25,33 @@ time the engine passes to the getters. ``set_override`` / ``set_profile`` do not
 current auto wind" themselves — they mark it as pending, and the next ``get_wind_speed`` call
 resolves it with that step's simulation time. Do not import ``utc_now`` here: a batch generated
 with the same settings must be bit-identical whatever the wall-clock time is.
+
+Measured series (WMOM-20261125-07): ``set_measured`` makes a measured wind series
+(``simulator/wind_series.py``) replace the model's base wind speed — and, where the series has them,
+direction, temperature, turbulence intensity, humidity and pressure. Precedence: manual override /
+profile > measured series > model. The model layers keep running underneath (``_get_auto_wind`` is
+still called once per step) so the random-draw count is the same as in auto mode; the series is
+applied at the next ``get_wind_speed`` with that step's simulation time, as a single object swap, so
+the API thread never leaves half a change for the Live thread to read.
 """
 
 import math
+from collections import deque
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
 
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive, to_utc
+from dataclasses import replace
+
+from simulator.wind_series import MeasuredWindPlayback
+
+
+class _MeasuredChange:
+    """``set_measured`` / ``clear_measured`` 的待套用變更（一次指派，Live 執行緒在下一步套用）。"""
+
+    def __init__(self, playback: Optional[MeasuredWindPlayback]) -> None:
+        self.playback = playback
 
 
 # ─── Seasonal wind parameters (typical coastal/onshore site) ─────────
@@ -140,6 +159,13 @@ class WindEnvironmentModel:
         # Weather system state (for deterministic long-term)
         self._last_weather_update = 0.0
 
+        # 實測風況序列（WMOM-20261125-07）：套用中的、待套用的變更、上一步輸出的基準風速（切換時從它漸變）
+        self._measured: Optional[MeasuredWindPlayback] = None
+        # API 執行緒 append、Live 執行緒 popleft（deque 的這兩個操作是原子的）：先後兩次設定都會依序套用，
+        # 不會有一方把另一方剛放進來的變更蓋掉
+        self._measured_changes: deque = deque()
+        self._last_base: Optional[float] = None
+
     def set_site_timezone(self, name: str) -> None:
         """Set the wind farm's IANA time zone used for diurnal / seasonal cycles (WMOM-20261021-11).
 
@@ -183,6 +209,51 @@ class WindEnvironmentModel:
         self._override_wind_direction = None
         self._override_ambient_temp = None
         self._active_profile = None
+
+    def set_measured(self, playback: MeasuredWindPlayback) -> None:
+        """改由實測序列提供風況（下一步套用，從當時的風速漸變過去）。
+
+        Args:
+            playback: 序列與播放方式；開始播的時刻由下一步的模擬時間定。
+        """
+        self._measured_changes.append(_MeasuredChange(playback))
+
+    def clear_measured(self) -> None:
+        """停止實測序列，回到模型的風況（下一步套用、漸變過去）。沒有在播、也沒有待套用的時不做事。"""
+        if self._measured is not None or self._measured_changes:
+            self._measured_changes.append(_MeasuredChange(None))
+
+    def restart_measured_replay(self) -> None:
+        """批次開始時：``replay`` 的序列從批次的第一步重新開始播（開始的時刻改由下一步的模擬時間定）。
+
+        即時模擬裡套用的序列已經用 Live 的時間定了開始的時刻；不重新定的話，批次裡播到序列的哪裡要看 Live
+        跑了多久，同樣的設定產生的批次就不同。批次前後 Live 的狀態會存檔 / 還原，這裡改了不影響 Live。
+        """
+        playback = self._measured
+        if playback is not None and playback.alignment == "replay":
+            # 換一個新的物件（Live 的那一個會在批次後隨狀態還原），開始的時刻由批次的第一步定（_resolve_pending）
+            self._measured = replace(playback, anchor_sim=None)
+
+    @property
+    def measured(self) -> Optional[MeasuredWindPlayback]:
+        """套用中的實測序列（待套用的不算）。"""
+        return self._measured
+
+    def _manual(self) -> bool:
+        return self._override_wind_speed is not None or self._active_profile is not None
+
+    def _measured_value(self, quantity: str, ts_utc: datetime) -> Optional[float]:
+        """實測序列在這個時刻的某個量；沒有在播、序列沒有這個量或這個時刻沒有值時回 None。"""
+        playback = self._measured
+        if playback is None:
+            return None
+        return playback.value(quantity, ts_utc.timestamp())
+
+    def _free_wind(self, site_time: datetime, ts_utc: datetime) -> float:
+        """沒有手動設定時的基準風速：實測序列有值就用它，否則是模型的。模型每次都算（亂數抽樣次數不變）。"""
+        auto = self._get_auto_wind(site_time)
+        measured = self._measured_value("wind_speed", ts_utc)
+        return measured if measured is not None else auto
 
     def set_profile(self, profile: str):
         """Activate a predefined wind scenario with smooth transition.
@@ -229,8 +300,9 @@ class WindEnvironmentModel:
             self._active_profile = profile
 
     def get_status(self) -> dict:
+        measured_on = self._measured_status() is not None
         return {
-            "mode": "manual" if self._active_profile else "auto",
+            "mode": "manual" if self._active_profile else ("measured" if measured_on else "auto"),
             "profile": self._active_profile,
             "override_wind_speed": self._override_wind_speed,
             "override_wind_direction": self._override_wind_direction,
@@ -239,7 +311,18 @@ class WindEnvironmentModel:
             "time_scale": self.time_scale,
             "weather_pressure": self._weather._pressure_state,
             "weather_in_front": self._weather._in_front,
+            "measured": self._measured_status(),
         }
+
+    def _measured_status(self) -> Optional[dict]:
+        try:
+            pending: Optional[_MeasuredChange] = self._measured_changes[-1]   # 最後一個待套用的變更
+        except IndexError:
+            pending = None
+        if pending is not None:
+            return {**pending.playback.status(), "pending": True} if pending.playback is not None else None
+        current = self._measured   # 只讀一次：Live 執行緒可能同時把它換掉
+        return {**current.status(), "pending": False} if current is not None else None
 
     def _begin_transition(self, target: float) -> None:
         """從目前的風況開始漸變到 ``target``（m/s）。
@@ -273,10 +356,27 @@ class WindEnvironmentModel:
         """
         if self._transition_from_pending:
             self._transition_from_pending = False
-            self._transition_from = self._get_auto_wind(site_time)
+            self._transition_from = self._free_wind(site_time, ts_utc)
         if self._profile_start_pending:
             self._profile_start_pending = False
             self._profile_start_time = ts_utc
+        current = self._measured
+        if current is not None and current.anchor_sim is None:
+            current.anchor(ts_utc.timestamp())   # 批次重新開始播（restart_measured_replay）：從這一步開始
+        changes = self._measured_changes
+        while changes:
+            # 實測序列的開始 / 停止：依放進來的順序一個一個套用。沒有手動設定時，從上一步輸出的風速漸變到新的
+            # 來源（進行中的漸變也從現在的風速重新開始，免得終點突然換成新來源的值；有手動設定時新的來源暫時
+            # 看不到，不必漸變）
+            change = changes.popleft()
+            if change.playback is not None:
+                change.playback.anchor(ts_utc.timestamp())
+            if not self._manual() and self._last_base is not None:
+                self._transition_from = self._last_base
+                self._transition_from_pending = False
+                self._transition_to = None
+                self._transition_start = self._elapsed_real
+            self._measured = change.playback
 
     # ─── Core getters ──────────────────────────────────────────────────
 
@@ -303,7 +403,7 @@ class WindEnvironmentModel:
             # 待定旗標才寫終點與開始，所以上面讀到新的漸變時旗標一定已經立起來。平常這一行不做事
             self._resolve_pending(timestamp, ts_utc)
             from_val = self._transition_from or 0.0
-            to_val = transition_to if transition_to is not None else self._get_auto_wind(timestamp)
+            to_val = transition_to if transition_to is not None else self._free_wind(timestamp, ts_utc)
             base = from_val + (to_val - from_val) * smooth
         elif self._active_profile in ('ramp_up', 'ramp_down') and self._profile_start_time:
             elapsed = (ts_utc - self._profile_start_time).total_seconds()
@@ -314,8 +414,9 @@ class WindEnvironmentModel:
         elif self._override_wind_speed is not None:
             base = self._override_wind_speed
         else:
-            base = self._get_auto_wind(timestamp)
+            base = self._free_wind(timestamp, ts_utc)
 
+        self._last_base = max(0, base)
         return max(0, base)
 
     def _get_auto_wind(self, timestamp: datetime) -> float:
@@ -346,9 +447,15 @@ class WindEnvironmentModel:
         return max(0.5, base)
 
     def get_wind_direction(self, timestamp: datetime) -> float:
+        ts_utc = to_utc(timestamp)   # 和 get_wind_speed 同一種換算
         timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_wind_direction is not None:
             return (self._override_wind_direction + self._rng.normal(0, 3)) % 360
+
+        measured = self._measured_value("wind_direction", ts_utc)
+        if measured is not None:
+            # 實測的是 10 分鐘（等）平均：加上和模型一樣的小擺動（同一次抽樣）
+            return (measured + self._rng.normal(0, 2.0)) % 360
 
         # Auto: slow drift with weather-driven backing/veering
         hour = timestamp.hour + timestamp.minute / 60
@@ -360,9 +467,13 @@ class WindEnvironmentModel:
                 self._rng.normal(0, 2.0)) % 360
 
     def get_ambient_temp(self, timestamp: datetime) -> float:
+        ts_utc = to_utc(timestamp)
         timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_ambient_temp is not None:
             return self._override_ambient_temp + self._rng.normal(0, 0.3)
+        measured = self._measured_value("ambient_temp", ts_utc)
+        if measured is not None:
+            return measured + self._rng.normal(0, 0.3)
 
         month = timestamp.month
         hour = timestamp.hour + timestamp.minute / 60.0
@@ -411,12 +522,19 @@ class WindEnvironmentModel:
         Uses the weather model's current state (no side effects) so this can be
         called multiple times per step without advancing RNG state.
         """
+        ts_utc = to_utc(timestamp)
         timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_wind_speed is not None or self._active_profile is not None:
             return 0.0
 
         hour = timestamp.hour + timestamp.minute / 60.0
         solar = math.sin((hour - 6.0) * math.pi / 12.0)
+        measured = self._measured_value("wind_speed", ts_utc)
+        if measured is not None:
+            # 實測序列在播：機械混合用實測的風速估
+            wind_damping = 1.0 / (1.0 + (max(0.5, measured) / 8.0) ** 2)
+            cloud_damping = 1.0 - 0.5 * max(0.0, -self._weather._pressure_state)
+            return max(-1.0, min(1.0, solar * wind_damping * cloud_damping))
 
         # Wind damping: use seasonal baseline × current weather multiplier
         # (mirrors _get_auto_wind but without advancing weather.step).
@@ -457,17 +575,38 @@ class WindEnvironmentModel:
         s = stability if stability is not None else self.get_atmospheric_stability(timestamp)
         return max(0.5, min(1.6, 1.0 + 0.5 * s))
 
+    def effective_turbulence(self, timestamp: datetime, multiplier: float) -> float:
+        """這一步的紊流強度：實測序列有紊流強度（或風速標準差）時用實測的——它已經含大氣穩定度的影響，
+        不再乘穩定度的倍數；否則是 ``turbulence_intensity × multiplier``（原本的算法）。手動設定時一律用後者。
+
+        Args:
+            timestamp: 模擬時間。
+            multiplier: 穩定度給的倍數（``get_turbulence_multiplier``）。
+
+        Returns:
+            紊流強度。
+        """
+        if not self._manual():
+            measured = self._measured_value("turbulence_intensity", to_utc(timestamp))
+            if measured is not None:
+                return measured
+        return self.turbulence_intensity * multiplier
+
     def get_ambient_humidity(self, timestamp: datetime) -> float:
         """Relative humidity (%) with seasonal/diurnal/weather modulation.
 
         Offshore wind sites sit in the marine boundary layer where RH is high
         year-round and peaks during rainy season and overnight.
         """
+        ts_utc = to_utc(timestamp)
         timestamp = to_site_naive(timestamp, self.site_tz)
         if self._override_ambient_temp is not None:
             # During manual override we keep humidity stable to avoid surprising
             # coolant behavior during demos; still add a little sensor noise.
             return 65.0 + self._rng.normal(0, 1.0)
+        measured = self._measured_value("humidity", ts_utc)
+        if measured is not None:
+            return max(15.0, min(100.0, measured + self._rng.normal(0, 0.8)))
 
         month = timestamp.month
         hour = timestamp.hour + timestamp.minute / 60.0
@@ -500,6 +639,9 @@ class WindEnvironmentModel:
         """
         if self._override_wind_speed is not None or self._active_profile is not None:
             return 101325.0
+        measured = self._measured_value("pressure_hpa", to_utc(timestamp))
+        if measured is not None:
+            return measured * 100.0
         p = 101325.0 + self._weather._pressure_state * 1500.0
         return max(90000.0, min(105000.0, p))
 

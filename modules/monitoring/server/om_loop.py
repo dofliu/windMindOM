@@ -572,6 +572,44 @@ class OmLoop:
                    f"修復 {', '.join(repaired)}" if repaired else "沒有對應的故障，只做復位",
                    {"workOrderId": str(work_order.id), "type": work_order.type.value, "repaired": repaired,
                     "alarmCode": work_order.source_alarm_code})
+        self._post_costs(work_order, repaired)
+
+    def _post_costs(self, work_order: WorkOrder, repaired: List[str]) -> None:
+        """工單完工的支出寫進成本帳本（人工、料件；WMOM-20260504-11）。每張工單只寫一次，時間用風場時鐘。
+
+        帳本只給管理端；備註只寫工單編號、工時與修復等級，不寫故障情境。出錯只記 log，不影響完工。
+        只在即時模擬裡完工的工單入帳（閉環沒跑時完工的不補）；簽核退回後再完工不重寫（DEC-20261127-02）。
+        """
+        farm_id = self._farm_id()
+        if not farm_id:
+            return
+        try:
+            from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSourceType
+            from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
+            from modules.cost.services.simulation_costs import farm_rates, repair_class, work_order_cost_entries
+            from modules.workflow.repository.material_request_repository import get_material_request_repository
+
+            moment = self._broker.live_clock()
+            if moment is None:
+                logger.warning("運維閉環：工單 %s 完工時沒有風場時鐘，支出不入帳", work_order.business_key)
+                return
+            db_path = str(self._broker.storage.db_path)
+            classes = [repair_class(sid, FAULT_SCENARIOS[sid].category if sid in FAULT_SCENARIOS else None)
+                       for sid in repaired]
+            ledger = get_cost_ledger_repository(db_path)
+            # 料件已經由領料出庫入帳的才不另算（草稿、退回、取消的領料單沒有入帳）
+            has_requests = any(
+                entry.category is CostLedgerCategory.MATERIAL
+                for request in get_material_request_repository(db_path).list_for_work_order(work_order.id)
+                for entry in ledger.list_for_subject(request.id, CostLedgerSourceType.MATERIAL_REQUEST))
+            entries = work_order_cost_entries(
+                farm_id=farm_id, work_order_id=work_order.id, business_key=work_order.business_key or "",
+                actual_hours=work_order.actual_hours, crew_size=work_order.crew_size, repaired=classes,
+                has_material_requests=has_requests, rates=farm_rates(farm_id, self._broker.farm_registry),
+                moment=moment)
+            ledger.add_once_for_subject(work_order.id, CostLedgerSourceType.WORK_ORDER, entries)
+        except Exception:  # noqa: BLE001  帳本寫不進去不能讓完工失敗
+            logger.exception("運維閉環：工單 %s 的支出寫不進成本帳本", work_order.business_key)
 
     def _leave_service(self, turbine_id: str, work_order: WorkOrder, restart: bool) -> bool:
         """這張工單不再佔著機組。回傳機組是否還因為別的工單在維修模式。"""

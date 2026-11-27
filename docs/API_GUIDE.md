@@ -313,9 +313,36 @@ requests.post("http://localhost:8100/api/config/wind", json={
     "ambientTemp": 25.0,
 })
 
-# Return to auto mode
+# Return to auto mode (also stops a measured series)
 requests.post("http://localhost:8100/api/config/wind/clear")
 ```
+
+#### Measured wind series (WMOM-20261125-07)
+
+Import a measured wind series (CSV, first row = column names) into the active farm, then let the farm run on it.
+Columns are detected from common names (`timestamp` / `wind_speed` / `wind_direction` / `ambient_temp` /
+`turbulence_intensity` or `wind_speed_std` / `humidity` / `pressure_hpa`, plus aliases such as `ws`, `vw`, `wd`,
+`ti`, `rh`); map others with `columns`. Times without a time zone are read in the farm's time zone. With
+`heightM` the wind speed is scaled to hub height (power law, `shearExponent`, default 0.14). Supervisor only.
+
+```python
+csv_text = open("met_mast_2025.csv", encoding="utf-8").read()
+made = requests.post(f"{BASE}/api/config/wind/series", headers=AUTH,
+                     json={"name": "Met mast 2025", "csv": csv_text, "heightM": 10}).json()
+print(made["summary"])   # rows, start / end, step_s, missing values, long gaps, height_scale, ...
+
+requests.get(f"{BASE}/api/config/wind/series", headers=AUTH)          # list (no data)
+requests.post(f"{BASE}/api/config/wind/series/{made['id']}/apply", headers=AUTH, json={
+    "alignment": "replay",      # replay: start playing now | absolute: simulation time = series time
+    "atEnd": "loop",            # loop | hold (stay at the last value) | auto (back to the model)
+    "startOffsetHours": 0,      # replay: start this far into the series
+})
+requests.delete(f"{BASE}/api/config/wind/series/{made['id']}", headers=AUTH)
+```
+
+Precedence: manual override / profile > measured series > model. Gaps longer than `maxGapMinutes`
+(default 180, at least two sample steps) fall back to the model. While a series plays, `GET /api/config/wind`
+reports `mode: "measured"` and the series under `measured`; scenarios record `wind_profile_applied: null`.
 
 #### POST `/api/config/grid`
 

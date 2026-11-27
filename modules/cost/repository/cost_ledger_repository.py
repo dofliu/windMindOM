@@ -188,6 +188,47 @@ class CostLedgerRepository:
                 result[cat] = Decimal(str(total)) if total is not None else Decimal("0")
             return result
 
+    # ── Insert（自己是交易的擁有者時）───────────────────────────────────
+
+    def add_once_for_subject(
+        self,
+        subject_id: UUID,
+        subject_type: CostLedgerSourceType,
+        entries: list[CostLedgerEntry],
+    ) -> list[CostLedgerEntry]:
+        """一個 subject（例：一張工單）的分錄只寫一次：已經有這個 subject 的分錄就什麼都不寫。
+
+        給「工單完工 → 帳本」用（WMOM-20260504-11）：重複完工、簽核退回再完工都不重寫。檢查與寫入在
+        同一個交易裡。
+
+        Args:
+            subject_id: subject 的 ID（分錄的 ``source_event_id``）。
+            subject_type: subject 的種類（分錄的 ``source_type``）。
+            entries: 要寫的分錄；每一筆的 ``source_event_id`` / ``source_type`` 要等於上面兩個。
+
+        Returns:
+            這次寫進去的分錄（已經寫過時是空的）。
+        """
+        from .cost_ledger import insert_in_session
+
+        for entry in entries:
+            if entry.source_event_id != subject_id or entry.source_type is not subject_type:
+                raise ValueError("分錄的 source 和 subject 不一致")
+        if not entries:
+            return []
+        with self._sessionmaker() as sess, sess.begin():
+            exists = sess.execute(
+                select(CostLedgerEntryORM.id).where(
+                    CostLedgerEntryORM.source_event_id == str(subject_id),
+                    CostLedgerEntryORM.source_type == subject_type.value,
+                ).limit(1)
+            ).first()
+            if exists is not None:
+                return []
+            for entry in entries:
+                insert_in_session(sess, entry)
+        return list(entries)
+
     # ── Confirm ─────────────────────────────────────────────────────────
 
     def confirm_entry(
