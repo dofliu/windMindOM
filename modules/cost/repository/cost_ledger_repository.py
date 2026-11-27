@@ -163,11 +163,13 @@ class CostLedgerRepository:
         from_date: datetime | None = None,
         to_date: datetime | None = None,
         status: CostLedgerStatus | None = None,
+        source_type: CostLedgerSourceType | None = None,
     ) -> dict[CostLedgerCategory, Decimal]:
         """4 大類 cost 加總（給 monthly_report A8 用）。
 
         預設 ``status=None`` 加總全部（estimated + confirmed）；要算 actual 報表
-        傳 ``CostLedgerStatus.CONFIRMED``。
+        傳 ``CostLedgerStatus.CONFIRMED``。``source_type`` 只算這個來源的分錄（例：
+        仿真風場要分出工單的人工，WMOM-20261127-02）。
         """
         with self._sessionmaker() as sess:
             stmt = select(
@@ -180,6 +182,8 @@ class CostLedgerRepository:
                 stmt = stmt.where(CostLedgerEntryORM.recorded_at < to_date)
             if status is not None:
                 stmt = stmt.where(CostLedgerEntryORM.status == status.value)
+            if source_type is not None:
+                stmt = stmt.where(CostLedgerEntryORM.source_type == source_type.value)
             stmt = stmt.group_by(CostLedgerEntryORM.category)
 
             result: dict[CostLedgerCategory, Decimal] = {}

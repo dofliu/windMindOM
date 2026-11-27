@@ -172,7 +172,7 @@ const FinancePanel: React.FC<Props> = ({ lang }) => {
                 label={ui('O&M expenses', '運維支出')}
                 value={fmtMoney(finance.expenses.total)}
                 unit={currency}
-                hint={`${ui('Labour', '人工')} ${fmtMoney(finance.expenses.labour)} · ${ui('Parts', '料件')} ${fmtMoney(finance.expenses.material)}`}
+                hint={`${ui('Labour', '人工')} ${fmtMoney(finance.expenses.labour)} · ${ui('Parts', '料件')} ${fmtMoney(finance.expenses.material)} · ${ui('Equipment', '設備')} ${fmtMoney(finance.expenses.equipment)}`}
               />
               <Stat
                 size={28}
@@ -188,10 +188,40 @@ const FinancePanel: React.FC<Props> = ({ lang }) => {
                 hint={`${ui('Energy', '發電量可用率')} ${fmtPct(farm?.energy_availability)}`}
               />
             </div>
+            {finance.fixed_costs && (
+              <div
+                data-testid="fixed-costs"
+                style={{ marginTop: 14, fontSize: 13, color: C.sub, display: 'grid', gap: 4 }}
+              >
+                <div>
+                  {ui('Fixed costs over', '固定成本：攤')} {(finance.fixed_costs.days ?? 0).toFixed(1)}{' '}
+                  {ui('days of operation', '天運轉')} — {ui('staff', '人員')} {fmtMoney(finance.fixed_costs.staff)}（
+                  {finance.fixed_costs.technicians} {ui('technicians ×', '位技師 × 年薪')}{' '}
+                  {fmtMoney(finance.fixed_costs.yearly_salary)}）· {ui('equipment', '設備')}{' '}
+                  {fmtMoney(finance.fixed_costs.equipment)}（
+                  {(finance.fixed_costs.equipment_items ?? []).map(item => item.name).join('、')}）{' '}
+                  {currency}
+                </div>
+                {finance.work_order_labour && !finance.work_order_labour.counted && (
+                  <div>
+                    {ui(
+                      `Work-order hours (${fmtMoney(finance.work_order_labour.amount)} ${currency}) are covered by the salaries and not counted again; major repairs add a crane job under equipment.`,
+                      `工單工時折算 ${fmtMoney(finance.work_order_labour.amount)} ${currency}，技師領年薪、已含在人員固定成本裡，不另算；拆大件的修復另記一筆吊車動員在設備裡。`,
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ marginTop: 14, fontSize: 12, color: C.faint }}>
               {ui('Tariff', '電價')} {finance.rates.kwh_price} {currency}/kWh · {ui('Labour', '人事費')}{' '}
               {fmtMoney(finance.rates.hourly_labour_rate)} {currency}/{ui('h per person', '人時')} ·{' '}
               {ui('Rates from', '費率來源')}：{source ? ui(source.en, source.zh) : finance.rates.source}
+              {finance.fixed_costs &&
+                (finance.fixed_costs.source === 'onshore_default'
+                  ? ui(' · fixed costs: onshore assumptions', ' · 固定成本：陸域假設值')
+                  : finance.fixed_costs.source === 'mixed'
+                    ? ui(' · fixed costs: partly onshore assumptions', ' · 固定成本：部分用陸域假設值')
+                    : ui(' · equipment: onshore assumptions', ' · 設備年費：陸域假設值'))}
             </div>
           </Card>
 

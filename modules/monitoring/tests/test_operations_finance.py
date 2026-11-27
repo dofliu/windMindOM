@@ -4,11 +4,13 @@
 2. 工單完工 → 帳本的人工與料件；每張工單只寫一次；有領料單時料件不另算；備註不寫故障情境。
 3. 收入與少收的錢由運轉狀態紀錄 × 電價；``/api/operations/finance`` 只給主管。
 4. 月報的發電收入區塊。
+5. 固定成本與吊車（WMOM-20261127-02，DEC-20261127-08）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -31,6 +33,10 @@ from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSo
 from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
 from modules.cost.services.simulation_costs import (
     FarmRates,
+    FixedCosts,
+    crane_cost,
+    fixed_costs,
+    recorded_farm_days,
     repair_class,
     revenue,
     summarize,
@@ -260,3 +266,185 @@ def test_monthly_report_shows_generation_revenue(farm: Farm) -> None:
     without = compute_monthly_report_data(ledger_repo=_ledger(farm), wo_repo=farm.repo, farm_id=FARM,
                                           year=clock.year, month=clock.month)
     assert without.generation is None and "發電收入與淨額" not in render_html(without)
+
+
+
+# ── 5. 設備與固定成本（WMOM-20261127-02）─────────────────────────────────
+
+
+def test_major_repairs_are_charged_a_crane_once_per_work_order() -> None:
+    crane = crane_cost()
+    assert crane.per_job() == 40000 + 12000 * 2 and {8, 11} <= crane.ftc
+    bearing, stator, pump = (repair_class("bearing_wear"), repair_class("stator_winding_degradation"),
+                             repair_class("converter_cooling_pump_wear"))
+    entries = work_order_cost_entries(farm_id=FARM, work_order_id=uuid4(), business_key="WO-9", actual_hours=24.0,
+                                      crew_size=4, repaired=[bearing, stator], has_material_requests=True,
+                                      rates=RATES, moment=MOMENT)
+    (lift,) = [e for e in entries if e.category is CostLedgerCategory.EQUIPMENT]
+    assert lift.amount == Decimal("64000.00") and "吊車" in lift.note and "8、11" in lift.note, "兩個大件只動員一次"
+    small = work_order_cost_entries(farm_id=FARM, work_order_id=uuid4(), business_key="WO-10", actual_hours=4.0,
+                                    crew_size=2, repaired=[pump], has_material_requests=False, rates=RATES,
+                                    moment=MOMENT)
+    assert not any(e.category is CostLedgerCategory.EQUIPMENT for e in small), "小件不用吊車"
+    mixed = work_order_cost_entries(farm_id=FARM, work_order_id=uuid4(), business_key="WO-11", actual_hours=8.0,
+                                    crew_size=4, repaired=[bearing, pump], has_material_requests=False,
+                                    rates=RATES, moment=MOMENT)
+    (lift,) = [e for e in mixed if e.category is CostLedgerCategory.EQUIPMENT]
+    assert lift.amount == Decimal("64000.00") and "修復等級 8；" in lift.note, "大件＋小件：只為大件動員一次"
+
+
+def test_fixed_costs_use_onshore_defaults_or_the_farm_settings(farm: Farm, tmp_path, monkeypatch) -> None:
+    from modules.cost import adapter
+    from modules.cost.services.simulation_costs import WORKING_HOURS_PER_YEAR, farm_rates
+
+    registry = farm.broker.farm_registry
+
+    def check(farm_id: str, turbines: int, expected: tuple) -> None:
+        fixed = fixed_costs(farm_id, turbines, registry)
+        assert (fixed.technicians, fixed.yearly_salary, fixed.source) == expected, farm_id
+        # 時薪與人員固定成本同一個年薪（code review）
+        assert farm_rates(farm_id, registry).hourly_labour_rate == pytest.approx(
+            fixed.yearly_salary / WORKING_HOURS_PER_YEAR), farm_id
+
+    # 監控登錄的風場（仿真的 Z72 陸域）沒有自己的成本設定：人數與年薪都用陸域假設值，不用 K13 離岸的 15 萬
+    registry.create_farm("sim-farm", "仿真風場", turbine_count=14)
+    check("sim-farm", 14, (5, 60000.0, "onshore_default"))
+    onshore = fixed_costs("sim-farm", 14, registry)
+    assert onshore.staff_per_year == 300000 and onshore.equipment_per_year == 50000
+    assert fixed_costs("sim-farm", 3, registry).technicians == 4, "至少 4 人"
+    check("台中港曲風場", 14, (8, 70000.0, "farm_overlay"))
+    # 沒登錄的風場是 K13：年薪照 K13，人數是陸域的算法
+    check("no-such-farm", 14, (5, 150000.0, "mixed"))
+    # 風場的成本設定只給了一部分：缺的用陸域假設值，時薪也是（不會一邊 K13、一邊陸域）
+    farms_dir = tmp_path / "cost_farms"
+    for farm_id, overrides in (("count-only", {"tech_count": {"year": 6}}), ("salary-only", {"tech_yearly_salary": 72000})):
+        (farms_dir / farm_id).mkdir(parents=True)
+        (farms_dir / farm_id / "cost_inputs.json").write_text(
+            json.dumps({"wind_farm_overrides": overrides}), encoding="utf-8")
+    monkeypatch.setattr(adapter, "DEFAULT_FARMS_DIR", farms_dir)
+    check("count-only", 14, (6, 60000.0, "mixed"))
+    check("salary-only", 14, (5, 72000.0, "mixed"))
+
+
+def test_fixed_costs_are_spread_over_the_recorded_days_and_work_order_labour_is_not_counted_twice() -> None:
+    fixed = FixedCosts(technicians=4, yearly_salary=36500.0, equipment=(("工程車", 3650.0),), source="test")
+    farm_row = {"energy_kwh": 10000.0, "lost_planned_kwh": 0.0, "lost_unplanned_kwh": 0.0, "recorded_hours": 48.0}
+    availability = {"farm": farm_row, "turbines": [{"turbine_id": "WT001", "recorded_hours": 24.0},
+                                                    {"turbine_id": "WT002", "recorded_hours": 24.0}]}
+    expenses = {CostLedgerCategory.LABOUR: Decimal("300"), CostLedgerCategory.MATERIAL: Decimal("500"),
+                CostLedgerCategory.EQUIPMENT: Decimal("64000")}
+    out = summarize(availability, expenses, RATES, fixed=fixed, work_order_labour=Decimal("300"))
+    assert out["fixed_costs"]["days"] == 1.0, "兩台機組各 24 小時＝1 天"
+    assert out["fixed_costs"]["staff"] == 400.0 and out["fixed_costs"]["equipment"] == 10.0
+    assert out["expenses"] == {"material": 500.0, "labour": 400.0, "equipment": 64010.0, "total": 64910.0}
+    assert out["work_order_labour"] == {"amount": 300.0, "counted": False}
+    assert out["net"] == round(1000.0 - 64910.0, 2)
+    # 手動記的人工（例：外包）照算：只扣工單的那部分
+    with_contractor = summarize(availability, {**expenses, CostLedgerCategory.LABOUR: Decimal("1300")}, RATES,
+                                fixed=fixed, work_order_labour=Decimal("300"))
+    assert with_contractor["expenses"]["labour"] == 1400.0
+    # 沒給固定成本：照舊（工單人工算進去）
+    plain = summarize(availability, expenses, RATES)
+    assert plain["fixed_costs"] is None and plain["work_order_labour"]["counted"] is True
+    assert plain["expenses"]["labour"] == 300.0
+
+
+def test_fixed_cost_days_follow_the_longest_record_and_an_unrecorded_window_keeps_work_order_labour() -> None:
+    fixed = FixedCosts(technicians=4, yearly_salary=36500.0, equipment=(("工程車", 3650.0),), source="test")
+    row = {"energy_kwh": 0.0, "lost_planned_kwh": 0.0, "lost_unplanned_kwh": 0.0}
+    # 剛加進來、只有 1 小時紀錄的機組不把全場的天數拉低（code review）
+    uneven = {"farm": {**row, "recorded_hours": 25.0},
+              "turbines": [{"turbine_id": "WT001", "recorded_hours": 24.0},
+                           {"turbine_id": "WT002", "recorded_hours": 1.0}]}
+    assert recorded_farm_days(uneven) == 1.0
+    # 這段時間沒有運轉紀錄：固定成本攤 0 天，工單的人工照算，不會兩邊都沒算到（code review）
+    empty = {"farm": {**row, "recorded_hours": 0.0}, "turbines": []}
+    out = summarize(empty, {CostLedgerCategory.LABOUR: Decimal("300")}, RATES, fixed=fixed,
+                    work_order_labour=Decimal("300"))
+    assert out["fixed_costs"]["days"] == 0.0 and out["work_order_labour"]["counted"] is True
+    assert out["expenses"]["labour"] == 300.0 and out["expenses"]["total"] == 300.0
+
+
+def test_the_fixed_cost_turbine_count_does_not_depend_on_whether_the_simulation_runs(farm: Farm, monkeypatch) -> None:
+    availability = {"farm": {}, "turbines": [{"turbine_id": f"WT{i:03d}"} for i in range(1, 21)]}
+    assert farm.loop.fixed_costs(FARM, availability).technicians == 4, "沒登錄：即時模擬的 3 台 → 至少 4 人"
+    farm.broker.farm_registry.create_farm("sim-farm", "仿真風場", turbine_count=14)
+    assert farm.loop.fixed_costs("sim-farm", availability).technicians == 5, "登錄的 14 台優先"
+    monkeypatch.setattr(farm.broker, "simulator", None)
+    assert farm.loop.fixed_costs("sim-farm", availability).technicians == 5, "即時模擬沒跑也一樣"
+    assert farm.loop.fixed_costs(FARM, availability).technicians == 6, "都沒有：有紀錄的 20 台"
+
+
+def test_finance_endpoint_includes_fixed_costs_and_the_crane(farm: Farm, monkeypatch) -> None:
+    from modules.workflow.domain import WorkOrderType
+
+    monkeypatch.setattr(ops, "get_broker", lambda: farm.broker)
+    farm.drive_slow(60)
+    farm.inject("bearing_wear", "WT002", severity=0.3)
+    order = farm.repo.create(farm_id=FARM, turbine_id="WT002", type=WorkOrderType.CORRECTIVE, title="x",
+                             description="", source_alarm_code="240")
+    farm.start(order)
+    farm.drive(5)
+    farm.finish(order)
+    assert farm.faults("WT002") == []
+    entries = {e.category: e for e in _ledger(farm).list_for_subject(order.id, CostLedgerSourceType.WORK_ORDER)}
+    assert entries[CostLedgerCategory.EQUIPMENT].amount == Decimal("64000.00"), "主軸承：吊車動員"
+    # 簽核退回後再完工：吊車也不重記
+    farm.loop._post_costs(farm.repo.get(order.id), ["bearing_wear"])
+    again = _ledger(farm).list_for_subject(order.id, CostLedgerSourceType.WORK_ORDER)
+    assert [e.category for e in again].count(CostLedgerCategory.EQUIPMENT) == 1
+    clock = farm.broker.live_clock()
+    result = asyncio.run(ops.finance(start=(clock - timedelta(days=1)).isoformat(),
+                                     end=(clock + timedelta(hours=1)).isoformat()))
+    fixed = result["fixed_costs"]
+    # 測試的風場沒登錄（K13）：年薪照 K13，人數是陸域的算法
+    assert fixed["technicians"] == 4 and fixed["days"] > 0 and fixed["source"] == "mixed"
+    assert result["work_order_labour"]["amount"] > 0 and result["work_order_labour"]["counted"] is False
+    assert result["expenses"]["labour"] == pytest.approx(fixed["staff"], abs=0.01), "工單工時已含在年薪裡"
+    assert result["expenses"]["equipment"] == pytest.approx(64000 + fixed["equipment"], abs=0.01)
+    assert result["net"] == pytest.approx(result["revenue"] - result["expenses"]["total"], abs=0.01)
+
+
+def test_monthly_report_counts_fixed_costs_instead_of_work_order_labour(farm: Farm) -> None:
+    from modules.reporting.services.kpi_calculator import compute_monthly_report_data
+    from modules.reporting.services.monthly_report import render_html
+
+    farm.drive_slow(60)
+    farm.inject(WIRE_BREAK)
+    farm.drive(60)
+    (order,) = farm.orders()
+    farm.start(order)
+    farm.finish(order)
+    clock = farm.broker.live_clock()
+    labour = float(_ledger(farm).summary_by_category(
+        farm_id=FARM, source_type=CostLedgerSourceType.WORK_ORDER)[CostLedgerCategory.LABOUR])
+
+    def provider(farm_id, start, end):
+        row = farm.loop.availability(start, end)["farm"]
+        return {"currency": "EUR", "kwh_price": 0.13, "energy_kwh": row["energy_kwh"], **revenue(
+            row, FarmRates(farm_id=farm_id, currency="EUR", kwh_price=0.13, hourly_labour_rate=1.0, source="t")),
+            "fixed_costs": 1234.5, "work_order_labour": labour}
+
+    data = compute_monthly_report_data(ledger_repo=_ledger(farm), wo_repo=farm.repo, farm_id=FARM,
+                                       year=clock.year, month=clock.month, revenue_provider=provider)
+    generation = data.generation
+    assert generation is not None and generation.fixed_costs == 1234.5
+    assert generation.operating_expense == pytest.approx(500 + 1234.5, abs=0.01), "料件 500 ＋ 固定成本，工單人工不另算"
+    assert "其中固定成本" in render_html(data)
+
+
+def test_the_report_provider_of_the_server_includes_fixed_costs(farm: Farm, monkeypatch) -> None:
+    from server import app as server_app
+
+    monkeypatch.setattr(server_app, "broker", farm.broker)
+    farm.drive_slow(60)
+    farm.inject(WIRE_BREAK)
+    farm.drive(60)
+    (order,) = farm.orders()
+    farm.start(order)
+    farm.finish(order)
+    clock = farm.broker.live_clock()
+    out = server_app._revenue_for_report(FARM, clock - timedelta(days=1), clock + timedelta(hours=1))
+    assert out is not None and out["revenue"] > 0
+    assert out["fixed_costs"] > 0 and out["work_order_labour"] > 0
+    assert server_app._revenue_for_report("other-farm", clock - timedelta(days=1), clock) is None

@@ -128,6 +128,45 @@ describe('收支與可用率', () => {
     expect(screen.getByText(/K13 參考值/)).toBeInTheDocument();
   });
 
+  it('固定成本的明細；工單工時已含在年薪裡、不另算', async () => {
+    routes['GET /api/operations/finance'] = () => ({
+      body: {
+        ...FINANCE,
+        expenses: { material: 17000, labour: 4931.51, equipment: 64410.96, total: 86342.47 },
+        fixed_costs: {
+          days: 3.0, staff: 2465.75, equipment: 410.96, total: 2876.71, technicians: 5, yearly_salary: 60000,
+          staff_per_year: 300000, equipment_per_year: 50000,
+          equipment_items: [{ name: '工程車與工具', per_year: 50000 }], source: 'onshore_default',
+        },
+        work_order_labour: { amount: 10333.35, counted: false },
+      },
+    });
+    await renderPage();
+    const box = await screen.findByTestId('fixed-costs');
+    expect(box).toHaveTextContent('固定成本：攤 3.0 天運轉');
+    expect(box).toHaveTextContent('5 位技師 × 年薪 60,000.00');
+    expect(box).toHaveTextContent('工程車與工具');
+    expect(box).toHaveTextContent('不另算');
+    expect(screen.getByText(/固定成本：陸域假設值/)).toBeInTheDocument();
+  });
+
+  it('固定成本只有一部分是風場的設定；缺了設備明細也照樣顯示', async () => {
+    routes['GET /api/operations/finance'] = () => ({
+      body: {
+        ...FINANCE,
+        fixed_costs: {
+          days: 1.5, staff: 900, equipment: 0, total: 900, technicians: 6, yearly_salary: 60000,
+          staff_per_year: 360000, equipment_per_year: 0, source: 'mixed',
+        },
+        work_order_labour: { amount: 200, counted: false },
+      },
+    });
+    await renderPage();
+    const box = await screen.findByTestId('fixed-costs');
+    expect(box).toHaveTextContent('6 位技師 × 年薪 60,000.00');
+    expect(screen.getByText(/固定成本：部分用陸域假設值/)).toBeInTheDocument();
+  });
+
   it('其他區間從風場時鐘的 end 往前算', async () => {
     await renderPage();
     await screen.findByText('61,519.34');

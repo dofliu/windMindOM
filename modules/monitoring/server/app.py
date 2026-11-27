@@ -187,18 +187,28 @@ def _revenue_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Op
         end: 期間終點。
 
     Returns:
-        ``{"currency", "kwh_price", "energy_kwh", "revenue", "lost_planned", "lost_unplanned"}``，或 None。
+        ``{"currency", "kwh_price", "energy_kwh", "revenue", "lost_planned", "lost_unplanned", "fixed_costs",
+        "work_order_labour"}``，或 None。``fixed_costs``＝這段時間的人員與設備固定成本（依紀錄的天數攤）；
+        ``work_order_labour``＝帳本裡工單的人工分錄（已含在人員固定成本裡，報表不另算，WMOM-20261127-02）。
     """
     loop = broker._om_loop_if_enabled()
     if loop is None or farm_id != broker._active_farm_id:
         return None
-    farm = loop.availability(start, end)["farm"]
+    availability = loop.availability(start, end)
+    farm = availability["farm"]
     if not farm.get("recorded_hours"):
         return None
-    from modules.cost.services.simulation_costs import farm_rates, revenue
+    from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSourceType
+    from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
+    from modules.cost.services.simulation_costs import farm_rates, recorded_farm_days, revenue
     rates = farm_rates(farm_id, broker.farm_registry)
+    fixed = loop.fixed_costs(farm_id, availability).for_days(recorded_farm_days(availability))
+    labour = get_cost_ledger_repository(str(broker.storage.db_path)).summary_by_category(
+        farm_id=farm_id, from_date=start, to_date=end,
+        source_type=CostLedgerSourceType.WORK_ORDER).get(CostLedgerCategory.LABOUR, 0)
     return {"currency": rates.currency, "kwh_price": rates.kwh_price,
-            "energy_kwh": float(farm.get("energy_kwh") or 0.0), **revenue(farm, rates)}
+            "energy_kwh": float(farm.get("energy_kwh") or 0.0), **revenue(farm, rates),
+            "fixed_costs": float(fixed["total"]), "work_order_labour": float(labour)}
 
 
 def _env_days(name: str, default: int, minimum: int) -> int:

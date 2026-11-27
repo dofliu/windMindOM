@@ -280,12 +280,16 @@ def compute_generation(
         return None
     expense = sum((float(item.total) for item in cost.by_category
                    if item.category in {c.value for c in _EXPENSE_CATEGORIES}), 0.0)
+    # 仿真風場的固定成本（技師年薪、設備年費）由 provider 依紀錄的天數攤；技師領年薪，帳本裡工單的人工分錄
+    # 已含在裡面，不另算（WMOM-20261127-02）。沒有這兩個鍵的 provider 照舊
+    fixed = float(result.get("fixed_costs", 0.0) or 0.0)
+    expense = expense - float(result.get("work_order_labour", 0.0) or 0.0) + fixed
     revenue = float(result["revenue"])
     return GenerationRevenue(
         currency=str(result["currency"]), kwh_price=float(result["kwh_price"]),
         energy_kwh=float(result["energy_kwh"]), revenue=revenue,
         lost_planned=float(result["lost_planned"]), lost_unplanned=float(result["lost_unplanned"]),
-        operating_expense=round(expense, 2), net=round(revenue - expense, 2))
+        operating_expense=round(expense, 2), fixed_costs=round(fixed, 2), net=round(revenue - expense, 2))
 
 
 def compute_availability(

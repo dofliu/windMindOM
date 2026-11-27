@@ -17,10 +17,12 @@
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 170 |
-| **total** | **186** |
+| done | 171 |
+| **total** | **187** |
 
-最後更新：2026-11-27（**葉片 1P 振動試算**：照「和同場比」的做法沒有效果（各台固有不平衡 ±25%、結冰讓轉速下降抵掉 1P 的增加），沒有加；改成和自己一週前比需要 8 天以上的長跑驗證，開 WMOM-20261127-06。open 13 / in_progress 1 / deferred 2 / done 170 = 186。詳見 `work-logs/2026-11/2026-11-27-blade-1p-trial.md`）。
+最後更新：2026-11-27（**WMOM-20261127-02 done**（第 1 點）：仿真風場的設備與固定成本——駐場技師年薪與設備年費依運轉天數攤、工單工時已含在年薪裡不另算、拆大件的修復另記吊車動員，DEC-20261127-08；收支端點、月報、營運頁同一套算法。RUL 回饋與成本表確認另開 WMOM-20261127-07。open 13 / in_progress 1 / deferred 2 / done 171 = 187。詳見 `work-logs/2026-11/2026-11-27-fixed-costs.md`）。
+
+前次：2026-11-27（**葉片 1P 振動試算**：照「和同場比」的做法沒有效果（各台固有不平衡 ±25%、結冰讓轉速下降抵掉 1P 的增加），沒有加；改成和自己一週前比需要 8 天以上的長跑驗證，開 WMOM-20261127-06。open 13 / in_progress 1 / deferred 2 / done 170 = 186。詳見 `work-logs/2026-11/2026-11-27-blade-1p-trial.md`）。
 
 前次：2026-11-27（**WMOM-20261127-05 done**：例行巡檢卡看得到沒有警報的偏航失準——功率曲線試算後分不出來（健康機組彼此差 ±5–10%），改用 3P 振動頻帶加進「機艙頂氣象感測器與對風」，DEC-20261127-07；兩份長跑資料重做卡片：偏航失準從第 9 排到第 1、有故障 5/5、沒有故障 0/9 與 0/52 誤報。open 12 / in_progress 1 / deferred 2 / done 170 = 185。詳見 `work-logs/2026-11/2026-11-27-inspection-card-yaw.md`）。
 
@@ -2041,9 +2043,21 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Description**: 新增「營運」頁（`frontend/components/operations/`、`services/operationsService.ts`）：(1) 收支與可用率——發電量、收入、計畫 / 非計畫停機少收、運維支出、淨額、可用率，每台機組一列，區間依風場時鐘（最近 24 小時 / 7 天 / 30 天）；(2) 自動運轉——故障產生器與模擬維修班的設定；(3) 實測風況——匯入 CSV、匯入過的序列、套用（對時、播完）、刪除、回到模型的風況。只用既有的端點，沒有改後端。
 - **Depends on**: WMOM-20260504-11、WMOM-20261125-06、WMOM-20261125-07（done）
 
-### WMOM-20261127-02 — 仿真風場收支的後續：設備與固定成本、RUL 回饋、修復等級表確認
+### WMOM-20261127-07 — 仿真風場收支的後續：RUL 回饋與修復等級表確認
 
 - **Status**: open
+- **Milestone**: EPIC-SF
+- **Priority**: low
+- **Estimate**: 1 天
+- **Owner**: -
+- **Source**: 從 WMOM-20261127-02 拆出（第 2、3 點）。
+- **Description**: (1) 料件更換對 RUL 與蒙地卡羅參數（`freq_min/ml/max`）的回饋；(2) 修復等級對應表（`modules/cost/data/z72_repair_classes.json`）與陸域成本假設值（`modules/cost/data/z72_onshore_costs.json`：人數比例、年薪、設備年費、吊車費）請劉老師看過。
+- **Depends on**: WMOM-20261127-02（done）
+- **Reference**: DEC-20261127-02、DEC-20261127-08
+
+### WMOM-20261127-02 — 仿真風場收支的後續：設備與固定成本、RUL 回饋、修復等級表確認
+
+- **Status**: done（2026-11-27，第 1 點，DEC-20261127-08：技師年薪＋設備年費依運轉天數攤、工單工時不另算、大件修復記吊車動員；陸域假設值在 `modules/cost/data/z72_onshore_costs.json`；收支端點、月報、營運頁都改了。第 2、3 點另開 WMOM-20261127-07）
 - **Milestone**: EPIC-SF
 - **Priority**: low
 - **Estimate**: 2 天

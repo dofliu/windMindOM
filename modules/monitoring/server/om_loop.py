@@ -46,6 +46,7 @@ from simulator.physics.plc_protection import PlcEvent
 from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
+    from modules.cost.services.simulation_costs import FixedCosts
     from server.crew import MaintenanceCrew
     from server.inspection_plan import InspectionPlan
     from server.data_broker import DataBroker
@@ -816,6 +817,32 @@ class OmLoop:
                 self._inspection_plan.step(latest)   # 自動定檢計畫：到期開定檢工單（先開單，維修班同一步就看得到）
             if self._crew is not None:
                 self._crew.step(latest)    # 模擬維修班（沒開就什麼都不做）
+
+    def fixed_costs(self, farm_id: str, availability: Dict[str, object]) -> "FixedCosts":
+        """這座風場的固定成本（WMOM-20261127-02）：收支端點與月報共用，兩邊不會對不上。
+
+        機組數依序看風場登錄的、即時模擬的、有運轉紀錄的——先看登錄的，即時模擬有沒有在跑都得到同一個答案
+        （code review）。
+
+        Args:
+            farm_id: 風場 ID。
+            availability: ``availability`` 的結果（登錄與即時模擬都沒有時才用它的機組數）。
+
+        Returns:
+            固定成本。
+        """
+        from modules.cost.services.simulation_costs import fixed_costs
+
+        registry = self._broker.farm_registry
+        farm = registry.get_farm(farm_id)
+        simulator = self._broker.simulator
+        if farm is not None and farm.turbine_count:
+            turbines = int(farm.turbine_count)
+        elif simulator is not None:
+            turbines = len(simulator.turbines)
+        else:
+            turbines = len(availability.get("turbines") or [])  # type: ignore[arg-type]
+        return fixed_costs(farm_id, turbines, registry)
 
     def availability(self, start: datetime, end: datetime) -> Dict[str, object]:
         """一段時間的可用率、停機時數與損失發電量（由運轉狀態紀錄計算）。
