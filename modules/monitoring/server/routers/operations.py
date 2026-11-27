@@ -343,6 +343,63 @@ async def set_crew_settings(body: Dict[str, object]) -> Dict[str, object]:
     return {"config": config.to_dict()}
 
 
+def _inspection_plan_view(plan) -> Dict[str, object]:  # noqa: ANN001  型別在 server.inspection_plan
+    clock = get_broker().live_clock()
+    schedules = [{
+        "turbine_id": schedule.turbine_id,
+        "active": schedule.active,
+        "next_due_at": iso_utc(schedule.next_due_at),
+        "last_spawned_at": iso_utc(schedule.last_spawned_at) if schedule.last_spawned_at else None,
+        "last_work_order_id": str(schedule.last_spawned_work_order_id)
+        if schedule.last_spawned_work_order_id else None,
+    } for schedule in plan.schedules()]
+    schedules.sort(key=lambda item: (not item["active"], item["next_due_at"], item["turbine_id"]))
+    return {"config": plan.config.to_dict(), "clock": iso_utc(clock) if clock else None, "schedules": schedules}
+
+
+@router.get("/inspection-plan", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def inspection_plan_settings() -> Dict[str, object]:
+    """自動定檢計畫的設定與各機組的排程（WMOM-20261127-03）。
+
+    Returns:
+        ``{"config": {...}, "clock": 風場時鐘或 null, "schedules": [{"turbine_id", "active", "next_due_at",
+        "last_spawned_at", "last_work_order_id"}]}``。時間是風場時鐘。
+    """
+    loop = get_broker()._om_loop_if_enabled()
+    if loop is None:
+        raise HTTPException(409, "運維閉環沒有開，沒有自動定檢計畫")
+    return await asyncio.to_thread(_inspection_plan_view, loop.inspection_plan)
+
+
+@router.put("/inspection-plan",
+            dependencies=[Depends(reject_during_batch), Depends(require_roles(Role.SUPERVISOR))])
+async def set_inspection_plan_settings(body: Dict[str, object]) -> Dict[str, object]:
+    """設定自動定檢計畫。設定存在風場 DB，重啟後照舊；沒給的欄位用預設值。
+
+    排程由即時模擬在下一批讀值寫進歷史時整理（開了就每台機組建 / 啟用一個、錯開到期；關了就全部暫停；週期變了
+    就重新錯開），所以回應裡的排程可能還是改之前的。
+
+    Args:
+        body: ``enabled``、``interval_days``（風場時鐘的天數）。
+
+    Returns:
+        同 ``GET``。
+    """
+    from server.inspection_plan import InspectionPlanConfig
+
+    loop = get_broker()._om_loop_if_enabled()
+    if loop is None:
+        raise HTTPException(409, "運維閉環沒有開，沒有自動定檢計畫")
+    try:
+        config = InspectionPlanConfig.from_dict(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    broker = get_broker()
+    broker.storage.set_setting(broker.SETTING_INSPECTION_PLAN, config.to_dict())
+    loop.inspection_plan.configure(config)
+    return await asyncio.to_thread(_inspection_plan_view, loop.inspection_plan)
+
+
 @router.get("/fault-records", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
 async def fault_records(
     turbine_id: Annotated[Optional[str], Query(min_length=1, max_length=64)] = None,

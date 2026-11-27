@@ -5,6 +5,7 @@
  *   - `GET /api/operations/finance`（主管）：收入、停機少收、帳本的支出、淨額、每台機組（DEC-20261127-02）
  *   - `GET /api/operations/availability`（登入）：可用率、停機時數、發電量（DEC-20261126-04）
  *   - `GET/PUT /api/operations/fault-generator`、`/crew`（主管）：自動運轉的設定（DEC-20261126-08）
+ *   - `GET/PUT /api/operations/inspection-plan`（主管）：自動定檢計畫（DEC-20261127-05）
  *   - `/api/config/wind`、`/api/config/wind/series[...]`（主管）：實測風況（DEC-20261127-03）
  *
  * 時間一律是風場時鐘（即時模擬的模擬時鐘）；不給 start / end 時後端用風場時鐘的現在。
@@ -164,6 +165,37 @@ export function fetchCrew(): Promise<{ config: CrewConfig }> {
 
 export function saveCrew(config: CrewConfig): Promise<{ config: CrewConfig }> {
   return request<{ config: CrewConfig }>('PUT', '/api/operations/crew', config);
+}
+
+export interface InspectionPlanConfig {
+  enabled: boolean;
+  /** 每台機組幾天（風場時鐘）定檢一次 */
+  interval_days: number;
+}
+
+export interface InspectionPlanSchedule {
+  turbine_id: string;
+  active: boolean;
+  next_due_at: string;
+  last_spawned_at: string | null;
+  last_work_order_id: string | null;
+}
+
+export interface InspectionPlanState {
+  config: InspectionPlanConfig;
+  /** 風場時鐘；即時模擬沒在跑時為 null */
+  clock: string | null;
+  /** 各機組的排程（啟用的在前、依下一次到期排序） */
+  schedules: InspectionPlanSchedule[];
+}
+
+export function fetchInspectionPlan(): Promise<InspectionPlanState> {
+  return request<InspectionPlanState>('GET', '/api/operations/inspection-plan');
+}
+
+/** 排程由即時模擬在下一批讀值寫進歷史時整理：回傳的排程可能還是改之前的。 */
+export function saveInspectionPlan(config: InspectionPlanConfig): Promise<InspectionPlanState> {
+  return request<InspectionPlanState>('PUT', '/api/operations/inspection-plan', config);
 }
 
 // ─── 實測風況 ─────────────────────────────────────────────────────────────

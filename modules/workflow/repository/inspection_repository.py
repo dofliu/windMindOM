@@ -217,6 +217,22 @@ class InspectionScheduleRepository:
             sess.refresh(orm)
             return self._to_domain(orm)
 
+    def reschedule(self, schedule_id: UUID, next_due_at: datetime) -> InspectionSchedule:
+        """直接改下一次到期時間（WMOM-20261127-03：仿真風場的自動定檢計畫改週期時重新錯開）。
+
+        ``update_metadata`` 改週期不動 ``next_due_at``（見它的說明）；要立刻改到期日的呼叫端用這個。
+        """
+        assert_utc("next_due_at", next_due_at)
+        with self._sessionmaker() as sess:
+            orm = sess.get(InspectionScheduleORM, str(schedule_id))
+            if orm is None:
+                raise LookupError(f"inspection_schedule {schedule_id} not found")
+            orm.next_due_at = next_due_at
+            orm.updated_at = _utc_now()
+            sess.commit()
+            sess.refresh(orm)
+            return self._to_domain(orm)
+
     def record_spawn(
         self,
         schedule_id: UUID,

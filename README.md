@@ -92,6 +92,7 @@ npm run dev
 | `WMOM_LIVE_RETRIP=false` | 關掉「跳過機的故障不鎖機組」（預設開）：即時模擬裡 PLC 的鎖存解除後機組自動重啟，故障還在就再跳一次，同一個碼一小時內第二次由 A039 封鎖等人處理。關掉＝跳機後停到工單完工。批次情境不受影響 |
 | `WMOM_FAULT_GENERATOR=true` | 還沒存過設定的風場，機率式故障產生器預設開（預設關）。風場自己發生故障：每台機組平均 30 天一次，耗損高的更常。之後用 `PUT /api/operations/fault-generator` 調，設定存在風場 DB |
 | `WMOM_CREW=true` | 還沒存過設定的風場，模擬維修班預設開（預設關）。工單 120 分鐘沒人處理就接手、240 分鐘後完工並結案（風場時鐘）。之後用 `PUT /api/operations/crew` 調 |
+| `WMOM_INSPECTION_PLAN=true` | 還沒存過設定的風場，自動定檢計畫預設開（預設關）。每台機組每 182 天（風場時鐘、錯開）開一張定檢工單，完工修掉那台機組的故障，包括沒有警報的潛伏故障。之後用 `PUT /api/operations/inspection-plan` 調 |
 | `WMOM_OM_LOOP=false` | 關掉運維閉環（預設開）：即時模擬的跳機自動開工單、工單開工讓機組進維修模式、完工修復機組、記運轉狀態供可用率計算（`GET /api/operations/availability`）、故障維修工單建立時產生出發前準備卡（`GET /api/operations/work-orders/{id}/briefing`） |
 | `WMOM_RAW_HOT_DAYS=3` | 其中留在 SQLite 的最近幾天（預設 3；14 台機組約 0.5 GB / 天）。天數看資料自己的時間，不看實際時間 |
 | `WMOM_OPCUA_ENABLE=true` | 即時模擬的 OPC UA server（預設只聽 `127.0.0.1:4840`；`WMOM_OPCUA_HOST` / `WMOM_OPCUA_PORT` 可改） |

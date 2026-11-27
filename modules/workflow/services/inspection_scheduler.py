@@ -34,6 +34,19 @@ from modules.workflow.repository.work_order_repository import (
 
 _logger = logging.getLogger(__name__)
 
+# 自動排程的建立者（WMOM-20261127-03）：它們建的排程由它們自己依自己的時鐘跑（例：仿真風場的自動定檢計畫
+# 依風場時鐘），這裡的排程器（實際時間、人按「執行排程」）跳過，免得兩個時鐘混在一起。
+_AUTOMATED_OWNERS: set[UUID] = set()
+
+
+def automated_schedule_owner(owner: UUID) -> None:
+    """登記一個自動排程的建立者：它建的排程 :func:`run_inspection_scheduler` 不跑。
+
+    Args:
+        owner: 建立排程時的 ``created_by``。
+    """
+    _AUTOMATED_OWNERS.add(owner)
+
 
 @dataclass(frozen=True)
 class SpawnedInspection:
@@ -78,6 +91,8 @@ def run_inspection_scheduler(
 
     spawned: list[SpawnedInspection] = []
     for sched in due_schedules:
+        if sched.created_by in _AUTOMATED_OWNERS:
+            continue   # 自動排程由建立者自己依自己的時鐘跑
         # Review must-fix 防禦第三層：在建工單之前先驗證排程本身的
         # recurrence/interval_days 組合合法——正常路徑下 create()/update_metadata()
         # 已經擋過這個 invariant（見 repository docstring），這裡是最後一道防線，

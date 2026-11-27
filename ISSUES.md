@@ -13,14 +13,16 @@
 
 | Status | Count |
 |--------|------|
-| open | 13 |
+| open | 12 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 167 |
+| done | 168 |
 | **total** | **183** |
 
-最後更新：2026-11-27（**WMOM-20261126-05 done**：例行巡檢卡——固定的 11 項檢查清單，依看得到的證據排順序（30 天的警報 / 跳機、量測偏離、未結案的故障維修工單），潛伏的故障也會把那一項排到前面；定檢 / 預防保養工單建立時產生，卡片 1.2，前端顯示，DEC-20261127-04。另開 WMOM-20261127-03（依風場時鐘定期開定檢工單）。open 13 / in_progress 1 / deferred 2 / done 167 = 183。詳見 `work-logs/2026-11/2026-11-27-inspection-card.md`）。
+最後更新：2026-11-27（**WMOM-20261127-03 done**：仿真風場的自動定檢計畫——每台機組一個依風場時鐘到期的定檢排程（預設 182 天、全場錯開），到期開定檢工單；已有未結案的定檢工單不再開；人工排程器（實際時間）不碰這些排程；潛伏故障由定檢修掉；營運頁加設定卡，DEC-20261127-05。open 12 / in_progress 1 / deferred 2 / done 168 = 183。詳見 `work-logs/2026-11/2026-11-27-inspection-plan.md`）。
+
+前次：2026-11-27（**WMOM-20261126-05 done**：例行巡檢卡——固定的 11 項檢查清單，依看得到的證據排順序（30 天的警報 / 跳機、量測偏離、未結案的故障維修工單），潛伏的故障也會把那一項排到前面；定檢 / 預防保養工單建立時產生，卡片 1.2，前端顯示，DEC-20261127-04。另開 WMOM-20261127-03（依風場時鐘定期開定檢工單）。open 13 / in_progress 1 / deferred 2 / done 167 = 183。詳見 `work-logs/2026-11/2026-11-27-inspection-card.md`）。
 
 前次：2026-11-27（**WMOM-20261127-01 done**：側欄新增「營運」頁——收支與可用率、自動運轉（故障產生器、模擬維修班）、實測風況（匯入、套用、刪除、回到模型），只用既有的端點；設備與固定成本、RUL 回饋、修復等級表確認拆到 WMOM-20261127-02。open 13 / in_progress 1 / deferred 2 / done 166 = 182。詳見 `work-logs/2026-11/2026-11-27-operations-page.md`）。
 
@@ -2045,7 +2047,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261127-03 — 仿真風場依風場時鐘定期開定檢工單
 
-- **Status**: open
+- **Status**: done（2026-11-27，DEC-20261127-05：`server/inspection_plan.py`；每台機組一個 workflow 定檢排程〔`created_by=PLAN_ACTOR`〕，預設 182 天、第一次到期全場錯開；運維閉環依風場時鐘每 15 分鐘看一次；已有未結案的定檢 / 預防保養工單就算那張；人工排程器跳過〔`automated_schedule_owner`〕；設定 `inspection_plan` 存在風場 DB、`GET/PUT /api/operations/inspection-plan`、`WMOM_INSPECTION_PLAN`；營運頁「自動運轉」加一張卡；`test_inspection_plan.py` 16 項）
 - **Milestone**: EPIC-SF
 - **Priority**: medium
 - **Estimate**: 1 天

@@ -1024,6 +1024,8 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
         ("DELETE", "/api/scenarios/{scenario_id}"), ("POST", "/api/source/select"),
         # 故障產生器與模擬維修班的設定：批次結束時即時模擬的狀態會還原，批次中改的會被蓋掉（WMOM-20261125-06）
         ("PUT", "/api/operations/fault-generator"), ("PUT", "/api/operations/crew"),
+        # 自動定檢計畫（WMOM-20261127-03）：批次結束後設定從風場 DB 再套一次
+        ("PUT", "/api/operations/inspection-plan"),
     }
     assert guarded == expected
 

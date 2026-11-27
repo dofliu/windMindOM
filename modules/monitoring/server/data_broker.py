@@ -1007,10 +1007,11 @@ class DataBroker:
             recorder = self._fault_recorder = FaultRecorder(self)
         return recorder
 
-    # ── 故障產生器與模擬維修班的設定（WMOM-20261125-06）──────────────────
+    # ── 故障產生器、模擬維修班、自動定檢計畫的設定（WMOM-20261125-06、WMOM-20261127-03）──
 
     SETTING_FAULT_GENERATOR = "fault_generator"
     SETTING_CREW = "crew"
+    SETTING_INSPECTION_PLAN = "inspection_plan"
 
     def apply_live_settings(self) -> None:
         """把存在風場 DB 的設定套到即時模擬；沒存過就用啟動時的預設（``default_live_settings``）。"""
@@ -1038,6 +1039,15 @@ class DataBroker:
         except Exception as exc:  # noqa: BLE001
             print(f"[DataBroker] 模擬維修班的設定讀不出來，先關著：{exc}")
             loop.crew.configure(CrewConfig())
+        from server.inspection_plan import InspectionPlanConfig
+
+        try:
+            saved = self.storage.get_setting(self.SETTING_INSPECTION_PLAN)
+            loop.inspection_plan.configure(InspectionPlanConfig.from_dict(
+                saved if saved is not None else defaults.get("inspection_plan", {})))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[DataBroker] 自動定檢計畫的設定讀不出來，先關著：{exc}")
+            loop.inspection_plan.configure(InspectionPlanConfig())
 
     def _recording_faults(self) -> bool:
         """現在要不要記故障紀錄：只記即時模擬，重啟後重跑的那幾步不記。"""

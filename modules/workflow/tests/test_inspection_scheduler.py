@@ -215,3 +215,18 @@ def test_default_as_of_uses_now(repos):
     )
     spawned = run_inspection_scheduler(inspection_repo, work_order_repo, "changhua")
     assert len(spawned) == 1
+
+
+def test_skips_schedules_of_an_automated_owner(repos):
+    """自動排程的建立者自己依自己的時鐘跑（WMOM-20261127-03）：這裡的排程器（實際時間）不碰。"""
+    from modules.workflow.services.inspection_scheduler import automated_schedule_owner
+
+    inspection_repo, work_order_repo = repos
+    owner = uuid4()
+    automated_schedule_owner(owner)
+    _create_schedule(inspection_repo, turbine_id="WT-01", created_by=owner)
+    person = _create_schedule(inspection_repo, turbine_id="WT-02", created_by=uuid4())
+    spawned = run_inspection_scheduler(
+        inspection_repo, work_order_repo, "changhua", as_of=datetime(2026, 2, 1, tzinfo=UTC)
+    )
+    assert [s.schedule_id for s in spawned] == [person.id]

@@ -1,5 +1,6 @@
 /**
- * 自動運轉（WMOM-20261127-01）：機率式故障產生器與模擬維修班的設定（DEC-20261126-08）。
+ * 自動運轉（WMOM-20261127-01）：機率式故障產生器與模擬維修班的設定（DEC-20261126-08），以及自動定檢計畫
+ * （WMOM-20261127-03，DEC-20261127-05）。
  *
  * 兩者都存在風場的資料庫、重啟後照舊；只作用在即時模擬。後端的 PUT 沒給的欄位會用預設值，所以存的時候送
  * 完整的設定——畫面上沒列的欄位（情境 / 機組權重、耗損參考值）沿用目前的值。
@@ -11,13 +12,16 @@ import { useTheme } from '../../theme/ThemeProvider';
 import {
   fetchCrew,
   fetchFaultGenerator,
+  fetchInspectionPlan,
   saveCrew,
   saveFaultGenerator,
+  saveInspectionPlan,
   type CrewConfig,
   type FaultGeneratorConfig,
   type FaultGeneratorState,
+  type InspectionPlanState,
 } from '../../services/operationsService';
-import { ErrorNote, explainError, pick, Toggle, type Lang } from './shared';
+import { ErrorNote, explainError, fmtTime, pick, Toggle, useTableStyles, type Lang } from './shared';
 
 interface Props {
   lang: Lang;
@@ -102,6 +106,20 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
   const [crewSaving, setCrewSaving] = useState(false);
   const [crewSaved, setCrewSaved] = useState(false);
 
+  const [plan, setPlan] = useState<InspectionPlanState | null>(null);
+  const [planEnabled, setPlanEnabled] = useState(false);
+  const [planDays, setPlanDays] = useState('');
+  const [planError, setPlanError] = useState<unknown>(null);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planSaved, setPlanSaved] = useState(false);
+  const table = useTableStyles();
+
+  const showPlan = (state: InspectionPlanState) => {
+    setPlan(state);
+    setPlanEnabled(state.config.enabled);
+    setPlanDays(String(state.config.interval_days));
+  };
+
   const showGenerator = (state: FaultGeneratorState) => {
     setGenerator(state);
     setGenEnabled(state.config.enabled);
@@ -123,6 +141,9 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
     fetchCrew()
       .then(r => !cancelled && showCrew(r.config))
       .catch(e => !cancelled && setCrewError(e));
+    fetchInspectionPlan()
+      .then(s => !cancelled && showPlan(s))
+      .catch(e => !cancelled && setPlanError(e));
     return () => {
       cancelled = true;
     };
@@ -173,6 +194,26 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
       setCrewError(e);
     } finally {
       setCrewSaving(false);
+    }
+  };
+
+  const savePlan = async () => {
+    if (!plan) return;
+    const days = toNumber(planDays);
+    if (!Number.isInteger(days) || days < 1 || days > 730) {
+      setPlanError(new Error(ui('Interval: a whole number of days, 1–730', '週期：1–730 的整數天數')));
+      return;
+    }
+    setPlanSaving(true);
+    setPlanError(null);
+    setPlanSaved(false);
+    try {
+      showPlan(await saveInspectionPlan({ ...plan.config, enabled: planEnabled, interval_days: days }));
+      setPlanSaved(true);
+    } catch (e) {
+      setPlanError(e);
+    } finally {
+      setPlanSaving(false);
     }
   };
 
@@ -286,6 +327,95 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
               </Btn>
               {crewSaved && <span style={{ fontSize: 12, color: C.ok }}>{ui('Saved', '已儲存')}</span>}
             </div>
+          </>
+        )}
+      </Card>
+
+      <Card padding={20}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+          {ui('Routine inspection plan', '自動定檢計畫')}
+        </div>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>
+          {ui(
+            'Opens an inspection work order for each turbine every few days (farm clock, staggered across the farm). Finishing it repairs the faults on that turbine, including latent ones that raise no alarm. A turbine that already has an open inspection is not given another.',
+            '每台機組每隔幾天（風場時鐘、全場錯開）開一張定檢工單；完工修掉那台機組的故障，包括沒有警報的潛伏故障。已經有未結案定檢工單的機組不再開。',
+          )}
+        </div>
+        {planError !== null && (
+          <div style={{ marginTop: 12 }}>
+            <ErrorNote>{explainError(planError, lang)}</ErrorNote>
+          </div>
+        )}
+        {plan && (
+          <>
+            <div style={{ marginTop: 14 }}>
+              <Toggle checked={planEnabled} onChange={setPlanEnabled} label={ui('Enabled', '開啟')} />
+            </div>
+            <div style={grid}>
+              <Field
+                label={ui('Days between inspections (per turbine)', '每台機組幾天定檢一次')}
+                hint={ui('Default 182 (twice a year).', '預設 182（半年一次）。')}
+              >
+                <Input
+                  type="number"
+                  value={planDays}
+                  onChange={v => {
+                    setPlanDays(v);
+                    setPlanSaved(false);
+                  }}
+                  ariaLabel={ui('Days between inspections (per turbine)', '每台機組幾天定檢一次')}
+                  fullWidth
+                />
+              </Field>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+              <Btn variant="primary" onClick={savePlan} loading={planSaving}>
+                {ui('Save inspection plan', '儲存定檢計畫')}
+              </Btn>
+              {planSaved && (
+                <span style={{ fontSize: 12, color: C.ok }}>
+                  {ui(
+                    'Saved. Schedules are updated with the next batch of readings.',
+                    '已儲存。排程在即時模擬的下一批讀值時整理。',
+                  )}
+                </span>
+              )}
+            </div>
+            {plan.schedules.length > 0 ? (
+              <div style={{ overflowX: 'auto', marginTop: 16 }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th style={table.th}>{ui('Turbine', '機組')}</th>
+                      <th style={table.th}>{ui('Status', '狀態')}</th>
+                      <th style={table.th}>{ui('Next due (farm clock)', '下一次到期（風場時鐘）')}</th>
+                      <th style={table.th}>{ui('Last opened', '上次開單')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plan.schedules.map(s => (
+                      <tr key={s.turbine_id}>
+                        <td style={table.td}>{s.turbine_id}</td>
+                        <td style={{ ...table.td, color: s.active ? C.text : C.sub }}>
+                          {s.active ? ui('Active', '啟用') : ui('Paused', '暫停')}
+                        </td>
+                        <td style={table.td}>{fmtTime(s.next_due_at)}</td>
+                        <td style={table.td}>{fmtTime(s.last_spawned_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: C.sub, marginTop: 14 }}>
+                {ui('No schedules yet.', '還沒有排程。')}
+              </div>
+            )}
+            {plan.clock && (
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 8 }}>
+                {ui('Farm clock now', '風場時鐘現在')}: {fmtTime(plan.clock)}
+              </div>
+            )}
           </>
         )}
       </Card>
