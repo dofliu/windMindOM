@@ -17,7 +17,7 @@
 - `simulator/farm_event_generator.py`（新）：`FarmEventGeneratorConfig`（各種事件的 `mean_days_between`〔null＝不產生〕、強度與時長範圍；檢查不合法的設定）、`FarmEventGenerator`（每 60 模擬秒檢查一次、每種事件固定抽三個數、關著不抽、同一種事件進行中不重開；事件留到結束後 `RECORD_GRACE_S`＝30 分鐘）、`grid_override`。
 - `simulator/engine.py`：`_run_one_step` 一開頭、不是批次時呼叫 `_apply_live_farm_events`（產生器擲骰、拿掉記錄期間已過的、套用進行中的電網 / 風向、沒有就復原）；`generate_bulk` 開頭拿掉 Live 的覆寫；產生器加進 `_CHECKPOINT_FIELDS`。
 - `simulator/grid_model.py`：`event_override_active`。
-- `server/fault_record.py`：`on_farm_event_started` / `on_farm_event_ended`（每台機組一筆、`origin="farm_event"`），PLC 事件用事件種類的 `event_codes` 當預期碼，`cases()` 給 nuisance 答案（`farm_event_answer`）。
+- `server/fault_record.py`：`reconcile_farm_events`（每台機組一筆、`origin="farm_event"`；審查後改成依產生器的狀態對帳，見 §4），PLC 事件用事件種類的 `event_codes` 當預期碼，`cases()` 給 nuisance 答案（`farm_event_answer`）。
 - `server/data_broker.py`：`_record_farm_events`（`_detect_sim_events` 一開頭，PLC 事件之前；`_recording_faults` 擋掉重跑與去重的步）；`SETTING_FARM_EVENTS` 與 `apply_live_settings`。
 - `server/briefing.py`：`capture_answer` 加 `farm_events`（評分答案，卡片不帶）。
 - `server/routers/operations.py`：`GET/PUT /api/operations/farm-events`（永遠強制的主管，PUT 掛 `reject_during_batch`）；`server/app.py` 預設 `WMOM_FARM_EVENTS`。
