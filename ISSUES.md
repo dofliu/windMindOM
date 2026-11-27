@@ -17,10 +17,12 @@
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 165 |
-| **total** | **181** |
+| done | 166 |
+| **total** | **182** |
 
-最後更新：2026-11-27（**WMOM-20261125-07 done**（EPIC-SF 第 7 項，DEC-20261127-03）：實測風況匯入——CSV 匯入、存在風場 DB、套用後風場依實測序列運轉（重播 / 絕對時間、播完循環 / 停住 / 回到模型），手動設定優先、模型在底下照跑、批次可重現。**EPIC-SF 七項全部完成**。open 13 / in_progress 1 / deferred 2 / done 165 = 181。詳見 `work-logs/2026-11/2026-11-27-measured-wind.md`）。
+最後更新：2026-11-27（**WMOM-20261127-01 done**：側欄新增「營運」頁——收支與可用率、自動運轉（故障產生器、模擬維修班）、實測風況（匯入、套用、刪除、回到模型），只用既有的端點；設備與固定成本、RUL 回饋、修復等級表確認拆到 WMOM-20261127-02。open 13 / in_progress 1 / deferred 2 / done 166 = 182。詳見 `work-logs/2026-11/2026-11-27-operations-page.md`）。
+
+前次：2026-11-27（**WMOM-20261125-07 done**（EPIC-SF 第 7 項，DEC-20261127-03）：實測風況匯入——CSV 匯入、存在風場 DB、套用後風場依實測序列運轉（重播 / 絕對時間、播完循環 / 停住 / 回到模型），手動設定優先、模型在底下照跑、批次可重現。**EPIC-SF 七項全部完成**。open 13 / in_progress 1 / deferred 2 / done 165 = 181。詳見 `work-logs/2026-11/2026-11-27-measured-wind.md`）。
 
 前次：2026-11-27（**WMOM-20260504-11 done**（EPIC-SF 第 6 項，DEC-20261127-02）：仿真風場的收支——發電收入與停機少收的錢由運轉狀態紀錄 × 電價算；工單完工時人工與料件寫進成本帳本（每張一次、修復等級對應 K13 FTC、有領料單時料件不另算）；`GET /api/operations/finance`（主管）；月報加發電收入與淨額。另開 WMOM-20261127-01（設備與固定成本、RUL 回饋、前端畫面）。open 14 / in_progress 1 / deferred 2 / done 164 = 181。詳見 `work-logs/2026-11/2026-11-27-operations-finance.md`）。
 
@@ -2016,15 +2018,26 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Depends on**: WMOM-20261125-03
 - **Reference**: DEC-20261126-02、DEC-20261126-03
 
-### WMOM-20261127-01 — 仿真風場收支的後續：設備與固定成本、RUL 回饋、前端畫面
+### WMOM-20261127-01 — 營運頁：收支與可用率、自動運轉、實測風況的前端畫面
+
+- **Status**: done（2026-11-27；側欄新增「營運」頁，三個分頁。原本同一個 issue 裡的設備與固定成本、RUL 回饋、修復等級表確認移到 WMOM-20261127-02。詳見 `work-logs/2026-11/2026-11-27-operations-page.md`）
+- **Milestone**: EPIC-SF
+- **Priority**: medium
+- **Estimate**: 1 天
+- **Owner**: Claude session 2026-11-27
+- **Source**: WMOM-20260504-11（DEC-20261127-02）、WMOM-20261125-06、-07 都只有 API。劉老師 2026-11-27：「照你的建議先做前端畫面」。
+- **Description**: 新增「營運」頁（`frontend/components/operations/`、`services/operationsService.ts`）：(1) 收支與可用率——發電量、收入、計畫 / 非計畫停機少收、運維支出、淨額、可用率，每台機組一列，區間依風場時鐘（最近 24 小時 / 7 天 / 30 天）；(2) 自動運轉——故障產生器與模擬維修班的設定；(3) 實測風況——匯入 CSV、匯入過的序列、套用（對時、播完）、刪除、回到模型的風況。只用既有的端點，沒有改後端。
+- **Depends on**: WMOM-20260504-11、WMOM-20261125-06、WMOM-20261125-07（done）
+
+### WMOM-20261127-02 — 仿真風場收支的後續：設備與固定成本、RUL 回饋、修復等級表確認
 
 - **Status**: open
 - **Milestone**: EPIC-SF
 - **Priority**: low
-- **Estimate**: 2–3 天
+- **Estimate**: 2 天
 - **Owner**: -
-- **Source**: WMOM-20260504-11（DEC-20261127-02）沒做的部分。
-- **Description**: (1) 設備 / 吊車與固定成本：K13 的設備是離岸船機、以年費計；陸域 Z72 大件更換（主軸承、定子）要吊車，要定每次動員的費用與固定成本（人員年薪、設備租賃）怎麼攤到每天；(2) 料件更換對 RUL 與蒙地卡羅參數（`freq_min/ml/max`）的回饋；(3) 前端畫面：收支（`/api/operations/finance`）、可用率、故障產生器與維修班的設定目前都沒有畫面；(4) 修復等級對應表（`modules/cost/data/z72_repair_classes.json`）請劉老師看過。
+- **Source**: 從 WMOM-20261127-01 拆出（DEC-20261127-02 沒做的部分）。
+- **Description**: (1) 設備 / 吊車與固定成本：K13 的設備是離岸船機、以年費計；陸域 Z72 大件更換（主軸承、定子）要吊車，要定每次動員的費用與固定成本（人員年薪、設備租賃）怎麼攤到每天；(2) 料件更換對 RUL 與蒙地卡羅參數（`freq_min/ml/max`）的回饋；(3) 修復等級對應表（`modules/cost/data/z72_repair_classes.json`）請劉老師看過。
 - **Depends on**: WMOM-20260504-11（done）
 - **Reference**: DEC-20261127-02
 
