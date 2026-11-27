@@ -280,13 +280,13 @@ def _healthy(power: float, offset: float = 0.0, vane: float = 0.0):  # noqa: ANN
                          _TEMP: 20.0 + power / 100.0 + offset, _VANE: vane}
 
 
-def _peers() -> Dict[str, object]:
+def _peers(count: int = 8) -> Dict[str, object]:
     return {f"P{i}": _healthy(900.0 + 50.0 * i, offset=0.15 * ((i % 3) - 1), vane=0.4 * ((i % 3) - 1))
-            for i in range(8)}
+            for i in range(count)}
 
 
-def _items(target, normalize: bool = True) -> Dict[str, Dict[str, object]]:  # noqa: ANN001
-    turbines = {"T": target, **_peers()}
+def _items(target, normalize: bool = True, peers: int = 8) -> Dict[str, Dict[str, object]]:  # noqa: ANN001
+    turbines = {"T": target, **_peers(peers)}
     tags = [_TEMP, _VANE, briefing.WIND_TAG, briefing.POWER_TAG]
     items, _info = briefing._signal_items(_FakeHistory(turbines), "T", list(turbines), tags, (), _CUT,
                                           window=briefing.INSPECTION_SIGNAL_WINDOW,
@@ -309,6 +309,14 @@ def test_an_upwind_turbine_is_compared_at_its_own_operating_point() -> None:
     # 真的偏熱：直接比、扣掉之後比都偏高
     hot = lambda back: {**_healthy(1100.0)(back), _TEMP: 20.0 + 11.0 + 8.0}  # noqa: E731
     assert _items(hot)[_TEMP]["deviation"] == "high"
+
+
+def test_with_few_peers_the_slope_is_not_used() -> None:
+    """同場少於 5 台：2 個參數配 4 點、殘差幾乎是 0，不配斜率（等於直接和中位數比）。"""
+    upwind = _healthy(1800.0)
+    few = _items(upwind, peers=4)[_TEMP]
+    assert few["expected_mean"] == pytest.approx(29.8, abs=0.3), "同場中位數"
+    assert few["deviation"] == _items(upwind, normalize=False, peers=4)[_TEMP]["deviation"] == "high"
 
 
 def test_a_fit_that_disagrees_with_the_plain_comparison_is_not_evidence() -> None:
@@ -391,6 +399,12 @@ def test_a_finished_inspection_handles_every_earlier_event(farm: Farm, monkeypat
     card = _inspect(farm, "WT005")["card"]
     assert not any(item["attention"] for item in card["checklist"]["items"])
     assert "no_evidence" in card["data_quality"]["flags"]
+    # 定檢完工之後又送：故障還在（或又發生），照算
+    farm.broker._record_plc_event("WT005", _plc(264))
+    farm.drive_slow(6)
+    generator = _entry(_inspect(farm, "WT005")["card"], "generator")
+    assert generator["attention"] is True
+    assert [(e["count"], e["counted"]) for e in generator["evidence"] if e["type"] == "events"] == [(2, 1)]
 
 
 def test_no_evidence_means_nothing_was_counted(farm: Farm, monkeypatch) -> None:

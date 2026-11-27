@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -83,17 +84,21 @@ PEER_PRODUCING_FRACTION = 0.5
 SPREAD_FLOOR_OF_RANGE = 0.005
 _STATE_TAG = "WTUR_TurSt"
 # 例行巡檢卡（卡片 1.3，WMOM-20261127-04）：量測也扣掉運轉點的影響再和同場比。每個量測用什麼當運轉點，
-# 挑和它大致成直線的：轉速看風速（變速運轉時轉速和風速成正比）；變槳角度與變槳馬達電流看風速（額定以上功率
-# 不變、角度隨風變）；風速計看功率的立方根（功率約和風速的三次方成正比，量到的風要對得上發的電）；其餘看功率
+# 挑和它大致成直線的：轉速看風速（變速運轉時轉速和風速成正比）；變槳角度、變槳馬達電流、機艙振動看風速（額定
+# 以上功率不變、它們照樣隨風變）；風速計看功率的立方根（功率約和風速的三次方成正比，量到的風要對得上發的電）；其餘看功率
 POWER_TAG = "WTUR_TotPwrAt"
 WIND_TAG = "WMET_WSpeedNac"
 CUBE_ROOT = "cube_root"
 _REGRESSOR_OVERRIDES: Dict[str, Tuple[str, Optional[str]]] = {
     **{tag: (WIND_TAG, None) for tag in ("WROT_RotSpd", "WGEN_GnSpd")},
+    # 機艙振動看風速：風載與紊流隨風變，額定以上功率不變、振動照樣隨風增加
+    **{tag: (WIND_TAG, None) for tag in ("WNAC_VibMsNacXDir", "WNAC_VibMsNacYDir")},
     **{f"WROT_PtAngValBl{n}": (WIND_TAG, None) for n in (1, 2, 3)},
     **{f"WROT_PtMotCurBl{n}": (WIND_TAG, None) for n in (1, 2, 3)},
     **{tag: (POWER_TAG, CUBE_ROOT) for tag in ("WMET_WSpeedNac", "WMET_WSpeedRaw")},
 }
+# 至少幾台同場機組才配斜率（少於這個數就不扣運轉點、等於直接和中位數比：2 個參數配 3、4 點，殘差幾乎是 0）
+_MIN_FIT_PEERS = 5
 # 直線配適時兩台機組的運轉點至少差多少才拿來算斜率（太接近的兩點斜率只是雜訊）
 _FIT_MIN_DX: Dict[Tuple[str, Optional[str]], float] = {
     (POWER_TAG, None): 10.0, (POWER_TAG, CUBE_ROOT): 0.05, (WIND_TAG, None): 0.1}
@@ -305,7 +310,7 @@ def _peer_fit(xs: Sequence[float], ys: Sequence[float], min_dx: float) -> Tuple[
     """
     slopes = [(ys[j] - ys[i]) / (xs[j] - xs[i])
               for i in range(len(xs)) for j in range(i + 1, len(xs)) if abs(xs[j] - xs[i]) >= min_dx]
-    slope = float(statistics.median(slopes)) if len(slopes) >= MIN_PEERS else 0.0
+    slope = float(statistics.median(slopes)) if len(xs) >= _MIN_FIT_PEERS and len(slopes) >= MIN_PEERS else 0.0
     intercept = float(statistics.median(y - slope * x for x, y in zip(xs, ys)))
     return slope, intercept
 
@@ -342,7 +347,9 @@ def _compare(value: Optional[float], operating: Optional[float],
         return "unknown", None
     xs, ys = [x for x, _ in pairs], [v for _, v in pairs]
     slope, intercept = _peer_fit(xs, ys, min_dx)
-    residuals = [y - (intercept + slope * x) for x, y in pairs]
+    # 殘差是配適用的那幾台自己的，比真正的離散小（2 個參數）：依自由度放大
+    inflate = math.sqrt(len(pairs) / (len(pairs) - 2)) if slope and len(pairs) > 2 else 1.0
+    residuals = [inflate * (y - (intercept + slope * x)) for x, y in pairs]
     # 照直線延伸（最上風的機組常在同場的範圍外）。機組少、斜率不穩時算出來的偏離，由「直接比也要偏同一邊」擋下
     expected = intercept + slope * operating
     # 下限照原本的比法：量測範圍的比例與量測值大小的 2%（殘差的中位數接近 0，不能用它的 2%）
@@ -736,7 +743,7 @@ def _finished_work(storage: Storage, turbine_id: str, start: datetime,
     ``source="workflow"`` 事件的時間。只讀時間、工單編號、類型與警報碼——都是工單上本來就看得到的；
     那筆事件裡「修了哪些故障」是答案，不讀。
     """
-    rows = storage.query_events(turbine_id=turbine_id, start=iso_utc(start), end=iso_utc(end), limit=1000,
+    rows = storage.query_events(turbine_id=turbine_id, start=iso_utc(start), end=iso_utc(end), limit=20000,
                                 source="workflow", exclude_scenario_sessions=True)
     out: List[Tuple[datetime, str, str, Optional[int]]] = []
     prefix = "Work finished: "
@@ -810,7 +817,8 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
         for done_at, key, kind, code in finished:
             if done_at <= moment:
                 continue
-            if kind in ("inspection", "preventive") or (code is not None and item_of_code(code) == item_id):
+            if kind in ("inspection", "preventive") or (item_id is not None and code is not None
+                                                        and item_of_code(code) == item_id):
                 return key
         return None
 
