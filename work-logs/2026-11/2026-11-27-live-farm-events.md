@@ -25,18 +25,23 @@
 
 ## 3. 驗證
 
-- `modules/monitoring/tests/test_live_farm_events.py` 20 項：
+- `modules/monitoring/tests/test_live_farm_events.py` 21 項（含 §4 審查後補的）：
   - 產生器：關著不抽、每種事件固定抽三個數、頻率越界有正有負、同一種不重開、存檔、記錄期間、設定檢查與來回。
   - 引擎：只在即時模擬擲骰；沒有事件時讀值逐位元不變；電網 / 風向在事件期間覆寫、結束復原、批次期間不套用；批次不帶 Live 的覆寫。
   - 運維：3 台發電中的機組遇到 0.6 p.u. 的驟降全部以 482 跳機；故障紀錄每台一筆 nuisance，記錄期間過後以事件結束時間結束、不算維修；三張工單的答案都標出電壓驟降、`has_fault` 為 false，卡片不帶答案、「同場同時同碼」列出另外兩台。
   - 端點：設定存在風場 DB、重套、422、只給永遠強制登入的主管。
 - `test_scenario_endpoints.py` 的批次期間擋下清單加 `PUT /api/operations/farm-events`。
 - 前端營運頁 18 項（加 1 項），`tsc` 無錯。
-- 完整 backend 與 code review：見 §4。
+- 完整 backend（審查前）：2680 passed / 7 skipped / 1 xfailed。
 
-## 4. Code review 與處理
+## 4. Code review（code-reviewer subagent）與處理
 
-（下方補）
+- **沒有要修的**；干擾守則、故障產生器守則、盲測守則、批次守則都核對過。
+- **該修**：
+  - 沒關掉的 farm_event 紀錄會一直開著、擋住之後同一種事件的紀錄（程式更新後存檔不還原、重啟去重的那幾步漏了結束）→ 不再靠「這一步開始 / 結束」的通知，改成 `FaultRecorder.reconcile_farm_events` 依產生器現在的狀態對帳：事件開始 / 結束那一步、以及每 60 模擬秒對一次；對不到事件的紀錄關掉，發生時間和事件不一樣的也關掉、新事件自己開一筆（加測試）。
+  - 同一種事件在前一個的記錄期間（30 分鐘）內又發生，會記到前一筆、然後被提早關掉 → 產生器在記錄期間內也不重開同一種（照樣抽三個數，加測試）。
+- **小地方**：`AutomationPanel.tsx` 被 Prettier 整份改成雙引號 → 還原，只留三處改動；兩個新卡片改成和資料夾一致的單引號。故障紀錄加來源篩選（`source=generator|manual|farm_event`，風場事件每次每台一筆，看故障時可以濾掉）。`configure` 補一行跨執行緒的說明。沒改的：`CHECKPOINT_VERSION` 不升（程式指紋已經讓舊存檔不還原，加故障產生器時也沒升）。
+- 修完：相關的 monitoring 測試 292 passed / 6 skipped；`test_live_farm_events.py` 21 項；前端營運頁 18 項、`tsc` 無錯。
 
 ## 5. 下次接手
 

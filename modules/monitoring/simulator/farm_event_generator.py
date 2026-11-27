@@ -7,13 +7,14 @@
 - 每 ``CHECK_INTERVAL_S`` 模擬秒檢查一次；每次檢查每種事件**固定抽三個數**（有沒有發生、強度、時長），不論
   有沒有發生、設定怎麼改——抽樣次數不隨結果改變。關著的時候完全不抽。
 - 亂數用自己的 ``random.Random``，不借用模擬器的任何 RNG（故障產生器守則、物理改動守則）。
-- 同一種事件進行中時不再開同一種（照樣抽三個數）。
+- 同一種事件進行中、以及結束後的記錄期間（``RECORD_GRACE_S``）都不再開同一種（照樣抽三個數）：故障紀錄裡一種
+  事件同時只有一筆，兩個事件的事件碼不會混在一起。
 
 產生的事件由引擎在即時模擬的每一步套用（``WindFarmSimulator._apply_live_farm_events``）：電網事件覆寫電網模型
 （``apply_event_override``，亂數抽樣次數不變）、風向事件加風向偏移；事件結束就復原。批次期間不呼叫——批次的
 風場事件由排程決定。
 
-事件的種類、強度、時間是答案：只進不對外的故障紀錄（記成 nuisance，``FaultRecorder.on_farm_event_started``）
+事件的種類、強度、時間是答案：只進不對外的故障紀錄（記成 nuisance，``FaultRecorder.reconcile_farm_events``）
 與準備卡評分用的答案，不進可觀測事件、對外 API、準備卡（盲測守則）。物件可以 pickle，跟著即時模擬的狀態
 存檔，重啟續跑之後接著同一條亂數序列。
 """
@@ -190,7 +191,11 @@ class FarmEventGenerator:
         self.events: List[LiveFarmEvent] = []
 
     def configure(self, config: FarmEventGeneratorConfig) -> None:
-        """換設定。種子變了才重設亂數序列。進行中的事件照樣跑完。"""
+        """換設定。種子變了才重設亂數序列。進行中的事件照樣跑完。
+
+        API 執行緒呼叫、Live 執行緒正在檢查時，那一次檢查可能一半用舊的設定 / 亂數、一半用新的——只影響那一次，
+        之後照新的走（故障產生器也是這樣）。
+        """
         reseed = config.seed != self.config.seed
         self.config = config
         if reseed:
@@ -213,7 +218,8 @@ class FarmEventGenerator:
             return []
         elapsed, self._accumulated = self._accumulated, 0.0
         made: List[LiveFarmEvent] = []
-        running = {e.kind for e in self.events if e.end > step_start}
+        grace = timedelta(seconds=RECORD_GRACE_S)
+        running = {e.kind for e in self.events if e.end + grace > step_start}
         for kind_id in sorted(FARM_EVENT_KINDS):
             # 每種事件固定抽三個數：有沒有發生、強度、時長。抽樣次數不隨結果或設定改變
             happens, size, length = self._rng.random(), self._rng.random(), self._rng.random()

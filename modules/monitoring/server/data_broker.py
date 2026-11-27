@@ -1059,18 +1059,28 @@ class DataBroker:
             print(f"[DataBroker] 自動定檢計畫的設定讀不出來，先關著：{exc}")
             loop.inspection_plan.configure(InspectionPlanConfig())
 
+    # 風場事件的故障紀錄多久和產生器對帳一次（模擬秒）：沒有事件開始 / 結束的時候也要定期看，重啟、去重的那幾步
+    # 或程式更新之後沒關掉的紀錄才會被關掉
+    _FARM_EVENT_RECONCILE_S = 60.0
+
     def _record_farm_events(self) -> None:
-        """即時模擬這一步開始 / 記錄期間結束的風場事件，記進不對外的故障紀錄（nuisance，WMOM-20261126-07）。"""
+        """風場事件的不對外故障紀錄（nuisance，WMOM-20261126-07）：事件開始或記錄期間結束的那一步、以及每
+        ``_FARM_EVENT_RECONCILE_S`` 模擬秒，依產生器現在的狀態對帳（``FaultRecorder.reconcile_farm_events``）。"""
         simulator = self.simulator
+        generator = getattr(simulator, "farm_event_generator", None)
+        if generator is None:
+            return
         started = getattr(simulator, "last_farm_events_started", None) or []
         expired = getattr(simulator, "last_farm_events_expired", None) or []
-        if not (started or expired) or not self._recording_faults():
+        clock = self.live_clock()
+        last = getattr(self, "_farm_events_checked_at", None)
+        due = clock is not None and (last is None or clock < last
+                                     or (clock - last).total_seconds() >= self._FARM_EVENT_RECONCILE_S)
+        if not (started or expired or due) or clock is None or not self._recording_faults():
             return
-        turbines = sorted(simulator.turbines)
-        for event in started:
-            self.fault_records.on_farm_event_started(event, turbines)
-        for event in expired:
-            self.fault_records.on_farm_event_ended(event, turbines)
+        self._farm_events_checked_at = clock
+        self.fault_records.reconcile_farm_events(generator.recording(clock), expired, sorted(simulator.turbines),
+                                                 clock)
 
     def _recording_faults(self) -> bool:
         """現在要不要記故障紀錄：只記即時模擬，重啟後重跑的那幾步不記。"""

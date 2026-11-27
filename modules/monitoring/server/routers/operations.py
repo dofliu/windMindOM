@@ -533,6 +533,7 @@ async def fault_records(
     turbine_id: Annotated[Optional[str], Query(min_length=1, max_length=64)] = None,
     open_only: bool = False,
     limit: Annotated[int, Query(ge=1, le=2000)] = 200,
+    source: Annotated[Optional[str], Query(pattern="^(generator|manual|farm_event)$")] = None,
 ) -> Dict[str, object]:
     """不對外的故障紀錄：即時風場每一筆故障的發生、第一次警報、跳機、修復，加上答案欄位。
 
@@ -542,10 +543,11 @@ async def fault_records(
         turbine_id: 只取這台機組；不給＝全部。
         open_only: 只取還沒修好的。
         limit: 最多幾筆（新的在前）。
+        source: 只取這個來源（``generator`` / ``manual`` / ``farm_event``）；不給＝全部。
 
     Returns:
         ``{"cases": [...]}``。
     """
     broker = get_broker()
-    cases = await asyncio.to_thread(broker.fault_records.cases, turbine_id, open_only, limit)
+    cases = await asyncio.to_thread(broker.fault_records.cases, turbine_id, open_only, limit, source)
     return {"cases": cases}

@@ -14,9 +14,10 @@
 - 故障消失（工單完工修掉、或管理端清除）→ :meth:`on_fault_cleared`
 
 即時模擬的風場事件（電網擾動、風向快速變化，WMOM-20261126-07）也記在這裡：每台機組一筆、情境欄位是事件種類、
-``origin="farm_event"``，答案是 nuisance（:meth:`on_farm_event_started` / :meth:`on_farm_event_ended`）。
-事件期間到結束後 ``RECORD_GRACE_S`` 內的事件碼算這個事件的，之後紀錄結束（``cleared_by="farm_event_end"``，
-不是工單修好的，不算進故障率）。
+``origin="farm_event"``，答案是 nuisance。事件期間到結束後 ``RECORD_GRACE_S`` 內的事件碼算這個事件的，之後紀錄
+結束（``cleared_by="farm_event_end"``，不是工單修好的，不算進故障率）。開與關依產生器現在的狀態對帳
+（:meth:`reconcile_farm_events`），不靠「這一步開始 / 結束」的通知——重啟、去重的那幾步或程式更新之後，
+沒關掉的紀錄照樣會被關掉。
 
 時間一律是風場時鐘。任何一步出錯都只記 log，不影響模擬。
 """
@@ -24,13 +25,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set
 
 from simulator.farm_events import FARM_EVENT_KINDS
 from simulator.ground_truth import farm_event_answer, scenario_answer
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.plc_protection import PlcEvent
-from simulator.time_utils import iso_utc
+from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
     from server.data_broker import DataBroker
@@ -130,40 +132,56 @@ class FaultRecorder:
         except Exception:  # noqa: BLE001
             logger.exception("故障紀錄：結束不了 %s / %s", turbine_id, scenario_id)
 
-    def on_farm_event_started(self, event: "LiveFarmEvent", turbines: Sequence[str]) -> None:
-        """風場事件開始：每台機組開一筆 nuisance 紀錄（已經有還沒結束的同一種就不重複開）。"""
-        try:
-            onset = iso_utc(event.start)
-            for turbine_id in turbines:
-                self._broker.storage.open_fault_record(turbine_id, event.kind, ORIGIN_FARM_EVENT, onset)
-        except Exception:  # noqa: BLE001
-            logger.exception("故障紀錄：記不了風場事件 %s", event.kind)
+    def reconcile_farm_events(self, recording: Sequence["LiveFarmEvent"], expired: Sequence["LiveFarmEvent"],
+                              turbines: Sequence[str], now: datetime) -> None:
+        """風場事件的紀錄和產生器現在的狀態對帳（WMOM-20261126-07）。
 
-    def on_farm_event_ended(self, event: "LiveFarmEvent", turbines: Sequence[str]) -> None:
-        """風場事件的記錄期間（結束後 ``RECORD_GRACE_S``）過了：結束各機組的紀錄，結束時間是事件結束的時刻。"""
+        - 還在記錄期間的事件：每台機組要有一筆開著的紀錄、發生時間是事件開始的時刻（已經有就不重開）。
+        - 開著、但對不到記錄期間的事件的紀錄（事件的記錄期間過了；或程式更新、重啟之後產生器裡已經沒有它）：
+          結束。結束時間是事件結束的時刻；不知道是哪個事件的用現在。
+
+        Args:
+            recording: 產生器裡還在記錄期間的事件（一種事件最多一個）。
+            expired: 這一步記錄期間剛結束的事件（取結束時間用）。
+            turbines: 全場機組。
+            now: 風場時鐘。
+        """
         try:
             storage = self._broker.storage
-            end = iso_utc(event.end)
-            for turbine_id in turbines:
-                for record in storage.open_fault_records(turbine_id):
-                    if record["scenario_id"] == event.kind and record["origin"] == ORIGIN_FARM_EVENT:
-                        storage.update_fault_record(int(record["id"]), cleared_ts=end,
-                                                    cleared_by=CLEARED_BY_FARM_EVENT_END)
+            live = {event.kind: event for event in recording}
+            ended = {event.kind: event for event in expired}
+            for record in storage.open_fault_records():
+                if record["origin"] != ORIGIN_FARM_EVENT:
+                    continue
+                kind = str(record["scenario_id"])
+                event = live.get(kind)
+                if event is not None and parse_iso(str(record["onset_ts"])) == event.start:
+                    continue
+                gone = ended.get(kind)
+                cleared = iso_utc(gone.end if gone is not None else now)
+                storage.update_fault_record(int(record["id"]), cleared_ts=cleared,
+                                            cleared_by=CLEARED_BY_FARM_EVENT_END)
+            for event in live.values():
+                onset = iso_utc(event.start)
+                for turbine_id in turbines:
+                    storage.open_fault_record(turbine_id, event.kind, ORIGIN_FARM_EVENT, onset)
         except Exception:  # noqa: BLE001
-            logger.exception("故障紀錄：結束不了風場事件 %s", event.kind)
+            logger.exception("故障紀錄：風場事件對帳失敗")
 
     def cases(self, turbine_id: Optional[str] = None, open_only: bool = False,
-              limit: int = 500) -> List[Dict[str, object]]:
+              limit: int = 500, source: Optional[str] = None) -> List[Dict[str, object]]:
         """故障紀錄加上答案欄位（根因、元件、處置、重點訊號），新的在前。
 
         Args:
             turbine_id: 只取這台機組；None＝全部。
             open_only: 只取還沒修好的。
             limit: 最多幾筆。
+            source: 只取這個來源（``generator`` / ``manual`` / ``farm_event``）；None＝全部。風場事件每次每台
+                機組一筆，看故障時可以用它濾掉。
         """
         out: List[Dict[str, object]] = []
         for record in self._broker.storage.fault_records(turbine_id=turbine_id, open_only=open_only,
-                                                         limit=limit, newest_first=True):
+                                                         limit=limit, newest_first=True, origin=source):
             scenario_id = str(record["scenario_id"])
             scenario = FAULT_SCENARIOS.get(scenario_id)
             if scenario is not None:

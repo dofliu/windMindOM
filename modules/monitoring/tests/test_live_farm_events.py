@@ -98,15 +98,21 @@ def test_three_draws_per_kind_per_check_whatever_happens() -> None:
     assert min(shifts) < 0 < max(shifts), "頻率越界有往下也有往上"
 
 
-def test_the_same_kind_does_not_start_again_while_it_runs() -> None:
+def test_the_same_kind_does_not_start_again_while_it_runs_or_is_being_recorded() -> None:
     generator = FarmEventGenerator(_config(grid_voltage_dip=0.0001))
     first = generator.step(60.0, T0)
     dips = [e for e in first if e.kind == "grid_voltage_dip"]
     assert dips, "發生率很高：第一次檢查就有"
+
+    def dips_at(moment: datetime) -> List[LiveFarmEvent]:
+        return [e for e in generator.step(60.0, moment) if e.kind == "grid_voltage_dip"]
+
     state = generator._rng.getstate()
-    again = generator.step(60.0, T0 + timedelta(seconds=1))
-    assert not [e for e in again if e.kind == "grid_voltage_dip"], "進行中不重複"
+    assert not dips_at(T0 + timedelta(seconds=1)), "進行中不重複"
     assert generator._rng.getstate() != state, "照樣抽樣"
+    end = dips[0].end
+    assert not dips_at(end + timedelta(minutes=10)), "結束後的記錄期間也不重開：故障紀錄一種事件同時只有一筆"
+    assert dips_at(end + timedelta(seconds=RECORD_GRACE_S + 1)), "記錄期間過了才會再有"
 
 
 def test_events_survive_a_checkpoint_and_expire_after_the_grace_period() -> None:
@@ -252,6 +258,26 @@ def test_a_live_grid_dip_trips_turbines_and_is_recorded_as_nuisance(farm: Farm) 
     clock = farm.broker.live_clock()
     assert farm.broker.storage.repaired_fault_counts("2000-01-01", iso_utc(clock + timedelta(hours=1))) == {}
     assert farm.broker.simulator.farm_event_generator.events == [], "記錄期間過了就拿掉"
+
+
+def test_records_left_open_are_closed_and_a_new_event_gets_its_own(farm: Farm) -> None:
+    """程式更新後存檔不還原、或重啟去重的那幾步漏了結束：沒關掉的紀錄依產生器的狀態對帳關掉（code review）。"""
+    from simulator.time_utils import iso_utc
+
+    farm.drive_slow(6)
+    storage = farm.broker.storage
+    old = farm.broker.live_clock() - timedelta(hours=3)
+    for tid in ("WT001", "WT002", "WT003"):
+        storage.open_fault_record(tid, "grid_voltage_dip", "farm_event", iso_utc(old))
+    farm.drive_slow(7)   # 一分鐘之內會對帳一次
+    stale = farm.broker.fault_records.cases(source="farm_event")
+    assert len(stale) == 3 and all(c["cleared_by"] == "farm_event_end" for c in stale)
+    event = _dip(farm)
+    farm.drive(5)
+    fresh = farm.broker.fault_records.cases(source="farm_event", open_only=True)
+    assert {c["turbine_id"] for c in fresh} == {"WT001", "WT002", "WT003"}
+    assert all(c["onset_ts"] == iso_utc(event.start) for c in fresh), "新事件自己一筆，不沿用沒關掉的"
+    assert not [c for c in farm.broker.fault_records.cases(source="generator")], "依來源篩選"
 
 
 def test_trip_work_orders_carry_the_farm_event_in_the_answer(farm: Farm) -> None:
