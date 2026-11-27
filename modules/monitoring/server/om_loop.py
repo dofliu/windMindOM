@@ -47,6 +47,7 @@ from simulator.time_utils import iso_utc, parse_iso
 
 if TYPE_CHECKING:
     from server.crew import MaintenanceCrew
+    from server.inspection_plan import InspectionPlan
     from server.data_broker import DataBroker
     from server.live_history import LiveHistory
     from server.storage import Storage
@@ -135,6 +136,7 @@ class OmLoop:
         # 等下一批讀值寫進歷史才做的卡：工單 id →（機組, 工單, 建單當下的答案）
         self._briefing_awaiting: Dict[str, Tuple[str, WorkOrder, Dict[str, object]]] = {}
         self._crew: Optional["MaintenanceCrew"] = None
+        self._inspection_plan: Optional["InspectionPlan"] = None
 
     # ── 取用 ───────────────────────────────────────────────────────────────
 
@@ -167,6 +169,14 @@ class OmLoop:
             from server.crew import MaintenanceCrew
             self._crew = MaintenanceCrew(self)
         return self._crew
+
+    @property
+    def inspection_plan(self) -> "InspectionPlan":
+        """自動定檢計畫（``server/inspection_plan.py``，WMOM-20261127-03）；預設關。"""
+        if self._inspection_plan is None:
+            from server.inspection_plan import InspectionPlan
+            self._inspection_plan = InspectionPlan(self)
+        return self._inspection_plan
 
     def _farm_id(self) -> Optional[str]:
         return self._broker._active_farm_id
@@ -655,6 +665,8 @@ class OmLoop:
             self._briefing_awaiting.clear()
         if self._crew is not None:
             self._crew.reset()
+        if self._inspection_plan is not None:
+            self._inspection_plan.reset()
         self._batch_paused = False
         self._last_ensure = None
         simulator = self._broker.simulator
@@ -800,6 +812,8 @@ class OmLoop:
             latest = max(moment for _, moment, _, _ in rows)
             self._flush_awaiting(latest)   # 等這批讀值的準備卡現在可以做了
             self.ensure_work_orders(latest)
+            if self._inspection_plan is not None:
+                self._inspection_plan.step(latest)   # 自動定檢計畫：到期開定檢工單（先開單，維修班同一步就看得到）
             if self._crew is not None:
                 self._crew.step(latest)    # 模擬維修班（沒開就什麼都不做）
 

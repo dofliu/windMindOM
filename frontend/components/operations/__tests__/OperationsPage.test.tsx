@@ -181,8 +181,35 @@ const CREW = {
   },
 };
 
+const PLAN = {
+  config: { enabled: false, interval_days: 182 },
+  clock: '2026-03-01T08:00:00.000000+00:00',
+  schedules: [
+    {
+      turbine_id: 'WT001',
+      active: true,
+      next_due_at: '2026-03-14T08:00:00.000000+00:00',
+      last_spawned_at: null,
+      last_work_order_id: null,
+      overdue: true,
+    },
+    {
+      turbine_id: 'WT002',
+      active: false,
+      next_due_at: '2026-03-27T08:00:00.000000+00:00',
+      last_spawned_at: '2025-09-27T08:00:00.000000+00:00',
+      last_work_order_id: 'wo-2',
+      overdue: false,
+    },
+  ],
+};
+
 describe('自動運轉', () => {
   beforeEach(() => {
+    routes['GET /api/operations/inspection-plan'] = () => ({ body: PLAN });
+    routes['PUT /api/operations/inspection-plan'] = (_u, init) => ({
+      body: { ...PLAN, config: JSON.parse(String(init.body)) },
+    });
     routes['GET /api/operations/finance'] = () => ({ body: FINANCE });
     routes['GET /api/operations/availability'] = () => ({ body: AVAILABILITY });
     routes['GET /api/operations/fault-generator'] = () => ({ body: GENERATOR });
@@ -235,6 +262,34 @@ describe('自動運轉', () => {
     });
     const put = calls.find(c => c.method === 'PUT' && c.url.pathname === '/api/operations/crew')!;
     expect(put.body).toEqual({ ...CREW.config, enabled: true, repair_minutes: 180 });
+  });
+
+  it('自動定檢計畫：列出排程、儲存週期', async () => {
+    await openTab();
+    const days = await screen.findByLabelText('每台機組幾天定檢一次');
+    expect(screen.getByText('2026-03-14 08:00 UTC')).toBeInTheDocument();
+    expect(screen.getByText('暫停')).toBeInTheDocument();
+    expect(screen.getByText('到期、還沒開單')).toBeInTheDocument();
+    expect(screen.getByText(/未結案工單已經滿三張/)).toBeInTheDocument();
+    expect(screen.getByText('2025-09-27 08:00 UTC')).toBeInTheDocument();
+    fireEvent.change(days, { target: { value: '30' } });
+    fireEvent.click(screen.getAllByLabelText('開啟')[2]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存定檢計畫' }));
+    });
+    const put = calls.find(c => c.method === 'PUT' && c.url.pathname === '/api/operations/inspection-plan')!;
+    expect(put.body).toEqual({ enabled: true, interval_days: 30 });
+    expect(await screen.findByText(/排程在即時模擬的下一批讀值時整理/)).toBeInTheDocument();
+  });
+
+  it('自動定檢計畫：週期不是 1–730 的整數時不送', async () => {
+    await openTab();
+    fireEvent.change(await screen.findByLabelText('每台機組幾天定檢一次'), { target: { value: '0' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存定檢計畫' }));
+    });
+    expect(calls.some(c => c.method === 'PUT')).toBe(false);
+    expect(screen.getByRole('alert')).toHaveTextContent('1–730 的整數天數');
   });
 });
 

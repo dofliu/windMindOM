@@ -309,3 +309,21 @@ def test_record_spawn_naive_datetime_raises(repo):
     naive = datetime(2026, 1, 1)
     with pytest.raises(ValueError, match="timezone-aware"):
         repo.record_spawn(sched.id, work_order_id=uuid4(), spawned_at=naive)
+
+
+# ── reschedule（WMOM-20261127-03）───────────────────────────────
+
+
+def test_reschedule_sets_next_due_at(repo):
+    sched = _create(repo)
+    new_due = datetime(2027, 3, 1, tzinfo=timezone.utc)
+    updated = repo.reschedule(sched.id, new_due)
+    assert updated.next_due_at == new_due and repo.get(sched.id).next_due_at == new_due
+
+
+def test_reschedule_rejects_naive_and_unknown(repo):
+    sched = _create(repo)
+    with pytest.raises(ValueError):
+        repo.reschedule(sched.id, datetime(2027, 3, 1))
+    with pytest.raises(LookupError):
+        repo.reschedule(uuid4(), datetime(2027, 3, 1, tzinfo=timezone.utc))
