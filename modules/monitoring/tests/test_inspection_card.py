@@ -163,7 +163,7 @@ def test_the_card_carries_only_observable_data(farm: Farm) -> None:
     blob = json.dumps(stored["card"], ensure_ascii=False)
     for leak in ("transformer_overheat", "答案", "在這台", "scenario", "severity", "component"):
         assert leak not in blob, leak
-    assert stored["card"]["card_version"] == briefing.CARD_VERSION == "1.2"
+    assert stored["card"]["card_version"] == briefing.CARD_VERSION == "1.3"
     names = {column.name for column in sp.pack_columns()}
     assert {item["name"] for item in stored["card"]["signals"]["items"]} <= names
 
@@ -238,3 +238,203 @@ def test_a_truncated_window_is_flagged(farm: Farm, monkeypatch) -> None:
     stored = _inspect(farm, "WT001")
     assert stored["card"]["signals"]["truncated"] is True
     assert "signals_truncated" in stored["card"]["data_quality"]["flags"]
+
+
+# ── 5. 誤報修正（WMOM-20261127-04，卡片 1.3）─────────────────────────────
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from server.live_archive import LiveReading  # noqa: E402
+from simulator.time_utils import iso_utc  # noqa: E402
+
+_CUT = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+_TEMP, _VANE = "WGEN_GnBrgTmp1", "WYAW_YwVn1AlgnAvg5s"
+
+
+class _FakeHistory:
+    """6 小時、每 10 秒一筆的讀值：每台機組給一個函式（距截止點幾秒 → {tag: 值}）。"""
+
+    def __init__(self, turbines: Dict[str, object]) -> None:
+        self.turbines = turbines
+
+    def readings(self, turbine_id, tag_ids, after_id=0, start=None, end=None, limit=1000):  # noqa: ANN001, ANN201
+        make = self.turbines[turbine_id]
+        rows = []
+        for back in range(6 * 3600, -1, -10):
+            moment = _CUT - timedelta(seconds=back)
+            stamp = iso_utc(moment)
+            if (start and stamp < start) or (end and stamp >= end):
+                continue
+            values = make(back)  # type: ignore[operator]
+            values.setdefault(briefing._STATE_TAG, 6.0)
+            rows.append(LiveReading(id=len(rows) + 1, timestamp=stamp, turbine_id=turbine_id,
+                                    values=np.array([values.get(t, np.nan) for t in tag_ids], dtype=float)))
+        return rows[:limit]
+
+
+def _healthy(power: float, offset: float = 0.0, vane: float = 0.0):  # noqa: ANN202
+    """軸承溫度隨功率：20 °C ＋ 每 100 kW 1 °C（加上這台機組自己的小差異）。"""
+    return lambda back: {briefing.POWER_TAG: power, briefing.WIND_TAG: 4.0 + power / 250.0,
+                         _TEMP: 20.0 + power / 100.0 + offset, _VANE: vane}
+
+
+def _peers(count: int = 8) -> Dict[str, object]:
+    return {f"P{i}": _healthy(900.0 + 50.0 * i, offset=0.15 * ((i % 3) - 1), vane=0.4 * ((i % 3) - 1))
+            for i in range(count)}
+
+
+def _items(target, normalize: bool = True, peers: int = 8) -> Dict[str, Dict[str, object]]:  # noqa: ANN001
+    turbines = {"T": target, **_peers(peers)}
+    tags = [_TEMP, _VANE, briefing.WIND_TAG, briefing.POWER_TAG]
+    items, _info = briefing._signal_items(_FakeHistory(turbines), "T", list(turbines), tags, (), _CUT,
+                                          window=briefing.INSPECTION_SIGNAL_WINDOW,
+                                          recent=briefing.INSPECTION_RECENT_WINDOW,
+                                          baseline_lag=briefing.INSPECTION_BASELINE_LAG, normalize=normalize)
+    pack = briefing._pack_tags()
+    return {tag: next(i for i in items if i["name"] == pack[tag].name) for tag in tags}
+
+
+def test_an_upwind_turbine_is_compared_at_its_own_operating_point() -> None:
+    """上風處的機組功率高、溫度跟著高：扣掉運轉點之後是正常的（故障出勤卡照舊直接比）。"""
+    upwind = _healthy(1400.0)   # 同場 900–1250 kW：在範圍外
+    items = _items(upwind)
+    assert items[_TEMP]["deviation"] == "normal" and items[briefing.WIND_TAG]["deviation"] == "normal"
+    assert items[_TEMP]["expected_mean"] == pytest.approx(34.0, abs=0.3)
+    assert items[_TEMP]["normalized_by"] == briefing._pack_tags()[briefing.POWER_TAG].name
+    further = _healthy(1800.0)
+    assert _items(further)[_TEMP]["deviation"] == "normal"
+    assert _items(further, normalize=False)[_TEMP]["deviation"] == "high", "對照：直接比是偏高"
+    # 真的偏熱：直接比、扣掉之後比都偏高
+    hot = lambda back: {**_healthy(1100.0)(back), _TEMP: 20.0 + 11.0 + 8.0}  # noqa: E731
+    assert _items(hot)[_TEMP]["deviation"] == "high"
+
+
+def test_with_few_peers_the_slope_is_not_used() -> None:
+    """同場少於 5 台：2 個參數配 4 點、殘差幾乎是 0，不配斜率（等於直接和中位數比）。"""
+    upwind = _healthy(1800.0)
+    few = _items(upwind, peers=4)[_TEMP]
+    assert few["expected_mean"] == pytest.approx(29.8, abs=0.3), "同場中位數"
+    assert few["deviation"] == _items(upwind, normalize=False, peers=4)[_TEMP]["deviation"] == "high"
+
+
+def test_a_fit_that_disagrees_with_the_plain_comparison_is_not_evidence() -> None:
+    """扣掉運轉點之後偏低、直接比卻相近（機組少、配適不穩時會這樣）：不算偏離。"""
+    odd = lambda back: {**_healthy(1300.0)(back), _TEMP: 20.0 + 10.75}  # noqa: E731  直接比在同場中間
+    items = _items(odd)
+    assert items[_TEMP]["deviation"] == "normal"
+
+
+def test_only_a_lasting_deviation_counts() -> None:
+    """只有最後一小時偏離的是一時的：6 小時與最後 1 小時都偏同一邊才算。"""
+    late = lambda back: {**_healthy(1100.0)(back), _TEMP: 31.0 + (8.0 if back < 3600 else 0.0)}  # noqa: E731
+    assert _items(late)[_TEMP]["deviation"] == "normal"
+    assert _items(late, normalize=False)[_TEMP]["deviation"] == "high", "對照：故障出勤卡看最近一段"
+    lasting = lambda back: {**_healthy(1100.0)(back), _TEMP: 39.0}  # noqa: E731
+    assert _items(lasting)[_TEMP]["deviation"] == "high"
+
+
+def test_wind_vane_alignment_inside_the_yaw_dead_band_is_normal() -> None:
+    from simulator.physics.yaw_model import YawModel
+
+    assert briefing.YAW_DEAD_BAND_DEG == YawModel().dead_band, "和偏航控制的死區一致"
+    inside = _healthy(1100.0, vane=-9.0)
+    assert _items(inside)[_VANE]["deviation"] == "normal"
+    assert _items(inside, normalize=False)[_VANE]["deviation"] == "low", "對照：直接比是偏低"
+    assert _items(_healthy(1100.0, vane=-20.0))[_VANE]["deviation"] == "low"
+
+
+def _plc(code: int, kind: str = "alarm_raised"):  # noqa: ANN202
+    from simulator.physics.plc_protection import PlcEvent
+
+    level = "T1" if kind == "trip" else "A"
+    return PlcEvent(sim_time=1.0, kind=kind, code=code, level=level, text="x", plc_tag=None,
+                    event_id=f"{level}_{code:03d}", value=None, setpoint=None, source="signal")
+
+
+def _events_only(monkeypatch) -> None:  # noqa: ANN001
+    """只看事件與工單：測試風場只跑十幾分鐘，各台溫度還在暖機，讀值的比較不穩（讀值的比法由上面的測試涵蓋）。"""
+    original = briefing._signal_items
+    monkeypatch.setattr(briefing, "_signal_items", lambda *a, **k: ([], original(*a, **k)[1]))
+
+
+def test_events_before_a_finished_repair_are_listed_but_not_counted(farm: Farm, monkeypatch) -> None:
+    _events_only(monkeypatch)
+    farm.drive_slow(60)
+    farm.broker._record_plc_event("WT004", _plc(264))
+    farm.broker._record_plc_event("WT004", _plc(422))
+    repair = farm.repo.create(farm_id=FARM, turbine_id="WT004", type=WorkOrderType.CORRECTIVE, title="x",
+                              description="", source_alarm_code="264")
+    farm.start(repair)
+    farm.drive_slow(6)
+    farm.finish(repair)
+    farm.drive_slow(30)
+    card = _inspect(farm, "WT004")["card"]
+    generator, cooling = _entry(card, "generator"), _entry(card, "converter_cooling")
+    (handled,) = [e for e in generator["evidence"] if e["type"] == "events"]
+    assert handled["count"] == 1 and handled["counted"] == 0 and handled["handled_by"] == [repair.business_key]
+    assert generator["attention"] is False, "修好之前的事件不算分；完工等簽核的工單也不算未結案的證據"
+    assert farm.repo.get(repair.id).status.value == "awaiting_signoff"
+    assert cooling["attention"] is True, "別的項目的事件照算（工單修的是 264 那一項）"
+    # 修好之後又發生：照算
+    farm.broker._record_plc_event("WT004", _plc(264))
+    farm.drive_slow(6)
+    again = _entry(_inspect(farm, "WT004")["card"], "generator")
+    (entry,) = [e for e in again["evidence"] if e["type"] == "events"]
+    assert entry["count"] == 2 and entry["counted"] == 1 and again["attention"] is True
+
+
+def test_a_finished_inspection_handles_every_earlier_event(farm: Farm, monkeypatch) -> None:
+    _events_only(monkeypatch)
+    farm.drive_slow(60)
+    farm.broker._record_plc_event("WT005", _plc(264))
+    done = farm.repo.create(farm_id=FARM, turbine_id="WT005", type=WorkOrderType.INSPECTION, title="定檢",
+                            description="")
+    farm.drive(10)
+    farm.start(done)
+    farm.drive_slow(6)
+    farm.finish(done)
+    farm.drive_slow(30)
+    card = _inspect(farm, "WT005")["card"]
+    assert not any(item["attention"] for item in card["checklist"]["items"])
+    assert "no_evidence" in card["data_quality"]["flags"]
+    # 定檢完工之後又送：故障還在（或又發生），照算
+    farm.broker._record_plc_event("WT005", _plc(264))
+    farm.drive_slow(6)
+    generator = _entry(_inspect(farm, "WT005")["card"], "generator")
+    assert generator["attention"] is True
+    assert [(e["count"], e["counted"]) for e in generator["evidence"] if e["type"] == "events"] == [(2, 1)]
+
+
+def test_no_evidence_means_nothing_was_counted(farm: Farm, monkeypatch) -> None:
+    """有證據的項目剛好排第一：順序沒變，但不是「沒有證據」。"""
+    _events_only(monkeypatch)
+    farm.drive_slow(60)
+    farm.broker._record_plc_event("WT003", _plc(423))
+    card = _inspect(farm, "WT003")["card"]
+    assert _order(card)[0] == "converter_cooling" and _entry(card, "converter_cooling")["attention"] is True
+    assert card["checklist"]["order_changed"] is False
+    assert "no_evidence" not in card["data_quality"]["flags"]
+
+
+# ── 6. 對風（WMOM-20261127-05）──────────────────────────────────────────
+
+
+def test_a_static_yaw_misalignment_shows_in_the_3p_vibration(farm: Farm) -> None:
+    """兩支風向標一起偏：沒有任何警報，3P 振動比同場高——「氣象感測器與對風」那一項往前、標注意。"""
+    farm.drive_slow(120)
+    farm.inject("yaw_misalignment", "WT002", severity=1.0)
+    farm.drive_slow(720)
+    assert not any(e["source"] == "plc" for e in farm.broker.storage.query_events("WT002", limit=200)), \
+        "測試前提：沒有警報"
+    stored = _inspect(farm, "WT002")
+    card = stored["card"]
+    entry = _entry(card, "met_sensors")
+    assert entry["attention"] is True and entry["position"] < entry["default_position"]
+    assert {e["name"].rsplit("_", 1)[-1] for e in entry["evidence"] if e["type"] == "signal"} & {"Band3pX", "Band3pY"}
+    assert all(e["deviation"] == "high" for e in entry["evidence"] if e["type"] == "signal")
+    score = briefing.score_any_card(card, stored["answer"])
+    assert score["flagged"] is True and score["moved_up"] is True
+    # 同一座風場、沒有故障的機組不會因此被標
+    assert not _entry(_inspect(farm, "WT004")["card"], "met_sensors")["attention"]

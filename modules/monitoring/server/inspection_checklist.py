@@ -59,8 +59,12 @@ CHECKLIST: Tuple[InspectionItem, ...] = (
                    ("main_bearing",)),
     InspectionItem("rotor_speed", "轉速量測", "Rotor speed measurement", ("WROT_RotSpd", "WGEN_GnSpd"),
                    ("rotor_speed_sensor",)),
-    InspectionItem("met_sensors", "機艙頂氣象感測器（風速計、風向標）", "Met sensors (anemometer, wind vanes)",
-                   ("WMET_WSpeedNac", "WMET_WSpeedRaw", "WYAW_YwVn1AlgnAvg5s", "WYAW_YwVn2AlgnAvg5s"),
+    # 對風（WMOM-20261127-05）：兩支風向標一起偏時讀值一致、沒有警報，轉子卻長期偏離風向——徵兆是 3P 振動
+    # （葉片通過塔架的頻率；偏航偏差讓三支葉片受力不均）。3P 偏高、沒有警報時先檢查風向標的安裝與校正
+    InspectionItem("met_sensors", "機艙頂氣象感測器與對風（風速計、風向標）",
+                   "Met sensors and yaw alignment (anemometer, wind vanes)",
+                   ("WMET_WSpeedNac", "WMET_WSpeedRaw", "WYAW_YwVn1AlgnAvg5s", "WYAW_YwVn2AlgnAvg5s",
+                    "WVIB_Band3pX", "WVIB_Band3pY"),
                    ("nacelle_anemometer", "wind_vane_1", "wind_vane_alignment")),
     InspectionItem("pitch", "輪轂與變槳系統", "Hub and pitch system",
                    ("WROT_PtAngValBl1", "WROT_PtAngValBl2", "WROT_PtAngValBl3",

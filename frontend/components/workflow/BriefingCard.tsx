@@ -268,11 +268,21 @@ export const InspectionCardView: React.FC<{ card: InspectionBriefingCard; lang: 
   const describe = (e: InspectionEvidence): string => {
     if (e.type === 'events') {
       const kind = e.event_type === 'trip' ? ui('trip', '跳機') : ui('alarm', '警報');
-      return `${e.level} ${String(e.code).padStart(3, '0')} ${e.text} — ${kind} ×${e.count}（${ui('last', '最近')} ${fmtTime(e.last_ts)}）`;
+      const base = `${e.level} ${String(e.code).padStart(3, '0')} ${e.text} — ${kind} ×${e.count}（${ui('last', '最近')} ${fmtTime(e.last_ts)}）`;
+      const handled = e.handled_by ?? [];
+      if (handled.length === 0) return base;
+      const counted = e.counted ?? e.count;
+      return counted === 0
+        ? `${base} ${ui(`— handled by ${handled.join(', ')}, not counted`, `— 已由 ${handled.join('、')} 處理，不計分`)}`
+        : `${base} ${ui(`— ${counted} after ${handled.join(', ')} counted`, `— ${handled.join('、')} 之後的 ${counted} 次才計分`)}`;
     }
     if (e.type === 'signal') {
       const dir = e.deviation === 'high' ? ui('high', '偏高') : ui('low', '偏低');
-      return `${ui(e.label_en, e.label_zh)} ${dir}：${fmt(e.turbine_mean)} ${e.unit}（${ui('farm', '同場')} ${fmt(e.farm_median)}）`;
+      const expected =
+        e.expected_mean !== undefined && e.expected_mean !== null
+          ? ui(`, expected at its operating point ${fmt(e.expected_mean)}`, `，同場在同樣運轉點約 ${fmt(e.expected_mean)}`)
+          : '';
+      return `${ui(e.label_en, e.label_zh)} ${dir}：${fmt(e.turbine_mean)} ${e.unit}（${ui('farm', '同場')} ${fmt(e.farm_median)}${expected}）`;
     }
     return `${ui('Open corrective order', '未結案的故障維修工單')} ${e.business_key}${e.source_alarm_code !== null ? `（${String(e.source_alarm_code).padStart(3, '0')}）` : ''}`;
   };
@@ -295,7 +305,12 @@ export const InspectionCardView: React.FC<{ card: InspectionBriefingCard; lang: 
                 'Items with evidence are moved up; the rest keep the planned order.',
                 '有證據的項目往前排，其餘維持原訂順序。',
               )
-            : ui('No evidence found: the planned order is kept.', '沒有找到證據，維持原訂順序。')}
+            : card.checklist.items.some(item => item.attention)
+              ? ui(
+                  'The items with evidence are already first: the planned order is kept.',
+                  '有證據的項目原本就排在前面，維持原訂順序。',
+                )
+              : ui('No evidence found: the planned order is kept.', '沒有找到證據，維持原訂順序。')}
         </div>
 
         {quality.degraded && shownFlags.length > 0 && (
@@ -350,8 +365,8 @@ export const InspectionCardView: React.FC<{ card: InspectionBriefingCard; lang: 
 
         <div style={{ fontSize: 11, color: C.faint, marginTop: 12 }}>
           {ui(
-            'Evidence: alarms and trips in the last 30 days, readings vs other producing turbines (last 6 h or last hour), open corrective orders. No root cause is given; items further down still need checking.',
-            '證據：最近 30 天的警報與跳機、量測和同場其他發電中的機組比（最近 6 小時或最後 1 小時）、未結案的故障維修工單。不判定根因；排在後面的項目照樣要檢查。',
+            'Evidence: alarms and trips in the last 30 days (those handled by a later finished order are not counted), readings vs other producing turbines at the same operating point (last 6 h and last hour both off the same way), open corrective orders not yet finished. No root cause is given; items further down still need checking.',
+            '證據：最近 30 天的警報與跳機（之後有工單完工處理過的不計分）、量測和同場其他發電中的機組在同樣運轉點下比（最近 6 小時與最後 1 小時都偏同一邊才算）、還沒完工的故障維修工單。不判定根因；排在後面的項目照樣要檢查。',
           )}
         </div>
       </div>

@@ -277,14 +277,14 @@ DELETE /api/auth/api-keys/{id}
 | `too_few_peers` | 可比較的機組少於 3 台：不做同場對照 |
 | `no_baseline` | 前 6 小時沒有讀值：沒有自己的基準 |
 
-`card_version` 管卡片的欄位：加欄位升次版本，改名或刪除升主版本。1.1（2026-11-26）：每個訊號加 `last_value`；資料截止點改為建單之後第一批讀值的時間，訊號的視窗含截止點那一筆。1.2（2026-11-27）：加例行巡檢卡；故障出勤卡的欄位沒有變。
+`card_version` 管卡片的欄位：加欄位升次版本，改名或刪除升主版本。1.1（2026-11-26）：每個訊號加 `last_value`；資料截止點改為建單之後第一批讀值的時間，訊號的視窗含截止點那一筆。1.2（2026-11-27）：加例行巡檢卡；故障出勤卡的欄位沒有變。1.3（2026-11-27）：例行巡檢卡的比法改了、加欄位（見下面例行巡檢卡的「卡片 1.3」）；故障出勤卡的欄位與比法都沒有變。
 
 #### 例行巡檢卡（`kind`＝`routine_inspection`，卡片 1.2 起）
 
 定檢 / 預防保養工單的卡：一份固定的檢查清單（技師上塔的路線：塔底的變頻器與冷卻水、變壓器、電網 → 偏航 → 機艙的通風、發電機、主軸承、轉速量測 → 機艙頂的氣象感測器 → 輪轂與變槳 → 葉片），**依證據排順序**：有證據的項目往前（分數高的先），沒有證據的維持原訂順序；整張都沒有證據時順序完全不動。不刪項目，排在後面的照樣要檢查。
 
 ```json
-{"card_version": "1.2", "kind": "routine_inspection",
+{"card_version": "1.3", "kind": "routine_inspection",
  "work_order": {"business_key": "WO-LEGAC-202611-020", "turbine_id": "WT003", "type": "inspection",
                 "priority": "normal", "source_alarm_code": null},
  "data_cutoff": "2026-11-27T10:00:10.000000Z", "generated_late": false,
@@ -293,7 +293,10 @@ DELETE /api/auth/api-keys/{id}
     "attention": true, "score": 2,
     "evidence": [{"type": "signal", "name": "Z72PLC__UI_Loc_WGDC_Analogue_TrfCoreTmp", "label_zh": "...",
                   "label_en": "...", "unit": "°C", "deviation": "high", "turbine_mean": 66.1,
-                  "recent_mean": 67.9, "farm_median": 34.2}],
+                  "recent_mean": 67.9, "farm_median": 34.2, "expected_mean": 36.5, "recent_expected_mean": 36.9,
+                  "normalized_by": "Z72PLC__UI_Loc_WTUR_Analogue_TotPwrAt", "normalized_transform": null},
+                 {"type": "events", "code": 417, "level": "A", "text": "...", "event_type": "alarm_raised",
+                  "count": 2, "last_ts": "...", "counted": 0, "handled_by": ["WO-LEGAC-202611-011"]}],
     "signals": ["Z72PLC__UI_Loc_WGDC_Analogue_TrfCoreTmp"]},
    {"id": "converter_cooling", "label_zh": "變頻器與冷卻水系統", "...": "...", "default_position": 1,
     "position": 2, "attention": false, "score": 0, "evidence": [], "signals": ["..."]}
@@ -313,12 +316,19 @@ DELETE /api/auth/api-keys/{id}
 | 區塊 | 內容 |
 |---|---|
 | `checklist.items[]` | 清單的每一項：`default_position`（原訂第幾）、`position`（卡上排第幾）、`attention`（有證據）、`score`（證據的分數）、`evidence`（證據）、`signals`（這一項看的量測）。`order_changed`＝有沒有任何一項換了位置 |
-| `evidence[]` | `type`＝`events`：截止點前 30 天這台機組的警報 / 跳機，同一個碼一筆（`count` 次、`last_ts`）；`signal`：這一項的量測和同場其他發電中的機組比偏高 / 偏低（最近 6 小時，或最後 1 小時）；`open_work_order`：這台機組未結案、帶事件碼的故障維修工單。分數：跳機 3、未結案的故障維修工單 3、量測偏離 2、警報 1；同一個碼的次數最多算 3 次 |
+| `evidence[]` | `type`＝`events`：截止點前 30 天這台機組的警報 / 跳機，同一個碼一筆（`count` 次、`last_ts`；1.3 起 `counted`＝其中算分的次數、`handled_by`＝處理過其他次的工單）；`signal`：這一項的量測和同場其他發電中的機組比偏高 / 偏低（1.3 起的比法見下）；`open_work_order`：這台機組未結案、還沒完工、帶事件碼的故障維修工單（1.3 起等簽核的不算：已經修好了）。分數：跳機 3、未結案的故障維修工單 3、量測偏離 2、警報 1；同一個碼算分的次數最多算 3 次 |
 | `recent_events.by_code` | 截止點前 30 天的警報 / 跳機，依碼與種類彙總；`checklist_item`＝屬於清單的哪一項（依 PLC 的判定邏輯：這個碼主要看的量測在哪一項；對不到為 `null`） |
 | `signals` | 同故障出勤卡的訊號對照，但視窗是 6 小時（最後 1 小時另算），`baseline_window` 是 7 天前同樣長的一段；每個訊號多一個 `checklist_item`。這台機組在視窗裡發電的時間不到一半（`own_producing_fraction` < 0.5，停機或維修中）時，量測不當證據（停著的機組轉速、溫度本來就和發電中的不一樣） |
 | 證據的來源 | 未結案的故障維修工單取這台機組**所有**未結案的（`past_work_orders` 只列最近 10 張）。卡片在工單建立時做好就不再更新：建單之後才發生的事件不會改變順序 |
 
-例行巡檢卡的 `data_quality.flags`：`events_truncated`、`signal_data_missing`、`stale_data`、`too_few_peers` 的意思同上表；`own_not_producing`＝這台機組大半時間沒有發電，量測不當證據；`signals_truncated`＝讀值多到超過一次讀取的上限，平均與最後一筆可能不準；`no_evidence`＝沒有任何證據，順序維持原訂；`no_baseline`＝7 天前沒有讀值。最後兩個不算降級（`degraded` 不會因此變成 `true`）。
+例行巡檢卡的 `data_quality.flags`：`events_truncated`、`signal_data_missing`、`stale_data`、`too_few_peers` 的意思同上表；`own_not_producing`＝這台機組大半時間沒有發電，量測不當證據；`signals_truncated`＝讀值多到超過一次讀取的上限，平均與最後一筆可能不準；`no_evidence`＝沒有任何算分的證據（1.3 起；1.2 是「順序沒變」，有證據的項目剛好排第一時也會標）；`no_baseline`＝7 天前沒有讀值。最後兩個不算降級（`degraded` 不會因此變成 `true`）。
+
+**卡片 1.3**（WMOM-20261127-04，[DEC-20261127-06](../product/decision_log.md)）——減少沒有故障的機組被標注意：
+
+- **量測的比法**：(1) 平均只算發電中的讀值（停機維修那段不算）；(2) 直接和同場比之外，也扣掉運轉點的影響再比——同場各機組「量測 vs 運轉點」配一條穩健的直線（Theil–Sen），`expected_mean` / `recent_expected_mean` 是這台機組的運轉點在這條線上的值，`normalized_by` 是拿來當運轉點的量測（轉速、變槳角度、變槳馬達電流看風速；風速計看功率，`normalized_transform`＝`cube_root` 表示用功率的立方根；其餘看功率）；兩種比法都偏同一邊才算偏離（上風處的機組風大，溫度與轉速直接比偏高、扣掉運轉點後相近）；(3) 最近 6 小時與最後 1 小時都偏同一邊才算（只有最後一小時偏離的是一時的）；(4) 風向標對準（`WYAW_YwVn1AlgnAvg5s`、`WYAW_YwVn2AlgnAvg5s`）在 Z72 偏航死區 ±15° 內算正常，`normal_band`＝15。訊號的 `deviation` 是合起來的結論。
+- **已經處理過的事件不算分**：事件之後有同一項目的故障維修工單完工、或定檢 / 預防保養工單完工，那個事件照樣列出來（`handled_by`），但不算分。完工時刻用風場時鐘。
+- **`no_evidence`** 的意思改成上面那樣；有證據但順序沒變時看 `checklist.order_changed`。
+- 清單的 `met_sensors` 改名「機艙頂氣象感測器與對風」，多看 3P 振動頻帶（`WVIB_Band3pX`、`WVIB_Band3pY`，看風速扣運轉點）：兩支風向標一起偏時沒有警報，徵兆是 3P 振動升高（WMOM-20261127-05，[DEC-20261127-07](../product/decision_log.md)；卡片欄位沒有變）。
 
 兩種卡的 `signals` 從 1.2 起都多兩個欄位：`own_producing_fraction`（這台機組在視窗裡發電的時間比例）、`truncated`（讀值有沒有讀滿一次讀取的上限）。
 
@@ -401,3 +411,4 @@ while True:
 | 1.1 | 2026-11-26 | `/status` 加 `raw_retention_days`；原始讀值的歷史由 3 天延伸到半年（預設），`/readings` 與 `/stats-10min` 查得到的範圍跟著變長，端點與參數沒有變。`/stats-10min` 改由 PLC 資料型別的讀值計算（與 `/readings` 給的值相同），個別統計值的最後一位有效數字可能和 1.0 不同（WMOM-20261125-03-c） |
 | 1.2 | 2026-11-26 | 加 `GET /work-orders`（工單的結構化欄位、字串游標）與 `GET /work-orders/{business_key}/briefing`（故障維修工單的出發前準備卡，`card_version` 1.0）。既有端點沒有變（WMOM-20261125-05） |
 | 1.2（修訂） | 2026-11-27 | 定檢 / 預防保養工單也有出發前準備卡（例行巡檢卡，`card_version` 1.2，§3.10）；端點、參數與故障出勤卡的欄位沒有變（WMOM-20261126-05） |
+| 1.2（修訂） | 2026-11-27 | 例行巡檢卡 `card_version` 1.3：量測扣掉運轉點再比、偏航死區、已處理的事件不算分、`no_evidence` 的意思（§3.10）；端點、參數與故障出勤卡沒有變；清單的 `met_sensors` 加 3P 振動、改名「…與對風」（WMOM-20261127-04 / -05） |
