@@ -315,9 +315,12 @@ DELETE /api/auth/api-keys/{id}
 | `checklist.items[]` | 清單的每一項：`default_position`（原訂第幾）、`position`（卡上排第幾）、`attention`（有證據）、`score`（證據的分數）、`evidence`（證據）、`signals`（這一項看的量測）。`order_changed`＝有沒有任何一項換了位置 |
 | `evidence[]` | `type`＝`events`：截止點前 30 天這台機組的警報 / 跳機，同一個碼一筆（`count` 次、`last_ts`）；`signal`：這一項的量測和同場其他發電中的機組比偏高 / 偏低（最近 6 小時，或最後 1 小時）；`open_work_order`：這台機組未結案、帶事件碼的故障維修工單。分數：跳機 3、未結案的故障維修工單 3、量測偏離 2、警報 1；同一個碼的次數最多算 3 次 |
 | `recent_events.by_code` | 截止點前 30 天的警報 / 跳機，依碼與種類彙總；`checklist_item`＝屬於清單的哪一項（依 PLC 的判定邏輯：這個碼主要看的量測在哪一項；對不到為 `null`） |
-| `signals` | 同故障出勤卡的訊號對照，但視窗是 6 小時（最後 1 小時另算），`baseline_window` 是 7 天前同樣長的一段；每個訊號多一個 `checklist_item` |
+| `signals` | 同故障出勤卡的訊號對照，但視窗是 6 小時（最後 1 小時另算），`baseline_window` 是 7 天前同樣長的一段；每個訊號多一個 `checklist_item`。這台機組在視窗裡發電的時間不到一半（`own_producing_fraction` < 0.5，停機或維修中）時，量測不當證據（停著的機組轉速、溫度本來就和發電中的不一樣） |
+| 證據的來源 | 未結案的故障維修工單取這台機組**所有**未結案的（`past_work_orders` 只列最近 10 張）。卡片在工單建立時做好就不再更新：建單之後才發生的事件不會改變順序 |
 
-例行巡檢卡的 `data_quality.flags`：`events_truncated`、`signal_data_missing`、`stale_data`、`too_few_peers` 的意思同上表；`no_evidence`＝沒有任何證據，順序維持原訂；`no_baseline`＝7 天前沒有讀值。後兩個不算降級（`degraded` 不會因此變成 `true`）。
+例行巡檢卡的 `data_quality.flags`：`events_truncated`、`signal_data_missing`、`stale_data`、`too_few_peers` 的意思同上表；`own_not_producing`＝這台機組大半時間沒有發電，量測不當證據；`signals_truncated`＝讀值多到超過一次讀取的上限，平均與最後一筆可能不準；`no_evidence`＝沒有任何證據，順序維持原訂；`no_baseline`＝7 天前沒有讀值。最後兩個不算降級（`degraded` 不會因此變成 `true`）。
+
+兩種卡的 `signals` 從 1.2 起都多兩個欄位：`own_producing_fraction`（這台機組在視窗裡發電的時間比例）、`truncated`（讀值有沒有讀滿一次讀取的上限）。
 
 ## 4. 翻頁與輪詢
 

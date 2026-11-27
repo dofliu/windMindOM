@@ -86,6 +86,7 @@ _PRODUCTION_STATE = 6.0
 _EVENT_SCAN_BATCH = 2000
 _EVENT_SCAN_MAX_BATCHES = 25
 _MAX_RELATED_TAGS = 8
+_WINDOW_LIMIT = 3000   # 一個視窗一台機組最多讀幾筆（6 小時 × 10 秒＝2160 筆）
 _MAX_LISTED = 10
 
 # 每張卡都看的背景量測：風速、併網功率、轉子轉速
@@ -218,8 +219,10 @@ class _Window:
     def __init__(self, history: LiveHistory, turbine_id: str, tags: Sequence[str], start: datetime, end: datetime,
                  recent_from: Optional[datetime] = None) -> None:
         columns = list(tags) + [_STATE_TAG]
-        rows = history.readings(turbine_id, columns, start=iso_utc(start), end=iso_utc(end), limit=3000)
+        rows = history.readings(turbine_id, columns, start=iso_utc(start), end=iso_utc(end), limit=_WINDOW_LIMIT)
         self.samples = len(rows)
+        # 讀滿上限：後面的讀值沒讀到（平均、最後一筆、資料是否過時都可能不對）
+        self.truncated = len(rows) >= _WINDOW_LIMIT
         self.last_ts: Optional[str] = rows[-1].timestamp if rows else None
         self.means = np.full(len(tags), np.nan)
         self.recent = np.full(len(tags), np.nan)
@@ -331,6 +334,9 @@ def _signal_items(history: LiveHistory, turbine_id: str, turbines: Sequence[str]
         "baseline_window": {"start": sp.iso_z(iso_utc(baseline_start)), "end": sp.iso_z(iso_utc(baseline_end))},
         "samples": mine.samples,
         "baseline_samples": baseline.samples,
+        # 卡片 1.2 起：這台機組在視窗裡發電的時間比例、讀值有沒有讀滿上限
+        "own_producing_fraction": round(mine.producing, 3),
+        "truncated": bool(mine.truncated or baseline.truncated),
         "peers": len(peers),
         "last_reading_ts": sp.iso_z(mine.last_ts) if mine.last_ts else None,
         "source": "live readings（與對外 API 的 /readings 相同）",
@@ -584,7 +590,8 @@ def card_kind_for(work_order: WorkOrder) -> Optional[str]:
 
 def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order: WorkOrder, turbine_id: str,
                           turbines: Sequence[str], cutoff: datetime, past_work_orders: Sequence[WorkOrder] = (),
-                          generated_late: bool = False) -> Dict[str, object]:
+                          generated_late: bool = False,
+                          open_work_orders: Optional[Sequence[WorkOrder]] = None) -> Dict[str, object]:
     """產生一張例行巡檢卡：原訂的檢查清單，依證據排順序。只讀資料，不改任何東西。
 
     證據（都只用看得到的資料，和故障出勤卡同一條邊界）：
@@ -603,11 +610,17 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
         turbine_id: 模擬器的機組 ID。
         turbines: 同場的機組 ID（含自己）。
         cutoff: 資料截止點（風場時鐘）。
-        past_work_orders: 這台機組的其他工單（新的在前）。
+        past_work_orders: 這台機組的其他工單（新的在前，最多 10 張，列在卡上）。
         generated_late: 不是在工單建立當下產生的。
+        open_work_orders: 這台機組所有未結案的工單（證據用；不受 10 張的限制）；None＝從 ``past_work_orders``
+            裡挑。
 
     Returns:
         卡片（可直接轉成 JSON；只含可觀測資料）。
+
+    這台機組在訊號視窗裡大半時間沒有發電（停機、維修中）時，量測不和發電中的機組比（停著的機組轉速、溫度
+    本來就不一樣），不拿來當證據（``own_not_producing``）。卡片在工單建立時做好就不再換：建單之後才發生的
+    事件不會改變順序。
     """
     from server.inspection_checklist import CHECKLIST, item_of_code
 
@@ -654,6 +667,11 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
                                 window=INSPECTION_SIGNAL_WINDOW, recent=INSPECTION_RECENT_WINDOW,
                                 baseline_lag=INSPECTION_BASELINE_LAG)
     names = {pack[tag].name: tag for tag in tags + context}
+    own_producing = float(str(info["own_producing_fraction"])) >= PEER_PRODUCING_FRACTION
+    if not own_producing:
+        flags.append("own_not_producing")
+    if info.get("truncated"):
+        flags.append("signals_truncated")
     for signal in items:
         tag = names.get(str(signal["name"]))
         item_id = owner.get(tag or "")
@@ -662,7 +680,7 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
             signal["role"] = "context"
             continue
         signal["role"] = "related"
-        if signal.get("deviation") in ("high", "low"):
+        if own_producing and signal.get("deviation") in ("high", "low"):
             score[item_id] += _WEIGHT_SIGNAL
             evidence[item_id].append({"type": "signal", "name": signal["name"], "label_zh": signal["label_zh"],
                                       "label_en": signal["label_en"], "unit": signal["unit"],
@@ -684,7 +702,9 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
     from modules.workflow.domain import WorkOrderType, open_states
 
     open_statuses = {status.value for status in open_states()}
-    for order in past_work_orders:
+    for order in (open_work_orders if open_work_orders is not None else past_work_orders):
+        if order.id == work_order.id:
+            continue
         if order.type is not WorkOrderType.CORRECTIVE or order.status.value not in open_statuses:
             continue
         item_id = item_of_code(alarm_code_of(order))
@@ -748,6 +768,8 @@ def build_inspection_card(*, storage: Storage, history: LiveHistory, work_order:
             "有證據的項目往前：最近 30 天的警報 / 跳機、量測和同場其他發電中的機組比偏高 / 偏低"
             "（最近 6 小時，或最後 1 小時）、未結案的故障維修工單。都沒有證據時維持原訂順序。",
             "事件屬於清單的哪一項，依 PLC 的判定邏輯（事件碼看哪個量測）。",
+            "卡片在工單建立時產生，之後不再更新：建單之後才發生的事件不會改變順序。",
+            "這台機組大半時間沒有發電時，量測不和同場比、不當證據。",
             "工單的時間是實際時間；卡上的資料截止點、事件與讀值的時間是風場時鐘。",
         ],
     }
@@ -759,10 +781,15 @@ def score_inspection_card(card: Dict[str, object], answer: Dict[str, object]) ->
     答案是建單當下這台機組實際有哪些故障——包括還沒到警報門檻的劣化、潛伏的故障。巡檢卡要做的，是在這些故障
     還沒跳機之前，把相關的項目往前排。
 
-    - ``fault_items``：每個故障對到清單的哪一項、原訂第幾、卡上排第幾、有沒有標「注意」。
-    - ``moved_up``：至少一個故障的項目比原訂順序前面。
-    - ``flagged``：至少一個故障的項目標了「注意」。
-    - ``false_attention``：這台機組沒有故障，卡上卻有項目標了「注意」（沒有故障時才有值）。
+    一個故障對到清單的哪些項目：部件所在的那一項，加上它預期會送出的事件碼所在的項目（例：超速的部件是變槳，
+    但 351 依量測歸在轉速量測；結冰的部件是葉片，但 236 歸在主軸承與振動）——評分可以讀故障情境，卡片不行。
+
+    - ``fault_items``：每個故障對到的項目、其中排最前面的那一項原訂第幾、卡上第幾、有沒有標「注意」。
+    - ``flagged``：至少一個故障的項目標了「注意」。主要的指標。
+    - ``moved_up``：至少一個故障的項目比原訂順序前面。原訂就排第一的項目沒辦法再往前，這種故障不算；全部都是
+      這種時為 None。
+    - ``false_attention``：這台機組沒有故障，卡上卻有項目標了「注意」（沒有故障時才有值）。注意：最近 30 天的
+      事件包括已經修好的故障送的，修好的機組也可能有項目標注意。
 
     Args:
         card: ``build_inspection_card`` 的結果。
@@ -771,7 +798,7 @@ def score_inspection_card(card: Dict[str, object], answer: Dict[str, object]) ->
     Returns:
         各項分數。
     """
-    from server.inspection_checklist import item_of_component
+    from server.inspection_checklist import item_of_code, item_of_component
 
     checklist = card.get("checklist")
     raw = checklist.get("items", []) if isinstance(checklist, dict) else []
@@ -781,24 +808,31 @@ def score_inspection_card(card: Dict[str, object], answer: Dict[str, object]) ->
               if isinstance(f, dict) and f.get("category") != "nuisance"]
     results: List[Dict[str, object]] = []
     for fault in faults:
-        item_id = item_of_component(str(fault.get("component") or ""))
-        entry = entries.get(item_id or "")
+        scenario = FAULT_SCENARIOS.get(str(fault.get("scenario_id") or ""))
+        ids = [item_of_component(str(fault.get("component") or ""))]
+        if scenario is not None:
+            ids += [item_of_code(int(str(code["code"]))) for code in scenario.alarm_codes]
+        matched = [entries[i] for i in dict.fromkeys(i for i in ids if i) if i in entries]
+        best = min(matched, key=lambda e: int(str(e["position"]))) if matched else None
         results.append({
             "component": fault.get("component"),
             "severity": fault.get("severity"),
             "tripped": fault.get("tripped"),
-            "item": item_id,
-            "default_position": entry.get("default_position") if entry else None,
-            "position": entry.get("position") if entry else None,
-            "attention": bool(entry.get("attention")) if entry else None,
+            "items": [str(e["id"]) for e in matched],
+            "item": str(best["id"]) if best else None,
+            "default_position": best.get("default_position") if best else None,
+            "position": best.get("position") if best else None,
+            "attention": any(bool(e.get("attention")) for e in matched) if matched else None,
         })
     attention = [e for e in entries.values() if e.get("attention")]
     placed = [r for r in results if r["position"] is not None]
+    movable = [r for r in placed if int(str(r["default_position"])) > 1]
     return {
         "has_fault": bool(faults),
         "fault_items": results,
-        "moved_up": any(int(str(r["position"])) < int(str(r["default_position"])) for r in placed) if placed else None,
-        "flagged": any(r["attention"] for r in placed) if placed else None,
+        "flagged": any(bool(r["attention"]) for r in placed) if placed else None,
+        "moved_up": any(int(str(r["position"])) < int(str(r["default_position"])) for r in movable)
+        if movable else None,
         "attention_items": sorted(str(e["id"]) for e in attention),
         "false_attention": bool(attention) if not faults else None,
     }
