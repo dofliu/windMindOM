@@ -416,3 +416,25 @@ def test_no_evidence_means_nothing_was_counted(farm: Farm, monkeypatch) -> None:
     assert _order(card)[0] == "converter_cooling" and _entry(card, "converter_cooling")["attention"] is True
     assert card["checklist"]["order_changed"] is False
     assert "no_evidence" not in card["data_quality"]["flags"]
+
+
+# ── 6. 對風（WMOM-20261127-05）──────────────────────────────────────────
+
+
+def test_a_static_yaw_misalignment_shows_in_the_3p_vibration(farm: Farm) -> None:
+    """兩支風向標一起偏：沒有任何警報，3P 振動比同場高——「氣象感測器與對風」那一項往前、標注意。"""
+    farm.drive_slow(120)
+    farm.inject("yaw_misalignment", "WT002", severity=1.0)
+    farm.drive_slow(720)
+    assert not any(e["source"] == "plc" for e in farm.broker.storage.query_events("WT002", limit=200)), \
+        "測試前提：沒有警報"
+    stored = _inspect(farm, "WT002")
+    card = stored["card"]
+    entry = _entry(card, "met_sensors")
+    assert entry["attention"] is True and entry["position"] < entry["default_position"]
+    assert {e["name"].rsplit("_", 1)[-1] for e in entry["evidence"] if e["type"] == "signal"} & {"Band3pX", "Band3pY"}
+    assert all(e["deviation"] == "high" for e in entry["evidence"] if e["type"] == "signal")
+    score = briefing.score_any_card(card, stored["answer"])
+    assert score["flagged"] is True and score["moved_up"] is True
+    # 同一座風場、沒有故障的機組不會因此被標
+    assert not _entry(_inspect(farm, "WT004")["card"], "met_sensors")["attention"]

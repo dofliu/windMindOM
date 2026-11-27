@@ -91,8 +91,8 @@ WIND_TAG = "WMET_WSpeedNac"
 CUBE_ROOT = "cube_root"
 _REGRESSOR_OVERRIDES: Dict[str, Tuple[str, Optional[str]]] = {
     **{tag: (WIND_TAG, None) for tag in ("WROT_RotSpd", "WGEN_GnSpd")},
-    # 機艙振動看風速：風載與紊流隨風變，額定以上功率不變、振動照樣隨風增加
-    **{tag: (WIND_TAG, None) for tag in ("WNAC_VibMsNacXDir", "WNAC_VibMsNacYDir")},
+    # 機艙振動、3P 振動頻帶看風速：風載與紊流隨風變，額定以上功率不變、振動照樣隨風增加
+    **{tag: (WIND_TAG, None) for tag in ("WNAC_VibMsNacXDir", "WNAC_VibMsNacYDir", "WVIB_Band3pX", "WVIB_Band3pY")},
     **{f"WROT_PtAngValBl{n}": (WIND_TAG, None) for n in (1, 2, 3)},
     **{f"WROT_PtMotCurBl{n}": (WIND_TAG, None) for n in (1, 2, 3)},
     **{tag: (POWER_TAG, CUBE_ROOT) for tag in ("WMET_WSpeedNac", "WMET_WSpeedRaw")},
