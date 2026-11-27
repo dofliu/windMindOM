@@ -1010,6 +1010,7 @@ class DataBroker:
     # ── 故障產生器、模擬維修班、自動定檢計畫的設定（WMOM-20261125-06、WMOM-20261127-03）──
 
     SETTING_FAULT_GENERATOR = "fault_generator"
+    SETTING_FARM_EVENTS = "farm_events"
     SETTING_CREW = "crew"
     SETTING_INSPECTION_PLAN = "inspection_plan"
 
@@ -1028,6 +1029,15 @@ class DataBroker:
         except Exception as exc:  # noqa: BLE001  設定壞了就關著，不讓即時模擬起不來
             print(f"[DataBroker] 故障產生器的設定讀不出來，先關著：{exc}")
             simulator.fault_generator.configure(FaultGeneratorConfig())
+        from simulator.farm_event_generator import FarmEventGeneratorConfig
+
+        try:
+            saved = self.storage.get_setting(self.SETTING_FARM_EVENTS)
+            simulator.farm_event_generator.configure(
+                FarmEventGeneratorConfig.from_dict(saved if saved is not None else defaults.get("farm_events", {})))
+        except Exception as exc:  # noqa: BLE001  設定壞了就關著
+            print(f"[DataBroker] 風場事件產生器的設定讀不出來，先關著：{exc}")
+            simulator.farm_event_generator.configure(FarmEventGeneratorConfig())
         loop = self._om_loop_if_enabled()
         if loop is None:
             return
@@ -1048,6 +1058,29 @@ class DataBroker:
         except Exception as exc:  # noqa: BLE001
             print(f"[DataBroker] 自動定檢計畫的設定讀不出來，先關著：{exc}")
             loop.inspection_plan.configure(InspectionPlanConfig())
+
+    # 風場事件的故障紀錄多久和產生器對帳一次（模擬秒）：沒有事件開始 / 結束的時候也要定期看，重啟、去重的那幾步
+    # 或程式更新之後沒關掉的紀錄才會被關掉
+    _FARM_EVENT_RECONCILE_S = 60.0
+
+    def _record_farm_events(self) -> None:
+        """風場事件的不對外故障紀錄（nuisance，WMOM-20261126-07）：事件開始或記錄期間結束的那一步、以及每
+        ``_FARM_EVENT_RECONCILE_S`` 模擬秒，依產生器現在的狀態對帳（``FaultRecorder.reconcile_farm_events``）。"""
+        simulator = self.simulator
+        generator = getattr(simulator, "farm_event_generator", None)
+        if generator is None:
+            return
+        started = getattr(simulator, "last_farm_events_started", None) or []
+        expired = getattr(simulator, "last_farm_events_expired", None) or []
+        clock = self.live_clock()
+        last = getattr(self, "_farm_events_checked_at", None)
+        due = clock is not None and (last is None or clock < last
+                                     or (clock - last).total_seconds() >= self._FARM_EVENT_RECONCILE_S)
+        if not (started or expired or due) or clock is None or not self._recording_faults():
+            return
+        self._farm_events_checked_at = clock
+        self.fault_records.reconcile_farm_events(generator.recording(clock), expired, sorted(simulator.turbines),
+                                                 clock)
 
     def _recording_faults(self) -> bool:
         """現在要不要記故障紀錄：只記即時模擬，重啟後重跑的那幾步不記。"""
@@ -1302,6 +1335,8 @@ class DataBroker:
     def _detect_sim_events(self, readings: List[Dict]):
         if not self.simulator:
             return
+        # 風場事件的故障紀錄要在這一步的 PLC 事件之前開（事件碼才記得上去，WMOM-20261126-07）
+        self._record_farm_events()
 
         fault_status = self.simulator.fault_engine.get_fault_status()
         fault_by_turbine = {

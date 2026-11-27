@@ -1,6 +1,6 @@
 /**
- * 自動運轉（WMOM-20261127-01）：機率式故障產生器與模擬維修班的設定（DEC-20261126-08），以及自動定檢計畫
- * （WMOM-20261127-03，DEC-20261127-05）。
+ * 自動運轉（WMOM-20261127-01）：機率式故障產生器與模擬維修班的設定（DEC-20261126-08）、自動定檢計畫
+ * （WMOM-20261127-03，DEC-20261127-05），以及風場事件（WMOM-20261126-07，`FarmEventsCard`）。
  *
  * 兩者都存在風場的資料庫、重啟後照舊；只作用在即時模擬。後端的 PUT 沒給的欄位會用預設值，所以存的時候送
  * 完整的設定——畫面上沒列的欄位（情境 / 機組權重、耗損參考值）沿用目前的值。
@@ -22,6 +22,7 @@ import {
   type InspectionPlanState,
 } from '../../services/operationsService';
 import { ErrorNote, explainError, fmtTime, pick, Toggle, useTableStyles, type Lang } from './shared';
+import FarmEventsCard from './FarmEventsCard';
 
 interface Props {
   lang: Lang;
@@ -281,6 +282,8 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
           </>
         )}
       </Card>
+
+      <FarmEventsCard lang={lang} />
 
       <Card padding={20}>
         <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{ui('Simulated crew', '模擬維修班')}</div>

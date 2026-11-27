@@ -1985,7 +1985,7 @@ class Storage:
         return {str(row[0]): int(row[1]) for row in rows}
 
     def fault_records(self, turbine_id: Optional[str] = None, open_only: bool = False,
-                      limit: int = 500, newest_first: bool = False) -> List[Dict]:
+                      limit: int = 500, newest_first: bool = False, origin: Optional[str] = None) -> List[Dict]:
         """故障紀錄。
 
         Args:
@@ -1993,11 +1993,15 @@ class Storage:
             open_only: 只取還沒結束的。
             limit: 最多幾筆。
             newest_first: True＝新的在前。
+            origin: 只取這個來源（``generator`` / ``manual`` / ``farm_event``）；None＝全部。
         """
         where, params = [], []
         if turbine_id:
             where.append("turbine_id = ?")
             params.append(turbine_id)
+        if origin:
+            where.append("origin = ?")
+            params.append(origin)
         if open_only:
             where.append("cleared_ts IS NULL")
         clause = f"WHERE {' AND '.join(where)}" if where else ""

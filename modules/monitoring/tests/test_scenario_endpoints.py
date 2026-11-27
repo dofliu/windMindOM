@@ -1026,6 +1026,8 @@ def test_simulator_changing_routes_are_guarded_during_batches() -> None:
         ("PUT", "/api/operations/fault-generator"), ("PUT", "/api/operations/crew"),
         # 自動定檢計畫（WMOM-20261127-03）：批次結束後設定從風場 DB 再套一次
         ("PUT", "/api/operations/inspection-plan"),
+        # 風場事件產生器（WMOM-20261126-07）
+        ("PUT", "/api/operations/farm-events"),
     }
     assert guarded == expected
 

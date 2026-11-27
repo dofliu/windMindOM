@@ -656,9 +656,12 @@ def capture_answer(simulator: Optional["WindFarmSimulator"], turbine_id: str) ->
         turbine_id: 機組 ID。
 
     Returns:
-        ``{"faults": [...], "has_fault": bool}``；nuisance 情境不算故障。
+        ``{"faults": [...], "has_fault": bool, "farm_events": [...]}``；nuisance 情境不算故障。``farm_events``＝
+        這時進行中（含結束後的記錄期間）的風場事件（電網擾動、風向快速變化，WMOM-20261126-07）：機組因此
+        跳機時沒有故障，卡片把訊號標成偏高 / 偏低就是 ``false_escalation``。
     """
     faults: List[Dict[str, object]] = []
+    farm_events: List[Dict[str, object]] = []
     if simulator is not None:
         pack = _pack_tags()
         for fault in simulator.fault_engine.active_faults:
@@ -674,8 +677,15 @@ def capture_answer(simulator: Optional["WindFarmSimulator"], turbine_id: str) ->
                 "tripped": bool(fault.tripped),
                 "severity": float(fault.severity),
             })
+        generator = getattr(simulator, "farm_event_generator", None)
+        clock = getattr(simulator, "_sim_clock", None)
+        if generator is not None and clock is not None:
+            from simulator.farm_events import FARM_EVENT_KINDS
+
+            farm_events = [{**event.to_dict(), "nuisance_cause": FARM_EVENT_KINDS[event.kind].nuisance_cause}
+                           for event in generator.recording(clock)]
     real = [f for f in faults if f["category"] != "nuisance"]
-    return {"faults": faults, "has_fault": bool(real)}
+    return {"faults": faults, "has_fault": bool(real), "farm_events": farm_events}
 
 
 def score_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, object]:

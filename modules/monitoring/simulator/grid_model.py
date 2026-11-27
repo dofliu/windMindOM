@@ -44,6 +44,11 @@ class GridEnvironmentModel:
         self._event_frequency = None
         self._event_voltage = None
 
+    @property
+    def event_override_active(self) -> bool:
+        """有沒有風場事件的覆寫在作用。"""
+        return self._event_frequency is not None or self._event_voltage is not None
+
     def clear_override(self):
         """Remove all manual overrides and return to auto mode."""
         self._override_frequency = None

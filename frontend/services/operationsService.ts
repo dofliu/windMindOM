@@ -175,6 +175,46 @@ export function fetchFailureRates(): Promise<FailureRatesResponse> {
 
 // ─── 自動運轉 ─────────────────────────────────────────────────────────────
 
+/** 一種風場事件的發生率與範圍（WMOM-20261126-07）。mean_days_between=null：不產生這種事件。 */
+export interface FarmEventKindConfig {
+  mean_days_between: number | null;
+  magnitude_min: number;
+  magnitude_max: number;
+  duration_min_s: number;
+  duration_max_s: number;
+}
+
+export interface FarmEventConfig {
+  enabled: boolean;
+  seed: number;
+  kinds: Record<string, FarmEventKindConfig>;
+}
+
+/** 即時模擬裡發生過、還在記錄期間的風場事件（主管才看得到：發生了什麼是答案）。 */
+export interface LiveFarmEventItem {
+  kind: string;
+  start: string;
+  end: string;
+  duration_s: number;
+  magnitude: number;
+}
+
+export interface FarmEventState {
+  config: FarmEventConfig;
+  generated: number;
+  events: LiveFarmEventItem[];
+  kinds: Record<string, { name_zh: string; name_en: string; magnitude_unit: string; magnitude_range: number[] }>;
+}
+
+export function fetchFarmEvents(): Promise<FarmEventState> {
+  return request<FarmEventState>('GET', '/api/operations/farm-events');
+}
+
+/** 後端沒給的欄位會重設成預設值：一律送完整的設定。 */
+export function saveFarmEvents(config: FarmEventConfig): Promise<FarmEventState> {
+  return request<FarmEventState>('PUT', '/api/operations/farm-events', config);
+}
+
 export interface FaultGeneratorConfig {
   enabled: boolean;
   mean_days_between_faults: number;

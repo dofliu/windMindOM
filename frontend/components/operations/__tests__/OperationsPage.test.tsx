@@ -281,6 +281,36 @@ const PLAN = {
   ],
 };
 
+const FARM_EVENTS = {
+  config: {
+    enabled: false,
+    seed: 20261127,
+    kinds: {
+      grid_frequency_excursion: {
+        mean_days_between: 180, magnitude_min: 0.8, magnitude_max: 2, duration_min_s: 10, duration_max_s: 60,
+      },
+      grid_voltage_dip: {
+        mean_days_between: 60, magnitude_min: 0.5, magnitude_max: 0.85, duration_min_s: 2, duration_max_s: 30,
+      },
+      rapid_wind_direction_change: {
+        mean_days_between: 45, magnitude_min: 30, magnitude_max: 90, duration_min_s: 600, duration_max_s: 1800,
+      },
+    },
+  },
+  generated: 2,
+  events: [
+    {
+      kind: 'grid_voltage_dip', start: '2026-11-27T10:00:00.000000+00:00', end: '2026-11-27T10:00:12.000000+00:00',
+      duration_s: 12, magnitude: 0.62,
+    },
+  ],
+  kinds: {
+    grid_frequency_excursion: { name_zh: '電網頻率越界', name_en: 'Grid frequency excursion', magnitude_unit: 'Hz', magnitude_range: [-3, 3] },
+    grid_voltage_dip: { name_zh: '電網電壓驟降', name_en: 'Grid voltage dip', magnitude_unit: 'p.u.', magnitude_range: [0, 0.95] },
+    rapid_wind_direction_change: { name_zh: '風向快速變化', name_en: 'Rapid wind direction change', magnitude_unit: '度', magnitude_range: [5, 120] },
+  },
+};
+
 describe('自動運轉', () => {
   beforeEach(() => {
     routes['GET /api/operations/inspection-plan'] = () => ({ body: PLAN });
@@ -295,6 +325,10 @@ describe('自動運轉', () => {
       body: { ...GENERATOR, config: JSON.parse(String(init.body)) },
     });
     routes['PUT /api/operations/crew'] = (_u, init) => ({ body: { config: JSON.parse(String(init.body)) } });
+    routes['GET /api/operations/farm-events'] = () => ({ body: FARM_EVENTS });
+    routes['PUT /api/operations/farm-events'] = (_u, init) => ({
+      body: { ...FARM_EVENTS, config: JSON.parse(String(init.body)) },
+    });
   });
 
   async function openTab() {
@@ -317,6 +351,29 @@ describe('自動運轉', () => {
     const put = calls.find(c => c.method === 'PUT' && c.url.pathname === '/api/operations/fault-generator')!;
     expect(put.body).toEqual({ ...GENERATOR.config, enabled: true, mean_days_between_faults: 3 });
     expect(await screen.findByText('已儲存')).toBeInTheDocument();
+  });
+
+  it('風場事件：空白＝不產生，強度與時長沿用；發生過的列出來', async () => {
+    await openTab();
+    const card = await screen.findByTestId('farm-events');
+    expect(card).toHaveTextContent('目前為止發生了 2 次');
+    expect(card).toHaveTextContent('電網電壓驟降 · 0.62');
+    fireEvent.change(screen.getByLabelText('電網頻率越界'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('電網電壓驟降'), { target: { value: '20' } });
+    fireEvent.click(screen.getByLabelText('開啟風場事件'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '儲存風場事件設定' }));
+    });
+    const put = calls.find(c => c.method === 'PUT' && c.url.pathname === '/api/operations/farm-events')!;
+    expect(put.body).toEqual({
+      ...FARM_EVENTS.config,
+      enabled: true,
+      kinds: {
+        ...FARM_EVENTS.config.kinds,
+        grid_voltage_dip: { ...FARM_EVENTS.config.kinds.grid_voltage_dip, mean_days_between: 20 },
+        grid_frequency_excursion: { ...FARM_EVENTS.config.kinds.grid_frequency_excursion, mean_days_between: null },
+      },
+    });
   });
 
   it('不是數字時不送', async () => {
