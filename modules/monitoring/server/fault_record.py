@@ -13,27 +13,45 @@
 - PLC 事件 → :meth:`on_plc_event`（預期碼第一次出現、跳機、其他碼）
 - 故障消失（工單完工修掉、或管理端清除）→ :meth:`on_fault_cleared`
 
+即時模擬的風場事件（電網擾動、風向快速變化，WMOM-20261126-07）也記在這裡：每台機組一筆、情境欄位是事件種類、
+``origin="farm_event"``，答案是 nuisance（:meth:`on_farm_event_started` / :meth:`on_farm_event_ended`）。
+事件期間到結束後 ``RECORD_GRACE_S`` 內的事件碼算這個事件的，之後紀錄結束（``cleared_by="farm_event_end"``，
+不是工單修好的，不算進故障率）。
+
 時間一律是風場時鐘。任何一步出錯都只記 log，不影響模擬。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set
 
-from simulator.ground_truth import scenario_answer
+from simulator.farm_events import FARM_EVENT_KINDS
+from simulator.ground_truth import farm_event_answer, scenario_answer
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.plc_protection import PlcEvent
 from simulator.time_utils import iso_utc
 
 if TYPE_CHECKING:
     from server.data_broker import DataBroker
+    from simulator.farm_event_generator import LiveFarmEvent
 
 logger = logging.getLogger(__name__)
 
 ORIGIN_GENERATOR = "generator"   # 機率式故障產生器
 ORIGIN_MANUAL = "manual"         # 管理端手動注入
+ORIGIN_FARM_EVENT = "farm_event"  # 即時模擬的風場事件（nuisance，WMOM-20261126-07）
+CLEARED_BY_FARM_EVENT_END = "farm_event_end"
 _COUNTED_KINDS = frozenset({"alarm_raised", "trip"})
+
+
+def _expected_codes(scenario_id: str) -> Optional[Set[int]]:
+    """這筆紀錄的預期碼：故障情境的 ``alarm_codes``，或風場事件的 ``event_codes``；都不是時 None。"""
+    scenario = FAULT_SCENARIOS.get(scenario_id)
+    if scenario is not None:
+        return {int(a["code"]) for a in scenario.alarm_codes}
+    kind = FARM_EVENT_KINDS.get(scenario_id)
+    return set(kind.event_codes) if kind is not None else None
 
 
 class FaultRecorder:
@@ -67,10 +85,9 @@ class FaultRecorder:
         try:
             storage = self._broker.storage
             for record in storage.open_fault_records(turbine_id):
-                scenario = FAULT_SCENARIOS.get(str(record["scenario_id"]))
-                if scenario is None:
+                expected = _expected_codes(str(record["scenario_id"]))
+                if expected is None:
                     continue
-                expected = {int(a["code"]) for a in scenario.alarm_codes}
                 changes: Dict[str, object] = {}
                 observed: List[Dict[str, object]] = list(record["observed"])
                 if len(observed) < 200:
@@ -113,6 +130,28 @@ class FaultRecorder:
         except Exception:  # noqa: BLE001
             logger.exception("故障紀錄：結束不了 %s / %s", turbine_id, scenario_id)
 
+    def on_farm_event_started(self, event: "LiveFarmEvent", turbines: Sequence[str]) -> None:
+        """風場事件開始：每台機組開一筆 nuisance 紀錄（已經有還沒結束的同一種就不重複開）。"""
+        try:
+            onset = iso_utc(event.start)
+            for turbine_id in turbines:
+                self._broker.storage.open_fault_record(turbine_id, event.kind, ORIGIN_FARM_EVENT, onset)
+        except Exception:  # noqa: BLE001
+            logger.exception("故障紀錄：記不了風場事件 %s", event.kind)
+
+    def on_farm_event_ended(self, event: "LiveFarmEvent", turbines: Sequence[str]) -> None:
+        """風場事件的記錄期間（結束後 ``RECORD_GRACE_S``）過了：結束各機組的紀錄，結束時間是事件結束的時刻。"""
+        try:
+            storage = self._broker.storage
+            end = iso_utc(event.end)
+            for turbine_id in turbines:
+                for record in storage.open_fault_records(turbine_id):
+                    if record["scenario_id"] == event.kind and record["origin"] == ORIGIN_FARM_EVENT:
+                        storage.update_fault_record(int(record["id"]), cleared_ts=end,
+                                                    cleared_by=CLEARED_BY_FARM_EVENT_END)
+        except Exception:  # noqa: BLE001
+            logger.exception("故障紀錄：結束不了風場事件 %s", event.kind)
+
     def cases(self, turbine_id: Optional[str] = None, open_only: bool = False,
               limit: int = 500) -> List[Dict[str, object]]:
         """故障紀錄加上答案欄位（根因、元件、處置、重點訊號），新的在前。
@@ -125,12 +164,20 @@ class FaultRecorder:
         out: List[Dict[str, object]] = []
         for record in self._broker.storage.fault_records(turbine_id=turbine_id, open_only=open_only,
                                                          limit=limit, newest_first=True):
-            scenario = FAULT_SCENARIOS.get(str(record["scenario_id"]))
-            answer = dict(scenario_answer(scenario)) if scenario is not None else {}
+            scenario_id = str(record["scenario_id"])
+            scenario = FAULT_SCENARIOS.get(scenario_id)
+            if scenario is not None:
+                answer = dict(scenario_answer(scenario))
+            elif scenario_id in FARM_EVENT_KINDS:
+                # 風場事件：nuisance，預期碼是這台機組實際出現的事件碼
+                seen = [int(o["code"]) for o in record["observed"] if o.get("expected")]
+                answer = dict(farm_event_answer(scenario_id, list(dict.fromkeys(seen))))
+            else:
+                answer = {}
             out.append({
                 "case_id": f"live-{record['id']}",
                 "turbine_id": record["turbine_id"],
-                "source": record["origin"],   # generator / manual（答案欄位另有情境的 origin）
+                "source": record["origin"],   # generator / manual / farm_event（答案欄位另有情境的 origin）
                 "onset_ts": record["onset_ts"],
                 "first_alarm_ts": record["first_alarm_ts"],
                 "first_alarm_code": record["first_alarm_code"],

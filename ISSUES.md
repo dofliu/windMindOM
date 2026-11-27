@@ -20,7 +20,9 @@
 | done | 171 |
 | **total** | **187** |
 
-最後更新：2026-11-27（**WMOM-20261127-07 done**：RUL 回饋與成本表確認——工單換掉的零件耗損從換新起算，故障產生器的發生率跟著降；本風場由工單修好的故障以可信度加權回饋 K13 故障率（先驗 14 機組年，只改模擬器有對應情境的元件），`GET /api/operations/failure-rates`、`POST /api/cost/monte-carlo/empirical`（永遠強制的主管），營運頁加故障率回饋表，DEC-20261127-09；陸域成本、修復等級、K13 元件對應共 60 列整理成確認頁，劉老師全部同意、設定檔的值不變。open 12 / in_progress 1 / deferred 2 / done 172 = 187。詳見 `work-logs/2026-11/2026-11-27-rul-feedback.md`）。
+最後更新：2026-11-27（**WMOM-20261126-07 done**：風場事件（電網電壓驟降、頻率越界、風向快速變化）在即時模擬裡依機率發生——和故障產生器同一套機制、自己的亂數、固定抽樣次數，事件期間覆寫電網 / 風向、結束復原，沒有事件時讀值逐位元不變；不對外的故障紀錄每台機組記一筆 nuisance；跳機開的工單答案標出風場事件，準備卡的「同場同時同碼」與 `false_escalation` 有資料；`GET/PUT /api/operations/farm-events`、營運頁加設定卡，預設關，DEC-20261127-10。open 11 / in_progress 1 / deferred 2 / done 173 = 187。詳見 `work-logs/2026-11/2026-11-27-live-farm-events.md`）。
+
+前次：2026-11-27（**WMOM-20261127-07 done**：RUL 回饋與成本表確認——工單換掉的零件耗損從換新起算，故障產生器的發生率跟著降；本風場由工單修好的故障以可信度加權回饋 K13 故障率（先驗 14 機組年，只改模擬器有對應情境的元件），`GET /api/operations/failure-rates`、`POST /api/cost/monte-carlo/empirical`（永遠強制的主管），營運頁加故障率回饋表，DEC-20261127-09；陸域成本、修復等級、K13 元件對應共 60 列整理成確認頁，劉老師全部同意、設定檔的值不變。open 12 / in_progress 1 / deferred 2 / done 172 = 187。詳見 `work-logs/2026-11/2026-11-27-rul-feedback.md`）。
 
 前次：2026-11-27（**WMOM-20261127-02 done**（第 1 點）：仿真風場的設備與固定成本——駐場技師年薪與設備年費依運轉天數攤、工單工時已含在年薪裡不另算、拆大件的修復另記吊車動員，DEC-20261127-08；收支端點、月報、營運頁同一套算法。RUL 回饋與成本表確認另開 WMOM-20261127-07。open 13 / in_progress 1 / deferred 2 / done 171 = 187。詳見 `work-logs/2026-11/2026-11-27-fixed-costs.md`）。
 
@@ -2225,11 +2227,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261126-07 — 風場事件在即時模擬裡機率觸發
 
-- **Status**: open
+- **Status**: done（2026-11-27，DEC-20261127-10：`simulator/farm_event_generator.py`；即時模擬每一步一開始套用、結束復原、批次不帶；故障紀錄每台機組一筆 nuisance〔`origin="farm_event"`〕；評分答案加 `farm_events`；`GET/PUT /api/operations/farm-events`、`WMOM_FARM_EVENTS`；營運頁「自動運轉」加設定卡；`test_live_farm_events.py`。詳見 `work-logs/2026-11/2026-11-27-live-farm-events.md`）
 - **Milestone**: EPIC-SF
 - **Priority**: low
 - **Estimate**: 2–3 天
-- **Owner**: -
+- **Owner**: Claude
 - **Source**: WMOM-20261125-06 的第 3 項（規格列了，這次沒做）。
 - **Description**: 電網擾動、風向快速變化這些風場事件（`simulator/farm_events.py`）目前只在批次情境套用。要讓持續運轉的風場也會遇到：(1) 風場事件能在即時模擬套用與復原（電網覆寫的亂數抽樣次數不可變、事件結束要復原，干擾守則）；(2) 由故障產生器同一套機制機率觸發，用自己的亂數；(3) 不對外的故障紀錄要記成 nuisance（這些碼不是機組故障）；(4) 準備卡的「同場同時同碼」區塊正好對應這種情況，評分的 `false_escalation` 才有資料。
 - **Depends on**: WMOM-20261125-06（done）

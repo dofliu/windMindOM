@@ -20,6 +20,7 @@ from simulator.physics.fault_engine import FAULT_SCENARIOS, ActiveFault, TestPla
 from simulator.physics.wind_field import TurbulenceGenerator, PerTurbineWind
 from simulator.modbus_server import ModbusSimServer
 from simulator.bulk_events import STATE_CHANGE, BulkEvent
+from simulator.farm_event_generator import FarmEventGenerator, LiveFarmEvent, grid_override
 from simulator.farm_events import FarmEvent
 from simulator.fault_generator import FaultGenerator, GeneratedFault
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, iso_utc, to_utc, utc_now
@@ -71,6 +72,7 @@ class WindFarmSimulator:
     _CHECKPOINT_FIELDS = (
         "wind_model", "grid_model", "turbines", "fault_engine", "_turbulence_gen", "_per_turbine_wind",
         "_last_yaw_err_rad", "_direction_offset_deg", "_sim_clock", "latest_data", "fault_generator",
+        "farm_event_generator",
     )
 
     def __init__(self, turbine_count: int = 14, base_wind_speed: float = 10.0,
@@ -109,6 +111,10 @@ class WindFarmSimulator:
         # 機率式故障產生器（WMOM-20261125-06-b）：預設關；只在即時模擬作用。它有自己的亂數 stream
         self.fault_generator = FaultGenerator()
         self.last_generated: List[GeneratedFault] = []   # 最近一步產生的故障（broker 記進故障紀錄用）
+        # 風場事件產生器（WMOM-20261126-07）：電網擾動、風向快速變化在即時模擬裡依機率發生；預設關、自己的亂數
+        self.farm_event_generator = FarmEventGenerator()
+        self.last_farm_events_started: List[LiveFarmEvent] = []   # 最近一步開始的風場事件（broker 記故障紀錄用）
+        self.last_farm_events_expired: List[LiveFarmEvent] = []   # 最近一步記錄期間結束的
         # generate_bulk 啟動次數：即時模擬的外部讀取端（OPC UA LiveFeeder）據此辨認批次留下的狀態
         self.bulk_runs = 0
         self._thread: Optional[threading.Thread] = None
@@ -275,6 +281,9 @@ class WindFarmSimulator:
 
     def _run_one_step(self, sim_time: datetime, time_step: float):
         """Execute one physics timestep for all turbines. Returns readings list."""
+        if not self._bulk_running:
+            # 即時模擬的風場事件（批次的風場事件由 generate_bulk 依排程套用）：要在讀風向與電網之前
+            self._apply_live_farm_events(sim_time, time_step)
         base_wind = self.wind_model.get_wind_speed(sim_time)
         wind_direction = self.wind_model.get_wind_direction(sim_time)
         if self._direction_offset_deg:
@@ -649,6 +658,10 @@ class WindFarmSimulator:
         # 的 borrow-corpse 隱患）。stop() 會清此旗標以保留「關閉時中止批次」的語意。
         self._bulk_running = True
         self.bulk_runs += 1
+        # 即時模擬進行中的風場事件不帶進批次（批次的資料不看 Live 當下的狀態；結束後 pause_live_for_batch 還原）
+        if self.grid_model.event_override_active or self._direction_offset_deg:
+            self.grid_model.clear_event_override()
+            self._direction_offset_deg = 0.0
         # 實測風況序列（replay）從批次的第一步重新開始播：同樣的設定產生同樣的批次，不看 Live 跑了多久
         self.wind_model.restart_measured_replay()
         prev_on_fault_tripped = self._on_fault_tripped
@@ -717,6 +730,35 @@ class WindFarmSimulator:
                 model.plc.drain_events()
 
         return total_readings
+
+    def _apply_live_farm_events(self, sim_time: datetime, dt: float) -> None:
+        """即時模擬這一步 ``[sim_time - dt, sim_time)`` 的風場事件（WMOM-20261126-07）。
+
+        產生器擲骰（關著不抽）、拿掉記錄期間已過的事件，再套用進行中的：電網照批次的規則覆寫（電壓驟降取最深、
+        頻率越界加總），風向加擺動的偏移；沒有進行中的就復原。沒有任何事件、也沒有殘留的覆寫時什麼都不動——
+        健康資料逐位元不變。
+
+        Args:
+            sim_time: 這一步結束的模擬時間（``_run_one_step`` 拿到的時間）。
+            dt: 這一步多長（秒）。
+        """
+        gen = self.farm_event_generator
+        step_start = sim_time - timedelta(seconds=dt)
+        self.last_farm_events_started = gen.step(dt, step_start)
+        self.last_farm_events_expired = gen.expire(step_start)
+        grid = self.grid_model
+        if not gen.events and not self._direction_offset_deg and not grid.event_override_active:
+            return
+        active = gen.active(step_start, dt)
+        freq_shift, dip = grid_override(active)
+        if freq_shift is not None or dip is not None:
+            grid.apply_event_override(grid.base_frequency_hz + freq_shift if freq_shift is not None else None,
+                                      grid.base_voltage_v * dip if dip is not None else None)
+        elif grid.event_override_active:
+            grid.clear_event_override()
+        self._direction_offset_deg = sum(
+            e.as_farm_event().wind_direction_offset(max(0.0, (step_start - e.start).total_seconds()))
+            for e in active if e.kind == "rapid_wind_direction_change")
 
     def _apply_farm_events(self, events: List[FarmEvent], elapsed_s: float, dt: float, sim_time: datetime,
                            started: Set[int], grid_overridden: bool,

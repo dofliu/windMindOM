@@ -333,6 +333,50 @@ async def set_fault_generator_settings(body: Dict[str, object]) -> Dict[str, obj
     return await fault_generator_settings()
 
 
+@router.get("/farm-events", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
+async def farm_event_settings() -> Dict[str, object]:
+    """即時模擬的風場事件產生器（WMOM-20261126-07）：設定、開始以來發生了幾次、還在記錄期間的事件。
+
+    發生了什麼風場事件是答案（外部助理要自己從讀值與事件碼判斷），所以只給永遠強制登入的主管。
+
+    Returns:
+        ``{"config": {...}, "generated": 幾次, "events": [...], "kinds": {種類: {名稱、強度單位、範圍}}}``。
+    """
+    from simulator.farm_events import FARM_EVENT_KINDS
+
+    generator = _live_simulator().farm_event_generator
+    return {"config": generator.config.to_dict(), "generated": generator.generated,
+            "events": [event.to_dict() for event in list(generator.events)],
+            "kinds": {kind_id: {"name_zh": kind.name_zh, "name_en": kind.name_en,
+                                "magnitude_unit": kind.magnitude_unit, "magnitude_range": list(kind.magnitude_range)}
+                      for kind_id, kind in sorted(FARM_EVENT_KINDS.items())}}
+
+
+@router.put("/farm-events",
+            dependencies=[Depends(reject_during_batch), Depends(require_roles(Role.SUPERVISOR))])
+async def set_farm_event_settings(body: Dict[str, object]) -> Dict[str, object]:
+    """設定風場事件產生器。設定存在風場 DB，重啟後照舊；沒給的欄位用預設值（種類沒列的用預設的發生率與範圍）。
+
+    Args:
+        body: ``enabled``、``seed``、``kinds``（種類 → ``mean_days_between``〔null＝不產生〕、
+            ``magnitude_min`` / ``magnitude_max``、``duration_min_s`` / ``duration_max_s``）。
+
+    Returns:
+        同 ``GET``。
+    """
+    from simulator.farm_event_generator import FarmEventGeneratorConfig
+
+    simulator = _live_simulator()
+    try:
+        config = FarmEventGeneratorConfig.from_dict(body)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    broker = get_broker()
+    broker.storage.set_setting(broker.SETTING_FARM_EVENTS, config.to_dict())
+    simulator.farm_event_generator.configure(config)
+    return await farm_event_settings()
+
+
 def _crew():  # noqa: ANN202  回傳型別在 server.crew
     loop = get_broker()._om_loop_if_enabled()
     if loop is None:

@@ -135,6 +135,7 @@ def _apply_continuous_run_settings(farm_id: str) -> None:
     # 故障產生器 / 模擬維修班 / 自動定檢計畫：風場還沒存過設定時的預設（預設都關）。存過之後以風場的設定為準
     broker.default_live_settings = {
         "fault_generator": {"enabled": _env_flag("WMOM_FAULT_GENERATOR")},
+        "farm_events": {"enabled": _env_flag("WMOM_FARM_EVENTS")},
         "crew": {"enabled": _env_flag("WMOM_CREW")},
         "inspection_plan": {"enabled": _env_flag("WMOM_INSPECTION_PLAN")},
     }
