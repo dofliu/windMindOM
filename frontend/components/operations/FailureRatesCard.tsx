@@ -5,24 +5,14 @@
  * 拿回饋後的故障率跑成本試算用 `POST /api/cost/monte-carlo/empirical`。
  */
 
-import React, { useEffect, useState } from "react";
-import { Card } from "../ui";
-import { useTheme } from "../../theme/ThemeProvider";
-import {
-  fetchFailureRates,
-  type FailureRatesResponse,
-} from "../../services/operationsService";
-import {
-  explainError,
-  fmtPct,
-  pick,
-  useTableStyles,
-  type Lang,
-} from "./shared";
+import React, { useEffect, useState } from 'react';
+import { Card } from '../ui';
+import { useTheme } from '../../theme/ThemeProvider';
+import { fetchFailureRates, type FailureRatesResponse } from '../../services/operationsService';
+import { explainError, fmtPct, pick, useTableStyles, type Lang } from './shared';
 
 function fmtRate(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value))
-    return "—";
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return value.toFixed(3);
 }
 
@@ -40,8 +30,8 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
   useEffect(() => {
     let alive = true;
     fetchFailureRates()
-      .then((body) => alive && setData(body))
-      .catch((e) => alive && setError(e));
+      .then(body => alive && setData(body))
+      .catch(e => alive && setError(e));
     return () => {
       alive = false;
     };
@@ -51,24 +41,21 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
   if (error) {
     return (
       <div style={{ fontSize: 12, color: C.faint }}>
-        {ui("Failure-rate feedback unavailable: ", "故障率回饋讀不到：")}
+        {ui('Failure-rate feedback unavailable: ', '故障率回饋讀不到：')}
         {explainError(error, lang)}
       </div>
     );
   }
   if (!data) return null;
-  const rows = data.components.filter((row) => row.modelled);
+  const rows = data.components.filter(row => row.modelled);
   const unmapped = Object.entries(data.unmapped);
   const manual = data.excluded_manual ?? 0;
   return (
     <div data-testid="failure-rates">
       <Card padding={0}>
-        <div style={{ padding: "16px 16px 8px", display: "grid", gap: 4 }}>
+        <div style={{ padding: '16px 16px 8px', display: 'grid', gap: 4 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-            {ui(
-              "Failure rates fed back from this farm",
-              "故障率回饋：本風場的維修紀錄 vs K13",
-            )}
+            {ui('Failure rates fed back from this farm', '故障率回饋：本風場的維修紀錄 vs K13')}
           </div>
           <div style={{ fontSize: 12, color: C.sub }}>
             {ui(
@@ -77,23 +64,20 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
             )}
           </div>
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table
-            style={{ width: "100%", borderCollapse: "collapse" }}
-            aria-label={ui("Failure rates", "故障率回饋")}
-          >
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }} aria-label={ui('Failure rates', '故障率回饋')}>
             <thead>
               <tr>
-                <th style={th}>{ui("K13 component", "K13 元件")}</th>
-                <th style={thNum}>{ui("K13 rate", "K13 故障率")}</th>
-                <th style={thNum}>{ui("Repairs", "修過")}</th>
-                <th style={thNum}>{ui("This farm only", "只看本風場")}</th>
-                <th style={thNum}>{ui("Fed back", "回饋後")}</th>
-                <th style={thNum}>{ui("Weight of this farm", "本風場比重")}</th>
+                <th style={th}>{ui('K13 component', 'K13 元件')}</th>
+                <th style={thNum}>{ui('K13 rate', 'K13 故障率')}</th>
+                <th style={thNum}>{ui('Repairs', '修過')}</th>
+                <th style={thNum}>{ui('This farm only', '只看本風場')}</th>
+                <th style={thNum}>{ui('Fed back', '回饋後')}</th>
+                <th style={thNum}>{ui('Weight of this farm', '本風場比重')}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map(row => (
                 <tr key={row.code}>
                   <td style={td}>{row.name}</td>
                   <td style={num}>{fmtRate(row.k13_rate)}</td>
@@ -114,7 +98,7 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
           </table>
         </div>
         {manual > 0 && (
-          <div style={{ padding: "8px 16px 0", fontSize: 12, color: C.faint }}>
+          <div style={{ padding: '8px 16px 0', fontSize: 12, color: C.faint }}>
             {ui(
               `${manual} manually injected fault(s) were repaired; they are exercises and not counted.`,
               `手動注入的故障修好了 ${manual} 筆：那是題目，不算進故障率。`,
@@ -122,14 +106,9 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
           </div>
         )}
         {unmapped.length > 0 && (
-          <div
-            style={{ padding: "8px 16px 14px", fontSize: 12, color: C.faint }}
-          >
-            {ui(
-              "Not counted (not a component failure): ",
-              "不算進故障率（不是元件故障）：",
-            )}
-            {unmapped.map(([sid, n]) => `${sid} × ${n}`).join("、")}
+          <div style={{ padding: '8px 16px 14px', fontSize: 12, color: C.faint }}>
+            {ui('Not counted (not a component failure): ', '不算進故障率（不是元件故障）：')}
+            {unmapped.map(([sid, n]) => `${sid} × ${n}`).join('、')}
           </div>
         )}
       </Card>
