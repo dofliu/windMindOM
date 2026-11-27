@@ -34,9 +34,14 @@ from modules.workflow.repository.work_order_repository import (
 
 _logger = logging.getLogger(__name__)
 
+# 仿真風場的自動定檢計畫（``modules/monitoring/server/inspection_plan.py``）建排程時的 ``created_by``。
+# 定在 workflow、模組載入時就登記：不論這個行程有沒有載入 monitoring 的那個模組（例：閉環關著、只用 workflow
+# 的 API 或 CLI），這裡的排程器都不會用實際時間跑那些排程。
+SIMULATED_FARM_PLAN_OWNER = UUID("00000000-0000-4000-8000-00000000c0e3")
+
 # 自動排程的建立者（WMOM-20261127-03）：它們建的排程由它們自己依自己的時鐘跑（例：仿真風場的自動定檢計畫
 # 依風場時鐘），這裡的排程器（實際時間、人按「執行排程」）跳過，免得兩個時鐘混在一起。
-_AUTOMATED_OWNERS: set[UUID] = set()
+_AUTOMATED_OWNERS: set[UUID] = {SIMULATED_FARM_PLAN_OWNER}
 
 
 def automated_schedule_owner(owner: UUID) -> None:

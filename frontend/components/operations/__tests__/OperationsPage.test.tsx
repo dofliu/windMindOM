@@ -191,6 +191,7 @@ const PLAN = {
       next_due_at: '2026-03-14T08:00:00.000000+00:00',
       last_spawned_at: null,
       last_work_order_id: null,
+      overdue: true,
     },
     {
       turbine_id: 'WT002',
@@ -198,6 +199,7 @@ const PLAN = {
       next_due_at: '2026-03-27T08:00:00.000000+00:00',
       last_spawned_at: '2025-09-27T08:00:00.000000+00:00',
       last_work_order_id: 'wo-2',
+      overdue: false,
     },
   ],
 };
@@ -267,6 +269,8 @@ describe('自動運轉', () => {
     const days = await screen.findByLabelText('每台機組幾天定檢一次');
     expect(screen.getByText('2026-03-14 08:00 UTC')).toBeInTheDocument();
     expect(screen.getByText('暫停')).toBeInTheDocument();
+    expect(screen.getByText('到期、還沒開單')).toBeInTheDocument();
+    expect(screen.getByText(/未結案工單已經滿三張/)).toBeInTheDocument();
     expect(screen.getByText('2025-09-27 08:00 UTC')).toBeInTheDocument();
     fireEvent.change(days, { target: { value: '30' } });
     fireEvent.click(screen.getAllByLabelText('開啟')[2]);

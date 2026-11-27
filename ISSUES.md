@@ -2047,7 +2047,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261127-03 — 仿真風場依風場時鐘定期開定檢工單
 
-- **Status**: done（2026-11-27，DEC-20261127-05：`server/inspection_plan.py`；每台機組一個 workflow 定檢排程〔`created_by=PLAN_ACTOR`〕，預設 182 天、第一次到期全場錯開；運維閉環依風場時鐘每 15 分鐘看一次；已有未結案的定檢 / 預防保養工單就算那張；人工排程器跳過〔`automated_schedule_owner`〕；設定 `inspection_plan` 存在風場 DB、`GET/PUT /api/operations/inspection-plan`、`WMOM_INSPECTION_PLAN`；營運頁「自動運轉」加一張卡；`test_inspection_plan.py` 16 項）
+- **Status**: done（2026-11-27，DEC-20261127-05：`server/inspection_plan.py`；每台機組一個 workflow 定檢排程〔`created_by=PLAN_ACTOR`〕，預設 182 天、第一次到期全場錯開；運維閉環依風場時鐘每 15 分鐘看一次；已有未結案的定檢 / 預防保養工單就算那張；人工排程器跳過〔`automated_schedule_owner`〕；設定 `inspection_plan` 存在風場 DB、`GET/PUT /api/operations/inspection-plan`、`WMOM_INSPECTION_PLAN`；營運頁「自動運轉」加一張卡；`test_inspection_plan.py` 20 項（含 code review 後 4 項））
 - **Milestone**: EPIC-SF
 - **Priority**: medium
 - **Estimate**: 1 天

@@ -130,7 +130,8 @@ def test_an_open_inspection_covers_the_next_period(farm: Farm) -> None:
     assert first.last_spawned_work_order_id == order.id and first.next_due_at > _clock(farm), "這一期算那張"
 
 
-def test_a_full_turbine_is_retried_later(farm: Farm) -> None:
+def test_a_full_turbine_is_retried_later(farm: Farm, monkeypatch) -> None:
+    monkeypatch.setattr(ops, "get_broker", lambda: farm.broker)
     for code in ("101", "102", "103"):
         farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.CORRECTIVE, title="x",
                          description="", source_alarm_code=code)
@@ -141,6 +142,8 @@ def test_a_full_turbine_is_retried_later(farm: Farm) -> None:
     assert _inspections(farm) == []
     due = _schedules(farm)[0].next_due_at
     assert due <= _clock(farm), "上限擋下：不推進"
+    view = ops._inspection_plan_view(farm.loop.inspection_plan)
+    assert [s["overdue"] for s in view["schedules"]] == [True, False, False], "管理端看得到卡住的"
     for order in farm.orders()[:1]:
         farm.repo.transition(order.id, "cancel", actor_id=PLAN_ACTOR, cancel_reason="測試")
     _jump(farm, 900)
@@ -158,6 +161,74 @@ def test_a_restart_does_not_duplicate_schedules_or_orders(farm: Farm) -> None:
     farm.loop.rebuild()
     farm.drive_slow(5)
     assert [s.id for s in _schedules(farm)] == ids and len(_inspections(farm)) == 1
+    # 還原存檔後從比開單早的時刻接著跑：排程已經推進到下一期，不再開
+    farm.loop.inspection_plan.reset()
+    assert farm.loop.inspection_plan.step(_clock(farm) - timedelta(minutes=30)) == []
+    assert len(_inspections(farm)) == 1
+
+
+def test_a_person_paused_schedule_stays_paused_until_the_settings_change(farm: Farm) -> None:
+    """重啟、批次結束（設定從風場 DB 再套一次）、存了同樣的設定都不算改設定。"""
+    farm.broker.storage.set_setting(farm.broker.SETTING_INSPECTION_PLAN, {"enabled": True, "interval_days": 3})
+    farm.broker.apply_live_settings()
+    farm.drive_slow(1)
+    schedules = _schedules(farm)
+    get_inspection_repository(str(farm.broker.storage.db_path)).set_active(schedules[1].id, False)
+    for again in (farm.loop.inspection_plan.reset, farm.loop.rebuild, farm.broker.apply_live_settings,
+                  lambda: _plan(farm)):
+        again()
+        farm.drive_slow(1)
+        assert [s.active for s in _schedules(farm)] == [True, False, True], again
+    assert [s.id for s in _schedules(farm)] == [s.id for s in schedules], "不重建"
+    _plan(farm, interval_days=4)   # 改了設定：全部依新設定
+    farm.drive_slow(1)
+    assert [s.active for s in _schedules(farm)] == [True] * 3
+
+
+def test_a_missing_schedule_is_added_back_without_touching_the_others(farm: Farm) -> None:
+    _plan(farm)
+    farm.drive_slow(1)
+    repository = get_inspection_repository(str(farm.broker.storage.db_path))
+    first, second, third = _schedules(farm)
+    repository.set_active(second.id, False)
+    # 別的 created_by 的排程不算計畫的：例如資料庫被改過、計畫的排程不見了
+    with farm.broker.storage._get_conn() as conn:
+        conn.execute("UPDATE wmom_inspection_schedules SET created_by = NULL WHERE id = ?", (str(third.id),))
+    farm.loop.inspection_plan.reset()
+    farm.drive_slow(1)
+    after = _schedules(farm)
+    assert [s.turbine_id for s in after] == ["WT001", "WT002", "WT003"] and after[2].id != third.id
+    assert [s.active for s in after] == [True, False, True]
+
+
+def test_a_failing_sync_is_retried_later_not_every_step(farm: Farm, monkeypatch) -> None:
+    calls: List[int] = []
+
+    def broken(*_args, **_kwargs):
+        calls.append(1)
+        raise RuntimeError("資料庫壞了")
+
+    _plan(farm)
+    monkeypatch.setattr(farm.loop.inspection_plan, "_sync", broken)
+    farm.drive_slow(60)   # 10 分鐘
+    assert len(calls) == 1
+    farm.drive_slow(31)
+    assert len(calls) == 2, "15 分鐘後再試"
+    monkeypatch.undo()
+    _jump(farm, 900)
+    farm.drive_slow(1)
+    assert len(_schedules(farm)) == 3
+
+
+def test_an_inspection_a_person_opened_under_the_screen_name_covers_the_period(farm: Farm) -> None:
+    _plan(farm)
+    farm.drive_slow(1)
+    order = farm.repo.create(farm_id=FARM, turbine_id="WTG-01", type=WorkOrderType.INSPECTION, title="人開的",
+                             description="")
+    _jump(farm, DAY)
+    farm.drive_slow(1)
+    assert [o.id for o in _inspections(farm)] == [order.id]
+    assert _schedules(farm)[0].last_spawned_work_order_id == order.id
 
 
 # ── 2. 和維修班一起：潛伏的故障被找到 ─────────────────────────────────────
@@ -241,7 +312,7 @@ def test_settings_are_stored_with_the_farm_and_reported(farm: Farm, monkeypatch)
     body = asyncio.run(ops.inspection_plan_settings())
     assert body["clock"] and [s["turbine_id"] for s in body["schedules"]] == ["WT001", "WT002", "WT003"]
     assert set(body["schedules"][0]) == {"turbine_id", "active", "next_due_at", "last_spawned_at",
-                                         "last_work_order_id"}
+                                         "last_work_order_id", "overdue"}
     farm.loop.inspection_plan.configure(InspectionPlanConfig())
     farm.broker.apply_live_settings()
     assert farm.loop.inspection_plan.config.interval_days == 90 and farm.loop.inspection_plan.config.enabled

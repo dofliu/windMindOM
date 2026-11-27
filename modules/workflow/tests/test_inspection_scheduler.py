@@ -230,3 +230,14 @@ def test_skips_schedules_of_an_automated_owner(repos):
         inspection_repo, work_order_repo, "changhua", as_of=datetime(2026, 2, 1, tzinfo=UTC)
     )
     assert [s.schedule_id for s in spawned] == [person.id]
+
+
+def test_skips_the_simulated_farm_plan_without_importing_it(repos):
+    """仿真風場的自動定檢計畫的排程：沒有載入 monitoring 的模組（閉環關著、只用 workflow）也不跑。"""
+    from modules.workflow.services.inspection_scheduler import SIMULATED_FARM_PLAN_OWNER
+
+    inspection_repo, work_order_repo = repos
+    _create_schedule(inspection_repo, created_by=SIMULATED_FARM_PLAN_OWNER)
+    assert run_inspection_scheduler(
+        inspection_repo, work_order_repo, "changhua", as_of=datetime(2026, 2, 1, tzinfo=UTC)
+    ) == []

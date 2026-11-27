@@ -396,8 +396,12 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
                     {plan.schedules.map(s => (
                       <tr key={s.turbine_id}>
                         <td style={table.td}>{s.turbine_id}</td>
-                        <td style={{ ...table.td, color: s.active ? C.text : C.sub }}>
-                          {s.active ? ui('Active', '啟用') : ui('Paused', '暫停')}
+                        <td style={{ ...table.td, color: s.overdue ? C.warn : s.active ? C.text : C.sub }}>
+                          {s.overdue
+                            ? ui('Due, not opened yet', '到期、還沒開單')
+                            : s.active
+                              ? ui('Active', '啟用')
+                              : ui('Paused', '暫停')}
                         </td>
                         <td style={table.td}>{fmtTime(s.next_due_at)}</td>
                         <td style={table.td}>{fmtTime(s.last_spawned_at)}</td>
@@ -414,6 +418,11 @@ const AutomationPanel: React.FC<Props> = ({ lang }) => {
             {plan.clock && (
               <div style={{ fontSize: 11, color: C.sub, marginTop: 8 }}>
                 {ui('Farm clock now', '風場時鐘現在')}: {fmtTime(plan.clock)}
+                {plan.schedules.some(s => s.overdue) &&
+                  ui(
+                    '. Checked every 15 farm-clock minutes; if a turbine stays due, its three open-order slots are full.',
+                    '。每 15 分鐘（風場時鐘）看一次；一直停在到期的機組，是未結案工單已經滿三張。',
+                  )}
               </div>
             )}
           </>

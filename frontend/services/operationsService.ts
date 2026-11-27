@@ -179,6 +179,8 @@ export interface InspectionPlanSchedule {
   next_due_at: string;
   last_spawned_at: string | null;
   last_work_order_id: string | null;
+  /** 到期了還沒開單（每 15 分鐘看一次，超過就是那台機組的未結案工單滿了） */
+  overdue: boolean;
 }
 
 export interface InspectionPlanState {
