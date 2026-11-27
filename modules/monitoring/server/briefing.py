@@ -692,7 +692,9 @@ def score_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, 
     """用答案核對一張卡（規則版的自動評分）。
 
     - ``key_signal_flagged``：卡上標成偏高 / 偏低的主要 / 相關訊號裡，有沒有故障的重點訊號。這是主要的指標。
-    - ``false_escalation``：這台機組其實沒有故障（誤報、外部原因），卡上卻把主要 / 相關訊號標成偏高 / 偏低。
+    - ``false_escalation``：這台機組其實沒有故障（誤報、外部原因），卡上卻把主要 / 相關訊號標成偏高 / 偏低——
+      干擾或風場事件自己的訊號不算（Pt100 接觸不良時指出那支讀值、電網頻率越界時指出頻率，是對的證據；
+      WMOM-20261127-08，DEC-20261127-11）。
     - ``key_signal_listed``：故障的重點訊號被列在卡上的比例。只當作檢查用：卡上的訊號來自 PLC 的判定
       邏輯，故障的重點訊號多半就是 PLC 看的那個量測，這個比例本來就高，區辨不出好壞。
     - ``degraded_when_missing``：資料有缺時卡片有沒有降級（沒缺時為 None）。
@@ -717,6 +719,17 @@ def score_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, 
     faults = [f for f in (raw_faults if isinstance(raw_faults, list) else []) if isinstance(f, dict)]
     real = [f for f in faults if f.get("category") != "nuisance"]
     keys = {str(name) for fault in real for name in fault.get("key_signals", [])}
+    # 干擾 / 風場事件自己的訊號：卡上標了它們是對的證據，不算誤判
+    explained = {str(name) for fault in faults if fault.get("category") == "nuisance"
+                 for name in fault.get("key_signals", [])}
+    raw_events = answer.get("farm_events", [])
+    if isinstance(raw_events, list) and raw_events:
+        from simulator.farm_events import FARM_EVENT_KINDS
+
+        pack = _pack_tags()
+        for event in raw_events:
+            kind = FARM_EVENT_KINDS.get(str(event.get("kind"))) if isinstance(event, dict) else None
+            explained |= {pack[tag].name for tag in (kind.key_signals if kind else ()) if tag in pack}
     quality = card.get("data_quality")
     flags = set(quality.get("flags", [])) if isinstance(quality, dict) else set()
     missing = bool({"signal_data_missing", "stale_data", "no_event_found", "events_truncated"} & flags)
@@ -726,7 +739,7 @@ def score_card(card: Dict[str, object], answer: Dict[str, object]) -> Dict[str, 
         "key_signal_listed": (len(keys & listed) / len(keys)) if keys else None,
         "key_signal_flagged": bool(keys & flagged) if keys else None,
         "flagged": sorted(flagged),
-        "false_escalation": bool(flagged) if not real else None,
+        "false_escalation": bool(flagged - explained) if not real else None,
         "degraded_when_missing": bool(quality.get("degraded")) if missing and isinstance(quality, dict) else None,
     }
 

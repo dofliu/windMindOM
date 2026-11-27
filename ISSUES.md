@@ -20,7 +20,7 @@
 | done | 171 |
 | **total** | **187** |
 
-最後更新：2026-11-27（**WMOM-20261127-08 done**：故障出勤卡 階段 A——盲測版資料包離線重播、用標準答案自動評分（同一個 `build_fault_card`）；7 個範例資料包 24 次出勤：有故障的重點訊號被標出 65%（5 台以上的資料包 8/11）、沒有故障時誤判 1/7、電網事件 100% 列出同場同碼、手冊 100%；缺測 / 讀值晚到 / 重複 / 只有 10 分鐘統計四種資料條件；護欄測試，DEC-20261127-11。新開 WMOM-20261127-09（卡片認得只有 10 分鐘資料）。open 12 / in_progress 1 / deferred 2 / done 174 = 189。詳見 `work-logs/2026-11/2026-11-27-fault-card-stage-a.md`）。
+最後更新：2026-11-27（**WMOM-20261127-08 done**：故障出勤卡 階段 A——盲測版資料包離線重播、用標準答案自動評分（同一個 `build_fault_card`）；7 個範例資料包 29 次出勤：有故障的重點訊號被標出 65%（5 台以上的資料包 8/11）、沒有故障時誤判 0/12（干擾自己的訊號不算誤判）、電網事件 100% 列出同場同碼、手冊 100%；缺測 / 讀值晚到 / 重複 / 只有 10 分鐘統計四種資料條件；護欄測試，DEC-20261127-11。新開 WMOM-20261127-09（卡片認得只有 10 分鐘資料）。open 12 / in_progress 1 / deferred 2 / done 174 = 189。詳見 `work-logs/2026-11/2026-11-27-fault-card-stage-a.md`）。
 
 前次：2026-11-27（**WMOM-20261126-07 done**：風場事件（電網電壓驟降、頻率越界、風向快速變化）在即時模擬裡依機率發生——和故障產生器同一套機制、自己的亂數、固定抽樣次數，事件期間覆寫電網 / 風向、結束復原，沒有事件時讀值逐位元不變；不對外的故障紀錄每台機組記一筆 nuisance；跳機開的工單答案標出風場事件，準備卡的「同場同時同碼」與 `false_escalation` 有資料；`GET/PUT /api/operations/farm-events`、營運頁加設定卡，預設關，DEC-20261127-10。open 11 / in_progress 1 / deferred 2 / done 173 = 187。詳見 `work-logs/2026-11/2026-11-27-live-farm-events.md`）。
 
@@ -2051,7 +2051,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261127-08 — 故障出勤卡 階段 A：離線重播與自動評分
 
-- **Status**: done（2026-11-27，DEC-20261127-11：`server/briefing_replay.py`、`tools/replay_fault_cards.py`；7 個範例資料包 24 次出勤、5 種資料條件；`test_briefing_replay.py` 的護欄。詳見 `work-logs/2026-11/2026-11-27-fault-card-stage-a.md`）
+- **Status**: done（2026-11-27，DEC-20261127-11：`server/briefing_replay.py`、`tools/replay_fault_cards.py`；7 個範例資料包 29 次出勤、5 種資料條件；`test_briefing_replay.py` 的護欄。詳見 `work-logs/2026-11/2026-11-27-fault-card-stage-a.md`）
 - **Milestone**: EPIC-SF（出發前準備卡）
 - **Priority**: medium
 - **Estimate**: 1 天
@@ -2068,7 +2068,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 - **Priority**: low
 - **Estimate**: 半天
 - **Owner**: -
-- **Source**: WMOM-20261127-08 的發現：只有 10 分鐘統計時，重點訊號被標出的比例和原始資料差不多（71% vs 65%），但 79% 的卡標了資料有問題——新鮮度規則（最後一筆離截止點超過 5 分鐘就算過期）是照 10 秒資料定的。
+- **Source**: WMOM-20261127-08 的發現：只有 10 分鐘統計時，重點訊號被標出的比例和原始資料差不多（71% vs 65%），但 76% 的卡標了資料有問題——新鮮度規則（最後一筆離截止點超過 5 分鐘就算過期）是照 10 秒資料定的。
 - **Description**: 卡片知道資料的取樣間隔（`data_resolution_s`），新鮮度門檻照它放寬（例：一個統計窗＋5 分鐘），卡上標明「只有 10 分鐘資料」；加欄位升 `CARD_VERSION`、更新 `external_api_v1.md` §3.10 與前端；重播報告重跑。
 - **Depends on**: WMOM-20261127-08（done）
 

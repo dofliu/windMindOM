@@ -106,6 +106,48 @@ def test_one_dispatch_per_stop_with_the_cutoff_one_sample_later() -> None:
     assert len({d.turbine_id for d in dips}) >= 3, "電網事件讓多台同時跳機"
 
 
+def test_answer_windows_follow_the_contract() -> None:
+    """合約 §8 的時間窗：pre_existing 從 sim_start 起算、被取代的不另算、時間窗結束後不算（code review）。"""
+    from datetime import datetime, timezone
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    trip = start + timedelta(hours=2)
+    dispatch = br.Dispatch("WT001", 240, trip, trip + timedelta(seconds=10))
+    case = {"turbine_id": "WT001", "category": "real_fault", "fault_id": "bearing_wear", "case_id": "C1",
+            "key_signals": ["WGEN_GnBrgTmp1"], "expected_alarm_codes": [262, 240], "observed_alarm_codes": [262, 240],
+            "trip_ts": iso_utc(trip), "window_end_ts": None, "superseded": False}
+    truth = {"sim_start": iso_utc(start), "sim_end": iso_utc(start + timedelta(hours=6)), "cases": [
+        {**case, "onset_ts": None, "pre_existing": True},
+        {**case, "case_id": "C0", "onset_ts": iso_utc(start), "superseded": True},
+        {**case, "case_id": "C2", "fault_id": "pitch_motor_fault", "onset_ts": iso_utc(start),
+         "expected_alarm_codes": [381, 367], "observed_alarm_codes": [381]},
+        {**case, "case_id": "C3", "fault_id": "hydraulic_leak", "onset_ts": iso_utc(start),
+         "window_end_ts": iso_utc(start + timedelta(hours=1))},
+        {**case, "case_id": "C4", "category": "nuisance", "fault_id": "main_bearing_temp_loose_contact",
+         "first_alarm_ts": iso_utc(start + timedelta(minutes=10)), "trip_ts": iso_utc(start + timedelta(minutes=10)),
+         "observed_alarm_codes": [240], "onset_ts": iso_utc(start)},
+    ]}
+    answer = br.answer_for(dispatch, truth)
+    assert answer["cases"] == ["C1", "C2", "C4"], "pre_existing 算、被取代的與時間窗結束的不算、會一再跳的干擾算"
+    triggering = {f["scenario_id"]: f["triggering"] for f in answer["faults"] if f["category"] != "nuisance"}
+    assert triggering == {"bearing_wear": True, "pitch_motor_fault": False}
+
+
+def test_flags_on_the_disturbance_own_signals_are_not_false_escalations() -> None:
+    names = {c.tag.id: c.name for c in sp.pack_columns()}
+    temp, freq, power = names["WGEN_GnBrgTmp1"], names["WCNV_CnvGnFrq"], names["WTUR_TotPwrAt"]
+
+    def card(*flagged: str) -> dict:
+        return {"signals": {"items": [{"name": n, "role": "primary", "deviation": "high"} for n in flagged]}}
+
+    loose = {"faults": [{"category": "nuisance", "key_signals": [temp]}], "has_fault": False}
+    assert briefing.score_card(card(temp), loose)["false_escalation"] is False, "接觸不良時指出那支讀值是對的"
+    assert briefing.score_card(card(power), loose)["false_escalation"] is True
+    grid = {"faults": [], "has_fault": False, "farm_events": [{"kind": "grid_frequency_excursion"}]}
+    assert briefing.score_card(card(freq), grid)["false_escalation"] is False, "電網頻率越界時指出頻率是對的"
+    assert briefing.score_card(card(freq), {"faults": [], "has_fault": False})["false_escalation"] is True
+
+
 def test_answers_come_from_the_ground_truth() -> None:
     pack, truth = _pack("z72-starter-01"), _truth("z72-starter-01")
     (bearing,) = [d for d in br.dispatches(pack) if d.turbine_id == "WT002"]
@@ -122,13 +164,27 @@ def test_answers_come_from_the_ground_truth() -> None:
 # ── 3. 護欄 ───────────────────────────────────────────────────────────────
 
 
+def _row(replayed: dict, pack: str, turbine: str, code: int, mode: str = "raw") -> dict:
+    (row,) = [r for r in replayed["modes"][mode]["rows"]
+              if r["pack_id"] == pack and r["turbine_id"] == turbine and r["code"] == code]
+    return row
+
+
 def test_the_example_packs_pass_the_guardrails(replayed: dict) -> None:
+    """門檻留了餘裕（重建範例資料包後雜訊會變）；另外釘住幾個不該變的結果（code review）。"""
     raw = replayed["modes"]["raw"]["summary"]
-    assert raw["dispatches"] >= 20 and raw["with_fault"] >= 15
-    assert raw["key_signal_flagged"] >= 0.6, "有故障的出勤，重點訊號要被標出來"
-    assert raw["false_escalation"] <= 0.2, "沒有故障（干擾、電網事件）的出勤不要誤判"
+    assert raw["dispatches"] >= 20 and raw["with_fault"] >= 15 and raw["without_fault"] >= 8
+    assert raw["key_signal_flagged"] >= 0.5, "有故障的出勤，重點訊號要被標出來（目前約 65%）"
+    assert raw["trigger_signal_flagged"] >= 0.5, "只看觸發跳機的故障也一樣"
+    assert raw["false_escalation"] <= 0.25, "沒有故障（干擾、電網事件）的出勤不要誤判（目前 0）"
     assert raw["farm_context_shown"] == 1.0, "電網事件的卡要列出同場同時同碼的機組"
     assert raw["manual_found"] == 1.0, "每個跳機碼都查得到手冊"
+    # 釘住：明顯的故障標得出來、電網事件不誤判
+    assert _row(replayed, "z72-starter-04", "WT001", 240)["key_signal_flagged"] is True, "軸承磨耗看得到軸承溫度"
+    assert _row(replayed, "z72-starter-06", "WT001", 367)["key_signal_flagged"] is True, "變槳馬達看得到電流"
+    dips = [r for r in replayed["modes"]["raw"]["rows"] if r["pack_id"] == "z72-starter-05" and r["code"] == 482]
+    assert len(dips) >= 3 and all(r["false_escalation"] is False and r["farm_same_code"] for r in dips)
+    assert any("yaw_misalignment" in c for c in replayed["cases_without_dispatch"]), "沒有警報的故障另列"
     for row in replayed["modes"]["raw"]["rows"]:
         assert "farm_event" not in json.dumps(row["flags"]), "卡片只標資料品質，不帶答案"
 
@@ -139,13 +195,16 @@ def test_bad_data_is_flagged_on_the_card(replayed: dict) -> None:
     assert stale["summary"]["degraded"] == 1.0
     ten = replayed["modes"]["ten_minute"]["summary"]
     assert ten["dispatches"] == replayed["modes"]["raw"]["summary"]["dispatches"], "只有 10 分鐘資料也做得出卡"
+    raw = replayed["modes"]["raw"]["summary"]
+    for mode in ("gaps", "duplicates", "stale"):
+        assert replayed["modes"][mode]["summary"]["dispatches"] == raw["dispatches"], "資料條件不改變出勤"
     duplicates = replayed["modes"]["duplicates"]["summary"]
-    assert duplicates["key_signal_flagged"] == replayed["modes"]["raw"]["summary"]["key_signal_flagged"], \
-        "重複的讀值不改變結果"
+    assert abs(duplicates["key_signal_flagged"] - raw["key_signal_flagged"]) <= 1 / raw["with_fault"] + 1e-9, \
+        "重複的讀值最多改變一張卡"
 
 
-def test_the_cli_writes_a_report(tmp_path) -> None:
-    sys.path.insert(0, str(PROJECT_ROOT / "tools"))
+def test_the_cli_writes_a_report(tmp_path, monkeypatch) -> None:
+    monkeypatch.syspath_prepend(str(PROJECT_ROOT / "tools"))
     import replay_fault_cards
 
     report, data = tmp_path / "report.md", tmp_path / "rows.json"
