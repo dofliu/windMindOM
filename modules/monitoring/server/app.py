@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List, Optional
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from modules.cost.services.failure_rates import FailureObservations
     from modules.workflow.domain.work_order import WorkOrder, WorkOrderStatus
     from simulator.engine import WindFarmSimulator
 
@@ -61,6 +62,9 @@ async def lifespan(app: FastAPI):
     add_work_order_listener(_on_work_order)
     set_availability_provider(_availability_for_report)
     set_revenue_provider(_revenue_for_report)
+    # 成本模組的故障率回饋讀本風場的維修紀錄（WMOM-20261127-07）
+    from modules.cost.services import failure_rates as _failure_rates
+    _failure_rates.set_observation_provider(_failure_observations_for_cost)
 
     # Start WebSocket broadcast task（未選來源前 broker.get_all_turbines() 回空、不廣播）
     task = asyncio.create_task(_ws_broadcast_loop())
@@ -85,6 +89,8 @@ async def lifespan(app: FastAPI):
         set_availability_provider(None)
     if _reporting._revenue_provider is _revenue_for_report:
         set_revenue_provider(None)
+    if _failure_rates.get_observation_provider() is _failure_observations_for_cost:
+        _failure_rates.set_observation_provider(None)
     if broker._om_loop is not None:
         broker._om_loop.enabled = False
     task.cancel()
@@ -209,6 +215,22 @@ def _revenue_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Op
     return {"currency": rates.currency, "kwh_price": rates.kwh_price,
             "energy_kwh": float(farm.get("energy_kwh") or 0.0), **revenue(farm, rates),
             "fixed_costs": float(fixed["total"]), "work_order_labour": float(labour)}
+
+
+def _failure_observations_for_cost(farm_id: str) -> 'Optional[FailureObservations]':
+    """成本模組故障率回饋用的維修紀錄（WMOM-20261127-07）：正在運轉的仿真風場、從有紀錄到風場時鐘的現在。
+
+    Args:
+        farm_id: 風場 ID。
+
+    Returns:
+        ``failure_rates.FailureObservations``；不是啟用中的風場、閉環沒開或沒有運轉紀錄時是 None。
+    """
+    loop = broker._om_loop_if_enabled()
+    if loop is None or farm_id != broker._active_farm_id:
+        return None
+    observations = loop.failure_observations(*loop.history_window())
+    return observations if observations.turbine_years > 0 else None
 
 
 def _env_days(name: str, default: int, minimum: int) -> int:

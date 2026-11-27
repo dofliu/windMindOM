@@ -93,6 +93,25 @@ const AVAILABILITY = {
   ],
 };
 
+const FAILURE_RATES = {
+  start: '2000-01-01T00:00:00.000000+00:00',
+  end: '2026-11-27T12:00:00.000000+00:00',
+  turbine_years: 2.5,
+  prior_turbine_years: 14,
+  components: [
+    {
+      code: 'MDK10', name: 'MDK10 - Drive train - main shaft/bearing', modelled: true, k13_rate: 0.014,
+      repairs: 4, observed_rate: 1.6, rate: 0.2339, weight: 0.1515, scenarios: ['bearing_wear'],
+    },
+    {
+      code: 'UMD', name: 'UMD - Turbine structure / tower', modelled: false, k13_rate: 0.1512, repairs: 0,
+      observed_rate: 0, rate: 0.1512, weight: 0, scenarios: [],
+    },
+  ],
+  unmapped: { blade_icing: 2 },
+  excluded_manual: 3,
+};
+
 async function renderPage(lang: 'zh' | 'en' = 'zh') {
   await act(async () => {
     render(
@@ -109,6 +128,25 @@ describe('收支與可用率', () => {
   beforeEach(() => {
     routes['GET /api/operations/finance'] = () => ({ body: FINANCE });
     routes['GET /api/operations/availability'] = () => ({ body: AVAILABILITY });
+    routes['GET /api/operations/failure-rates'] = () => ({ body: FAILURE_RATES });
+  });
+
+  it('故障率回饋：只列模擬器會讓它壞的元件，回饋後變高的標出來', async () => {
+    await renderPage();
+    const card = await screen.findByTestId('failure-rates');
+    expect(card).toHaveTextContent('運轉 2.50 機組年');
+    expect(card).toHaveTextContent('MDK10 - Drive train - main shaft/bearing');
+    expect(card).not.toHaveTextContent('UMD');
+    expect(screen.getByText('0.234')).toBeInTheDocument();
+    expect(screen.getByText(/不是元件故障/)).toHaveTextContent('blade_icing × 2');
+    expect(card).toHaveTextContent('手動注入的故障修好了 3 筆');
+  });
+
+  it('故障率回饋讀不到時只留一行小字', async () => {
+    routes['GET /api/operations/failure-rates'] = () => ({ status: 500, body: { detail: 'boom' } });
+    await renderPage();
+    expect(await screen.findByText(/故障率回饋讀不到/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('第一次不帶時間，可用率用同一個時間窗；金額、電量、可用率、每台機組', async () => {

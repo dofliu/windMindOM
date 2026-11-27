@@ -20,7 +20,9 @@
 | done | 171 |
 | **total** | **187** |
 
-最後更新：2026-11-27（**WMOM-20261127-02 done**（第 1 點）：仿真風場的設備與固定成本——駐場技師年薪與設備年費依運轉天數攤、工單工時已含在年薪裡不另算、拆大件的修復另記吊車動員，DEC-20261127-08；收支端點、月報、營運頁同一套算法。RUL 回饋與成本表確認另開 WMOM-20261127-07。open 13 / in_progress 1 / deferred 2 / done 171 = 187。詳見 `work-logs/2026-11/2026-11-27-fixed-costs.md`）。
+最後更新：2026-11-27（**WMOM-20261127-07 done**：RUL 回饋與成本表確認——工單換掉的零件耗損從換新起算，故障產生器的發生率跟著降；本風場由工單修好的故障以可信度加權回饋 K13 故障率（先驗 14 機組年，只改模擬器有對應情境的元件），`GET /api/operations/failure-rates`、`POST /api/cost/monte-carlo/empirical`（永遠強制的主管），營運頁加故障率回饋表，DEC-20261127-09；陸域成本、修復等級、K13 元件對應共 60 列整理成確認頁，劉老師全部同意、設定檔的值不變。open 12 / in_progress 1 / deferred 2 / done 172 = 187。詳見 `work-logs/2026-11/2026-11-27-rul-feedback.md`）。
+
+前次：2026-11-27（**WMOM-20261127-02 done**（第 1 點）：仿真風場的設備與固定成本——駐場技師年薪與設備年費依運轉天數攤、工單工時已含在年薪裡不另算、拆大件的修復另記吊車動員，DEC-20261127-08；收支端點、月報、營運頁同一套算法。RUL 回饋與成本表確認另開 WMOM-20261127-07。open 13 / in_progress 1 / deferred 2 / done 171 = 187。詳見 `work-logs/2026-11/2026-11-27-fixed-costs.md`）。
 
 前次：2026-11-27（**葉片 1P 振動試算**：照「和同場比」的做法沒有效果（各台固有不平衡 ±25%、結冰讓轉速下降抵掉 1P 的增加），沒有加；改成和自己一週前比需要 8 天以上的長跑驗證，開 WMOM-20261127-06。open 13 / in_progress 1 / deferred 2 / done 170 = 186。詳見 `work-logs/2026-11/2026-11-27-blade-1p-trial.md`）。
 
@@ -2045,11 +2047,11 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261127-07 — 仿真風場收支的後續：RUL 回饋與修復等級表確認
 
-- **Status**: open
+- **Status**: done（2026-11-27，DEC-20261127-09：(1) 工單換掉的零件〔`part_of`：真故障換元件、感測器故障只換感測器〕耗損從換新起算，`FaultGenerator.record_replacement`；本風場由工單修好、產生器產生的故障以可信度加權回饋 K13 故障率〔`modules/cost/services/failure_rates.py`，先驗 14 機組年〕，`GET /api/operations/failure-rates`、`POST /api/cost/monte-carlo/empirical`，營運頁加故障率回饋表；(2) 陸域成本、修復等級、K13 元件對應〔新增 `k13_components`〕共 60 列整理成確認頁 https://claude.ai/artifact/MxC1AaPVnhaCoJrj3GvSup ，劉老師 2026-11-27 全部同意，設定檔的值不變、說明改成已確認。詳見 `work-logs/2026-11/2026-11-27-rul-feedback.md`）
 - **Milestone**: EPIC-SF
 - **Priority**: low
 - **Estimate**: 1 天
-- **Owner**: -
+- **Owner**: Claude
 - **Source**: 從 WMOM-20261127-02 拆出（第 2、3 點）。
 - **Description**: (1) 料件更換對 RUL 與蒙地卡羅參數（`freq_min/ml/max`）的回饋；(2) 修復等級對應表（`modules/cost/data/z72_repair_classes.json`）與陸域成本假設值（`modules/cost/data/z72_onshore_costs.json`：人數比例、年薪、設備年費、吊車費）請劉老師看過。
 - **Depends on**: WMOM-20261127-02（done）

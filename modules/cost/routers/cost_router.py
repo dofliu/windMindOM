@@ -9,6 +9,7 @@
 | POST   | /api/cost/forecast           | CostForecastRequest        | CostForecastResponse   |
 | POST   | /api/cost/lcoe               | LCOERequest                | LCOEResponse           |
 | POST   | /api/cost/monte-carlo        | MonteCarloRequest          | MonteCarloResponse     |
+| POST   | /api/cost/monte-carlo/empirical | EmpiricalMonteCarloRequest | MonteCarloResponse  |
 | POST   | /api/cost/var-fluct          | VarFluctRequest            | VarFluctResponse       |
 
 設計：
@@ -20,9 +21,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from modules.auth.dependencies import require_role
+from modules.auth.dependencies import require_role, require_roles
 from modules.auth.roles import Role
 from modules.cost.adapter import (
     EngineParams,
@@ -45,6 +48,8 @@ from modules.cost.schemas.cost_schemas import (
     CostForecastRequest,
     CostForecastResponse,
     DatasetMeta,
+    EmpiricalMonteCarloRequest,
+    EmpiricalRates,
     LCOERequest,
     LCOEResponse,
     MonteCarloRequest,
@@ -79,20 +84,26 @@ def _resolve_dataset(name: str, stochastic: bool = False) -> tuple[EngineParams,
         return params, meta
 
     if name.startswith("farm:"):
-        farm_id = name.removeprefix("farm:").strip()
-        if not farm_id:
-            raise HTTPException(status_code=422, detail="farm dataset 缺 farm_id（'farm:' 後沒帶值）")
-        # 阻擋 path traversal / 控制字元 / 內含空白等可疑值（farm_id 本意為 slug）
-        if any(c in farm_id for c in ("/", "\\", "\0", "..", " ", "\t", "\n")):
-            raise HTTPException(
-                status_code=422,
-                detail=f"farm_id 含無效字元（不允許 / \\ .. 空白）: {farm_id!r}",
-            )
+        farm_id = _farm_id_of(name)
         params, adapter_meta = load_engine_params_from_farm(farm_id, stochastic=stochastic)
         meta = _adapter_meta_to_schema(adapter_meta)
         return params, meta
 
     raise HTTPException(status_code=404, detail=f"Unknown dataset: {name}")
+
+
+def _farm_id_of(name: str) -> str:
+    """``"farm:{farm_id}"`` 的 farm_id；空的或含可疑字元時 422。"""
+    farm_id = name.removeprefix("farm:").strip()
+    if not farm_id:
+        raise HTTPException(status_code=422, detail="farm dataset 缺 farm_id（'farm:' 後沒帶值）")
+    # 阻擋 path traversal / 控制字元 / 內含空白等可疑值（farm_id 本意為 slug）
+    if any(c in farm_id for c in ("/", "\\", "\0", "..", " ", "\t", "\n")):
+        raise HTTPException(
+            status_code=422,
+            detail=f"farm_id 含無效字元（不允許 / \\ .. 空白）: {farm_id!r}",
+        )
+    return farm_id
 
 
 def _adapter_meta_to_schema(m: FarmDatasetMeta) -> DatasetMeta:
@@ -204,6 +215,65 @@ async def cost_monte_carlo(req: MonteCarloRequest) -> MonteCarloResponse:
         seed=req.seed,
     )
     return MonteCarloResponse(**mc_result_to_response(mc), dataset_meta=meta)
+
+
+@router.post(
+    "/monte-carlo/empirical",
+    response_model=MonteCarloResponse,
+    # 修過哪些故障來自不對外的故障紀錄：永遠強制登入的主管（WMOM-20261127-07）
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
+)
+async def cost_monte_carlo_empirical(req: EmpiricalMonteCarloRequest) -> MonteCarloResponse:
+    """本風場的維修紀錄回饋到故障率之後跑 Monte Carlo（WMOM-20261127-07，DEC-20261127-09）。
+
+    故障率＝（K13 × 先驗機組年＋修過的次數）÷（先驗機組年＋運轉機組年），只改模擬器有對應情境的元件；
+    三角分布的相對寬度不變。維修紀錄由監控的伺服器登記（``failure_rates.set_observation_provider``）。
+
+    Raises:
+        HTTPException: 422＝dataset 不是 ``farm:{farm_id}``；409＝這座風場沒有維修紀錄可以回饋。
+    """
+    from modules.cost.services.failure_rates import (
+        apply_rate_updates,
+        empirical_rates,
+        get_observation_provider,
+        unmapped_repairs,
+    )
+
+    if not req.dataset.startswith("farm:"):
+        raise HTTPException(status_code=422, detail="故障率回饋只用在風場（dataset 要是 'farm:{farm_id}'）")
+    farm_id = _farm_id_of(req.dataset)
+    provider = get_observation_provider()
+    # 維修紀錄要查資料庫、蒙地卡羅要跑一陣子：都放到背景執行緒，不卡住事件迴圈
+    observations = await asyncio.to_thread(provider, farm_id) if provider is not None else None
+    if observations is None:
+        raise HTTPException(status_code=409, detail="這座風場沒有維修紀錄可以回饋（不是正在運轉的仿真風場）")
+
+    def compute() -> MonteCarloResponse:
+        # 讀風場的成本設定用監控伺服器的 registry，和 /api/operations/failure-rates 同一份（收支守則）
+        p, adapter_meta = load_engine_params_from_farm(farm_id, stochastic=True,
+                                                       farm_registry=observations.farm_registry)
+        updates = empirical_rates(p.components, observations, req.prior_turbine_years)
+        apply_rate_updates(p.components, updates)
+        mc = run_monte_carlo(
+            wind_farm=p.wind_farm,
+            components=p.components,
+            equipment_list=p.equipment_list,
+            pm_schedules=p.pm_schedules,
+            fixed_costs=p.fixed_costs,
+            poly_lookup=p.poly_lookup,
+            n_simulations=req.n_simulations,
+            seed=req.seed,
+        )
+        empirical = EmpiricalRates(start=observations.start, end=observations.end,
+                                   turbine_years=round(observations.turbine_years, 4),
+                                   prior_turbine_years=req.prior_turbine_years,
+                                   components=[u.to_dict() for u in updates],  # type: ignore[misc]
+                                   unmapped=unmapped_repairs(observations),
+                                   excluded_manual=observations.excluded_manual)
+        return MonteCarloResponse(**mc_result_to_response(mc), dataset_meta=_adapter_meta_to_schema(adapter_meta),
+                                  empirical=empirical)
+
+    return await asyncio.to_thread(compute)
 
 
 @router.post(

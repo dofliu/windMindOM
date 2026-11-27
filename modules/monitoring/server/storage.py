@@ -1965,6 +1965,25 @@ class Storage:
         conn.execute(f"UPDATE fault_records SET {assignments} WHERE id = ?", (*fields.values(), record_id))
         conn.commit()
 
+    def repaired_fault_counts(self, start: str, end: str, origin: str = "generator") -> Dict[str, int]:
+        """一段時間內由工單修好的故障，依情境計數（WMOM-20261127-07，故障率回饋用）。
+
+        只算 ``cleared_by`` 是工單的（出題用的後門清掉的不算）；時間看修好的時間（``cleared_ts``，風場時鐘）。
+
+        Args:
+            start: 時間下限（含，``iso_utc``）。
+            end: 時間上限（不含）。
+            origin: 故障從哪裡來——``generator``（故障產生器）或 ``manual``（手動注入的題目）。
+
+        Returns:
+            情境 ID → 次數。
+        """
+        rows = self._get_conn().execute(
+            "SELECT scenario_id, COUNT(*) FROM fault_records WHERE cleared_by LIKE 'work_order:%' "
+            "AND origin = ? AND cleared_ts >= ? AND cleared_ts < ? GROUP BY scenario_id",
+            (origin, start, end)).fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
+
     def fault_records(self, turbine_id: Optional[str] = None, open_only: bool = False,
                       limit: int = 500, newest_first: bool = False) -> List[Dict]:
         """故障紀錄。
