@@ -75,6 +75,54 @@ async def availability(
     return {"start": iso_utc(start_dt), "end": iso_utc(end_dt), "enabled": loop.enabled, **result}
 
 
+@router.get(
+    "/finance",
+    # 收支是管理端的資料：用永遠強制的主管權限（同故障紀錄）
+    dependencies=[Depends(require_roles(Role.SUPERVISOR))],
+)
+async def finance(
+    start: Annotated[Optional[str], Query(max_length=40, description="ISO 8601；預設 end 往前 30 天")] = None,
+    end: Annotated[Optional[str], Query(max_length=40, description="ISO 8601；預設風場時鐘的現在")] = None,
+) -> Dict[str, object]:
+    """一段時間的收支（WMOM-20260504-11）：發電收入、停機少收的錢、帳本的支出、淨額。
+
+    收入與少收的錢由運轉狀態紀錄（同可用率）乘上電價；支出是成本帳本裡這段時間的人工、料件、設備。時間看
+    風場時鐘。運轉狀態紀錄以小時為單位，所以 start / end 都往下取整到整點，兩邊用同一個時間窗。
+
+    Args:
+        start: 時間下限（含）。
+        end: 時間上限（不含）。
+
+    Returns:
+        ``{"start", "end", "enabled", "rates", "energy_kwh", "revenue", "lost_revenue", "expenses", "net",
+        "turbines"}``。
+    """
+    broker = get_broker()
+    end_dt = _moment("end", end) if end else (broker.live_clock() or utc_now()) + timedelta(hours=1)
+    start_dt = _moment("start", start) if start else end_dt - timedelta(days=30)
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
+    if end_dt <= start_dt:
+        raise HTTPException(422, "end 要晚於 start（取整到整點之後）")
+    if end_dt - start_dt > MAX_RANGE:
+        raise HTTPException(422, "一次最多查 400 天")
+    farm_id = broker._active_farm_id
+    if not farm_id:
+        raise HTTPException(409, "目前沒有啟用的風場")
+    from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
+    from modules.cost.services.simulation_costs import farm_rates, summarize
+
+    def compute() -> Dict[str, object]:
+        loop = broker.om_loop
+        expenses = get_cost_ledger_repository(str(broker.storage.db_path)).summary_by_category(
+            farm_id=farm_id, from_date=start_dt, to_date=end_dt)
+        return {"enabled": loop.enabled,
+                **summarize(loop.availability(start_dt, end_dt), expenses, farm_rates(farm_id, broker.farm_registry))}
+
+    result = await asyncio.to_thread(compute)
+    return {"start": iso_utc(start_dt), "end": iso_utc(end_dt), **result}
+
+
 _CARD_FIELDS = ("work_order_id", "business_key", "turbine_id", "created_at", "data_cutoff", "card")
 
 

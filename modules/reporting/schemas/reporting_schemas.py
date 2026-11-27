@@ -74,6 +74,19 @@ class AvailabilityMetrics(BaseModel):
     )
 
 
+class GenerationRevenue(BaseModel):
+    """月報的發電收入（WMOM-20260504-11）：由運轉狀態紀錄 × 電價，只有仿真風場（即時模擬）有。"""
+
+    currency: str
+    kwh_price: float
+    energy_kwh: float
+    revenue: float = Field(description="發電收入")
+    lost_planned: float = Field(description="計畫停機少收的錢")
+    lost_unplanned: float = Field(description="非計畫停機少收的錢")
+    operating_expense: float = Field(description="帳本裡的人工＋料件＋設備（estimated＋confirmed）")
+    net: float = Field(description="發電收入 − 運維支出")
+
+
 class KpiHighlights(BaseModel):
     """月報摘要 KPI（首頁第二區塊）。"""
 
@@ -103,6 +116,10 @@ class MonthlyReportData(BaseModel):
     cost: CostSummary
     work_orders: WorkOrderSummary
     availability: AvailabilityMetrics
+    generation: Optional[GenerationRevenue] = Field(
+        default=None,
+        description="發電收入與淨額；沒有運轉狀態紀錄（非仿真風場、閉環沒開）時為 None",
+    )
     notable_events: list["NotableEvent"] = Field(
         default_factory=list,
         description="當月重大事件 timeline（高優先 WO / 簽核 reject 等）",

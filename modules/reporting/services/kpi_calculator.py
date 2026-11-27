@@ -41,6 +41,7 @@ from modules.reporting.schemas.reporting_schemas import (
     AvailabilityMetrics,
     CostBreakdownItem,
     CostSummary,
+    GenerationRevenue,
     KpiHighlights,
     MonthlyReportData,
     NotableEvent,
@@ -255,6 +256,38 @@ AvailabilityProvider = Callable[
 ]
 
 
+# 發電收入的 provider：（風場, 起, 迄）→ {"currency", "kwh_price", "energy_kwh", "revenue", "lost_planned",
+# "lost_unplanned"}；沒有資料回 None（WMOM-20260504-11）
+RevenueProvider = Callable[[str, datetime, datetime], Optional[dict]]
+
+# 算進運維支出的帳本類別（revenue_loss 是少收的錢，不是支出）
+_EXPENSE_CATEGORIES = (CostLedgerCategory.MATERIAL, CostLedgerCategory.LABOUR, CostLedgerCategory.EQUIPMENT)
+
+
+def compute_generation(
+    *,
+    farm_id: str,
+    period_start: datetime,
+    period_end: datetime,
+    cost: CostSummary,
+    provider: Optional[RevenueProvider],
+) -> Optional[GenerationRevenue]:
+    """發電收入、停機少收的錢與淨額；沒有 provider 或沒有資料時回 None。"""
+    if provider is None:
+        return None
+    result = provider(farm_id, period_start, period_end)
+    if result is None:
+        return None
+    expense = sum((float(item.total) for item in cost.by_category
+                   if item.category in {c.value for c in _EXPENSE_CATEGORIES}), 0.0)
+    revenue = float(result["revenue"])
+    return GenerationRevenue(
+        currency=str(result["currency"]), kwh_price=float(result["kwh_price"]),
+        energy_kwh=float(result["energy_kwh"]), revenue=revenue,
+        lost_planned=float(result["lost_planned"]), lost_unplanned=float(result["lost_unplanned"]),
+        operating_expense=round(expense, 2), net=round(revenue - expense, 2))
+
+
 def compute_availability(
     *,
     farm_id: str,
@@ -401,6 +434,7 @@ def compute_monthly_report_data(
     farm_name: Optional[str] = None,
     availability_provider: Optional[AvailabilityProvider] = None,
     notable_event_limit: int = 10,
+    revenue_provider: Optional[RevenueProvider] = None,
 ) -> MonthlyReportData:
     """A8 主入口 — 拼出整份月報結構化資料（給 render 用）。
 
@@ -449,5 +483,7 @@ def compute_monthly_report_data(
         cost=cost,
         work_orders=work_orders,
         availability=availability,
+        generation=compute_generation(farm_id=farm_id, period_start=period_start, period_end=period_end,
+                                      cost=cost, provider=revenue_provider),
         notable_events=notable_events,
     )
