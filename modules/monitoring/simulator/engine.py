@@ -649,6 +649,8 @@ class WindFarmSimulator:
         # 的 borrow-corpse 隱患）。stop() 會清此旗標以保留「關閉時中止批次」的語意。
         self._bulk_running = True
         self.bulk_runs += 1
+        # 實測風況序列（replay）從批次的第一步重新開始播：同樣的設定產生同樣的批次，不看 Live 跑了多久
+        self.wind_model.restart_measured_replay()
         prev_on_fault_tripped = self._on_fault_tripped
         self._on_fault_tripped = on_fault_tripped
         # 狀態轉換偵測的前一個 WTUR_TurSt（第一個子步只建立基準、不出事件）

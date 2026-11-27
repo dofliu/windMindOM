@@ -316,6 +316,17 @@ async def clear_wind():
     return {"status": "ok", "mode": "auto"}
 
 
+def _farm_timezone(b) -> str:
+    """目前風場的時區：模擬器的、否則風場設定的、都沒有就是台北。"""
+    if b.simulator is not None:
+        return b.simulator.wind_model.site_timezone_name
+    try:
+        farm = b.farm_registry.get_farm(b._active_farm_id) if b._active_farm_id else None
+    except Exception:  # noqa: BLE001  讀不到就用預設
+        farm = None
+    return str(getattr(farm, "timezone", None) or "Asia/Taipei")
+
+
 def _applied_wind_profile(status: dict) -> Optional[str]:
     """情境記下的「實際套用的風況」：profile 名稱；自動為 ``auto``；依實測序列為 None。"""
     if status.get("profile"):
@@ -344,10 +355,13 @@ async def import_wind_series(req: WindSeriesImportRequest):
     if b.storage is None:
         raise HTTPException(400, "目前沒有啟用的風場")
     sim = b.simulator
-    timezone = req.timezone or (sim.wind_model.site_timezone_name if sim else "Asia/Taipei")
+    timezone = req.timezone or _farm_timezone(b)
     hub = req.hubHeightM
     if hub is None and req.heightM is not None and sim is not None and sim.turbines:
+        # 各機組輪轂高度不同時取第一台（同一座風場通常是同一型）
         hub = float(next(iter(sim.turbines.values())).spec.hub_height)
+    if req.heightM is not None and hub is None:
+        raise HTTPException(422, "給了量測高度，但不知道輪轂高度：請給 hubHeightM，或先啟動即時模擬")
     try:
         series = await asyncio.to_thread(
             parse_csv, req.csv, columns=req.columns, timezone_name=timezone, height_m=req.heightM,
@@ -401,7 +415,7 @@ async def apply_wind_series(series_id: int, req: WindSeriesApplyRequest):
     stored = b.storage.get_wind_series(series_id)
     if stored is None:
         raise HTTPException(404, "找不到這份序列")
-    series = MeasuredWindSeries.from_npz(stored["data"], stored["summary"])
+    series = await asyncio.to_thread(MeasuredWindSeries.from_npz, stored["data"], stored["summary"])
     try:
         playback = MeasuredWindPlayback(series=series, series_id=series_id, name=stored["name"],
                                         alignment=req.alignment, at_end=req.atEnd,

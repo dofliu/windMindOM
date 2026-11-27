@@ -63,15 +63,33 @@ def test_parse_detects_columns_and_reads_naive_times_in_the_farm_time_zone() -> 
 
 
 def test_parse_cleans_bad_values_and_reports_them() -> None:
-    rows = [f"{(T0 + timedelta(minutes=10 * i)).isoformat()},{v},250,8,0.1"
-            for i, v in enumerate(["8", "-3", "", "200", "9"])]
+    speeds = ["8", "-3", "", "200"] + ["9"] * 26
+    rows = [f"{(T0 + timedelta(minutes=10 * i)).isoformat()},{v},250,8,0.1" for i, v in enumerate(speeds)]
     rows.append(rows[0])          # 重複的時間
     rows.insert(2, "not-a-time,8,250,8,0.1")
     series = parse_csv(_csv(rows), timezone_name="UTC")
     summary = series.summary
-    assert summary["rows"] == 5 and summary["duplicates_dropped"] == 1 and summary["unreadable_times"] == 1
+    assert summary["rows"] == 30 and summary["duplicates_dropped"] == 1 and summary["unreadable_times"] == 1
     assert summary["out_of_range"] == {"wind_speed": 2} and summary["missing"]["wind_speed"] == 3
     assert np.isnan(series.values["wind_speed"][1:4]).all()
+    assert summary["warnings"] == [], "零星超出範圍不警告"
+
+
+def test_parse_rejects_a_file_whose_times_are_mostly_unreadable() -> None:
+    """日在前（5/1/2024）讀不懂：超過 5% 的列讀不懂就整份不收，不是悄悄丟掉。"""
+    rows = [f"{(T0 + timedelta(minutes=10 * i)).isoformat()},8" for i in range(20)]
+    rows += [f"{d}/3/2026 08:00,8" for d in range(13, 18)]
+    with pytest.raises(WindSeriesError, match="年在前"):
+        parse_csv(_csv(rows, "timestamp,wind_speed"), timezone_name="UTC")
+
+
+def test_parse_reads_common_export_layouts() -> None:
+    """日期與時間分兩欄、沒補零的斜線日期帶秒、分號分隔、單位不對時警告。"""
+    split = "Date;Time;WS;Pressure\n2026/3/1;0:00:00;8;101300\n2026/3/1;0:10:00;9;101250\n2026/3/1;0:20:00;10;101200\n"
+    series = parse_csv(split, timezone_name="UTC")
+    assert series.times[0] == T0.timestamp() and series.times[2] - series.times[0] == 1200
+    assert "pressure_hpa" not in series.values, "氣壓用 Pa：全部超出範圍"
+    assert series.summary["warnings"] and "pressure_hpa" in series.summary["warnings"][0]
 
 
 def test_parse_scales_the_wind_speed_to_hub_height() -> None:
@@ -138,6 +156,16 @@ def test_what_happens_after_the_series_ends(at_end: str) -> None:
         assert after == pytest.approx(15.0)
     else:
         assert after is None
+
+
+def test_loop_seam_does_not_bridge_a_quantity_missing_at_the_edges() -> None:
+    rows = [f"{(T0 + timedelta(minutes=10 * i)).isoformat()},8,{250 if i < 20 else ''},8,0.1" for i in range(60)]
+    series = parse_csv(_csv(rows), timezone_name="UTC", max_gap_minutes=60)
+    playback = MeasuredWindPlayback(series=series)
+    playback.anchor(0.0)
+    seam = series.end - series.start + 300
+    assert playback.value("wind_speed", seam) == pytest.approx(8.0)
+    assert playback.value("wind_direction", seam) is None, "風向最後 6 小時都缺：接縫不接，回到模型"
 
 
 def test_replay_offset_and_absolute_alignment() -> None:
@@ -222,6 +250,45 @@ def test_manual_settings_take_precedence_and_clear_returns_to_the_model() -> Non
         "停掉之後就是模型的風況"
 
 
+def test_apply_and_clear_before_the_next_step_both_take_effect_in_order() -> None:
+    """API 執行緒連續兩次設定（套用又停掉）：兩個都依序套用，不會有一個被蓋掉（code review）。"""
+    model = WindEnvironmentModel(seed=2)
+    _steps(model, T0, 10)
+    model.set_measured(MeasuredWindPlayback(series=_ramp_series()))
+    model.clear_measured()
+    assert model.get_status()["mode"] == "auto", "最後一個待套用的是停掉"
+    _steps(model, T0 + timedelta(seconds=10), 5)
+    assert model.measured is None and not model._measured_changes
+    model.set_measured(MeasuredWindPlayback(series=_ramp_series(), at_end="hold"))
+    model.set_measured(MeasuredWindPlayback(series=_ramp_series(), at_end="auto"))
+    _steps(model, T0 + timedelta(seconds=15), 1)
+    assert model.measured is not None and model.measured.at_end == "auto"
+
+
+def test_a_batch_replays_the_series_from_its_own_start(monkeypatch) -> None:
+    """即時模擬已經播了一段的序列，批次裡從序列的開頭重新播：批次播到序列的哪裡不看 Live 跑了多久（code review）。"""
+    import simulator.engine as engine_mod
+
+    batch_start = T0 + timedelta(days=30)
+    monkeypatch.setattr(engine_mod, "utc_now", lambda: batch_start)
+    anchors = []
+    for live_seconds in (10, 400):
+        sim = WindFarmSimulator(turbine_count=2)
+        sim.wind_model.set_measured(MeasuredWindPlayback(series=_ramp_series()))
+        for i in range(live_seconds):
+            sim._run_one_step(T0 + timedelta(seconds=i), 1.0)
+        assert sim.wind_model.measured is not None and sim.wind_model.measured.anchor_sim == T0.timestamp()
+        seen: List[float] = []
+        sim.generate_bulk(0.05, time_step=10.0, callback=lambda rows: seen.append(
+            sim.wind_model.measured.value(  # type: ignore[union-attr]
+                "wind_speed", datetime.fromisoformat(str(rows[0]["timestamp"])).timestamp())))
+        anchor = sim.wind_model.measured.anchor_sim
+        assert anchor is not None and batch_start.timestamp() <= anchor < batch_start.timestamp() + 60
+        anchors.append(anchor)
+        assert seen[0] == pytest.approx(5.0, abs=0.01), "批次的第一步在序列的開頭"
+    assert anchors[0] == anchors[1]
+
+
 def test_playback_survives_a_checkpoint_round_trip() -> None:
     sim = WindFarmSimulator(turbine_count=2)
     sim.wind_model.set_measured(MeasuredWindPlayback(series=_ramp_series()))
@@ -292,6 +359,13 @@ def test_api_import_apply_and_clear(tmp_path, monkeypatch) -> None:
     with pytest.raises(HTTPException) as broken:
         asyncio.run(config_router.import_wind_series(WindSeriesImportRequest(name="x", csv="a,b\n1,2")))
     assert broken.value.status_code == 422
+    broker.simulator = None
+    with pytest.raises(HTTPException) as no_hub:
+        asyncio.run(config_router.import_wind_series(
+            WindSeriesImportRequest(name="x", csv=_csv(rows), heightM=10)))
+    assert no_hub.value.status_code == 422 and "輪轂" in no_hub.value.detail, "不能換算時不悄悄當成換算過"
+    broker.simulator = WindFarmSimulator(turbine_count=2)
+    asyncio.run(config_router.apply_wind_series(made["id"], WindSeriesApplyRequest()))
     asyncio.run(config_router.clear_wind())
     broker.simulator._run_one_step(T0, 1.0)
     assert broker.simulator.wind_model.get_status()["mode"] == "auto", "回到自動：實測序列也停"

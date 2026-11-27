@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -26,11 +27,16 @@ import numpy as np
 
 from simulator.time_utils import site_timezone
 
-# 一份序列最多幾筆（10 分鐘一筆約 5.7 年；存檔每 30 秒寫一次，陣列不能太大）
-MAX_ROWS = 300_000
+# 一份序列最多幾筆（10 分鐘一筆約 3 年）：播放中的序列跟著即時模擬每 30 秒存檔一次，值用 float32，
+# 六個量全有時約 3.8 MB
+MAX_ROWS = 160_000
+# 讀不懂的時間超過這個比例就整份不收（多半是格式不對，不是零星的壞列）
+MAX_UNREADABLE_FRACTION = 0.05
+# 一個量超出合理範圍的筆數超過這個比例：多半是單位不對（例：氣壓用 Pa、氣溫用 K、TI 用百分比、風速用 km/h）
+UNIT_WARNING_FRACTION = 0.5
 # 欄位 → 常見的欄名（小寫比對）
 COLUMN_ALIASES: Dict[str, Tuple[str, ...]] = {
-    "time": ("timestamp", "time", "datetime", "date_time", "date", "ts"),
+    "time": ("timestamp", "datetime", "date_time", "ts", "time", "date"),
     "wind_speed": ("wind_speed", "windspeed", "ws", "vw", "speed", "wind_speed_mean", "ws_mean"),
     "wind_direction": ("wind_direction", "winddirection", "wd", "dir", "direction", "wind_dir"),
     "ambient_temp": ("ambient_temp", "temperature", "temp", "air_temp", "t_air"),
@@ -101,7 +107,7 @@ class MeasuredWindSeries:
         """由 :meth:`to_npz` 的結果還原。"""
         with np.load(io.BytesIO(data)) as loaded:
             times = loaded["times"].astype(np.float64)
-            values = {name[2:]: loaded[name].astype(np.float64) for name in loaded.files if name.startswith("v_")}
+            values = {name[2:]: loaded[name].astype(np.float32) for name in loaded.files if name.startswith("v_")}
             step_s, max_gap_s = (float(x) for x in loaded["meta"])
         return cls(times=times, values=values, step_s=step_s, max_gap_s=max_gap_s, summary=dict(summary or {}))
 
@@ -142,6 +148,12 @@ class MeasuredWindSeries:
         if quantity == "wind_direction":
             return _blend_direction(a, b, w)
         return a + (b - a) * w
+
+    def edges_are_close(self, quantity: str) -> bool:
+        """這個量的第一筆 / 最後一筆有效值離序列的頭 / 尾不超過 ``max_gap_s``（循環的接縫才接得起來）。"""
+        times, _ = self._valid(quantity)
+        return bool(len(times)) and (times[0] - self.start <= self.max_gap_s) and (
+            self.end - times[-1] <= self.max_gap_s)
 
     def first_value(self, quantity: str) -> Optional[float]:
         if quantity not in self.values:
@@ -231,9 +243,9 @@ class MeasuredWindPlayback:
             return None
         series = self.series
         if t > series.end:
-            # 循環播放的接縫：最後一筆到第一筆之間（一個取樣間隔）內插
+            # 循環播放的接縫：最後一筆到第一筆之間（一個取樣間隔）內插。這個量在序列頭尾缺太久時不接
             last, first = series.last_value(quantity), series.first_value(quantity)
-            if last is None or first is None:
+            if last is None or first is None or not series.edges_are_close(quantity):
                 return None
             w = (t - series.end) / series.step_s
             if quantity == "wind_direction":
@@ -277,14 +289,24 @@ def _resolve_columns(header: Sequence[str], columns: Optional[Mapping[str, str]]
     return out
 
 
+_LOOSE_TIME = re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?)?$")
+
+
 def _parse_time(text: str, tz) -> float:
+    """年在前的時間：ISO 8601（可帶時區、``Z``）、``2024/1/5 0:00:00`` 這種沒補零的寫法。日在前的不收。"""
     value = text.strip()
     if not value:
         raise ValueError("空的時間")
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
     try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00").replace("/", "-"))
+        moment = datetime.fromisoformat(value)
     except ValueError:
-        moment = datetime.strptime(value, "%Y-%m-%d %H:%M")
+        match = _LOOSE_TIME.match(value)
+        if match is None:
+            raise
+        year, month, day, hour, minute, second = (int(x) if x else 0 for x in match.groups())
+        moment = datetime(year, month, day, hour, minute, second)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=tz)
     return moment.timestamp()
@@ -327,12 +349,19 @@ def parse_csv(text: str, *, columns: Optional[Mapping[str, str]] = None, timezon
         raise WindSeriesError("max_gap_minutes 要大於 0")
     if not (0.0 <= shear_exponent <= 0.6):
         raise WindSeriesError("shear_exponent 要在 0 到 0.6 之間")
-    reader = csv.reader(io.StringIO(text.lstrip("﻿")))
+    text = text.lstrip("\ufeff")
+    first_line = text.split("\n", 1)[0]
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","   # 歐洲的 Excel 常用分號
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     try:
         header = next(reader)
     except StopIteration as exc:
         raise WindSeriesError("檔案是空的") from exc
     index = _resolve_columns(header, columns)
+    # 日期與時間分成兩欄（測風塔的匯出常這樣）：沒指定時間欄、自動找到的是 time、又有 date 欄時合起來讀
+    lowered = [h.strip().lower() for h in header]
+    date_col = lowered.index("date") if (not (columns and columns.get("time")) and "date" in lowered
+                                         and lowered[index["time"]] == "time") else None
     rows: List[Tuple[float, Dict[str, float]]] = []
     bad_time = 0
     for line_no, row in enumerate(reader, start=2):
@@ -341,12 +370,15 @@ def parse_csv(text: str, *, columns: Optional[Mapping[str, str]] = None, timezon
         if len(rows) >= MAX_ROWS:
             raise WindSeriesError(f"超過 {MAX_ROWS} 筆（10 分鐘一筆約 5.7 年）；請分段匯入")
         try:
-            t = _parse_time(row[index["time"]], tz)
+            cell = row[index["time"]]
+            if date_col is not None:
+                cell = f"{row[date_col].strip()} {cell.strip()}"
+            t = _parse_time(cell, tz)
         except (ValueError, IndexError):
             bad_time += 1
             if bad_time > 10 and not rows:
-                cell = row[index["time"]] if index["time"] < len(row) else ""
-                raise WindSeriesError(f"第 {line_no} 列的時間讀不懂：{cell!r}")
+                shown = row[index["time"]] if index["time"] < len(row) else ""
+                raise WindSeriesError(f"第 {line_no} 列的時間讀不懂：{shown!r}（要年在前，例：2026-03-01 08:00）")
             continue
         values: Dict[str, float] = {}
         for key, col in index.items():
@@ -359,6 +391,9 @@ def parse_csv(text: str, *, columns: Optional[Mapping[str, str]] = None, timezon
         rows.append((t, values))
     if not rows:
         raise WindSeriesError("沒有讀到任何一筆")
+    if bad_time > MAX_UNREADABLE_FRACTION * (len(rows) + bad_time):
+        raise WindSeriesError(f"{bad_time} 列的時間讀不懂（超過 {MAX_UNREADABLE_FRACTION:.0%}）；時間要年在前，"
+                              "例：2026-03-01 08:00 或 2026-03-01T08:00:00+08:00")
     rows.sort(key=lambda item: item[0])
     times_list: List[float] = []
     kept: List[Dict[str, float]] = []
@@ -382,6 +417,12 @@ def parse_csv(text: str, *, columns: Optional[Mapping[str, str]] = None, timezon
             out_of_range[key] = int(bad.sum())
             column[bad] = math.nan
         raw[key] = column
+    warnings: List[str] = []
+    for key, count in out_of_range.items():
+        present = int((~np.isnan(raw[key])).sum()) + count
+        if present and count > UNIT_WARNING_FRACTION * present:
+            lo, hi = VALID_RANGES[key]
+            warnings.append(f"{key}：{count}/{present} 筆超出 {lo:g}–{hi:g}，單位可能不對（已當成缺值）")
     values: Dict[str, np.ndarray] = {}
     for key in ("wind_speed", "wind_direction", "ambient_temp", "humidity", "pressure_hpa"):
         if key in raw and not np.isnan(raw[key]).all():
@@ -428,5 +469,8 @@ def parse_csv(text: str, *, columns: Optional[Mapping[str, str]] = None, timezon
         "wind_speed_mean": round(float(np.nanmean(values["wind_speed"])), 3),
         "wind_speed_max": round(float(np.nanmax(values["wind_speed"])), 3),
         "timezone": timezone_name,
+        "warnings": warnings,
     }
+    # 值用 float32（播放中的序列跟著存檔）；時間要 float64（epoch 秒）
+    values = {key: column.astype(np.float32) for key, column in values.items()}
     return MeasuredWindSeries(times=times, values=values, step_s=step_s, max_gap_s=max_gap_s, summary=summary)

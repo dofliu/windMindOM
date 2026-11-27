@@ -36,11 +36,14 @@ the API thread never leaves half a change for the Live thread to read.
 """
 
 import math
+from collections import deque
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
 
 from simulator.time_utils import DEFAULT_SITE_TIMEZONE, site_timezone, to_site_naive, to_utc
+from dataclasses import replace
+
 from simulator.wind_series import MeasuredWindPlayback
 
 
@@ -158,7 +161,9 @@ class WindEnvironmentModel:
 
         # 實測風況序列（WMOM-20261125-07）：套用中的、待套用的變更、上一步輸出的基準風速（切換時從它漸變）
         self._measured: Optional[MeasuredWindPlayback] = None
-        self._measured_pending: Optional[_MeasuredChange] = None
+        # API 執行緒 append、Live 執行緒 popleft（deque 的這兩個操作是原子的）：先後兩次設定都會依序套用，
+        # 不會有一方把另一方剛放進來的變更蓋掉
+        self._measured_changes: deque = deque()
         self._last_base: Optional[float] = None
 
     def set_site_timezone(self, name: str) -> None:
@@ -211,12 +216,23 @@ class WindEnvironmentModel:
         Args:
             playback: 序列與播放方式；開始播的時刻由下一步的模擬時間定。
         """
-        self._measured_pending = _MeasuredChange(playback)
+        self._measured_changes.append(_MeasuredChange(playback))
 
     def clear_measured(self) -> None:
-        """停止實測序列，回到模型的風況（下一步套用、漸變過去）。沒有在播時不做事。"""
-        if self._measured is not None or self._measured_pending is not None:
-            self._measured_pending = _MeasuredChange(None)
+        """停止實測序列，回到模型的風況（下一步套用、漸變過去）。沒有在播、也沒有待套用的時不做事。"""
+        if self._measured is not None or self._measured_changes:
+            self._measured_changes.append(_MeasuredChange(None))
+
+    def restart_measured_replay(self) -> None:
+        """批次開始時：``replay`` 的序列從批次的第一步重新開始播（開始的時刻改由下一步的模擬時間定）。
+
+        即時模擬裡套用的序列已經用 Live 的時間定了開始的時刻；不重新定的話，批次裡播到序列的哪裡要看 Live
+        跑了多久，同樣的設定產生的批次就不同。批次前後 Live 的狀態會存檔 / 還原，這裡改了不影響 Live。
+        """
+        playback = self._measured
+        if playback is not None and playback.alignment == "replay":
+            # 換一個新的物件（Live 的那一個會在批次後隨狀態還原），開始的時刻由批次的第一步定（_resolve_pending）
+            self._measured = replace(playback, anchor_sim=None)
 
     @property
     def measured(self) -> Optional[MeasuredWindPlayback]:
@@ -299,10 +315,14 @@ class WindEnvironmentModel:
         }
 
     def _measured_status(self) -> Optional[dict]:
-        pending = self._measured_pending
+        try:
+            pending: Optional[_MeasuredChange] = self._measured_changes[-1]   # 最後一個待套用的變更
+        except IndexError:
+            pending = None
         if pending is not None:
             return {**pending.playback.status(), "pending": True} if pending.playback is not None else None
-        return {**self._measured.status(), "pending": False} if self._measured is not None else None
+        current = self._measured   # 只讀一次：Live 執行緒可能同時把它換掉
+        return {**current.status(), "pending": False} if current is not None else None
 
     def _begin_transition(self, target: float) -> None:
         """從目前的風況開始漸變到 ``target``（m/s）。
@@ -340,15 +360,20 @@ class WindEnvironmentModel:
         if self._profile_start_pending:
             self._profile_start_pending = False
             self._profile_start_time = ts_utc
-        change = self._measured_pending
-        if change is not None:
-            # 實測序列的開始 / 停止：一次指派進來，這裡一次套用。沒有手動設定、也沒有進行中的漸變時，從上一步
-            # 輸出的風速漸變到新的來源（有手動設定時新的來源暫時看不到，不必漸變）
-            self._measured_pending = None
+        current = self._measured
+        if current is not None and current.anchor_sim is None:
+            current.anchor(ts_utc.timestamp())   # 批次重新開始播（restart_measured_replay）：從這一步開始
+        changes = self._measured_changes
+        while changes:
+            # 實測序列的開始 / 停止：依放進來的順序一個一個套用。沒有手動設定時，從上一步輸出的風速漸變到新的
+            # 來源（進行中的漸變也從現在的風速重新開始，免得終點突然換成新來源的值；有手動設定時新的來源暫時
+            # 看不到，不必漸變）
+            change = changes.popleft()
             if change.playback is not None:
                 change.playback.anchor(ts_utc.timestamp())
-            if not self._manual() and self._last_base is not None and self._transition_start is None:
+            if not self._manual() and self._last_base is not None:
                 self._transition_from = self._last_base
+                self._transition_from_pending = False
                 self._transition_to = None
                 self._transition_start = self._elapsed_real
             self._measured = change.playback
