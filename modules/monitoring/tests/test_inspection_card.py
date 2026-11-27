@@ -178,3 +178,63 @@ def test_preventive_orders_get_the_same_card_and_the_score_endpoint_dispatches(f
     assert body["card"]["kind"] == "routine_inspection" and "answer" not in body
     scored = asyncio.run(ops.work_order_briefing_score(str(order.id), farm_id=FARM))
     assert set(scored["score"]) >= {"moved_up", "flagged", "false_attention", "fault_items"}
+
+
+# ── 4. code review 修正 ──────────────────────────────────────────────────
+
+
+def test_a_turbine_that_was_mostly_stopped_is_not_compared_with_the_farm(farm: Farm) -> None:
+    """停機 / 維修中的機組轉速、溫度本來就和發電中的不一樣：量測不當證據，不會整排都標注意。"""
+    farm.drive_slow(120)
+    farm.model("WT002").cmd_service(True)
+    farm.drive_slow(600)
+    stored = _inspect(farm, "WT002")
+    card = stored["card"]
+    assert card["signals"]["own_producing_fraction"] < 0.5
+    assert "own_not_producing" in card["data_quality"]["flags"] and card["data_quality"]["degraded"] is True
+    assert not any(e["type"] == "signal" for item in card["checklist"]["items"] for e in item["evidence"])
+    assert briefing.score_any_card(card, stored["answer"])["false_attention"] is False
+
+
+def test_open_corrective_orders_count_even_beyond_the_listed_ten(farm: Farm) -> None:
+    from datetime import datetime, timezone
+
+    farm.drive_slow(60)
+    old = farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.CORRECTIVE, title="x",
+                           description="", source_alarm_code="417")
+    inspection = farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.INSPECTION, title="定檢",
+                                  description="")
+    clock = farm.broker.live_clock() or datetime.now(timezone.utc)
+    kwargs = dict(storage=farm.broker.storage, history=farm.broker.live_history, work_order=inspection,
+                  turbine_id="WT001", turbines=list(farm.broker.simulator.turbines), cutoff=clock)
+    without = briefing.build_inspection_card(**kwargs, past_work_orders=[])
+    assert not _entry(without, "transformer")["attention"], "只看列出來的工單：漏掉"
+    card = briefing.build_inspection_card(**kwargs, past_work_orders=[], open_work_orders=[old, inspection])
+    assert _entry(card, "transformer")["evidence"] == [
+        {"type": "open_work_order", "business_key": old.business_key, "source_alarm_code": 417,
+         "status": old.status.value}]
+
+
+def test_scoring_uses_the_items_reached_by_the_expected_codes() -> None:
+    """超速的部件是變槳，但 351 依量測歸在轉速量測；原訂排第一的項目沒辦法再往前。"""
+    def item(item_id: str, position: int, default: int, attention: bool) -> Dict[str, object]:
+        return {"id": item_id, "position": position, "default_position": default, "attention": attention}
+
+    card = {"checklist": {"items": [item("rotor_speed", 1, 8, True), item("converter_cooling", 2, 1, False),
+                                    item("pitch", 10, 10, False)]}}
+    overspeed = {"faults": [{"scenario_id": "generator_overspeed", "component": "pitch_control_system",
+                             "category": "real_fault", "severity": 0.4, "tripped": False}], "has_fault": True}
+    score = briefing.score_inspection_card(card, overspeed)
+    assert score["fault_items"][0]["items"] == ["pitch", "rotor_speed"]
+    assert score["fault_items"][0]["item"] == "rotor_speed" and score["flagged"] is True and score["moved_up"] is True
+    cooling = {"faults": [{"scenario_id": "converter_cooling_pump_wear", "component": "converter_cooling_system",
+                           "category": "real_fault"}], "has_fault": True}
+    assert briefing.score_inspection_card(card, cooling)["moved_up"] is None, "原訂第一：不能再往前"
+
+
+def test_a_truncated_window_is_flagged(farm: Farm, monkeypatch) -> None:
+    farm.drive_slow(60)
+    monkeypatch.setattr(briefing, "_WINDOW_LIMIT", 20)
+    stored = _inspect(farm, "WT001")
+    assert stored["card"]["signals"]["truncated"] is True
+    assert "signals_truncated" in stored["card"]["data_quality"]["flags"]

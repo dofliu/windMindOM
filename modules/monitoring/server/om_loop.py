@@ -442,12 +442,18 @@ class OmLoop:
             past = briefing.past_orders(
                 get_repository(str(job.storage.db_path)), job.farm_id, self.turbine_names(job.turbine_id),
                 work_order, before=None if job.late else work_order.created_at)
-            build = (briefing.build_inspection_card
-                     if briefing.card_kind_for(work_order) == briefing.KIND_ROUTINE_INSPECTION
-                     else briefing.build_fault_card)
-            card = build(
-                storage=job.storage, history=job.history, work_order=work_order, turbine_id=job.turbine_id,
-                turbines=list(job.turbines), cutoff=job.cutoff, past_work_orders=past, generated_late=job.late)
+            common = dict(storage=job.storage, history=job.history, work_order=work_order,
+                          turbine_id=job.turbine_id, turbines=list(job.turbines), cutoff=job.cutoff,
+                          past_work_orders=past, generated_late=job.late)
+            if briefing.card_kind_for(work_order) == briefing.KIND_ROUTINE_INSPECTION:
+                # 未結案的工單當證據：不受「以前的工單」最多 10 張的限制
+                repository = get_repository(str(job.storage.db_path))
+                still_open = [o for name in self.turbine_names(job.turbine_id)
+                              for o in repository.list(farm_id=job.farm_id, turbine_id=name, only_open=True,
+                                                       limit=50)[0]]
+                card = briefing.build_inspection_card(**common, open_work_orders=still_open)  # type: ignore[arg-type]
+            else:
+                card = briefing.build_fault_card(**common)  # type: ignore[arg-type]
             job.storage.save_briefing(str(work_order.id), work_order.business_key, job.turbine_id,
                                       str(card["kind"]), iso_utc(job.cutoff), card, job.answer)
         except Exception:  # noqa: BLE001  卡片做不出來不能影響工單或即時模擬
@@ -485,7 +491,7 @@ class OmLoop:
         return ("ok", card) if card is not None else ("failed", None)
 
     def ensure_briefings(self) -> int:
-        """還沒完工的故障維修工單都要有準備卡：沒有的排到背景補（標 ``generated_late``）。
+        """還沒完工、有卡種的工單（故障維修、定檢、預防保養）都要有準備卡：沒有的排到背景補（標 ``generated_late``）。
 
         會沒有卡的情況：工單在產生情境的批次期間建立（那時即時模擬暫停，沒有風場時鐘）、建立當下卡片做
         失敗、排著的時候風場換了。已經完工的不補：機組修好之後補出來的不是出發前的樣子。已經在排的不重複

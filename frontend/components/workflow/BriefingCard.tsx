@@ -34,6 +34,11 @@ const FLAG_TEXT: Record<string, [string, string]> = {
   no_baseline: ['No earlier readings to compare with', '沒有更早的讀值可以比'],
   events_truncated: ['Too many events to scan them all', '事件太多，沒有全部看完'],
   no_evidence: ['No evidence: the planned order is kept', '沒有證據，維持原訂順序'],
+  own_not_producing: [
+    'The turbine was mostly not producing: readings are not compared with the farm',
+    '這台機組大半時間沒有發電：量測不和同場比',
+  ],
+  signals_truncated: ['Too many readings to read them all', '讀值太多，沒有全部讀完'],
 };
 
 const STATE_NAME: Record<number, [string, string]> = {
@@ -401,7 +406,7 @@ export const BriefingCard: React.FC<Props> = ({ workOrderId, farmId, lang, load 
   }
   if (state === 'none' || card === null) return null;
   if (isInspectionCard(card)) return <InspectionCardView card={card} lang={lang} />;
-  return <BriefingCardView card={card as BriefingCardData} lang={lang} />;
+  return <BriefingCardView card={card} lang={lang} />;
 };
 
 export default BriefingCard;
