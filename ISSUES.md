@@ -13,14 +13,16 @@
 
 | Status | Count |
 |--------|------|
-| open | 14 |
+| open | 13 |
 | in_progress | 1 |
 | blocked | 0 |
 | deferred | 2 |
-| done | 164 |
+| done | 165 |
 | **total** | **181** |
 
-最後更新：2026-11-27（**WMOM-20260504-11 done**（EPIC-SF 第 6 項，DEC-20261127-02）：仿真風場的收支——發電收入與停機少收的錢由運轉狀態紀錄 × 電價算；工單完工時人工與料件寫進成本帳本（每張一次、修復等級對應 K13 FTC、有領料單時料件不另算）；`GET /api/operations/finance`（主管）；月報加發電收入與淨額。另開 WMOM-20261127-01（設備與固定成本、RUL 回饋、前端畫面）。open 14 / in_progress 1 / deferred 2 / done 164 = 181。詳見 `work-logs/2026-11/2026-11-27-operations-finance.md`）。
+最後更新：2026-11-27（**WMOM-20261125-07 done**（EPIC-SF 第 7 項，DEC-20261127-03）：實測風況匯入——CSV 匯入、存在風場 DB、套用後風場依實測序列運轉（重播 / 絕對時間、播完循環 / 停住 / 回到模型），手動設定優先、模型在底下照跑、批次可重現。**EPIC-SF 七項全部完成**。open 13 / in_progress 1 / deferred 2 / done 165 = 181。詳見 `work-logs/2026-11/2026-11-27-measured-wind.md`）。
+
+前次：2026-11-27（**WMOM-20260504-11 done**（EPIC-SF 第 6 項，DEC-20261127-02）：仿真風場的收支——發電收入與停機少收的錢由運轉狀態紀錄 × 電價算；工單完工時人工與料件寫進成本帳本（每張一次、修復等級對應 K13 FTC、有領料單時料件不另算）；`GET /api/operations/finance`（主管）；月報加發電收入與淨額。另開 WMOM-20261127-01（設備與固定成本、RUL 回饋、前端畫面）。open 14 / in_progress 1 / deferred 2 / done 164 = 181。詳見 `work-logs/2026-11/2026-11-27-operations-finance.md`）。
 
 前次：2026-11-27（**WMOM-20261126-09 done**：潛伏的故障〔嚴重度到頂、沒跳過機、沒有預期碼成立〕不佔機組的故障名額，故障產生器不再被卡住，DEC-20261127-01；例行巡檢修掉潛伏故障併進 WMOM-20261126-05。open 14 / in_progress 1 / deferred 2 / done 163 = 180。詳見 `work-logs/2026-11/2026-11-27-latent-faults.md`）。
 
@@ -2258,7 +2260,7 @@ session #1：**WMOM-20260720-04 + WMOM-20260720-08 live/OPC 後端硬化收尾**
 
 ### WMOM-20261125-07 — 實測風況匯入
 
-- **Status**: open
+- **Status**: done（2026-11-27；EPIC-SF 第 7 項，DEC-20261127-03。CSV 匯入實測風速 / 風向 / 氣溫 / 紊流強度 / 濕度 / 氣壓，存在風場 DB；套用後取代模型的基準風速〔手動設定優先〕，重播或絕對時間、播完循環 / 停住 / 回到模型，過長的缺口回到模型；`/api/config/wind/series`。詳見 `work-logs/2026-11/2026-11-27-measured-wind.md`）
 - **Milestone**: EPIC-SF
 - **Priority**: low
 - **Estimate**: 1–2 天

@@ -8,7 +8,8 @@ from modules.auth.dependencies import require_authenticated, require_role
 from modules.auth.roles import Role
 from server import batch_state
 from server.batch_state import reject_during_batch
-from server.models import DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest
+from server.models import (DataSourceConfig, SimulationConfig, DataSourceMode, WindOverrideRequest, GridOverrideRequest,
+                           WindSeriesApplyRequest, WindSeriesImportRequest)
 from simulator.bulk_events import BulkEvent
 from simulator.farm_events import FARM_EVENT_KINDS, FarmEvent
 from simulator.ground_truth import GroundTruthRecorder
@@ -273,6 +274,8 @@ async def set_wind(req: WindOverrideRequest):
     b.close_open_events("wind", source="config")
     if req.profile:
         wm.set_profile(req.profile)
+        if req.profile == "auto":
+            wm.clear_measured()   # 回到模型的風況：實測序列也停（WMOM-20261125-07）
     else:
         wm.set_override(
             wind_speed=req.windSpeed,
@@ -301,6 +304,7 @@ async def clear_wind():
     if not b.simulator:
         raise HTTPException(400, "Simulator not running")
     b.simulator.wind_model.clear_override()
+    b.simulator.wind_model.clear_measured()   # 實測序列也停（WMOM-20261125-07）
     b.close_open_events("wind", source="config")
     b.record_event(
         event_type="wind",
@@ -310,6 +314,112 @@ async def clear_wind():
         payload={"mode": "auto"},
     )
     return {"status": "ok", "mode": "auto"}
+
+
+def _applied_wind_profile(status: dict) -> Optional[str]:
+    """情境記下的「實際套用的風況」：profile 名稱；自動為 ``auto``；依實測序列為 None。"""
+    if status.get("profile"):
+        return status["profile"]
+    return None if status.get("measured") else "auto"
+
+
+# ── 實測風況序列（WMOM-20261125-07）─────────────────────────────────────
+
+
+@router.post(
+    "/wind/series",
+    # 設定＝主管；只寫資料庫、不動模擬器，批次期間也可以匯入
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
+async def import_wind_series(req: WindSeriesImportRequest):
+    """匯入一份實測風況序列（CSV），存在目前風場的資料庫。匯入不會套用，要套用另外呼叫 ``/apply``。
+
+    欄位自動辨識常見的欄名（``timestamp`` / ``wind_speed`` / ``wind_direction`` / ``ambient_temp`` /
+    ``turbulence_intensity`` 或 ``wind_speed_std`` / ``humidity`` / ``pressure_hpa`` 等），也可以用 ``columns``
+    指定。沒有時區的時間視為風場時區。給了量測高度時，風速以冪次律換算到輪轂高度。
+    """
+    from simulator.wind_series import WindSeriesError, parse_csv
+
+    b = get_broker()
+    if b.storage is None:
+        raise HTTPException(400, "目前沒有啟用的風場")
+    sim = b.simulator
+    timezone = req.timezone or (sim.wind_model.site_timezone_name if sim else "Asia/Taipei")
+    hub = req.hubHeightM
+    if hub is None and req.heightM is not None and sim is not None and sim.turbines:
+        hub = float(next(iter(sim.turbines.values())).spec.hub_height)
+    try:
+        series = await asyncio.to_thread(
+            parse_csv, req.csv, columns=req.columns, timezone_name=timezone, height_m=req.heightM,
+            hub_height_m=hub, shear_exponent=req.shearExponent, max_gap_minutes=req.maxGapMinutes)
+    except WindSeriesError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    summary = {**series.summary, "height_m": req.heightM, "hub_height_m": hub}
+    series_id = b.storage.add_wind_series(req.name.strip(), summary, series.to_npz())
+    return {"id": series_id, "name": req.name.strip(), "summary": summary}
+
+
+@router.get(
+    "/wind/series",
+    dependencies=[Depends(require_authenticated())],
+)
+async def list_wind_series():
+    """目前風場匯入過的實測風況序列（不含資料）。"""
+    b = get_broker()
+    if b.storage is None:
+        return {"series": []}
+    return {"series": b.storage.list_wind_series()}
+
+
+@router.delete(
+    "/wind/series/{series_id}",
+    dependencies=[Depends(require_role(Role.SUPERVISOR))],
+)
+async def delete_wind_series(series_id: int):
+    """刪掉一份序列。正在播的不受影響（風況模型手上有自己的一份），停掉之後就不能再套用。"""
+    b = get_broker()
+    if b.storage is None or not b.storage.delete_wind_series(series_id):
+        raise HTTPException(404, "找不到這份序列")
+    return {"status": "ok", "id": series_id}
+
+
+@router.post(
+    "/wind/series/{series_id}/apply",
+    dependencies=[Depends(reject_during_batch), Depends(require_role(Role.SUPERVISOR))],
+)
+async def apply_wind_series(series_id: int, req: WindSeriesApplyRequest):
+    """讓風場改依這份實測序列運轉（下一步開始、從當時的風速漸變過去）。
+
+    手動的風況設定（``/wind`` 的覆寫或 profile）優先於實測序列；``/wind/clear`` 或 profile ``auto`` 會一併停掉
+    實測序列，回到模型的風況。
+    """
+    from simulator.wind_series import MeasuredWindPlayback, MeasuredWindSeries, WindSeriesError
+
+    b = get_broker()
+    if not b.simulator or b.storage is None:
+        raise HTTPException(400, "Simulator not running")
+    stored = b.storage.get_wind_series(series_id)
+    if stored is None:
+        raise HTTPException(404, "找不到這份序列")
+    series = MeasuredWindSeries.from_npz(stored["data"], stored["summary"])
+    try:
+        playback = MeasuredWindPlayback(series=series, series_id=series_id, name=stored["name"],
+                                        alignment=req.alignment, at_end=req.atEnd,
+                                        start_offset_s=req.startOffsetHours * 3600.0)
+    except WindSeriesError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    wm = b.simulator.wind_model
+    b.close_open_events("wind", source="config")
+    wm.set_measured(playback)
+    b.record_event(
+        event_type="wind",
+        source="config",
+        title="Wind config updated: measured series",
+        detail="Wind follows an imported measured series",
+        payload={"series_id": series_id, "alignment": req.alignment, "at_end": req.atEnd,
+                 "start_offset_hours": req.startOffsetHours},
+    )
+    return wm.get_status()
 
 
 @router.get(
@@ -438,8 +548,9 @@ def _generate_bulk_in_slot(body: dict) -> dict:
                 "kind": b.storage.SCENARIO_KIND,
                 "name": scenario_name,
                 "wind_profile": wind_profile,
-                # 生成時實際套用的風況（手動風速 / 自動為 manual / auto）：資料包 / 回放輸出這個，不信標籤
-                "wind_profile_applied": b.simulator.wind_model.get_status()["profile"] or "auto",
+                # 生成時實際套用的風況（手動風速 / 自動為 manual / auto）：資料包 / 回放輸出這個，不信標籤。
+                # 依實測序列時是 None（合約：不在 profile 清單裡的為 null；序列名稱是自訂文字，不進資料包）
+                "wind_profile_applied": _applied_wind_profile(b.simulator.wind_model.get_status()),
                 # 日夜 / 季節循環所用的風場時區：情境可重現的必要資訊（WMOM-20261021-11）
                 "site_timezone": b.simulator.wind_model.site_timezone_name,
                 # 本情境的事件帶 session_id（WMOM-20261021-04）：調閱 / 摘要以 session 隔離，

@@ -82,7 +82,23 @@ def _profile(name: str) -> Callable[[WindEnvironmentModel], None]:
     return lambda wm: wm.set_profile(name)
 
 
+def _measured(alignment: str) -> Callable[[WindEnvironmentModel], None]:
+    """實測風況序列（WMOM-20261125-07）：開始播的時刻由下一步的模擬時間定，不讀實際時間。"""
+    def apply(wm: WindEnvironmentModel) -> None:
+        from simulator.wind_series import MeasuredWindPlayback, parse_csv
+
+        lines = ["timestamp,wind_speed,wind_direction,ambient_temp,ti"]
+        for i in range(48):
+            moment = T0 + timedelta(minutes=10 * i)
+            lines.append(f"{moment.isoformat()},{6 + 6 * ((i % 12) / 12):.2f},{(250 + 5 * i) % 360},{12 + i % 5},0.12")
+        series = parse_csv("\n".join(lines), timezone_name="UTC")
+        wm.set_measured(MeasuredWindPlayback(series=series, alignment=alignment))
+    return apply
+
+
 SETTINGS: Dict[str, Callable[[WindEnvironmentModel], None]] = {
+    "measured_replay": _measured("replay"),
+    "measured_absolute": _measured("absolute"),
     "override": _override,
     "override_then_auto": _override_then_auto,
     "override_twice": _override_twice,

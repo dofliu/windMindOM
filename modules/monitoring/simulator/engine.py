@@ -291,7 +291,7 @@ class WindFarmSimulator:
         atm_stability = self.wind_model.get_atmospheric_stability(sim_time)
         shear_alpha = self.wind_model.get_shear_exponent(sim_time, stability=atm_stability)
         ti_mult = self.wind_model.get_turbulence_multiplier(sim_time, stability=atm_stability)
-        effective_ti = max(0.0, self.wind_model.turbulence_intensity * ti_mult)
+        effective_ti = max(0.0, self.wind_model.effective_turbulence(sim_time, ti_mult))
 
         # Air density ρ(T, RH, P) from ideal gas law + Magnus vapor correction
         # (#101, #106). Ambient pressure varies with synoptic weather state

@@ -351,6 +351,17 @@ class Storage:
             )
         """)
 
+        # ── 匯入的實測風況序列（WMOM-20261125-07）：資料是 numpy npz，摘要是 JSON ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS wind_series (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                summary_json TEXT NOT NULL,
+                data BLOB NOT NULL
+            )
+        """)
+
         # ── 運轉狀態紀錄（WMOM-20261125-04）：每台機組每小時在各種狀態下的秒數與電量 ──
         # 可用率、停機時數、損失發電量由它計算；只記 Live（即時模擬），永久保留（一台機組一年 8,760 列）
         conn.execute("""
@@ -1879,6 +1890,39 @@ class Storage:
             "ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
             (key, json.dumps(value, ensure_ascii=False), iso_utc()))
         conn.commit()
+
+    # ── 匯入的實測風況序列（WMOM-20261125-07）────────────────────────────
+
+    def add_wind_series(self, name: str, summary: Dict, data: bytes) -> int:
+        """存一份實測風況序列，回傳 ID。"""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "INSERT INTO wind_series (name, created_at, summary_json, data) VALUES (?, ?, ?, ?)",
+            (name, iso_utc(), json.dumps(summary, ensure_ascii=False), sqlite3.Binary(data)))
+        conn.commit()
+        return int(cursor.lastrowid)
+
+    def list_wind_series(self) -> List[Dict]:
+        """全部序列的 ID、名稱、建立時間、摘要（不含資料）。"""
+        rows = self._get_conn().execute(
+            "SELECT id, name, created_at, summary_json FROM wind_series ORDER BY id").fetchall()
+        return [{"id": int(r[0]), "name": r[1], "created_at": r[2], "summary": json.loads(r[3])} for r in rows]
+
+    def get_wind_series(self, series_id: int) -> Optional[Dict]:
+        """一份序列（含資料）；沒有為 None。"""
+        row = self._get_conn().execute(
+            "SELECT id, name, created_at, summary_json, data FROM wind_series WHERE id = ?", (series_id,)).fetchone()
+        if row is None:
+            return None
+        return {"id": int(row[0]), "name": row[1], "created_at": row[2], "summary": json.loads(row[3]),
+                "data": bytes(row[4])}
+
+    def delete_wind_series(self, series_id: int) -> bool:
+        """刪掉一份序列；有刪到回 True。"""
+        conn = self._get_conn()
+        cursor = conn.execute("DELETE FROM wind_series WHERE id = ?", (series_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
     # ── 不對外的故障紀錄（WMOM-20261125-06-c）─────────────────────────────
 

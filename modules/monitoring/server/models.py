@@ -179,6 +179,25 @@ class WindOverrideRequest(BaseModel):
     profile: Optional[str] = None           # 'calm','moderate','rated','strong','storm','gusty','ramp_up','ramp_down','auto'
 
 
+class WindSeriesImportRequest(BaseModel):
+    """匯入一份實測風況序列（WMOM-20261125-07）。CSV 第一列是欄名。"""
+    name: str = Field(min_length=1, max_length=100)
+    csv: str = Field(min_length=1, max_length=40_000_000)
+    columns: Optional[Dict[str, str]] = None        # 欄位對應（time / wind_speed / wind_direction / ...）
+    timezone: Optional[str] = Field(default=None, max_length=64)   # 沒有時區的時間視為這個時區；預設風場時區
+    heightM: Optional[float] = Field(default=None, gt=0, le=300)    # 風速的量測高度
+    hubHeightM: Optional[float] = Field(default=None, gt=0, le=300)  # 預設用機組的輪轂高度
+    shearExponent: float = Field(default=0.14, ge=0, le=0.6)
+    maxGapMinutes: float = Field(default=180.0, gt=0, le=7 * 24 * 60)
+
+
+class WindSeriesApplyRequest(BaseModel):
+    """套用一份實測風況序列（WMOM-20261125-07）。"""
+    alignment: str = "replay"       # replay：從現在開始播；absolute：模擬時間就是序列的時間
+    atEnd: str = "loop"             # loop：從頭再播；hold：停在最後一筆；auto：回到模型的風況
+    startOffsetHours: float = Field(default=0.0, ge=0)   # replay 時從序列起點之後幾小時開始播
+
+
 class GridOverrideRequest(BaseModel):
     frequencyHz: Optional[float] = None
     voltageV: Optional[float] = None
