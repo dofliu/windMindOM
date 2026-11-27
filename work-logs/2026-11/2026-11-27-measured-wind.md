@@ -17,7 +17,7 @@
 ## 2. 改了什麼
 
 - `simulator/wind_series.py`（新）：`parse_csv`、`MeasuredWindSeries`（內插、npz 存取）、`MeasuredWindPlayback`（對時、播完、循環接縫）。
-- `wind_model.py`：`set_measured` / `clear_measured`（一次物件指派，下一步套用、漸變）、`_free_wind`、風向 / 氣溫 / 濕度 / 氣壓 / 大氣穩定度用實測值、`effective_turbulence`、狀態的 `mode: measured`。
+- `wind_model.py`：`set_measured` / `clear_measured`（放進 deque，下一步依序套用、漸變）、`_free_wind`、風向 / 氣溫 / 濕度 / 氣壓 / 大氣穩定度用實測值、`effective_turbulence`、狀態的 `mode: measured`。
 - `simulator/engine.py`：紊流強度改由 `effective_turbulence` 給（沒有序列時算法不變）。
 - `server/storage.py`：`wind_series` 表。
 - `server/routers/config.py`：`POST/GET /api/config/wind/series`、`DELETE /{id}`、`POST /{id}/apply`；`/wind/clear` 與 profile `auto` 一併停掉序列；情境的 `wind_profile_applied` 依序列時記 null。
