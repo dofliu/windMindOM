@@ -29,11 +29,23 @@
 - 新增 `modules/monitoring/tests/test_failure_feedback.py`：零件規則、換新後發生率下降（其他零件照舊、感測器不帶主軸承）、抽樣次數不變與存檔、完工記零件與維修紀錄（後門清掉的不算）、故障產生器的耗損畫面、情境對 K13 元件涵蓋全部情境、可信度加權與三角分布、兩個端點（含永遠強制登入）、伺服器的維修紀錄來源。
 - 相關的既有測試：成本、故障產生器 / 維修班、運維閉環、收支、續跑、自動定檢、報表 288 passed / 6 skipped / 1 xfailed。
 - 前端營運頁 17 項（加 2 項），`tsc` 無錯。
-- 完整 backend、code review：見 §4。
+- 完整 backend（審查前）：2660 passed / 7 skipped / 1 xfailed。
 
-## 4. Code review 與處理
+## 4. Code review（code-reviewer subagent）與處理
 
-（見下方更新）
+- **要修**：
+  - DEC 還沒寫 → 寫了 DEC-20261127-09，ISSUES / STATUS / CLAUDE.md 一起更新。
+  - 伺服器在完工之後、下次存檔之前被強制關閉，換掉的零件會不見 → 查過：`_finish` 記完零件之後的完工事件（`source="workflow"`）本來就會要求立即存檔，和清掉故障同一次存；補測試確認完工有要求存檔。
+  - 蒙地卡羅端點讀風場用成本模組預設的 registry，和 `/failure-rates` 不同 → 維修紀錄帶伺服器的 `farm_registry`，端點用它讀風場（加測試：只登錄在伺服器的風場不會掉回 K13）。
+- **該修**：
+  - 結垢被清掉後零件耗損一直是 0 → 低於換新當下時從現在的量算（加測試）。
+  - 耗損畫面兩次取快照 → 改用 `.get`。
+  - 手動注入的故障也算進故障率 → 只算故障產生器產生的，手動注入的另外回報 `excluded_manual`，營運頁顯示（加測試）。
+  - 端點在事件迴圈上查資料庫、跑蒙地卡羅 → 放到背景執行緒。
+  - 預設時間窗在即時模擬沒跑時用實際時間 → `OmLoop.history_window` 看資料時鐘（同保留期），兩個端點共用（加測試）。
+  - 型別 `Optional[object]` → `Optional[FailureObservations]`。
+- **小地方**：耗損來源共用 `_part_source`、`component_map` 回唯讀的 `MappingProxyType`、`z72_repair_classes.json` 還原原本的排版（只剩新增的列）。沒改的：權限測試接受 401 / 403（和既有收支端點的測試一致）。
+- 修完：受影響的後端 288 passed / 6 skipped / 1 xfailed；`test_failure_feedback.py` 10 項；前端營運頁 17 項、`tsc` 無錯。
 
 ## 5. 下次接手
 

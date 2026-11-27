@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List, Optional
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from modules.cost.services.failure_rates import FailureObservations
     from modules.workflow.domain.work_order import WorkOrder, WorkOrderStatus
     from simulator.engine import WindFarmSimulator
 
@@ -216,7 +217,7 @@ def _revenue_for_report(farm_id: str, start: 'datetime', end: 'datetime') -> 'Op
             "fixed_costs": float(fixed["total"]), "work_order_labour": float(labour)}
 
 
-def _failure_observations_for_cost(farm_id: str) -> 'Optional[object]':
+def _failure_observations_for_cost(farm_id: str) -> 'Optional[FailureObservations]':
     """成本模組故障率回饋用的維修紀錄（WMOM-20261127-07）：正在運轉的仿真風場、從有紀錄到風場時鐘的現在。
 
     Args:
@@ -228,13 +229,7 @@ def _failure_observations_for_cost(farm_id: str) -> 'Optional[object]':
     loop = broker._om_loop_if_enabled()
     if loop is None or farm_id != broker._active_farm_id:
         return None
-    from datetime import datetime, timedelta, timezone
-
-    from simulator.time_utils import utc_now
-
-    clock = broker.live_clock() or utc_now()
-    end = (clock + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-    observations = loop.failure_observations(datetime(2000, 1, 1, tzinfo=timezone.utc), end)
+    observations = loop.failure_observations(*loop.history_window())
     return observations if observations.turbine_years > 0 else None
 
 

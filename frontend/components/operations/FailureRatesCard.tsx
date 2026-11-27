@@ -59,6 +59,7 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
   if (!data) return null;
   const rows = data.components.filter((row) => row.modelled);
   const unmapped = Object.entries(data.unmapped);
+  const manual = data.excluded_manual ?? 0;
   return (
     <div data-testid="failure-rates">
       <Card padding={0}>
@@ -112,6 +113,14 @@ const FailureRatesCard: React.FC<Props> = ({ lang }) => {
             </tbody>
           </table>
         </div>
+        {manual > 0 && (
+          <div style={{ padding: "8px 16px 0", fontSize: 12, color: C.faint }}>
+            {ui(
+              `${manual} manually injected fault(s) were repaired; they are exercises and not counted.`,
+              `手動注入的故障修好了 ${manual} 筆：那是題目，不算進故障率。`,
+            )}
+          </div>
+        )}
         {unmapped.length > 0 && (
           <div
             style={{ padding: "8px 16px 14px", fontSize: 12, color: C.faint }}

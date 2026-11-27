@@ -164,6 +164,8 @@ export interface FailureRatesResponse {
   components: FailureRateRow[];
   /** 修過、但不是元件故障的情境（不算進故障率） */
   unmapped: Record<string, number>;
+  /** 由工單修好、但是手動注入的故障（題目，不算進故障率） */
+  excluded_manual?: number;
 }
 
 /** 本風場的維修紀錄回饋到 K13 故障率（主管；預設從有紀錄開始全部算）。 */

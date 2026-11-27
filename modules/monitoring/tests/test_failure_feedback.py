@@ -53,6 +53,13 @@ def farm(tmp_path) -> Iterator[Farm]:
         fr.set_observation_provider(None)
 
 
+def _as_generated(farm: Farm, turbine_id: str, scenario_id: str) -> None:
+    """測試裡用手動注入代替等故障產生器：把那筆故障紀錄標成產生器產生的。"""
+    storage = farm.broker.storage
+    (record,) = [r for r in storage.open_fault_records(turbine_id) if r["scenario_id"] == scenario_id]
+    storage.update_fault_record(record["id"], origin="generator")
+
+
 def _model(damage: float, fouling: float) -> SimpleNamespace:
     fatigue = SimpleNamespace(damage_tower_fa=damage, damage_tower_ss=0.0, damage_blade_flap=0.0,
                               damage_blade_edge=0.0)
@@ -101,6 +108,9 @@ def test_a_replaced_part_starts_its_wear_again_and_lowers_the_hazard() -> None:
     # 沒有換零件的修復不記
     assert generator.record_replacement("WT003", ["blade_icing"], worn) == []
     assert "WT003" not in generator.replacements()
+    # 結垢被清掉（比換新當下還低）：從現在的量算，不會一直是 0
+    cleaned = _model(damage=0.25, fouling=0.01)
+    assert generator.part_wear("WT001", cleaned)["converter_cooling_system"] == pytest.approx(0.5)
 
 
 def test_replacements_do_not_change_the_draw_count_and_survive_a_checkpoint() -> None:
@@ -127,8 +137,11 @@ def test_finishing_a_work_order_records_the_replaced_parts_and_the_repairs(farm:
                              description="", source_alarm_code="240")
     farm.start(order)
     farm.drive(5)
+    _as_generated(farm, "WT002", "bearing_wear")
+    farm.broker.simulator._checkpoint_requested = False
     farm.finish(order)
     generator = farm.broker.simulator.fault_generator
+    assert farm.broker.simulator._checkpoint_requested, "完工（連同換掉的零件）要求盡快存檔，強制關閉也不會少掉"
     clock = farm.broker.live_clock()
     from simulator.time_utils import iso_utc
 
@@ -139,8 +152,20 @@ def test_finishing_a_work_order_records_the_replaced_parts_and_the_repairs(farm:
     farm.broker.simulator.fault_engine.clear(turbine_id="WT003", scenario_id=WIRE_BREAK)
     farm.broker.fault_records.on_fault_cleared("WT003", WIRE_BREAK, None)
     observations = farm.loop.failure_observations(clock - timedelta(days=1), clock + timedelta(hours=1))
-    assert observations.repairs == {"bearing_wear": 1}
-    assert observations.turbine_years > 0
+    assert observations.repairs == {"bearing_wear": 1} and observations.excluded_manual == 0
+    assert observations.turbine_years > 0 and observations.farm_registry is farm.broker.farm_registry
+    # 手動注入、由工單修好的是題目：不算進故障率，只回報幾筆
+    farm.inject("hydraulic_leak", "WT001", severity=0.3)
+    farm.drive(5)
+    leak = farm.repo.create(farm_id=FARM, turbine_id="WT001", type=WorkOrderType.CORRECTIVE, title="y",
+                            description="", source_alarm_code="260")
+    farm.start(leak)
+    farm.drive(5)
+    farm.finish(leak)
+    later = farm.broker.live_clock()
+    observations = farm.loop.failure_observations(*farm.loop.history_window())
+    assert observations.repairs == {"bearing_wear": 1} and observations.excluded_manual == 1
+    assert farm.loop.history_window()[1] == (later + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
 
 
 def test_the_generator_view_shows_wear_and_replaced_parts(farm: Farm, monkeypatch) -> None:
@@ -210,13 +235,14 @@ def test_the_failure_rate_endpoint(farm: Farm, monkeypatch) -> None:
                              description="", source_alarm_code="240")
     farm.start(order)
     farm.drive(5)
+    _as_generated(farm, "WT002", "bearing_wear")
     farm.finish(order)
     body = asyncio.run(ops.failure_rates(prior_turbine_years=14.0))
     by_code = {row["code"]: row for row in body["components"]}
     assert by_code["MDK10"]["repairs"] == 1 and by_code["MDK10"]["rate"] > by_code["MDK10"]["k13_rate"]
     assert by_code["MDK10"]["scenarios"] == ["bearing_wear"]
     assert not by_code["UMD"]["modelled"] and by_code["UMD"]["rate"] == by_code["UMD"]["k13_rate"]
-    assert body["turbine_years"] > 0 and body["unmapped"] == {}
+    assert body["turbine_years"] > 0 and body["unmapped"] == {} and body["excluded_manual"] == 0
     # 只給永遠強制登入的主管（修了什麼來自不對外的故障紀錄）
     monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
     app = FastAPI()
@@ -224,7 +250,7 @@ def test_the_failure_rate_endpoint(farm: Farm, monkeypatch) -> None:
     assert TestClient(app).get("/api/operations/failure-rates").status_code in (401, 403)
 
 
-def test_the_empirical_monte_carlo(monkeypatch) -> None:
+def test_the_empirical_monte_carlo(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("WMOM_AUTH_ENFORCE", raising=False)
     app = FastAPI()
     app.include_router(cost_router.router)
@@ -244,15 +270,25 @@ def test_the_empirical_monte_carlo(monkeypatch) -> None:
     with pytest.raises(HTTPException) as no_records:
         run("farm:台中港曲風場")
     assert no_records.value.status_code == 409, "沒有登記維修紀錄的來源"
-    fr.set_observation_provider(lambda farm_id: fr.FailureObservations(
-        repairs={"bearing_wear": 20, "stator_winding_degradation": 10}, turbine_years=14.0,
-        start="s", end="e") if farm_id == "台中港曲風場" else None)
+    from server.farm_registry import FarmRegistry
+
+    registry = FarmRegistry(data_dir=tmp_path)
+    registry.create_farm("sim-farm", "仿真風場", turbine_count=14)
+    observed = {"repairs": {"bearing_wear": 20, "stator_winding_degradation": 10}, "turbine_years": 14.0,
+                "start": "s", "end": "e", "excluded_manual": 2}
+    fr.set_observation_provider(lambda farm_id: (
+        fr.FailureObservations(**observed) if farm_id == "台中港曲風場"
+        else fr.FailureObservations(**observed, farm_registry=registry) if farm_id == "sim-farm" else None))
     try:
         result = run("farm:台中港曲風場")
         plain = asyncio.run(cost_router.cost_monte_carlo(
             cost_router.MonteCarloRequest(dataset="farm:台中港曲風場", n_simulations=10, seed=7)))
+        derived = run("farm:sim-farm")
     finally:
         fr.set_observation_provider(None)
+    # 讀風場用伺服器給的 registry：只登錄在那裡的風場不會掉回 K13
+    assert derived.dataset_meta.source == "registry_derived"
+    assert result.empirical.excluded_manual == 2
     rows = {row.code: row for row in result.empirical.components}
     assert rows["MDK10"].repairs == 20 and rows["MKA"].repairs == 10
     assert rows["MDK10"].rate == pytest.approx((rows["MDK10"].k13_rate * 14 + 20) / 28, rel=1e-4)

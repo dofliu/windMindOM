@@ -30,7 +30,7 @@ import logging
 import queue
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Dict, List, NamedTuple, Optional, Set, Tuple
 from uuid import UUID
 
@@ -43,7 +43,7 @@ from modules.workflow.repository.work_order_repository import (
 )
 from simulator.physics.fault_engine import FAULT_SCENARIOS
 from simulator.physics.plc_protection import PlcEvent
-from simulator.time_utils import iso_utc, parse_iso
+from simulator.time_utils import iso_utc, parse_iso, utc_now
 
 if TYPE_CHECKING:
     from modules.cost.services.failure_rates import FailureObservations
@@ -55,6 +55,8 @@ if TYPE_CHECKING:
     from server.storage import Storage
 
 logger = logging.getLogger(__name__)
+# 故障率回饋的預設起點：從有紀錄開始全部算（WMOM-20261127-07）
+HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 # 自動重啟被封鎖（手冊 A039）：等級是警報，但機組要有人復位才會再啟動
 RESTART_BLOCKED_CODE = 39
@@ -863,11 +865,25 @@ class OmLoop:
         """
         from modules.cost.services.failure_rates import HOURS_PER_YEAR, FailureObservations
 
-        repairs = self._broker.storage.repaired_fault_counts(iso_utc(start), iso_utc(end))
+        storage = self._broker.storage
+        repairs = storage.repaired_fault_counts(iso_utc(start), iso_utc(end), origin="generator")
+        # 手動注入的故障是題目或展示：不算進故障率，只回報幾筆
+        manual = sum(storage.repaired_fault_counts(iso_utc(start), iso_utc(end), origin="manual").values())
         farm = self.availability(start, end)["farm"]
         hours = float(farm.get("recorded_hours", 0.0) or 0.0)  # type: ignore[union-attr]
         return FailureObservations(repairs=repairs, turbine_years=hours / HOURS_PER_YEAR,
-                                   start=iso_utc(start), end=iso_utc(end))
+                                   start=iso_utc(start), end=iso_utc(end), excluded_manual=manual,
+                                   farm_registry=self._broker.farm_registry)
+
+    def history_window(self) -> Tuple[datetime, datetime]:
+        """從有紀錄開始到資料時鐘的下一個整點（故障率回饋的預設時間窗）。
+
+        資料時鐘：即時模擬在跑時是模擬時鐘，否則是最近寫入的 Live 讀值時間（同保留期），不看實際時間——
+        時間倍率大於 1 之後兩者對不上，修好的時間記的是風場時鐘。
+        """
+        clock = self._broker._retention_clock(self._broker.storage) or utc_now()
+        end = (clock + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        return HISTORY_START, end
 
     def availability(self, start: datetime, end: datetime) -> Dict[str, object]:
         """一段時間的可用率、停機時數與損失發電量（由運轉狀態紀錄計算）。

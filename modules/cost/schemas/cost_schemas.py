@@ -185,6 +185,7 @@ class EmpiricalRates(BaseModel):
     prior_turbine_years: float
     components: list[FailureRateUpdate]
     unmapped: dict[str, int] = Field(description="修過、但不是元件故障的情境（不算進故障率）")
+    excluded_manual: int = Field(default=0, description="由工單修好、但是手動注入的故障（題目，不算進故障率）")
 
 
 class MonteCarloResponse(BaseModel):

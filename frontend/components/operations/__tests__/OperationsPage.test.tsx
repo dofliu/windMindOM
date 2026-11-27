@@ -109,6 +109,7 @@ const FAILURE_RATES = {
     },
   ],
   unmapped: { blade_icing: 2 },
+  excluded_manual: 3,
 };
 
 async function renderPage(lang: 'zh' | 'en' = 'zh') {
@@ -137,7 +138,8 @@ describe('收支與可用率', () => {
     expect(card).toHaveTextContent('MDK10 - Drive train - main shaft/bearing');
     expect(card).not.toHaveTextContent('UMD');
     expect(screen.getByText('0.234')).toBeInTheDocument();
-    expect(screen.getByText(/不算進故障率/)).toHaveTextContent('blade_icing × 2');
+    expect(screen.getByText(/不是元件故障/)).toHaveTextContent('blade_icing × 2');
+    expect(card).toHaveTextContent('手動注入的故障修好了 3 筆');
   });
 
   it('故障率回饋讀不到時只留一行小字', async () => {

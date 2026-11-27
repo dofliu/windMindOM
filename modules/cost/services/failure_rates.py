@@ -10,8 +10,8 @@
 
 - 先驗機組年（``prior_turbine_years``，預設 14）：把 K13 的故障率當成這麼多機組年的經驗。14 台的風場
   運轉一年時，本風場的紀錄與 K13 各佔一半。
-- 修過的次數：運維閉環裡由工單修好的故障（不對外的故障紀錄），依情境對到 K13 元件
-  （``data/z72_repair_classes.json`` 的 ``k13_components``，假設值）。
+- 修過的次數：運維閉環裡由工單修好、故障產生器產生的故障（不對外的故障紀錄；手動注入的是題目或展示，
+  不算，另外回報幾筆），依情境對到 K13 元件（``data/z72_repair_classes.json`` 的 ``k13_components``，假設值）。
 - 運轉機組年：運轉狀態紀錄的時數合計 ÷ 8766。
 
 只更新模擬器有對應情境的元件：塔架、輪轂、吊車這類模擬器不會讓它壞的元件，「沒修過」不是證據，維持 K13。
@@ -26,6 +26,7 @@ import json
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from modules.cost.engine.cost_cal.data_classes import ComponentParams
@@ -38,10 +39,10 @@ HOURS_PER_YEAR = 8766.0
 
 
 @lru_cache(maxsize=1)
-def component_map() -> Dict[str, Optional[str]]:
-    """故障情境 → K13 元件代碼（None＝不是元件故障，不算進故障率）。讀一次就留著。"""
+def component_map() -> Mapping[str, Optional[str]]:
+    """故障情境 → K13 元件代碼（None＝不是元件故障，不算進故障率）。讀一次就留著（唯讀）。"""
     data = json.loads(REPAIR_CLASSES_PATH.read_text(encoding="utf-8"))
-    return {str(k): (str(v) if v else None) for k, v in data["k13_components"].items()}
+    return MappingProxyType({str(k): (str(v) if v else None) for k, v in data["k13_components"].items()})
 
 
 def k13_component(scenario_id: str) -> Optional[str]:
@@ -54,16 +55,20 @@ class FailureObservations:
     """一段時間裡本風場的維修紀錄。
 
     Attributes:
-        repairs: 故障情境 → 由工單修好的次數。
+        repairs: 故障情境 → 由工單修好的次數（故障產生器產生的）。
         turbine_years: 運轉機組年（運轉狀態紀錄的時數合計 ÷ 8766）。
         start: 時間下限（ISO 8601，給畫面看）。
         end: 時間上限。
+        excluded_manual: 由工單修好、但是手動注入的故障有幾筆（不算進故障率）。
+        farm_registry: 讀風場成本設定用的 registry（監控伺服器的那一個）；None＝成本模組預設的。
     """
 
     repairs: Mapping[str, int]
     turbine_years: float
     start: Optional[str] = None
     end: Optional[str] = None
+    excluded_manual: int = 0
+    farm_registry: object = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)

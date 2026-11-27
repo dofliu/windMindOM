@@ -299,7 +299,8 @@ def _wear_view(simulator: object) -> Dict[str, object]:
         parts = generator.part_wear(turbine_id, model)
         out[turbine_id] = {
             **{key: round(value, 4) for key, value in wear.items()},
-            "parts": {part: {"wear": round(value, 4), "replaced_at": replaced[turbine_id][part].get("at")}
+            "parts": {part: {"wear": round(value, 4),
+                             "replaced_at": replaced.get(turbine_id, {}).get(part, {}).get("at")}
                       for part, value in sorted(parts.items())}}
     return out
 
@@ -433,10 +434,6 @@ async def set_inspection_plan_settings(body: Dict[str, object]) -> Dict[str, obj
     return await asyncio.to_thread(_inspection_plan_view, loop.inspection_plan)
 
 
-# 故障率回饋的預設起點：從有紀錄開始全部算
-_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
-
-
 @router.get("/failure-rates", dependencies=[Depends(require_roles(Role.SUPERVISOR))])
 async def failure_rates(
     start: Annotated[Optional[str], Query(max_length=40, description="ISO 8601；預設從有紀錄開始")] = None,
@@ -455,29 +452,34 @@ async def failure_rates(
         prior_turbine_years: K13 的故障率算幾個機組年的經驗。
 
     Returns:
-        ``{"start", "end", "turbine_years", "prior_turbine_years", "components": [...], "unmapped": {...}}``。
+        ``{"start", "end", "turbine_years", "prior_turbine_years", "components": [...], "unmapped": {...},
+        "excluded_manual"}``（手動注入的故障修好了幾筆，不算進故障率）。
     """
     from modules.cost.adapter import load_engine_params_from_farm
     from modules.cost.services.failure_rates import empirical_rates, unmapped_repairs
 
     broker = get_broker()
-    end_dt = _moment("end", end) if end else (broker.live_clock() or utc_now()) + timedelta(hours=1)
-    start_dt = _moment("start", start) if start else _HISTORY_START
-    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
-    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
-    if end_dt <= start_dt:
-        raise HTTPException(422, "end 要晚於 start（取整到整點之後）")
     farm_id = broker._active_farm_id
     if not farm_id:
         raise HTTPException(409, "目前沒有啟用的風場")
+    start_dt = _moment("start", start) if start else None
+    end_dt = _moment("end", end) if end else None
 
     def compute() -> Dict[str, object]:
-        observations = broker.om_loop.failure_observations(start_dt, end_dt)
+        loop = broker.om_loop
+        # 預設從有紀錄開始到資料時鐘（不看實際時間：修好的時間記的是風場時鐘）
+        default_start, default_end = loop.history_window()
+        lo = (start_dt or default_start).replace(minute=0, second=0, microsecond=0)
+        hi = (end_dt or default_end).replace(minute=0, second=0, microsecond=0)
+        if hi <= lo:
+            raise HTTPException(422, "end 要晚於 start（取整到整點之後）")
+        observations = loop.failure_observations(lo, hi)
         params, _meta = load_engine_params_from_farm(farm_id, farm_registry=broker.farm_registry)
         updates = empirical_rates(params.components, observations, prior_turbine_years)
         return {"start": observations.start, "end": observations.end,
                 "turbine_years": round(observations.turbine_years, 4), "prior_turbine_years": prior_turbine_years,
-                "components": [u.to_dict() for u in updates], "unmapped": unmapped_repairs(observations)}
+                "components": [u.to_dict() for u in updates], "unmapped": unmapped_repairs(observations),
+                "excluded_manual": observations.excluded_manual}
 
     return await asyncio.to_thread(compute)
 

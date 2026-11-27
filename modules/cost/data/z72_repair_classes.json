@@ -1,10 +1,6 @@
 {
   "description": "Z72 故障情境 → K13 修復等級（FTC，k13_fault_types_wt.json 的 maintenance_categories）。料件費與人數取那個等級的 material_cost_euro / crew_size。等級是假設值（assumed，WMOM-20260504-11 / DEC-20261127-02）：感測器 2–3（耗材）、泵 / 風扇 / 液壓 / 變槳馬達 4–5（低成本）、定子繞組 11、主軸承 8；沒有東西要換的 1。K13 是 4 MW 離岸參考，Z72 2 MW 陸域的實際成本可能較低，有客戶資料再換。",
-  "default_ftc_by_category": {
-    "sensor_fault": 2,
-    "real_fault": 4,
-    "nuisance": 1
-  },
+  "default_ftc_by_category": {"sensor_fault": 2, "real_fault": 4, "nuisance": 1},
   "scenarios": {
     "anemometer_fault": 2,
     "bearing_wear": 8,

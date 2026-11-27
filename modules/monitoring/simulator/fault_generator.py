@@ -69,8 +69,14 @@ def part_of(scenario_id: str) -> Optional[str]:
     return f"{scenario.component}:sensor" if scenario.category == "sensor_fault" else scenario.component
 
 
+def _part_source(part: str) -> str:
+    """零件（或元件）看哪一種耗損：冷卻類看結垢，其餘看疲勞。"""
+    return "fouling" if part.split(":")[0] in _FOULING_COMPONENTS else "fatigue"
+
+
 def _wear_source(scenario_id: str) -> str:
-    return "fouling" if FAULT_SCENARIOS[scenario_id].component in _FOULING_COMPONENTS else "fatigue"
+    """情境看哪一種耗損（看它的元件）。"""
+    return _part_source(FAULT_SCENARIOS[scenario_id].component)
 
 
 def default_weight(scenario_id: str) -> float:
@@ -184,6 +190,7 @@ def raw_wear(model: "TurbinePhysicsModel") -> Dict[str, float]:
 
 
 def _normalized(raw: Mapping[str, float], config: FaultGeneratorConfig) -> Dict[str, float]:
+    """原始耗損除以設定的參考值，夾在 0–1。"""
     return {"fatigue": min(1.0, max(0.0, raw["fatigue"] / config.fatigue_reference)),
             "fouling": min(1.0, max(0.0, raw["fouling"] / config.fouling_reference))}
 
@@ -264,11 +271,11 @@ class FaultGenerator:
         raw = raw_wear(model)
         out: Dict[str, float] = {}
         for part, base in replaced.items():
-            since = {source: max(0.0, raw[source] - float(base[source]))  # type: ignore[arg-type]
-                     for source in ("fatigue", "fouling")}
-            wear = _normalized(since, self.config)
-            source = "fouling" if part.split(":")[0] in _FOULING_COMPONENTS else "fatigue"
-            out[part] = wear[source]
+            source = _part_source(part)
+            start = float(base[source])  # type: ignore[arg-type]
+            # 結垢被清掉（比換新當下還低）之後從現在的量算；疲勞只會增加
+            since = raw[source] - start if raw[source] >= start else raw[source]
+            out[part] = _normalized({**raw, source: since}, self.config)[source]
         return out
 
     def replacements(self) -> Dict[str, Dict[str, Dict[str, object]]]:
