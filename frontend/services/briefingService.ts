@@ -111,10 +111,22 @@ export interface BriefingCard {
   notes: string[];
 }
 
-// ─── 例行巡檢卡（WMOM-20261126-05，卡片 1.2 起）─────────────────────────────
+// ─── 例行巡檢卡（WMOM-20261126-05，卡片 1.2 起；1.3 見 WMOM-20261127-04）──────────────
 
 export type InspectionEvidence =
-  | { type: 'events'; code: number; level: string; text: string; event_type: string; count: number; last_ts: string }
+  | {
+      type: 'events';
+      code: number;
+      level: string;
+      text: string;
+      event_type: string;
+      count: number;
+      last_ts: string;
+      /** 卡片 1.3：其中算分的筆數（之後有工單處理過的不算） */
+      counted?: number;
+      /** 卡片 1.3：處理過這些事件的工單（同一項目的故障維修、或定檢 / 預防保養在事件之後完工） */
+      handled_by?: string[];
+    }
   | {
       type: 'signal';
       name: string;
@@ -125,6 +137,13 @@ export type InspectionEvidence =
       turbine_mean: number | null;
       recent_mean: number | null;
       farm_median: number | null;
+      /** 卡片 1.3：同場在這台機組的運轉點下的預期值（直接比與扣掉運轉點之後比都偏同一邊才算偏離） */
+      expected_mean?: number | null;
+      recent_expected_mean?: number | null;
+      /** 拿來當運轉點的量測（功率或風速） */
+      normalized_by?: string | null;
+      /** 'cube_root'＝用功率的立方根 */
+      normalized_transform?: string | null;
     }
   | { type: 'open_work_order'; business_key: string; source_alarm_code: number | null; status: string };
 

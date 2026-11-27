@@ -248,7 +248,7 @@ describe('BriefingCard', () => {
 function inspectionCard(overrides: Partial<InspectionBriefingCard> = {}): InspectionBriefingCard {
   const base = card();
   return {
-    card_version: '1.2',
+    card_version: '1.3',
     kind: 'routine_inspection',
     work_order: { ...base.work_order, type: 'inspection', source_alarm_code: null },
     data_cutoff: '2026-01-01T02:16:40Z',
@@ -302,6 +302,35 @@ describe('InspectionCardView', () => {
     expect(second).toHaveTextContent('2. 變頻器與冷卻水系統');
     expect(second).not.toHaveTextContent('注意');
     expect(screen.getByText(/不判定根因/)).toBeInTheDocument();
+  });
+
+  it('shows the expected value and the events a finished order already handled', () => {
+    const data = inspectionCard();
+    data.checklist.items[0].evidence = [
+      { type: 'signal', name: 'TrfCoreTmp', label_zh: '變壓器鐵芯溫度', label_en: 'Transformer core temp',
+        unit: '°C', deviation: 'high', turbine_mean: 66.1, recent_mean: 67.9, farm_median: 34.2, expected_mean: 36.5,
+        recent_expected_mean: 36.9, normalized_by: 'TotPwrAt', normalized_transform: null },
+      { type: 'events', code: 417, level: 'A', text: 'Transformer temperature high', event_type: 'alarm_raised',
+        count: 2, last_ts: '2026-01-01T01:00:00Z', counted: 0, handled_by: ['WO-7'] },
+    ];
+    render(
+      <ThemeProvider>
+        <InspectionCardView card={data} lang="zh" />
+      </ThemeProvider>,
+    );
+    const first = screen.getByTestId('inspection-item-transformer');
+    expect(first).toHaveTextContent('變壓器鐵芯溫度 偏高：66.1 °C（同場 34.2，同場在同樣運轉點約 36.5）');
+    expect(first).toHaveTextContent('已由 WO-7 處理，不計分');
+  });
+
+  it('does not call evidence on the first item "no evidence"', () => {
+    const data = inspectionCard();
+    render(
+      <ThemeProvider>
+        <InspectionCardView card={{ ...data, checklist: { ...data.checklist, order_changed: false } }} lang="zh" />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('有證據的項目原本就排在前面，維持原訂順序。')).toBeInTheDocument();
   });
 
   it('says when there is no evidence and does not treat it as missing data', () => {
