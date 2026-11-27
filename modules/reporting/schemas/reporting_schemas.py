@@ -83,7 +83,10 @@ class GenerationRevenue(BaseModel):
     revenue: float = Field(description="發電收入")
     lost_planned: float = Field(description="計畫停機少收的錢")
     lost_unplanned: float = Field(description="非計畫停機少收的錢")
-    operating_expense: float = Field(description="帳本裡的人工＋料件＋設備（estimated＋confirmed）")
+    operating_expense: float = Field(
+        description="運維支出：帳本裡的料件＋設備＋人工（estimated＋confirmed），仿真風場再加固定成本、"
+                    "扣掉已含在人員固定成本裡的工單人工")
+    fixed_costs: float = Field(default=0.0, description="其中的固定成本（駐場技師年薪、設備年費，依紀錄的天數攤）")
     net: float = Field(description="發電收入 − 運維支出")
 
 

@@ -82,9 +82,28 @@ export interface FinanceResponse {
   energy_kwh: number;
   revenue: number;
   lost_revenue: { planned: number; unplanned: number };
+  /** 人工、設備含固定成本（WMOM-20261127-02）；設備另含大件修復的吊車動員 */
   expenses: { material: number; labour: number; equipment: number; total: number };
+  /** 固定成本依運轉狀態紀錄涵蓋的天數攤的明細；舊版後端沒有 */
+  fixed_costs?: FinanceFixedCosts | null;
+  /** 工單上的工時換算的人工：技師領年薪，已含在人員固定成本裡（counted=false 時不另算） */
+  work_order_labour?: { amount: number; counted: boolean };
   net: number;
   turbines: FinanceTurbine[];
+}
+
+export interface FinanceFixedCosts {
+  days: number;
+  staff: number;
+  equipment: number;
+  total: number;
+  technicians: number;
+  yearly_salary: number;
+  staff_per_year: number;
+  equipment_per_year: number;
+  equipment_items: { name: string; per_year: number }[];
+  /** farm_overlay（風場自己的成本設定）或 onshore_default（陸域假設值） */
+  source: string;
 }
 
 export interface AvailabilityMetrics {

@@ -1,0 +1,20 @@
+{
+  "description": "陸域 Z72（2 MW）風場的固定成本與吊車動員費（WMOM-20261127-02，DEC-20261127-08）。全部是假設值（assumed），請劉老師確認；有客戶資料再換。K13 的設備與固定成本是 130 台 4 MW 離岸風場（交通船、直升機、母船、自升式平台），不能直接用在陸域。",
+  "currency": "EUR",
+  "staff": {
+    "description": "駐場技師：人數 × 年薪是人員固定成本，依風場時鐘實際運轉的天數攤。風場的 cost_inputs.json 有 tech_yearly_salary 與 tech_count 時用風場的。",
+    "yearly_salary": 60000,
+    "technicians_per_turbine": 0.3,
+    "min_technicians": 4
+  },
+  "equipment_fixed": [
+    {"id": "service_vehicles", "label_zh": "工程車與工具（2 輛工程車、爬塔與檢測工具、備品倉）", "per_year": 50000}
+  ],
+  "crane": {
+    "label_zh": "大型移動式吊車（拆主軸承、發電機這類大件）",
+    "mobilization": 40000,
+    "day_rate": 12000,
+    "days_per_job": 2,
+    "ftc": [8, 11, 12, 13]
+  }
+}

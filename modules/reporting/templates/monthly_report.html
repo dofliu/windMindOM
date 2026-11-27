@@ -110,6 +110,7 @@
     <tr><th>計畫停機少收</th><td>{{ "{:,.2f}".format(data.generation.lost_planned) }} {{ data.generation.currency }}</td></tr>
     <tr><th>非計畫停機少收</th><td>{{ "{:,.2f}".format(data.generation.lost_unplanned) }} {{ data.generation.currency }}</td></tr>
     <tr><th>運維支出（人工＋料件＋設備）</th><td>{{ "{:,.2f}".format(data.generation.operating_expense) }} {{ data.generation.currency }}</td></tr>
+    {% if data.generation.fixed_costs %}<tr><th>　其中固定成本（駐場技師、設備）</th><td>{{ "{:,.2f}".format(data.generation.fixed_costs) }} {{ data.generation.currency }}</td></tr>{% endif %}
     <tr><th>淨額</th><td><strong>{{ "{:,.2f}".format(data.generation.net) }} {{ data.generation.currency }}</strong></td></tr>
   </table>
   <p class="note">發電量與少發的電來自運轉狀態紀錄（與可用率同一份），時間以風場時鐘計。</p>

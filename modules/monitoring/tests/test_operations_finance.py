@@ -31,6 +31,9 @@ from modules.cost.repository.cost_ledger import CostLedgerCategory, CostLedgerSo
 from modules.cost.repository.cost_ledger_repository import get_cost_ledger_repository
 from modules.cost.services.simulation_costs import (
     FarmRates,
+    FixedCosts,
+    crane_cost,
+    fixed_costs,
     repair_class,
     revenue,
     summarize,
@@ -260,3 +263,130 @@ def test_monthly_report_shows_generation_revenue(farm: Farm) -> None:
     without = compute_monthly_report_data(ledger_repo=_ledger(farm), wo_repo=farm.repo, farm_id=FARM,
                                           year=clock.year, month=clock.month)
     assert without.generation is None and "發電收入與淨額" not in render_html(without)
+
+
+
+# ── 5. 設備與固定成本（WMOM-20261127-02）─────────────────────────────────
+
+
+def test_major_repairs_are_charged_a_crane_once_per_work_order() -> None:
+    crane = crane_cost()
+    assert crane.per_job() == 40000 + 12000 * 2 and {8, 11} <= crane.ftc
+    bearing, stator, pump = (repair_class("bearing_wear"), repair_class("stator_winding_degradation"),
+                             repair_class("converter_cooling_pump_wear"))
+    entries = work_order_cost_entries(farm_id=FARM, work_order_id=uuid4(), business_key="WO-9", actual_hours=24.0,
+                                      crew_size=4, repaired=[bearing, stator], has_material_requests=True,
+                                      rates=RATES, moment=MOMENT)
+    (lift,) = [e for e in entries if e.category is CostLedgerCategory.EQUIPMENT]
+    assert lift.amount == Decimal("64000.00") and "吊車" in lift.note and "8、11" in lift.note, "兩個大件只動員一次"
+    small = work_order_cost_entries(farm_id=FARM, work_order_id=uuid4(), business_key="WO-10", actual_hours=4.0,
+                                    crew_size=2, repaired=[pump], has_material_requests=False, rates=RATES,
+                                    moment=MOMENT)
+    assert not any(e.category is CostLedgerCategory.EQUIPMENT for e in small), "小件不用吊車"
+
+
+def test_fixed_costs_use_onshore_defaults_or_the_farm_settings(farm: Farm) -> None:
+    from modules.cost.services.simulation_costs import farm_rates
+
+    onshore = fixed_costs("no-such-farm", 14, farm.broker.farm_registry)
+    assert (onshore.technicians, onshore.yearly_salary, onshore.source) == (5, 60000.0, "onshore_default")
+    assert onshore.staff_per_year == 300000 and onshore.equipment_per_year == 50000
+    assert fixed_costs("no-such-farm", 3, farm.broker.farm_registry).technicians == 4, "至少 4 人"
+    taichung = fixed_costs("台中港曲風場", 14, farm.broker.farm_registry)
+    assert (taichung.technicians, taichung.yearly_salary, taichung.source) == (8, 70000.0, "farm_overlay")
+    # 監控登錄的風場（仿真的 Z72 陸域）沒有自己的成本設定：時薪也用陸域的年薪，不用 K13 離岸的 15 萬
+    farm.broker.farm_registry.create_farm("sim-farm", "仿真風場", turbine_count=14)
+    derived = farm_rates("sim-farm", farm.broker.farm_registry)
+    assert derived.source == "registry_derived" and derived.hourly_labour_rate == pytest.approx(60000 / 1800)
+
+
+def test_fixed_costs_are_spread_over_the_recorded_days_and_work_order_labour_is_not_counted_twice() -> None:
+    fixed = FixedCosts(technicians=4, yearly_salary=36500.0, equipment=(("工程車", 3650.0),), source="test")
+    farm_row = {"energy_kwh": 10000.0, "lost_planned_kwh": 0.0, "lost_unplanned_kwh": 0.0, "recorded_hours": 48.0}
+    availability = {"farm": farm_row, "turbines": [{"turbine_id": "WT001"}, {"turbine_id": "WT002"}]}
+    expenses = {CostLedgerCategory.LABOUR: Decimal("300"), CostLedgerCategory.MATERIAL: Decimal("500"),
+                CostLedgerCategory.EQUIPMENT: Decimal("64000")}
+    out = summarize(availability, expenses, RATES, fixed=fixed, work_order_labour=Decimal("300"))
+    assert out["fixed_costs"]["days"] == 1.0, "兩台機組 48 機組小時＝1 天"
+    assert out["fixed_costs"]["staff"] == 400.0 and out["fixed_costs"]["equipment"] == 10.0
+    assert out["expenses"] == {"material": 500.0, "labour": 400.0, "equipment": 64010.0, "total": 64910.0}
+    assert out["work_order_labour"] == {"amount": 300.0, "counted": False}
+    assert out["net"] == round(1000.0 - 64910.0, 2)
+    # 手動記的人工（例：外包）照算：只扣工單的那部分
+    with_contractor = summarize(availability, {**expenses, CostLedgerCategory.LABOUR: Decimal("1300")}, RATES,
+                                fixed=fixed, work_order_labour=Decimal("300"))
+    assert with_contractor["expenses"]["labour"] == 1400.0
+    # 沒給固定成本：照舊（工單人工算進去）
+    plain = summarize(availability, expenses, RATES)
+    assert plain["fixed_costs"] is None and plain["work_order_labour"]["counted"] is True
+    assert plain["expenses"]["labour"] == 300.0
+
+
+def test_finance_endpoint_includes_fixed_costs_and_the_crane(farm: Farm, monkeypatch) -> None:
+    from modules.workflow.domain import WorkOrderType
+
+    monkeypatch.setattr(ops, "get_broker", lambda: farm.broker)
+    farm.drive_slow(60)
+    farm.inject("bearing_wear", "WT002", severity=0.3)
+    order = farm.repo.create(farm_id=FARM, turbine_id="WT002", type=WorkOrderType.CORRECTIVE, title="x",
+                             description="", source_alarm_code="240")
+    farm.start(order)
+    farm.drive(5)
+    farm.finish(order)
+    assert farm.faults("WT002") == []
+    entries = {e.category: e for e in _ledger(farm).list_for_subject(order.id, CostLedgerSourceType.WORK_ORDER)}
+    assert entries[CostLedgerCategory.EQUIPMENT].amount == Decimal("64000.00"), "主軸承：吊車動員"
+    clock = farm.broker.live_clock()
+    result = asyncio.run(ops.finance(start=(clock - timedelta(days=1)).isoformat(),
+                                     end=(clock + timedelta(hours=1)).isoformat()))
+    fixed = result["fixed_costs"]
+    assert fixed["technicians"] == 4 and fixed["days"] > 0 and fixed["source"] == "onshore_default"
+    assert result["work_order_labour"]["amount"] > 0 and result["work_order_labour"]["counted"] is False
+    assert result["expenses"]["labour"] == pytest.approx(fixed["staff"], abs=0.01), "工單工時已含在年薪裡"
+    assert result["expenses"]["equipment"] == pytest.approx(64000 + fixed["equipment"], abs=0.01)
+    assert result["net"] == pytest.approx(result["revenue"] - result["expenses"]["total"], abs=0.01)
+
+
+def test_monthly_report_counts_fixed_costs_instead_of_work_order_labour(farm: Farm) -> None:
+    from modules.reporting.services.kpi_calculator import compute_monthly_report_data
+    from modules.reporting.services.monthly_report import render_html
+
+    farm.drive_slow(60)
+    farm.inject(WIRE_BREAK)
+    farm.drive(60)
+    (order,) = farm.orders()
+    farm.start(order)
+    farm.finish(order)
+    clock = farm.broker.live_clock()
+    labour = float(_ledger(farm).summary_by_category(
+        farm_id=FARM, source_type=CostLedgerSourceType.WORK_ORDER)[CostLedgerCategory.LABOUR])
+
+    def provider(farm_id, start, end):
+        row = farm.loop.availability(start, end)["farm"]
+        return {"currency": "EUR", "kwh_price": 0.13, "energy_kwh": row["energy_kwh"], **revenue(
+            row, FarmRates(farm_id=farm_id, currency="EUR", kwh_price=0.13, hourly_labour_rate=1.0, source="t")),
+            "fixed_costs": 1234.5, "work_order_labour": labour}
+
+    data = compute_monthly_report_data(ledger_repo=_ledger(farm), wo_repo=farm.repo, farm_id=FARM,
+                                       year=clock.year, month=clock.month, revenue_provider=provider)
+    generation = data.generation
+    assert generation is not None and generation.fixed_costs == 1234.5
+    assert generation.operating_expense == pytest.approx(500 + 1234.5, abs=0.01), "料件 500 ＋ 固定成本，工單人工不另算"
+    assert "其中固定成本" in render_html(data)
+
+
+def test_the_report_provider_of_the_server_includes_fixed_costs(farm: Farm, monkeypatch) -> None:
+    from server import app as server_app
+
+    monkeypatch.setattr(server_app, "broker", farm.broker)
+    farm.drive_slow(60)
+    farm.inject(WIRE_BREAK)
+    farm.drive(60)
+    (order,) = farm.orders()
+    farm.start(order)
+    farm.finish(order)
+    clock = farm.broker.live_clock()
+    out = server_app._revenue_for_report(FARM, clock - timedelta(days=1), clock + timedelta(hours=1))
+    assert out is not None and out["revenue"] > 0
+    assert out["fixed_costs"] > 0 and out["work_order_labour"] > 0
+    assert server_app._revenue_for_report("other-farm", clock - timedelta(days=1), clock) is None
